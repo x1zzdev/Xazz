@@ -505,4 +505,3 @@ mod tests {
         assert!(kinds.contains(&TokenKind::Seed), "Seed 없음");
     }
 }
-

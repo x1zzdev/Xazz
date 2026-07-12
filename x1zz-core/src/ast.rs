@@ -194,7 +194,6 @@ pub enum PipelineOp {
     Std(String),
 }
 
-
 /// 파이프라인의 소스 (데이터 원천)
 #[derive(Debug, Clone, PartialEq)]
 pub enum PipelineSource {

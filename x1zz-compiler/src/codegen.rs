@@ -967,4 +967,3 @@ mod tests {
         assert!(output.contains(".std(1)"), ".std(1) 없음: {}", output);
     }
 }
-

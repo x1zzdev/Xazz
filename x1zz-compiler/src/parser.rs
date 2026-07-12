@@ -835,7 +835,6 @@ impl Parser {
         }
     }
 
-
     // ── chart { ... } 블록 내부 파싱 ─────────────────────────────────────────
     // 지원 필드: type, x, y, label, value, title
     // 필드 구분자: 쉼표(,) 또는 공백/줄바꿈 — Colon(:)으로 key: value 쌍 파싱
@@ -1209,7 +1208,6 @@ impl Parser {
             TokenKind::Variance => "variance".to_string(),
             TokenKind::Std => "std".to_string(),
             other => {
-
                 return Err(CompileError::new(
                     ErrorKind::ExpectedToken("Ident".into()),
                     self.current_span(),
@@ -1907,4 +1905,3 @@ type AirQuality = {
         }
     }
 }
-

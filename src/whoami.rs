@@ -116,7 +116,6 @@ pub fn run_whoami() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_millis(500));
 
     // ── Phase 7: Beat drop ──────────────────────────────────────
-  
 
     // ── Phase 8: User fills in video playback ─────────────────
     // [User Note]: Insert video playback logic here
