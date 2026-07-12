@@ -327,6 +327,38 @@ impl Codegen {
                     col, from, to, col, col, from, to
                 )
             }
+
+            // ── v0.22 sample(n) / sample(n, seed: 42) — 무작위 샘플링 ───────
+            PipelineOp::Sample { n, seed } => match seed {
+                Some(s) => format!(
+                    "  .collect()?.sample_n_literal({}, false, false, Some({}))?.lazy()  // |> sample({}, seed: {})",
+                    n, s, n, s
+                ),
+                None => format!(
+                    "  .collect()?.sample_n_literal({}, false, false, None)?.lazy()  // |> sample({})",
+                    n, n
+                ),
+            },
+
+            // ── v0.22 median / variance / std 집계 ──────────────────────────
+            PipelineOp::Median(agg_col) => {
+                format!(
+                    "  .agg([col(\"{}\").median()])  // |> median(\"{}\")",
+                    agg_col, agg_col
+                )
+            }
+            PipelineOp::Variance(agg_col) => {
+                format!(
+                    "  .agg([col(\"{}\").var(1)])  // |> variance(\"{}\")",
+                    agg_col, agg_col
+                )
+            }
+            PipelineOp::Std(agg_col) => {
+                format!(
+                    "  .agg([col(\"{}\").std(1)])  // |> std(\"{}\")",
+                    agg_col, agg_col
+                )
+            }
         }
     }
 
@@ -883,4 +915,56 @@ mod tests {
             ".alias(\"total\") 없음"
         );
     }
+
+    /// Sample(n) (seed 없음) → .sample_n_literal(n, false, false, None)
+    #[test]
+    fn test_generate_sample_op() {
+        let program = make_load_program(vec![PipelineOp::Sample { n: 100, seed: None }]);
+        let output = Codegen::generate(&program);
+        assert!(
+            output.contains(".sample_n_literal(100, false, false, None)"),
+            "sample_n_literal 없음: {}",
+            output
+        );
+    }
+
+    /// Sample(n, seed) → .sample_n_literal(n, false, false, Some(seed))
+    #[test]
+    fn test_generate_sample_op_with_seed() {
+        let program = make_load_program(vec![PipelineOp::Sample {
+            n: 100,
+            seed: Some(42),
+        }]);
+        let output = Codegen::generate(&program);
+        assert!(
+            output.contains(".sample_n_literal(100, false, false, Some(42))"),
+            "sample_n_literal with seed 없음: {}",
+            output
+        );
+    }
+
+    /// Median op → .agg([col(...).median()]) 출력
+    #[test]
+    fn test_generate_median_op() {
+        let program = make_load_program(vec![PipelineOp::Median("score".into())]);
+        let output = Codegen::generate(&program);
+        assert!(output.contains(".median()"), ".median() 없음: {}", output);
+    }
+
+    /// Variance op → .agg([col(...).var(1)]) 출력
+    #[test]
+    fn test_generate_variance_op() {
+        let program = make_load_program(vec![PipelineOp::Variance("score".into())]);
+        let output = Codegen::generate(&program);
+        assert!(output.contains(".var(1)"), ".var(1) 없음: {}", output);
+    }
+
+    /// Std op → .agg([col(...).std(1)]) 출력
+    #[test]
+    fn test_generate_std_op() {
+        let program = make_load_program(vec![PipelineOp::Std("score".into())]);
+        let output = Codegen::generate(&program);
+        assert!(output.contains(".std(1)"), ".std(1) 없음: {}", output);
+    }
 }
+

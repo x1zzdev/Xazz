@@ -636,6 +636,43 @@ fn execute_var_decl(
                 }
             }
 
+            // ── v0.22 median / variance / std 집계 (ddof=1) ────────────────
+            PipelineOp::Median(agg_col) => {
+                if let Some(group_col) = pending_group_by.take() {
+                    lf = lf
+                        .group_by([col(group_col.as_str())])
+                        .agg([col(agg_col.as_str()).median()]);
+                } else {
+                    lf = lf.select([col(agg_col.as_str()).median()]);
+                }
+            }
+            PipelineOp::Variance(agg_col) => {
+                if let Some(group_col) = pending_group_by.take() {
+                    lf = lf
+                        .group_by([col(group_col.as_str())])
+                        .agg([col(agg_col.as_str()).var(1)]);
+                } else {
+                    lf = lf.select([col(agg_col.as_str()).var(1)]);
+                }
+            }
+            PipelineOp::Std(agg_col) => {
+                if let Some(group_col) = pending_group_by.take() {
+                    lf = lf
+                        .group_by([col(group_col.as_str())])
+                        .agg([col(agg_col.as_str()).std(1)]);
+                } else {
+                    lf = lf.select([col(agg_col.as_str()).std(1)]);
+                }
+            }
+
+            // ── v0.22 sample(n) / sample(n, seed: 42) — 무작위 샘플링 ───────
+            PipelineOp::Sample { n, seed } => {
+                let snapshot = lf.clone().collect()?;
+                let seed_u64 = seed.map(|s| s as u64);
+                let sampled = snapshot.sample_n_literal(*n as usize, false, false, seed_u64)?;
+                lf = sampled.lazy();
+            }
+
             PipelineOp::OrderBy {
                 col: sort_col,
                 desc,

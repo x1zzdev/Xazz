@@ -191,6 +191,13 @@ impl<'src> Lexer<'src> {
             "replace" => TokenKind::Replace,
             "left_on" => TokenKind::LeftOn,
             "right_on" => TokenKind::RightOn,
+            // ── v0.22 신규 파이프라인 연산 키워드 ────────────────
+            "sample" => TokenKind::Sample,
+            "median" => TokenKind::Median,
+            "variance" => TokenKind::Variance,
+            "std" => TokenKind::Std,
+            "seed" => TokenKind::Seed,
+
             // ── 식별자 ───────────────────────────────────────────
             _ => TokenKind::Ident(s),
         }
@@ -486,4 +493,16 @@ mod tests {
         let kinds = tokenize("desc");
         assert!(kinds.contains(&TokenKind::Desc), "Desc 없음");
     }
+
+    // ── 테스트 13 (v0.22): sample/median/variance/std/seed 키워드 ──────────
+    #[test]
+    fn test_new_v22_keywords() {
+        let kinds = tokenize("sample median variance std seed");
+        assert!(kinds.contains(&TokenKind::Sample), "Sample 없음");
+        assert!(kinds.contains(&TokenKind::Median), "Median 없음");
+        assert!(kinds.contains(&TokenKind::Variance), "Variance 없음");
+        assert!(kinds.contains(&TokenKind::Std), "Std 없음");
+        assert!(kinds.contains(&TokenKind::Seed), "Seed 없음");
+    }
 }
+

@@ -128,6 +128,17 @@ pub enum TokenKind {
     LeftOn,
     /// right_on  (join 의 right 키 명명 인수)
     RightOn,
+    /// sample  (샘플링 연산 — sample(n) / sample(n, seed: 42))
+    Sample,
+    /// median  (중앙값 집계)
+    Median,
+    /// variance  (분산 집계)
+    Variance,
+    /// std  (표준편차 집계)
+    Std,
+    /// seed  (sample 의 명명 인수)
+    Seed,
+
 
     // ── 리터럴 / 식별자 ─────────────────────────────
     /// 일반 식별자

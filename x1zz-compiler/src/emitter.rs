@@ -420,6 +420,63 @@ fn generate_rust_src(
                             rep_col, from, to, rep_col, rep_col, from, to
                         ));
                     }
+
+                    // ── v0.22 sample(n) / sample(n, seed: 42) ──────────────────
+                    PipelineOp::Sample { n, seed } => match seed {
+                        Some(s) => {
+                            out.push_str(&format!(
+                                "        .collect()?.sample_n_literal({}, false, false, Some({}))?.lazy()  // |> sample({}, seed: {})\n",
+                                n, s, n, s
+                            ));
+                        }
+                        None => {
+                            out.push_str(&format!(
+                                "        .collect()?.sample_n_literal({}, false, false, None)?.lazy()  // |> sample({})\n",
+                                n, n
+                            ));
+                        }
+                    },
+
+                    // ── v0.22 median / variance / std 집계 ─────────────────────
+                    PipelineOp::Median(agg_col) => {
+                        if let Some(gc) = pending_group_col.take() {
+                            out.push_str(&format!(
+                                "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").median()])  // |> groupBy(\"{}\") |> median(\"{}\")\n",
+                                gc, agg_col, gc, agg_col
+                            ));
+                        } else {
+                            out.push_str(&format!(
+                                "        .select([col(\"{}\").median()])  // |> median(\"{}\")\n",
+                                agg_col, agg_col
+                            ));
+                        }
+                    }
+                    PipelineOp::Variance(agg_col) => {
+                        if let Some(gc) = pending_group_col.take() {
+                            out.push_str(&format!(
+                                "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").var(1)])  // |> groupBy(\"{}\") |> variance(\"{}\")\n",
+                                gc, agg_col, gc, agg_col
+                            ));
+                        } else {
+                            out.push_str(&format!(
+                                "        .select([col(\"{}\").var(1)])  // |> variance(\"{}\")\n",
+                                agg_col, agg_col
+                            ));
+                        }
+                    }
+                    PipelineOp::Std(agg_col) => {
+                        if let Some(gc) = pending_group_col.take() {
+                            out.push_str(&format!(
+                                "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").std(1)])  // |> groupBy(\"{}\") |> std(\"{}\")\n",
+                                gc, agg_col, gc, agg_col
+                            ));
+                        } else {
+                            out.push_str(&format!(
+                                "        .select([col(\"{}\").std(1)])  // |> std(\"{}\")\n",
+                                agg_col, agg_col
+                            ));
+                        }
+                    }
                 }
             }
 
@@ -496,6 +553,7 @@ fn validate_op_columns(
         // 컬럼 인수가 없는 연산자
         PipelineOp::Count(None) => {}
         PipelineOp::Take(_) => {}
+        PipelineOp::Sample { .. } => {}
 
         // 문자열 컬럼 인수를 갖는 연산자 — 모두 스키마 검증
         PipelineOp::Count(Some(col))
@@ -504,6 +562,9 @@ fn validate_op_columns(
         | PipelineOp::Mean(col)
         | PipelineOp::Min(col)
         | PipelineOp::Max(col)
+        | PipelineOp::Median(col)
+        | PipelineOp::Variance(col)
+        | PipelineOp::Std(col)
         | PipelineOp::DropNull(col) => {
             check_col(col.as_str())?;
         }

@@ -96,4 +96,9 @@ pub enum Commands {
         /// 가져올 CSV 파일 경로
         file: String,
     },
+
+    /// x1zz 사용자 프로필을 분석하고 아이덴티티를 확인합니다
+    ///
+    /// 예: x1zz whoami
+    Whoami,
 }

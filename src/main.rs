@@ -3,6 +3,7 @@ mod predict;
 mod project;
 mod schema;
 mod ux;
+mod whoami;
 
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -188,6 +189,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
+        }
+
+        // ── whoami: 사용자 아이덴티티 출력 ──────────────────────────────────
+        Commands::Whoami => {
+            whoami::run_whoami()?;
         }
     }
 

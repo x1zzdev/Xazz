@@ -746,16 +746,95 @@ impl Parser {
                 })
             }
 
+            // ── v0.22 sample(n) / sample(n, seed: 42) — 무작위 샘플링 ───────
+            TokenKind::Sample => {
+                self.advance();
+                self.expect(&TokenKind::LParen)?;
+                let n = match self.current_kind() {
+                    TokenKind::IntLit(n) => {
+                        self.advance();
+                        n
+                    }
+                    other => {
+                        return Err(CompileError::new(
+                            ErrorKind::ExpectedToken("IntLit".into()),
+                            self.current_span(),
+                            format!("sample() 에는 정수 리터럴이 필요합니다. 실제: {:?}", other),
+                        ));
+                    }
+                };
+                if n <= 0 {
+                    return Err(CompileError::new(
+                        ErrorKind::UnexpectedToken("sample n <= 0".into()),
+                        self.current_span(),
+                        format!("sample() 의 n 은 0보다 커야 합니다. 실제: {}", n),
+                    ));
+                }
+                let seed = if matches!(self.current_kind(), TokenKind::Comma) {
+                    self.advance(); // , 소비
+                    self.expect(&TokenKind::Seed)?;
+                    self.expect(&TokenKind::Colon)?;
+                    match self.current_kind() {
+                        TokenKind::IntLit(s) => {
+                            self.advance();
+                            Some(s)
+                        }
+                        other => {
+                            return Err(CompileError::new(
+                                ErrorKind::ExpectedToken("IntLit".into()),
+                                self.current_span(),
+                                format!(
+                                    "sample 의 seed: 뒤에는 정수 리터럴이 필요합니다. 실제: {:?}",
+                                    other
+                                ),
+                            ));
+                        }
+                    }
+                } else {
+                    None
+                };
+                self.expect(&TokenKind::RParen)?;
+                Ok(PipelineOp::Sample { n, seed })
+            }
+
+            // ── v0.22 median("col") — 중앙값 집계 ────────────────────────────
+            TokenKind::Median => {
+                self.advance();
+                self.expect(&TokenKind::LParen)?;
+                let col_name = self.expect_string_lit()?;
+                self.expect(&TokenKind::RParen)?;
+                Ok(PipelineOp::Median(col_name))
+            }
+
+            // ── v0.22 variance("col") — 분산 집계 ────────────────────────────
+            TokenKind::Variance => {
+                self.advance();
+                self.expect(&TokenKind::LParen)?;
+                let col_name = self.expect_string_lit()?;
+                self.expect(&TokenKind::RParen)?;
+                Ok(PipelineOp::Variance(col_name))
+            }
+
+            // ── v0.22 std("col") — 표준편차 집계 ─────────────────────────────
+            TokenKind::Std => {
+                self.advance();
+                self.expect(&TokenKind::LParen)?;
+                let col_name = self.expect_string_lit()?;
+                self.expect(&TokenKind::RParen)?;
+                Ok(PipelineOp::Std(col_name))
+            }
+
             other => Err(CompileError::new(
                 ErrorKind::UnexpectedToken(format!("{:?}", other)),
                 self.current_span(),
                 format!(
-                    "|> 뒤에는 filter/select/count/groupBy/sum/mean/min/max/orderBy/take/dropNull/fillNull/join/withColumn/chart/cast/rename/replace 중 하나가 와야 합니다. 실제: {:?}",
+                    "|> 뒤에는 filter/select/count/groupBy/sum/mean/min/max/orderBy/take/dropNull/fillNull/join/withColumn/chart/cast/rename/replace/sample/median/variance/std 중 하나가 와야 합니다. 실제: {:?}",
                     other
                 ),
             )),
         }
     }
+
 
     // ── chart { ... } 블록 내부 파싱 ─────────────────────────────────────────
     // 지원 필드: type, x, y, label, value, title
@@ -1125,7 +1204,12 @@ impl Parser {
             TokenKind::Join => "join".to_string(),
             TokenKind::WithColumn => "withColumn".to_string(),
             TokenKind::Chart => "chart".to_string(),
+            TokenKind::Sample => "sample".to_string(),
+            TokenKind::Median => "median".to_string(),
+            TokenKind::Variance => "variance".to_string(),
+            TokenKind::Std => "std".to_string(),
             other => {
+
                 return Err(CompileError::new(
                     ErrorKind::ExpectedToken("Ident".into()),
                     self.current_span(),
@@ -1764,4 +1848,63 @@ type AirQuality = {
             kinds
         );
     }
+
+    // ── 테스트 27 (v0.22): sample(n) 파싱 ────────────────────────────────────
+    #[test]
+    fn test_sample_parse() {
+        let src = r#"v result = data |> sample(100);"#;
+        let program = parse_src(src).expect("sample 파싱 실패");
+        match &program.stmts[0] {
+            Stmt::VarDecl { ops, .. } => {
+                assert_eq!(ops.len(), 1);
+                assert_eq!(ops[0], PipelineOp::Sample { n: 100, seed: None });
+            }
+            other => panic!("VarDecl 예상: {:?}", other),
+        }
+    }
+
+    // ── 테스트 28 (v0.22): sample(n, seed: 42) 파싱 ──────────────────────────
+    #[test]
+    fn test_sample_with_seed_parse() {
+        let src = r#"v result = data |> sample(100, seed: 42);"#;
+        let program = parse_src(src).expect("sample seed 파싱 실패");
+        match &program.stmts[0] {
+            Stmt::VarDecl { ops, .. } => {
+                assert_eq!(
+                    ops[0],
+                    PipelineOp::Sample {
+                        n: 100,
+                        seed: Some(42)
+                    }
+                );
+            }
+            other => panic!("VarDecl 예상: {:?}", other),
+        }
+    }
+
+    // ── 테스트 29 (v0.22): sample(0) 은 에러 ─────────────────────────────────
+    #[test]
+    fn test_sample_zero_error() {
+        let src = r#"v result = data |> sample(0);"#;
+        let result = parse_src(src);
+        assert!(result.is_err(), "sample(0) 은 에러여야 함");
+    }
+
+    // ── 테스트 30 (v0.22): median/variance/std 파싱 ──────────────────────────
+    #[test]
+    fn test_median_variance_std_parse() {
+        let src = r#"v result = data |> groupBy("region") |> median("score") |> variance("score") |> std("score");"#;
+        let program = parse_src(src).expect("median/variance/std 파싱 실패");
+        match &program.stmts[0] {
+            Stmt::VarDecl { ops, .. } => {
+                assert_eq!(ops.len(), 4);
+                assert_eq!(ops[0], PipelineOp::GroupBy("region".into()));
+                assert_eq!(ops[1], PipelineOp::Median("score".into()));
+                assert_eq!(ops[2], PipelineOp::Variance("score".into()));
+                assert_eq!(ops[3], PipelineOp::Std("score".into()));
+            }
+            other => panic!("VarDecl 예상: {:?}", other),
+        }
+    }
 }
+

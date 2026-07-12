@@ -184,7 +184,16 @@ pub enum PipelineOp {
         from: String,
         to: String,
     },
+    /// sample(n) / sample(n, seed: 42) — 무작위 샘플링 (v0.22)
+    Sample { n: i64, seed: Option<i64> },
+    /// median("col") — 중앙값 집계 (v0.22)
+    Median(String),
+    /// variance("col") — 분산 집계 (v0.22)
+    Variance(String),
+    /// std("col") — 표준편차 집계 (v0.22)
+    Std(String),
 }
+
 
 /// 파이프라인의 소스 (데이터 원천)
 #[derive(Debug, Clone, PartialEq)]
