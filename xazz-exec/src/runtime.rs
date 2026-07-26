@@ -12,7 +12,8 @@ use std::fs;
 use serde::Serialize;
 
 use xazz_compiler::ast::{
-    ChartConfig, ChartType, FillNullValue, JoinHow, PipelineOp, PipelineSource, Stmt,
+    ChartConfig, ChartType, FillNullValue, JoinHow, LayerKind, PipelineOp, PipelineSource, Stmt,
+    TrainConfig,
 };
 use xazz_compiler::{BinOpKind, Codegen, Expr, Lexer, Parser, StructField};
 
@@ -267,6 +268,30 @@ pub fn run_pipeline(
                         );
                     }
                 }
+            }
+
+            Stmt::ModelDecl { name, layers } => {
+                pipeline_count += 1;
+                eprintln!(
+                    "[xazz] Pipeline #{} ModelDecl '{}' — 레이어 {} 개 (Burn 플레이스홀더)",
+                    pipeline_count,
+                    name,
+                    layers.len()
+                );
+                handle_model_decl(name, layers);
+            }
+
+            Stmt::TrainStmt {
+                source_var,
+                model_name,
+                config,
+            } => {
+                pipeline_count += 1;
+                eprintln!(
+                    "[xazz] Pipeline #{} TrainStmt '{}' → 모델 '{}' (Burn 플레이스홀더)",
+                    pipeline_count, source_var, model_name
+                );
+                handle_train_stmt(source_var, model_name, config, &symbol_table);
             }
 
             _ => {}
@@ -834,6 +859,104 @@ fn execute_var_decl(
     let _ = (var_name, has_count_flag);
 
     Ok(df)
+}
+
+// ── Burn 딥러닝 플레이스홀더 (v0.3) ────────────────────────────────────────────
+
+/// ModelDecl 처리 — Burn 모델 정의를 로깅하고 향후 Burn 코드 생성을 위한 기반 마련
+fn handle_model_decl(name: &str, layers: &[LayerKind]) {
+    println!();
+    println!("🧠 [xazz Model Declaration: {}]", name);
+    println!("{}", "─".repeat(60));
+    println!("  레이어 구성 ({} 개):", layers.len());
+    for (i, layer) in layers.iter().enumerate() {
+        let layer_desc = match layer {
+            LayerKind::Dense(n) => format!("Dense({})", n),
+            LayerKind::ReLU => "ReLU()".to_string(),
+            LayerKind::Sigmoid => "Sigmoid()".to_string(),
+            LayerKind::Tanh => "Tanh()".to_string(),
+            LayerKind::Softmax => "Softmax()".to_string(),
+            LayerKind::Dropout(r) => format!("Dropout({})", r),
+            LayerKind::BatchNorm => "BatchNorm()".to_string(),
+        };
+        println!("    [{}] {}  →  {}", i, layer_desc, layer.to_burn_str());
+    }
+    println!();
+    println!("  ⚠️  Burn 프레임워크 연동은 아직 구현되지 않았습니다.");
+    println!("     향후 burn::nn 모듈로 자동 코드 생성될 예정입니다.");
+    println!();
+
+    // [xazz:model] JSON 마커 — 서버/IDE에서 모델 정보를 파싱할 수 있도록 출력
+    let model_json = serde_json::json!({
+        "type": "model_decl",
+        "name": name,
+        "layers": layers.iter().map(|l| format!("{:?}", l)).collect::<Vec<_>>(),
+        "burn_code": layers.iter().map(|l| l.to_burn_str()).collect::<Vec<_>>(),
+    });
+    println!(
+        "[xazz:model] {}",
+        serde_json::to_string(&model_json).unwrap_or_default()
+    );
+}
+
+/// TrainStmt 처리 — 학습 설정을 로깅하고 향후 Burn 학습 루프를 위한 기반 마련
+fn handle_train_stmt(
+    source_var: &str,
+    model_name: &str,
+    config: &TrainConfig,
+    symbol_table: &HashMap<String, polars::frame::DataFrame>,
+) {
+    println!();
+    println!("🏋️  [xazz Training: {} → {}]", source_var, model_name);
+    println!("{}", "─".repeat(60));
+
+    // 데이터 소스 확인
+    match symbol_table.get(source_var) {
+        Some(df) => {
+            println!("  데이터 소스: {} ({} 행 × {} 열)", source_var, df.height(), df.width());
+            println!("  컬럼: {:?}", df.get_column_names());
+        }
+        None => {
+            eprintln!("  ⚠️  경고: 변수 '{}' 가 심볼 테이블에 없습니다.", source_var);
+        }
+    }
+
+    println!("  모델: {}", model_name);
+    println!("  타겟 컬럼: {}", config.target);
+    println!("  에포크: {}", config.epochs);
+    println!("  학습률: {}", config.learning_rate);
+    let batch_str = match config.batch_size {
+        Some(b) => format!("{}", b),
+        None => "전체 데이터".to_string(),
+    };
+    let val_str = match config.validation_split {
+        Some(v) => format!("{:.1}%", v * 100.0),
+        None => "없음".to_string(),
+    };
+    println!("  배치 크기: {}", batch_str);
+    println!("  검증 비율: {}", val_str);
+    println!();
+    println!("  ⚠️  Burn 학습 루프는 아직 구현되지 않았습니다.");
+    println!("     향후 Autodiff + DataLoader 기반 학습이 추가될 예정입니다.");
+    println!();
+
+    // [xazz:train] JSON 마커
+    let train_json = serde_json::json!({
+        "type": "train_stmt",
+        "source_var": source_var,
+        "model_name": model_name,
+        "config": {
+            "target": config.target,
+            "epochs": config.epochs,
+            "learning_rate": config.learning_rate,
+            "batch_size": config.batch_size,
+            "validation_split": config.validation_split,
+        },
+    });
+    println!(
+        "[xazz:train] {}",
+        serde_json::to_string(&train_json).unwrap_or_default()
+    );
 }
 
 // ── write_chart_html — ChartSpec → Chart.js 기반 HTML 파일 생성 ───────────────

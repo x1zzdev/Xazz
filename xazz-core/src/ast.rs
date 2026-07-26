@@ -1,6 +1,7 @@
-/// xazzLang - AST 노드 정의 (v0.19)
+/// Xazz - AST 노드 정의 (v0.3)
 ///
 /// Polars / Tokio 등 무거운 의존성 없이 순수 Rust 타입만 사용한다.
+/// v0.3: Burn 딥러닝 모델 선언(ModelDecl) 및 학습(TrainStmt) AST 추가
 
 /// 표현식 노드
 #[derive(Debug, Clone, PartialEq)]
@@ -213,6 +214,67 @@ pub struct StructField {
     pub field_type: String,
 }
 
+/// 딥러닝 레이어 종류 (Burn 매핑)
+#[derive(Debug, Clone, PartialEq)]
+pub enum LayerKind {
+    /// Dense(units) — fully connected layer
+    Dense(usize),
+    /// ReLU() — activation
+    ReLU,
+    /// Sigmoid() — activation
+    Sigmoid,
+    /// Tanh() — activation
+    Tanh,
+    /// Softmax() — activation
+    Softmax,
+    /// Dropout(rate) — regularization
+    Dropout(f64),
+    /// BatchNorm() — normalization
+    BatchNorm,
+}
+
+impl LayerKind {
+    /// Burn 코드 생성용 문자열 반환
+    pub fn to_burn_str(&self) -> String {
+        match self {
+            LayerKind::Dense(n) => format!("nn::LinearConfig::new({}, {})", n, n),
+            LayerKind::ReLU => "nn::ReLU::new()".to_string(),
+            LayerKind::Sigmoid => "nn::Sigmoid::new()".to_string(),
+            LayerKind::Tanh => "nn::Tanh::new()".to_string(),
+            LayerKind::Softmax => "nn::Softmax::new()".to_string(),
+            LayerKind::Dropout(r) => format!("nn::DropoutConfig::new({})", r),
+            LayerKind::BatchNorm => "nn::BatchNormConfig::new()".to_string(),
+        }
+    }
+}
+
+/// 학습 하이퍼파라미터 설정
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrainConfig {
+    /// 학습 대상 컬럼 (target)
+    pub target: String,
+    /// 에폭 수
+    pub epochs: usize,
+    /// 학습률 (learning rate)
+    pub learning_rate: f64,
+    /// 배치 크기 (None: 전체 데이터)
+    pub batch_size: Option<usize>,
+    /// 검증 데이터 비율 (0.0 ~ 1.0)
+    pub validation_split: Option<f64>,
+}
+
+impl Default for TrainConfig {
+    fn default() -> Self {
+        TrainConfig {
+            target: String::new(),
+            epochs: 10,
+            learning_rate: 0.01,
+            batch_size: None,
+            validation_split: None,
+        }
+    }
+}
+
 /// 최상위 구문 노드
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
@@ -232,6 +294,17 @@ pub enum Stmt {
     ExprStmt {
         source: PipelineSource,
         ops: Vec<PipelineOp>,
+    },
+    /// model <Name> { Layer1 -> Layer2 -> ... }
+    ModelDecl {
+        name: String,
+        layers: Vec<LayerKind>,
+    },
+    /// run <var> |> train(ModelName, target: "col", epochs: N, lr: F)
+    TrainStmt {
+        source_var: String,
+        model_name: String,
+        config: TrainConfig,
     },
 }
 

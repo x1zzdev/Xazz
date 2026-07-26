@@ -52,17 +52,6 @@ opt-level     = 3
 lto           = true
 codegen-units = 1
 
-[features]
-poc-examples = []
-
-[[example]]
-name = "poc_script_generated"
-required-features = ["poc-examples"]
-
-[[example]]
-name = "poc_correct_generated"
-required-features = ["poc-examples"]
-
 # ── CLI 의존성 (경량 — Polars/Tokio 없음) ────────────────────────────────────
 [dependencies]
 # 컴파일러 (Lexer/Parser/Codegen/Emitter) — Polars 없음

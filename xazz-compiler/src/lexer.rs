@@ -197,6 +197,14 @@ impl<'src> Lexer<'src> {
             "variance" => TokenKind::Variance,
             "std" => TokenKind::Std,
             "seed" => TokenKind::Seed,
+            // ── v0.3 딥러닝 키워드 ───────────────────────────────
+            "model" => TokenKind::Model,
+            "run" => TokenKind::Run,
+            "train" => TokenKind::Train,
+            "epochs" => TokenKind::Epochs,
+            "lr" => TokenKind::Lr,
+            "target" => TokenKind::Target,
+            "strategy" => TokenKind::Strategy,
 
             // ── 식별자 ───────────────────────────────────────────
             _ => TokenKind::Ident(s),
@@ -261,6 +269,10 @@ impl<'src> Lexer<'src> {
             '>' if self.peek() == Some('=') => {
                 self.advance();
                 TokenKind::GtEq
+            }
+            '-' if self.peek() == Some('>') => {
+                self.advance();
+                TokenKind::Arrow
             }
 
             // ── 단일 문자 연산자 ───────────────────────────────────────

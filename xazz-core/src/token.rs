@@ -139,6 +139,24 @@ pub enum TokenKind {
     /// seed  (sample 의 명명 인수)
     Seed,
 
+    // ── 딥러닝 키워드 (v0.3) ─────────────────────────
+    /// model  (모델 선언)
+    Model,
+    /// run  (학습 실행)
+    Run,
+    /// train  (학습 연산)
+    Train,
+    /// epochs  (train 명명 인수)
+    Epochs,
+    /// lr  (train 명명 인수 — learning rate)
+    Lr,
+    /// target  (train 명명 인수)
+    Target,
+    /// strategy  (fillNull 명명 인수)
+    Strategy,
+    /// ->  (레이어 체이닝 연산자)
+    Arrow,
+
     // ── 리터럴 / 식별자 ─────────────────────────────
     /// 일반 식별자
     Ident(String),

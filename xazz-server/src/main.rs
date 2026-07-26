@@ -1,8 +1,11 @@
-//! xazz-server — Visual IDE 연동 Axum HTTP API 서버
+//! xazz-server — Visual IDE 연동 Axum HTTP API 서버 (v0.3)
 //!
 //! 엔드포인트:
-//!   POST /execute  { "code": "<xzz DSL>" }       → 파이프라인 실행, JSON 결과 반환
-//!   POST /schema   multipart/form-data (file)    → CSV 스키마 추론, 컬럼 타입 반환
+//!   POST /execute          { "code": "<xzz DSL>" }         → 파이프라인 실행, JSON 결과 반환
+//!   POST /schema           multipart/form-data (file)      → CSV 스키마 추론, 컬럼 타입 반환
+//!   GET  /health           {}                               → 서버 상태 확인
+//!   POST /security/audit   { "code": "<xzz DSL>" }         → SHA-256 감사 로그 생성
+//!   POST /security/verify  { "code": "<xzz DSL>", "hash": "<sha256>" } → 감사 해시 검증
 //!
 //! 포트: 8005 (frontend/.env: VITE_API_BASE_URL=http://127.0.0.1:8005)
 
@@ -10,7 +13,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 
-use axum::{extract::Multipart, http::StatusCode, response::Json, routing::post, Router};
+use axum::{extract::Multipart, http::StatusCode, response::Json, routing::{get, post}, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tower_http::cors::{Any, CorsLayer};
@@ -62,6 +65,9 @@ async fn main() {
     let app = Router::new()
         .route("/execute", post(handle_execute))
         .route("/schema", post(handle_schema))
+        .route("/health", get(handle_health))
+        .route("/security/audit", post(handle_security_audit))
+        .route("/security/verify", post(handle_security_verify))
         .layer(cors);
 
     let addr = "127.0.0.1:8005";
@@ -296,6 +302,82 @@ fn infer_type(values: &[String]) -> String {
     } else {
         "string".to_string()
     }
+}
+
+// ── GET /health ────────────────────────────────────────────────────────────────
+
+async fn handle_health() -> Json<Value> {
+    Json(json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+// ── POST /security/audit ─────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct AuditRequest {
+    code: String,
+}
+
+#[derive(Serialize)]
+struct AuditResponse {
+    hash: String,
+    algorithm: String,
+    timestamp: String,
+    code_length: usize,
+}
+
+async fn handle_security_audit(
+    Json(payload): Json<AuditRequest>,
+) -> Json<AuditResponse> {
+    use sha2::{Sha256, Digest};
+
+    let mut hasher = Sha256::new();
+    hasher.update(payload.code.as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
+
+    Json(AuditResponse {
+        hash,
+        algorithm: "SHA-256".to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        code_length: payload.code.len(),
+    })
+}
+
+// ── POST /security/verify ────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct VerifyRequest {
+    code: String,
+    hash: String,
+}
+
+#[derive(Serialize)]
+struct VerifyResponse {
+    valid: bool,
+    computed_hash: String,
+    provided_hash: String,
+    algorithm: String,
+}
+
+async fn handle_security_verify(
+    Json(payload): Json<VerifyRequest>,
+) -> Json<VerifyResponse> {
+    use sha2::{Sha256, Digest};
+
+    let mut hasher = Sha256::new();
+    hasher.update(payload.code.as_bytes());
+    let computed = format!("{:x}", hasher.finalize());
+    let valid = computed == payload.hash;
+
+    Json(VerifyResponse {
+        valid,
+        computed_hash: computed,
+        provided_hash: payload.hash,
+        algorithm: "SHA-256".to_string(),
+    })
 }
 
 // ── 유틸리티 ──────────────────────────────────────────────────────────────────

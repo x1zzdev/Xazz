@@ -9,7 +9,10 @@
 ///   - Join 연산자: .join(..., ..., JoinArgs::new(JoinType::Inner)) 매핑
 ///   - WithColumn 연산자: .with_columns([expr.alias("name")]) 매핑
 ///   - 산술 연산자: Add/Sub/Mul/Div → .add()/.sub()/.mul()/.div()
-use crate::ast::{BinOpKind, Expr, FillNullValue, PipelineOp, PipelineSource, Program, Stmt};
+use crate::ast::{
+    BinOpKind, Expr, FillNullValue, LayerKind, PipelineOp, PipelineSource, Program, Stmt,
+    TrainConfig,
+};
 
 /// 코드 생성기 — 유닛 구조체
 pub struct Codegen;
@@ -55,6 +58,12 @@ impl Codegen {
                 ops,
             } => Self::emit_var_decl(var_name, *is_mut, source, ops),
             Stmt::ExprStmt { source, ops } => Self::emit_expr_stmt(source, ops),
+            Stmt::ModelDecl { name, layers } => Self::emit_model_decl(name, layers),
+            Stmt::TrainStmt {
+                source_var,
+                model_name,
+                config,
+            } => Self::emit_train_stmt(source_var, model_name, config),
         }
     }
 
@@ -158,6 +167,61 @@ impl Codegen {
         }
 
         lines.push("  .collect()?;  // ← expression statement 실행".to_string());
+        lines.join("\n")
+    }
+
+    // ── ModelDecl 변환 ────────────────────────────────────────────────────────
+
+    fn emit_model_decl(name: &str, layers: &[LayerKind]) -> String {
+        let mut lines: Vec<String> = Vec::new();
+        lines.push(format!("// [ModelDecl] model {}", name));
+        lines.push(format!("// Burn 모델 정의 — 레이어 {} 개", layers.len()));
+        for (i, layer) in layers.iter().enumerate() {
+            lines.push(format!("//   [{}] {}", i, layer.to_burn_str()));
+        }
+        lines.push(String::new());
+        lines.push(format!("// TODO: Burn 프레임워크 연동 코드 생성"));
+        lines.push(format!("// struct {} {{ ... }}  ← Burn nn 모듈로 변환", name));
+        lines.join("\n")
+    }
+
+    // ── TrainStmt 변환 ────────────────────────────────────────────────────────
+
+    fn emit_train_stmt(
+        source_var: &str,
+        model_name: &str,
+        config: &TrainConfig,
+    ) -> String {
+        let batch_str = match config.batch_size {
+            Some(b) => format!("{}", b),
+            None => "전체".to_string(),
+        };
+        let val_str = match config.validation_split {
+            Some(v) => format!("{:.1}%", v * 100.0),
+            None => "없음".to_string(),
+        };
+        let mut lines: Vec<String> = Vec::new();
+        lines.push(format!(
+            "// [TrainStmt] run {} |> train({}, target: \"{}\", epochs: {}, lr: {})",
+            source_var, model_name, config.target, config.epochs, config.learning_rate
+        ));
+        lines.push(format!("// 데이터 소스: {}", source_var));
+        lines.push(format!("// 모델: {}", model_name));
+        lines.push(format!("// 타겟 컬럼: {}", config.target));
+        lines.push(format!("// 에포크: {}", config.epochs));
+        lines.push(format!("// 학습률: {}", config.learning_rate));
+        lines.push(format!("// 배치 크기: {}", batch_str));
+        lines.push(format!("// 검증 비율: {}", val_str));
+        lines.push(String::new());
+        lines.push(format!("// TODO: Burn 학습 루프 코드 생성"));
+        lines.push(format!(
+            "// let mut model = {}::new(...);  // Burn 모델 초기화",
+            model_name
+        ));
+        lines.push(format!(
+            "// train(model, {}.collect()?, target=\"{}\", epochs={}, lr={})",
+            source_var, config.target, config.epochs, config.learning_rate
+        ));
         lines.join("\n")
     }
 

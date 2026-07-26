@@ -57,10 +57,15 @@ Core AST nodes (`xazz-core/src/ast.rs`):
 |------|-------------|
 | `TypeDecl` | `type Name = { field: Type, ... }` — struct-like schema declaration |
 | `VarDecl` | `v name = expr` — pipeline variable binding |
-| `PipelineExpr` | `load(...) \|> op1 \|> op2 \|> ...` — pipe-chained operations |
-| `PipelineOp` | Individual operator: `filter`, `groupBy`, `join`, `sort`, `select`, `cast`, `withColumn`, `rename`, `mean`, `fillNull` |
-| `ChartBlock` | `chart { kind: bar, x: ..., y: ... }` — visualization declaration |
+| `ExprStmt` | Expression statement (result discarded) |
+| `PipelineOp` | Individual operator: `filter`, `groupBy`, `join`, `sort`, `select`, `cast`, `withColumn`, `rename`, `mean`, `fillNull`, `sample`, `median`, `variance`, `std` |
+| `ChartConfig` | `chart { type: bar, x: ..., y: ... }` — visualization configuration |
 | `Expr` | Expression: column reference, binary op, literal, function call |
+| **v0.3 Deep Learning** | |
+| `ModelDecl` | `model Name { Dense(64) -> ReLU() -> Dense(1) }` — neural network declaration |
+| `TrainStmt` | `run data \|> train(Model, target: "col", epochs: 10)` — training statement |
+| `LayerKind` | `Dense(usize)`, `ReLU`, `Sigmoid`, `Tanh`, `Softmax`, `Dropout(f64)`, `BatchNorm` |
+| `TrainConfig` | Hyperparameters: `target`, `epochs`, `learning_rate`, `batch_size`, `validation_split` |
 
 ---
 
@@ -174,6 +179,50 @@ Output: an HTML file containing an interactive chart. The chart renderer runs in
 
 ---
 
+## Deep Learning DSL (v0.3)
+
+Xazz supports declarative neural network definition and training via the `model` and `run |> train()` constructs.
+
+### Model Declaration
+
+```xzz
+model AirQualityNet {
+  Dense(64) -> ReLU() -> Dense(32) -> ReLU() -> Dense(1)
+}
+```
+
+This produces a `Stmt::ModelDecl` AST node containing a `Vec<LayerKind>`. The codegen generates Burn-compatible layer descriptions.
+
+### Training Statement
+
+```xzz
+v data = load("air.csv") :: AirQuality
+  |> dropNull("pm10")
+  |> select(["pm10", "pm25", "temperature"])
+
+run data |> train(AirQualityNet, target: "pm10", epochs: 50, lr: 0.001)
+```
+
+This produces a `Stmt::TrainStmt` AST node with a `TrainConfig` struct.
+
+### Execution
+
+The runtime (`xazz-exec`) currently logs model architecture and training config as placeholders. Full Burn integration (Autodiff + DataLoader) is planned for a future release.
+
+### Layer Types
+
+| Xazz Layer | Burn Equivalent |
+|------------|-----------------|
+| `Dense(n)` | `nn::LinearConfig::new(n, n)` |
+| `ReLU()` | `nn::ReLU::new()` |
+| `Sigmoid()` | `nn::Sigmoid::new()` |
+| `Tanh()` | `nn::Tanh::new()` |
+| `Softmax()` | `nn::Softmax::new()` |
+| `Dropout(r)` | `nn::DropoutConfig::new(r)` |
+| `BatchNorm()` | `nn::BatchNormConfig::new()` |
+
+---
+
 ## xazz emit rust
 
 `xazz emit rust file.xzz` transpiles a `.xzz` script to Rust source code that directly calls the Polars LazyFrame API. This output is primarily useful for:
@@ -183,3 +232,17 @@ Output: an HTML file containing an interactive chart. The chart renderer runs in
 - Debugging codegen output
 
 The emitted Rust code can be compiled with `cargo` independently of Xazz.
+
+---
+
+## Security & Audit (v0.3)
+
+The `xazz-server` provides security endpoints for code integrity verification:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Server health check |
+| `/security/audit` | POST | Generate SHA-256 hash of DSL code |
+| `/security/verify` | POST | Verify SHA-256 hash of DSL code |
+
+These endpoints enable audit logging and tamper detection for pipeline scripts.

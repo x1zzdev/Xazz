@@ -13,3 +13,5 @@ tempfile = "3"
 csv = "1"
 encoding_rs = "0.8"
 uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+chrono = { version = "0.4", features = ["serde"] }

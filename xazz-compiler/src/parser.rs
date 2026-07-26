@@ -44,8 +44,8 @@
 ///   - withColumn() 연산자 파싱
 ///   - 산술 표현식 우선순위: * / > + - > 비교 연산자
 use crate::ast::{
-    BinOpKind, ChartConfig, ChartType, Expr, FillNullValue, JoinHow, PipelineOp, PipelineSource,
-    Program, Stmt, StructField,
+    BinOpKind, ChartConfig, ChartType, Expr, FillNullValue, JoinHow, LayerKind, PipelineOp,
+    PipelineSource, Program, Stmt, StructField, TrainConfig,
 };
 use crate::error::{CompileError, CompileResult, ErrorKind};
 use crate::token::{Span, Token, TokenKind};
@@ -127,6 +127,8 @@ impl Parser {
         match self.current_kind() {
             TokenKind::Type => self.parse_type_decl(),
             TokenKind::V | TokenKind::Mut => self.parse_var_stmt(),
+            TokenKind::Model => self.parse_model_decl(),
+            TokenKind::Run => self.parse_train_stmt(),
             TokenKind::Ident(_) if self.peek_pipeline() => {
                 // expression statement: ident |> op1 |> op2 ...
                 self.parse_expr_stmt()
@@ -137,6 +139,179 @@ impl Parser {
                 format!("구문 시작 불가 토큰: {:?}", other),
             )),
         }
+    }
+
+    // ── ModelDecl ─────────────────────────────────────────────────────────────
+    // model_decl = "model" IDENT "{" layer_chain "}" ";"?
+    // layer_chain = layer ("->" layer)*
+    // layer = IDENT "(" NUMBER? ")"
+
+    fn parse_model_decl(&mut self) -> CompileResult<Stmt> {
+        self.expect(&TokenKind::Model)?;
+        let name = self.expect_ident()?;
+        self.expect(&TokenKind::LBrace)?;
+
+        let mut layers = Vec::new();
+        loop {
+            if matches!(self.current_kind(), TokenKind::RBrace | TokenKind::Eof) {
+                break;
+            }
+            layers.push(self.parse_layer()?);
+            if !self.eat(&TokenKind::Arrow) {
+                break;
+            }
+            if matches!(self.current_kind(), TokenKind::RBrace) {
+                break;
+            }
+        }
+
+        self.expect(&TokenKind::RBrace)?;
+        self.eat(&TokenKind::Semicolon);
+        Ok(Stmt::ModelDecl { name, layers })
+    }
+
+    fn parse_layer(&mut self) -> CompileResult<LayerKind> {
+        let name = self.expect_ident()?;
+        self.expect(&TokenKind::LParen)?;
+
+        let layer = match name.as_str() {
+            "Dense" => {
+                let units = self.expect_number()? as usize;
+                LayerKind::Dense(units)
+            }
+            "Dropout" => {
+                let rate = self.expect_float()?;
+                LayerKind::Dropout(rate)
+            }
+            "ReLU" => LayerKind::ReLU,
+            "Sigmoid" => LayerKind::Sigmoid,
+            "Tanh" => LayerKind::Tanh,
+            "Softmax" => LayerKind::Softmax,
+            "BatchNorm" => LayerKind::BatchNorm,
+            other => {
+                return Err(CompileError::new(
+                    ErrorKind::UnexpectedToken(other.into()),
+                    self.current_span(),
+                    format!(
+                        "알 수 없는 레이어 타입: '{}'. 지원: Dense, ReLU, Sigmoid, Tanh, Softmax, Dropout, BatchNorm",
+                        other
+                    ),
+                ));
+            }
+        };
+
+        self.expect(&TokenKind::RParen)?;
+        Ok(layer)
+    }
+
+    fn expect_number(&mut self) -> CompileResult<i64> {
+        match self.current_kind() {
+            TokenKind::IntLit(n) => {
+                self.advance();
+                Ok(n)
+            }
+            other => Err(CompileError::new(
+                ErrorKind::ExpectedToken("IntLit".into()),
+                self.current_span(),
+                format!("정수가 필요합니다. 실제: {:?}", other),
+            )),
+        }
+    }
+
+    fn expect_float(&mut self) -> CompileResult<f64> {
+        match self.current_kind() {
+            TokenKind::FloatLit(f) => {
+                self.advance();
+                Ok(f)
+            }
+            TokenKind::IntLit(n) => {
+                self.advance();
+                Ok(n as f64)
+            }
+            other => Err(CompileError::new(
+                ErrorKind::ExpectedToken("FloatLit".into()),
+                self.current_span(),
+                format!("실수가 필요합니다. 실제: {:?}", other),
+            )),
+        }
+    }
+
+    // ── TrainStmt ─────────────────────────────────────────────────────────────
+    // train_stmt = "run" IDENT "|>" "train" "(" IDENT train_args ")" ";"?
+    // train_args = ("," named_arg)*
+    // named_arg = IDENT ":" literal
+
+    fn parse_train_stmt(&mut self) -> CompileResult<Stmt> {
+        self.expect(&TokenKind::Run)?;
+        let source_var = self.expect_ident()?;
+        self.expect(&TokenKind::Pipeline)?;
+        self.expect(&TokenKind::Train)?;
+        self.expect(&TokenKind::LParen)?;
+
+        let model_name = self.expect_ident()?;
+
+        let mut config = TrainConfig::default();
+        while self.eat(&TokenKind::Comma) {
+            let arg_name = match self.current_kind() {
+                TokenKind::Target => { self.advance(); "target".to_string() }
+                TokenKind::Epochs => { self.advance(); "epochs".to_string() }
+                TokenKind::Lr => { self.advance(); "lr".to_string() }
+                TokenKind::Ident(name) => { let n = name.clone(); self.advance(); n }
+                other => {
+                    return Err(CompileError::new(
+                        ErrorKind::UnexpectedToken(format!("{:?}", other)),
+                        self.current_span(),
+                        format!("train() 인수 이름이 필요합니다. 실제: {:?}", other),
+                    ));
+                }
+            };
+            self.expect(&TokenKind::Colon)?;
+
+            match arg_name.as_str() {
+                "target" => {
+                    config.target = match self.current_kind() {
+                        TokenKind::StringLit(s) => { self.advance(); s }
+                        other => {
+                            return Err(CompileError::new(
+                                ErrorKind::ExpectedToken("StringLit".into()),
+                                self.current_span(),
+                                format!("target은 문자열이어야 합니다. 실제: {:?}", other),
+                            ));
+                        }
+                    };
+                }
+                "epochs" => {
+                    config.epochs = self.expect_number()? as usize;
+                }
+                "lr" => {
+                    config.learning_rate = self.expect_float()?;
+                }
+                "batch_size" => {
+                    config.batch_size = Some(self.expect_number()? as usize);
+                }
+                "validation_split" => {
+                    config.validation_split = Some(self.expect_float()?);
+                }
+                other => {
+                    return Err(CompileError::new(
+                        ErrorKind::UnexpectedToken(other.into()),
+                        self.current_span(),
+                        format!(
+                            "알 수 없는 train() 인수: '{}'. 지원: target, epochs, lr, batch_size, validation_split",
+                            other
+                        ),
+                    ));
+                }
+            }
+        }
+
+        self.expect(&TokenKind::RParen)?;
+        self.eat(&TokenKind::Semicolon);
+        Ok(Stmt::TrainStmt {
+            source_var,
+            model_name,
+            config,
+        })
     }
 
     /// 현재 Ident 토큰 뒤에 |> (Pipeline) 토큰이 오는지 확인

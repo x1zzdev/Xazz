@@ -1,0 +1,28 @@
+// Xazz Deep Learning Example — Air Quality PM10 Predictor
+// Demonstrates: Polars preprocessing + Burn model definition + training
+//
+// Run: xazz run examples/deep_learning/air_quality_predictor.xzz
+
+// ── 1. Schema Declaration (Compile-time Null Safety) ────────────────────────
+type AirSensor = {
+    station:  string,
+    temp:     float,
+    humidity: float,
+    pm10:     Option<float>,
+    pm25:     Option<float>,
+}
+
+// ── 2. Ultra-fast Lazy Preprocessing via Polars ─────────────────────────────
+v dataset = load("examples/data/seoul_air_2024.csv") :: AirSensor
+    |> fillNull("pm10", strategy: "mean")
+    |> fillNull("pm25", strategy: "mean")
+    |> select(["temp", "humidity", "pm10"])
+
+// ── 3. Declarative Burn Deep Learning Model ──────────────────────────────────
+model AirPredictor {
+    Dense(64) -> ReLU() -> Dense(32) -> ReLU() -> Dense(1)
+}
+
+// ── 4. Integrated Execution with Zero-Copy Tensor Conversion ─────────────────
+run dataset
+    |> train(AirPredictor, target: "pm10", epochs: 10, lr: 0.01)

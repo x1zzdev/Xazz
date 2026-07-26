@@ -18,7 +18,8 @@ xazz-lang/
 │   ├── predict.rs
 │   ├── project.rs
 │   ├── schema.rs
-│   └── ux.rs
+│   ├── ux.rs
+│   └── whoami.rs
 │
 ├── xazz-core/              ← 공유 핵심 타입 (ZERO 무거운 의존성)
 │   └── src/
@@ -110,12 +111,11 @@ xazz-server: axum + tokio (독립 바이너리, xazz-compiler 미사용)
 | Crate | 역할 | 무거운 의존성 | CLI 링크 |
 |---|---|---|---|
 | `xazz` (CLI) | 인자 파싱, emit, import, check | 없음 | ✅ CLI 자신 |
-| `xazz-core` | AST/Token/Error 공유 타입 | 없음 (serde만) | ✅ 간접 |
-| `xazz-compiler` | Lexer/Parser/Codegen/Emitter | 없음 | ✅ emit 명령어 |
-| `xazz-exec` | Polars 실행 엔진 | **Polars, encoding_rs** | ❌ 없음 |
+| `xazz-core` | AST/Token/Error 공유 타입 + DL 타입 (v0.3) | 없음 (serde만) | ✅ 간접 |
+| `xazz-compiler` | Lexer/Parser/Codegen/Emitter + DL 파싱 (v0.3) | 없음 | ✅ emit 명령어 |
+| `xazz-exec` | Polars 실행 엔진 + Burn 플레이스홀더 (v0.3) | **Polars, encoding_rs** | ❌ 없음 |
 | `xazz-runner` | 실행 바이너리 | xazz-exec 통해 간접 | ❌ 없음 |
-| `xazz-sde` | 합성 데이터 생성기 | polars, rayon | ❌ 없음 |
-| `xazz-server` | REST API 서버 | axum, tokio | ❌ 없음 |
+| `xazz-server` | REST API + 보안/감사 엔드포인트 (v0.3) | axum, tokio, sha2 | ❌ 없음 |
 
 ---
 

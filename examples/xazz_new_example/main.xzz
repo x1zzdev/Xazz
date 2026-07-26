@@ -1,9 +1,0 @@
-
-
-type SeoulStationInfo = {
-    station: string,
-    district: string,
-    population: int
-};
-
-v info = load("a/data/seoul_station_info.csv") :: SeoulStationInfo

@@ -1,0 +1,48 @@
+// Xazz End-to-End Pipeline — Complete AI Workflow
+// Demonstrates: Load → Preprocess → Analyze → Visualize → Train
+//
+// Run: xazz run examples/end_to_end/air_quality_full.xzz
+
+// ── 1. Schema Declaration ────────────────────────────────────────────────────
+type AirQuality = {
+    date:     string,
+    station:  string,
+    pm10:     Option<float>,
+    pm25:     Option<float>,
+}
+
+// ── 2. Data Loading & Cleaning (Polars LazyFrame) ────────────────────────────
+v raw = load("examples/data/seoul_air_2024.csv") :: AirQuality
+
+v cleaned = raw
+    |> dropNull("pm10")
+    |> fillNull("pm25", strategy: "mean")
+    |> filter(col("pm10") > 0)
+    |> filter(col("pm10") < 500)
+
+// ── 3. Aggregation Analysis ───────────────────────────────────────────────────
+v station_summary = cleaned
+    |> groupBy("station")
+    |> mean("pm10")
+    |> orderBy("pm10", desc: true)
+
+// ── 4. Visualization ──────────────────────────────────────────────────────────
+v top10 = station_summary
+    |> take(10)
+    |> chart {
+        kind:  bar,
+        x:     station,
+        y:     pm10,
+        title: "Top 10 Stations by PM10 Mean",
+    }
+
+// ── 5. Deep Learning Prediction ──────────────────────────────────────────────
+v features = cleaned
+    |> select(["pm25", "pm10"])
+
+model PmPredictor {
+    Dense(32) -> ReLU() -> Dense(1)
+}
+
+run features
+    |> train(PmPredictor, target: "pm10", epochs: 5)
