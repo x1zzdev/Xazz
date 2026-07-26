@@ -23,7 +23,7 @@ pub fn print_mock_nqp_report(file_name: &str) {
     println!("{}", border.cyan());
     println!(
         "  {}",
-        "xazzLang AI Neural Query Planner  정적 분석 리포트"
+        "Xazz AI Neural Query Planner  정적 분석 리포트"
             .green()
             .bold()
     );

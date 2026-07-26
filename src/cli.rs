@@ -1,13 +1,13 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-/// xazzLang 통합 CLI — 컴파일러 · 정적 분석 · Rust 에밋 · 합성 데이터 생성기
+/// Xazz 통합 CLI — 컴파일러 · 정적 분석 · Rust 에밋 · 합성 데이터 생성기
 #[derive(Parser, Debug)]
 #[command(
     name = "xazz",
     version,
     author,
-    about = "xazzLang unified toolchain: run, check, emit, and generate synthetic data"
+    about = "Xazz unified toolchain: run, check, emit, and generate synthetic data"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -81,7 +81,7 @@ pub enum Commands {
         output: PathBuf,
     },
 
-    /// 새 xazzLang 프로젝트를 생성합니다
+    /// 새 Xazz 프로젝트를 생성합니다
     ///
     /// 예: xazz new my-project
     New {

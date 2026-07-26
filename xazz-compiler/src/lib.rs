@@ -1,4 +1,4 @@
-/// xazzLang Compiler Library
+/// Xazz Compiler Library
 ///
 /// 포함된 모듈:
 ///   - token   → xazz-core::token 재노출 (Span, Token, TokenKind)

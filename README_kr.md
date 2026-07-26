@@ -1,23 +1,26 @@
 <div align="center">
 
 ```text
- ██╗  ██╗ ██╗ ███████╗███████╗██╗      █████╗ ███╗   ██╗ ██████╗ 
- ╚██╗██╔╝███║ ╚══███╔╝╚══███╔╝██║     ██╔══██╗████╗  ██║██╔════╝ 
-  ╚███╔╝ ╚██║   ███╔╝   ███╔╝ ██║     ███████║██╔██╗ ██║██║  ███╗
-  ██╔██╗  ██║  ███╔╝   ███╔╝  ██║     ██╔══██║██║╚██╗██║██║   ██║
- ██╔╝ ██╗ ██║ ███████╗███████╗███████╗██║  ██║██║ ╚████║╚██████╔╝
- ╚═╝  ╚═╝ ╚═╝ ╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ 
+ ██╗  ██╗ █████╗ ███████╗███████╗
+ ╚██╗██╔╝██╔══██╗╚══███╔╝╚══███╔╝
+  ╚███╔╝ ███████║  ███╔╝   ███╔╝ 
+  ██╔██╗ ██╔══██║ ███╔╝   ███╔╝  
+ ██╔╝ ██╗██║  ██║███████╗███████╗
+ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝
 ```
 
 # Xazz
 
-**데이터 분석 접근성을 탐구하기 위해 설계된 Rust 기반 DSL 플랫폼.**  
-*겉으로는 스크립트, 핵심은 컴파일러.*
+**Polars 초고속 데이터 전처리와 Burn 딥러닝 컴파일러, 정적 보안 가드레일을 단일 DSL로 통합한 차세대 Rust 기반 AI 파이프라인 개발 플랫폼.**
+
+*겉으로는 스크립트, 핵심은 컴파일러*
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Language: .xzz](https://img.shields.io/badge/Language-.xzz-orange.svg)]()
 [![Backend: Polars](https://img.shields.io/badge/Backend-Polars-red.svg)]()
+[![DL Engine: Burn](https://img.shields.io/badge/DL%20Engine-Burn-purple.svg)]()
 [![Version: v0.2.8](https://img.shields.io/badge/Version-v0.2.8-green.svg)](https://github.com/xazzdev/Xazz/releases)
+[![CI](https://github.com/xazzdev/Xazz/actions/workflows/ci.yml/badge.svg)](https://github.com/xazzdev/Xazz/actions/workflows/ci.yml)
 
 [English README](README.md)
 
@@ -25,75 +28,125 @@
 
 ---
 
-## 프로젝트 소개
+## 개요
 
-Xazz은 데이터 분석 도구의 접근성을 탐구하기 위해 설계된 DSL(도메인 특화 언어)이다.  
-`.xzz` 스크립트를 Rust 기반 컴파일러 파이프라인을 통해 [Polars](https://github.com/pola-rs/polars) LazyFrame 실행 계획으로 컴파일한다.
+### 개발 목적
 
-이 프로젝트의 핵심은 **언어 설계**, **컴파일러 엔지니어링**, **타입 시스템 연구**다.  
-기존 데이터 분석 도구를 대체하는 것이 목표가 아니다.
+Python 기반 AI 파이프라인의 런타임 타입 오류와 언어 간 오버헤드를 구조적으로 해결하기 위해 개발되었습니다. Rust의 강타입 시스템으로 결측치와 타입 오류를 컴파일 단계에서 원천 검증하고, 실시간 보안 무결성 검증 기능을 통합하여 단일 DSL 스크립트만으로 데이터 전처리부터 딥러닝 학습까지 엔드투엔드로 제어하는 차세대 오픈소스 AI 개발 환경을 지향합니다.
 
-**이 프로젝트에서 확인할 수 있는 것:**
-- `Option<T>` 기반 null-safe 타입 시스템을 가진 선언적 파이프라인 DSL
-- Polars 같은 무거운 의존성을 CLI 바이너리에서 격리한 멀티 크레이트 Rust 워크스페이스 구조
-- CSV 파일에서 타입 정의를 자동 생성하는 스키마 추론 도구 (`xazz import`)
-- 파이프라인 편집을 위한 Visual IDE
+### 프로젝트 소개
+
+Xazz는 Polars 엔진과 Burn 프레임워크를 결합한 Rust 기반 엔드투엔드 DSL 플랫폼입니다. 스크립트 언어 특유의 개발 생산성을 유지하면서도 제로카피 기반 텐서 변환과 정적 분석 기반 널(Null) 안전성을 제공합니다. 대용량 데이터 처리 과정에서 발생할 수 있는 비정상 입력과 메모리 접근 위험을 최소화하기 위해 데이터 흐름 추적 기반 샌드박스를 구현했습니다. 본 프로젝트는 단순 라이브러리 래퍼가 아닌 파서, AST, 데이터 전처리, 보안 런타임, 딥러닝 컴파일 엔진까지 핵심 툴체인을 바닥부터 직접 설계·구현한 독립 오픈소스 플랫폼입니다.
 
 ---
 
-## 핵심 아이디어
+## 핵심 기능 및 기술 요소
 
-기존 데이터 분석 워크플로는 실제 데이터를 만지기 전에 준비가 필요하다. Python 설치, 라이브러리 설치, 가상환경 구성, 컬럼 타입 수동 파악, NaN 처리...
+### 1. Compiler Core & Acceleration
+- **컴파일러 코어**: 독자적인 AI 스크립트 언어 파서(Parser) 및 추상 구문 트리(AST) 툴체인 구현
+- **딥러닝 컴파일 계층**: Rust 기반 고성능 AI 프레임워크인 **Burn**을 연동하여 제로카피 텐서 연산 및 딥러닝 학습 레이어로 전환되는 컴파일 엔진 구축
+- **데이터 가속 엔진**: **Polars** 엔진을 융합하여 사용자의 전처리 명령을 초고속 LazyFrame 연산 그래프로 변환 및 실행
 
-Xazz은 다른 방향을 탐구한다. 스키마를 타입 선언으로 먼저 정의하고, null 안전성을 타입 시스템에서 강제하며, 파이프라인은 이름 있는 연산자의 조합으로 표현한다.
+### 2. Security & Privacy Guardrails
+- **정적 가드레일 (Policy-as-Code)**: 코드 실행 직전 단계에서 개인정보 유출 및 보안 컴플라이언스 위반을 실시간 탐지·차단하는 통제 계층
+- **프라이버시 R&D**: 통계적 노이즈 주입으로 수학적 안전성을 보장하는 **차등 프라이버시(Differential Privacy, DP)** 알고리즘 연구 및 검증
+- **내장형 sLM 보안 어시스턴트**: 외부 유출 없는 온프레미스 sLM을 탑재하여 차단된 코드를 안전하게 자동 보정하고 위반 사유 리포트 제공
 
-```
-타입 선언 → 파이프라인 조합 → 컴파일된 실행
-```
+### 3. Visual Console & Monitoring
+- **비주얼 콘솔 UI**: React 및 `@xyflow/react` 기반으로 데이터 전처리 및 딥러닝 컴파일 흐름을 시각화하는 노드 기반 웹 IDE 제공
+- **실시간 모니터링**: 차등 프라이버시의 보안 예산(Privacy Budget) 소모 상태와 연산 자원 효율성을 모니터링하는 통계 대시보드 구축
 
-목적은 기존 도구를 대체하는 것이 아니라, 타입 안전한 데이터 파이프라인 언어를 처음부터 설계하면 어떤 형태가 되는지 탐구하는 것이다.
+### 4. 💎 Reliability Infrastructure
+- **신뢰성 인프라**: 모든 연산 이력을 영구 보존하는 **SHA-256 기반 감사 로그(Audit Log)** 시스템 설계
+- **글로벌 CI/CD**: GitHub Actions 기반 자동화 테스트 및 신뢰도 높인 검증 환경 구축
+
+---
+
+## 아키텍처 및 크레이트 구조
+
+Xazz는 모듈화된 Rust 워크스페이스(Workspace)로 구성되어 있습니다.
+
+| Crate | 역할 및 기능 설명 |
+| :--- | :--- |
+| **`xazz`** | CLI 바이너리 진입점 (`xazz run`, `xazz emit` 등 명령 제공) |
+| **`xazz-core`** | AST(추상 구문 트리), 정적 타입 검사기, 공통 데이터 타입 및 텐서 정의 |
+| **`xazz-compiler`** | `.xzz` DSL 스크립트 파싱, AST 생성, Burn/Polars 연산 컴파일러 |
+| **`xazz-runner`** | 데이터 흐름 추적 기반 보안 샌드박싱 및 서브프로세스 격리 런타임 |
+| **`xazz-exec`** | Polars LazyFrame 전처리 및 Burn 텐서 딥러닝 실행 엔진 |
+| **`xazz-server`** | sLM 보안 보정 엔진, 웹 콘솔 백엔드 및 SHA-256 감사 로그 서버 |
+
+---
+
+## 기대 효과
+
+- **극대화된 연산 효율성**: Apache Arrow 기반 메모리 레이아웃과 Rust 런타임 활용으로 기존 Python 데이터 처리 환경 대비 파이프라인 연산 및 자원 효율 향상
+- **GPU 자원 낭비 원천 차단**: 컴파일 단계에서 결측치 및 타입을 정적으로 검사하여 오류를 사전 발견, 대규모 분산 학습 시 불필요한 GPU 자원 손실 예방
+- **엔터프라이즈 데이터 신뢰성**: 제로-오버헤드 보안 엔진 및 차등 프라이버시를 통해 금융·의료 등 민감 데이터를 다루는 산업에서도 안심하고 AI 학습을 수행할 수 있는 보안 인프라 제공
+- **생태계 저변 확대**: 선언형 데이터 파이프라인 DSL로 개발 진입 장벽을 낮추고, 체계적인 기여 가이드라인을 기반으로 대한민국 주도의 데이터 엔지니어링 오픈소스 생태계 활성화에 기여
 
 ---
 
 ## 빠른 예제
 
-**시나리오:** CSV 파일에서 공기질 데이터를 필터링하고 집계한다.
+**시나리오:** 공기질 CSV 데이터를 로드하고, Polars로 널 안전 전처리를 수행한 뒤, 제로카피 텐서 변환으로 Burn 딥러닝 예측 모델을 학습한다.
 
-### Python (pandas)
+### Python (pandas + PyTorch)
 
 ```python
 import pandas as pd
+import torch
+import torch.nn as nn
 
-df = pd.read_csv("data.csv")
-df = df[df["pm10"] > 50]
-result = df.groupby("station")["pm10"].mean()
-print(result)
+# 1. 전처리 (정적 타입 검사 없음, 런타임 NaN 위험)
+df = pd.read_csv("air_data.csv")
+df["pm10"] = df["pm10"].fillna(df["pm10"].mean())
+X = torch.tensor(df[["temp", "humidity"]].values, dtype=torch.float32)
+y = torch.tensor(df[["pm10"]].values, dtype=torch.float32)
+
+# 2. PyTorch 모델 & 학습 (메모리 복사 및 장황한 보일러플레이트)
+class Predictor(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.net = nn.Sequential(nn.Linear(2, 64), nn.ReLU(), nn.Linear(64, 1))
+    def forward(self, x): return self.net(x)
+
+model = Predictor()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+criterion = nn.MSELoss()
+# ... (장황한 학습 루프 필요)
 ```
 
-*라이브러리 설치 필요. 타입 오류는 실행 시점에 발생. null 처리는 수동.*
-
-### Xazz
+### Xazz (.xzz)
 
 ```xzz
-type AirQuality = {
-  station: string,
-  pm10:    Option<float>,
+// 1. 스키마 선언 (컴파일 타임 Null 안전)
+type AirData = {
+    temp:     float,
+    humidity: float,
+    pm10:     Option<float>,
 }
 
-v data = load("data.csv") :: AirQuality
-  |> cast("pm10", "float")
-  |> filter(pm10 > 50)
-  |> groupBy("station")
-  |> mean("pm10")
+// 2. Polars 기반 초고속 Lazy 전처리
+v dataset = load("air_data.csv") :: AirData
+    |> fillNull("pm10", strategy: "mean")
+    |> select(["temp", "humidity", "pm10"])
+
+// 3. 선언적 Burn 딥러닝 모델
+model AirPredictor {
+    Dense(64) -> ReLU() -> Dense(1)
+}
+
+// 4. 제로카피 텐서 변환 통합 실행
+run dataset 
+    |> train(AirPredictor, target: "pm10", epochs: 10)
 ```
 
-*import 없음. 스키마를 먼저 선언. `Option<T>`로 null 안전 처리.*
-
-| | Python (pandas) | Xazz |
-|--|-----------------|----------|
-| 라이브러리 의존성 | `pandas`, `numpy` | 없음 (내장) |
-| 타입 검증 시점 | 런타임 | 스키마 선언 시 |
-| Null 처리 | 수동 NaN 처리 | 타입 정의의 `Option<T>` |
+| 기능 | Python (pandas + PyTorch) | Xazz (.xzz) |
+|------|--------------------------|-------------|
+| 파이프라인 범위 | 분리됨 (pandas + PyTorch 별도) | 통합 End-to-End DSL (전처리→DL) |
+| 텐서 변환 | 메모리 복사 오버헤드 (CPU/GPU) | 제로카피 텐서 통합 (Burn 백엔드) |
+| 타입 & Null 안전 | 런타임 예외 위험 (NaN / 타입 오류) | 컴파일 타임 정적 가드 (`Option<T>`) |
+| 모델 보일러플레이트 | 수동 텐서 레이아웃 & 차원 배선 | 자동 추론 특성 차원 & 손실 함수 |
 
 **`xazz import`부터 실행까지:**
 
@@ -139,50 +192,6 @@ xazz run main.xzz      # 컴파일 + 파이프라인 실행
 | `Option<T>` 타입 시스템 | null-safe 컬럼 선언, `fillNull` 연산자 | Stable |
 | EUC-KR CSV 지원 | CP949 인코딩 한글 CSV 자동 감지 및 디코딩 | Stable |
 | Visual IDE | 그래픽 파이프라인 편집기 (별도 저장소) | Stable |
-
----
-
-## 아키텍처
-
-Xazz은 의존성 격리를 의도적으로 설계한 Cargo 워크스페이스 구조를 사용한다.  
-CLI 바이너리에는 Polars나 Tokio가 링크되지 않는다. 무거운 의존성은 실행 엔진 바이너리(`xazz-runner` / `xazz-exec`)에만 격리된다.
-
-```
-xazz (CLI 바이너리)
-│  clap + indicatif + colored + csv + anyhow + encoding_rs
-│  Polars 없음  ·  Tokio 없음
-│
-├── xazz-compiler          Lexer → Parser → Codegen → Emitter
-│   └── xazz-core          공유 AST / Token / Error 타입 (serde만)
-│
-└── [서브프로세스 스폰] ──► xazz-runner
-                           │
-                           └── xazz-exec       Polars LazyFrame 런타임
-```
-
-**크레이트별 역할:**
-
-| 크레이트 | 역할 | 무거운 의존성 |
-|----------|------|--------------|
-| `xazz` (CLI) | 인자 파싱, import, new, emit, check | 없음 |
-| `xazz-core` | 공유 AST, Token, Error 타입 | serde만 |
-| `xazz-compiler` | Lexer / Parser / Codegen / Emitter | 없음 |
-| `xazz-exec` | Polars 실행 엔진 | **Polars, encoding_rs** |
-| `xazz-runner` | 실행 바이너리 (CLI가 스폰) | xazz-exec 통해 간접 |
-| `xazz-sde` | 합성 데이터 생성기 (독립) | polars, rayon |
-| `xazz-server` | REST API 서버 (독립) | axum, tokio |
-
-**이 구조를 선택한 이유:**  
-CLI 바이너리는 Polars를 링크하지 않아 ~2–5 MB를 유지한다. `xazz run` 호출 시 `xazz-runner`를 서브프로세스로 스폰한다. 러너가 Polars 의존성 전체를 담당한다. 두 바이너리 간 통신은 CLI 인자만 사용한다(별도 IPC 없음).
-
-**바이너리 크기 분리:**
-
-| 바이너리 | 예상 크기 | 포함 내용 |
-|----------|----------|----------|
-| `xazz` (CLI) | ~2–5 MB | 컴파일러, 스키마 추론, 프로젝트 생성 |
-| `xazz-runner` | ~30+ MB | Polars 실행 엔진 |
-
-상세 내용은 [docs/WORKSPACE.md](docs/WORKSPACE.md) 참고.
 
 ---
 
@@ -233,9 +242,9 @@ cargo build --release -p xazz-runner
 
 ## 벤치마크
 
-![Xazz Benchmark](benches/Xazz_benchmark2.png)
+![Xazz Benchmark](benches/x1zzLang_benchmark2.png)
 
-서울 공기질 데이터셋 340만 행을 기준으로 Xazz과 동일한 pandas 파이프라인을 비교했다.
+서울 공기질 데이터셋 340만 행을 기준으로 Xazz와 동일한 pandas 파이프라인을 비교했다.
 
 > 해당 워크로드에서 pandas 대비 최대 **3.84배 빠른** 실행 속도를 달성했다.
 
@@ -264,7 +273,7 @@ cargo build --release -p xazz-runner
 **코드 기여(Pull Request) 관련:**  
 2026년 제8회 한국코드페어 평가 기간 동안 저작자 동일성 보장을 위해 코드 기여(PR)는 2026년 10월까지 임시 중단 상태다. 대회 종료 후 재개된다.
 
-- 이슈(버그 제보, 아이디어, 논의): 항상 열려 있음
+- 이슈(버그 제보, 아이디어, 논의): 항상 열림
 - Pull Request: 2026년 10월까지 중단
 
 로컬 빌드 방법과 기여 가이드는 [CONTRIBUTING.md](CONTRIBUTING.md) 참고.

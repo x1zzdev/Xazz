@@ -1,22 +1,24 @@
 <div align="center">
 
 ```text
- ██╗  ██╗ ██╗ ███████╗███████╗██╗      █████╗ ███╗   ██╗ ██████╗ 
- ╚██╗██╔╝███║ ╚══███╔╝╚══███╔╝██║     ██╔══██╗████╗  ██║██╔════╝ 
-  ╚███╔╝ ╚██║   ███╔╝   ███╔╝ ██║     ███████║██╔██╗ ██║██║  ███╗
-  ██╔██╗  ██║  ███╔╝   ███╔╝  ██║     ██╔══██║██║╚██╗██║██║   ██║
- ██╔╝ ██╗ ██║ ███████╗███████╗███████╗██║  ██║██║ ╚████║╚██████╔╝
- ╚═╝  ╚═╝ ╚═╝ ╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ 
+ ██╗  ██╗ █████╗ ███████╗███████╗
+ ╚██╗██╔╝██╔══██╗╚══███╔╝╚══███╔╝
+  ╚███╔╝ ███████║  ███╔╝   ███╔╝ 
+  ██╔██╗ ██╔══██║ ███╔╝   ███╔╝  
+ ██╔╝ ██╗██║  ██║███████╗███████╗
+ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝
 ```
 
 # Xazz
 
-**A Rust-based DSL platform exploring data analysis accessibility.**  
+**A next-generation Rust-based AI pipeline platform unifying Polars preprocessing, Burn deep learning compilation, and static security guardrails into a single DSL.**
+
 *Scripting on the surface. Compiled at its core.*
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Language: .xzz](https://img.shields.io/badge/Language-.xzz-orange.svg)]()
 [![Backend: Polars](https://img.shields.io/badge/Backend-Polars-red.svg)]()
+[![DL Engine: Burn](https://img.shields.io/badge/DL%20Engine-Burn-purple.svg)]()
 [![Version: v0.2.8](https://img.shields.io/badge/Version-v0.2.8-green.svg)](https://github.com/xazzdev/Xazz/releases)
 [![CI](https://github.com/xazzdev/Xazz/actions/workflows/ci.yml/badge.svg)](https://github.com/xazzdev/Xazz/actions/workflows/ci.yml)
 
@@ -26,73 +28,125 @@
 
 ---
 
-## Project Overview
+## Overview
 
-Xazz is a domain-specific language (DSL) designed to explore how data analysis tooling can be made more accessible. The language compiles `.xzz` scripts into optimized [Polars](https://github.com/pola-rs/polars) LazyFrame execution plans via a Rust-based compiler pipeline.
+### Development Purpose
 
-This project is primarily an exercise in **language design**, **compiler engineering**, and **type system research** — not a production-ready replacement for existing data analysis tools.
+Xazz was developed to structurally resolve runtime type errors and cross-language overhead inherent in Python-based AI pipelines. Built on Rust's strong type system, it validates missing values and type mismatches at the compilation stage, integrates real-time security integrity verification, and aims to be a next-generation open-source AI development environment — where a single DSL script controls everything from data preprocessing to deep learning training, end-to-end.
 
-**What this project demonstrates:**
-- A declarative pipeline DSL with a null-safe type system (`Option<T>`)
-- A multi-crate Rust workspace that isolates heavy dependencies (Polars) from the CLI binary
-- An auto schema inference tool (`xazz import`) that generates type definitions from CSV files
-- A Visual IDE for graphical pipeline editing
+### About the Project
+
+Xazz is a Rust-based end-to-end DSL platform combining the **Polars** engine and the **Burn** deep learning framework. It preserves the development productivity of a scripting language while providing zero-copy tensor conversion and static-analysis-based null safety. To minimize abnormal input and memory access risks during large-scale data processing, a data-flow-tracking sandbox has been implemented. This project is not a simple library wrapper — it is an independent open-source platform where the parser, AST, data preprocessing, security runtime, and deep learning compilation engine have all been designed and implemented from the ground up.
 
 ---
 
-## Core Idea
+## Key Features
 
-Most data analysis workflows require environment setup before touching a single row of data: install Python, install libraries, configure a virtual environment, infer column types by hand, handle nulls explicitly.
+### 1. Compiler Core & Acceleration
+- **Compiler Core**: Independent AI scripting language parser and abstract syntax tree (AST) toolchain implementation
+- **Deep Learning Compilation Layer**: Integration with **Burn**, a high-performance Rust AI framework, to compile zero-copy tensor operations into deep learning training layers
+- **Data Acceleration Engine**: Fusing with the **Polars** engine to transform user preprocessing commands into ultra-fast LazyFrame operation graphs and execute them
 
-Xazz explores a different approach: schema is declared upfront in the type system, null-safety is enforced at the type level, and the pipeline is expressed as a composition of named operations.
+### 2. Security & Privacy Guardrails
+- **Static Guardrails (Policy-as-Code)**: Real-time detection and blocking of personal information leaks and security compliance violations at the pre-execution stage
+- **Privacy R&D**: Research and validation of **Differential Privacy (DP)** algorithms that guarantee mathematical safety through statistical noise injection
+- **Built-in sLM Security Assistant**: An on-premise small Language Model (sLM) that automatically corrects blocked code without external leakage and provides violation reason reports
 
-```
-Type declaration → Pipeline composition → Compiled execution
-```
+### 3. Visual Console & Monitoring
+- **Visual Console UI**: A node-based web IDE built with React and `@xyflow/react` that visualizes data preprocessing and deep learning compilation flows
+- **Real-Time Monitoring**: A statistical dashboard for monitoring the privacy budget consumption status of Differential Privacy and computational resource efficiency
 
-The goal is not to replace existing tools but to investigate what a purpose-built, type-safe data pipeline language looks like and how far that design can go.
+### 4. 💎 Reliability Infrastructure
+- **Reliability Infrastructure**: Design of a **SHA-256-based audit log** system that permanently preserves all operation histories
+- **Global CI/CD**: Automated testing and high-reliability verification environment built on GitHub Actions
+
+---
+
+## Architecture & Crate Structure
+
+Xazz is organized as a modularized Rust workspace.
+
+| Crate | Role & Function |
+| :--- | :--- |
+| **`xazz`** | CLI binary entry point (`xazz run`, `xazz emit`, etc.) |
+| **`xazz-core`** | AST (Abstract Syntax Tree), static type checker, common data types, and tensor definitions |
+| **`xazz-compiler`** | `.xzz` DSL script parsing, AST generation, Burn/Polars operation compiler |
+| **`xazz-runner`** | Data-flow-tracking security sandboxing and subprocess-isolated runtime |
+| **`xazz-exec`** | Polars LazyFrame preprocessing and Burn tensor deep learning execution engine |
+| **`xazz-server`** | sLM security correction engine, web console backend, and SHA-256 audit log server |
+
+---
+
+## Expected Effects
+
+- **Maximized Computational Efficiency**: Improved pipeline computation and resource efficiency over existing Python data processing environments through Apache Arrow-based memory layout and Rust runtime
+- **Elimination of GPU Resource Waste**: Statically inspecting missing values and types at the compilation stage to pre-detect errors, preventing unnecessary GPU resource loss during large-scale distributed training
+- **Enterprise Data Reliability**: Providing a secure infrastructure that allows industries handling sensitive data — such as finance and healthcare — to perform AI training with confidence through zero-overhead security engine and differential privacy
+- **Ecosystem Expansion**: Lowering the development entry barrier with a declarative data pipeline DSL, and contributing to activating a Korea-led data engineering open-source ecosystem based on systematic contribution guidelines
 
 ---
 
 ## Quick Example
 
-**Scenario:** Filter and aggregate air quality data from a CSV file.
+**Scenario:** Load air quality CSV data, apply null-safe preprocessing via Polars, and train a deep learning prediction model using Burn with zero-copy tensor conversion.
 
-### Python (pandas)
+### Python (pandas + PyTorch)
 
 ```python
 import pandas as pd
+import torch
+import torch.nn as nn
 
-df = pd.read_csv("data.csv")
-df = df[df["pm10"] > 50]
-result = df.groupby("station")["pm10"].mean()
-print(result)
+# 1. Preprocessing (No static type check, runtime NaN risk)
+df = pd.read_csv("air_data.csv")
+df["pm10"] = df["pm10"].fillna(df["pm10"].mean())
+X = torch.tensor(df[["temp", "humidity"]].values, dtype=torch.float32)
+y = torch.tensor(df[["pm10"]].values, dtype=torch.float32)
+
+# 2. PyTorch Model & Training (Involves memory copy & verbose boilerplate)
+class Predictor(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.net = nn.Sequential(nn.Linear(2, 64), nn.ReLU(), nn.Linear(64, 1))
+    def forward(self, x): return self.net(x)
+
+model = Predictor()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+criterion = nn.MSELoss()
+# ... (Verbose training loop required)
 ```
 
-*Requires library installation. Type errors surface at runtime. Null handling is manual.*
-
-### Xazz
+### Xazz (.xzz)
 
 ```xzz
-type AirQuality = {
-  station: string,
-  pm10:    Option<float>,
+// 1. Schema declaration (Compile-time Null Safety)
+type AirData = {
+    temp:     float,
+    humidity: float,
+    pm10:     Option<float>,
 }
 
-v data = load("data.csv") :: AirQuality
-  |> cast("pm10", "float")
-  |> filter(pm10 > 50)
-  |> groupBy("station")
-  |> mean("pm10")
+// 2. Ultra-fast Lazy preprocessing via Polars
+v dataset = load("air_data.csv") :: AirData
+    |> fillNull("pm10", strategy: "mean")
+    |> select(["temp", "humidity", "pm10"])
+
+// 3. Declarative Burn Deep Learning Model
+model AirPredictor {
+    Dense(64) -> ReLU() -> Dense(1)
+}
+
+// 4. Integrated execution with Zero-Copy Tensor conversion
+run dataset 
+    |> train(AirPredictor, target: "pm10", epochs: 10)
 ```
 
-*No imports. Schema declared upfront. Null-safe via `Option<T>`.*
-
-| | Python (pandas) | Xazz |
-|--|-----------------|----------|
-| Library dependencies | `pandas`, `numpy` | None (built-in) |
-| Type validation | Runtime | Schema declaration time |
-| Null handling | Manual NaN checks | `Option<T>` in type definition |
+| Feature | Python (pandas + PyTorch) | Xazz (.xzz) |
+|---------|--------------------------|-------------|
+| Pipeline Scope | Fragmented (pandas + PyTorch separately) | Unified End-to-End DSL (Preprocessing to DL) |
+| Tensor Conversion | Memory copy overhead (CPU/GPU) | Zero-Copy Tensor Integration (Burn backend) |
+| Type & Null Safety | Runtime exception risk (NaN / Type error) | Compile-time Static Guard (`Option<T>`) |
+| Model Boilerplate | Manual tensor layout & dimension wiring | Auto-inferred feature dimensions & loss function |
 
 **From `xazz import` to running pipeline:**
 
@@ -138,49 +192,6 @@ A graphical editing and execution environment for `.xzz` pipelines.
 | `Option<T>` type system | Null-safe column declarations, `fillNull` operator | Stable |
 | EUC-KR CSV support | Auto-detect and decode CP949-encoded Korean CSV files | Stable |
 | Visual IDE | Graphical pipeline editor (separate repository) | Stable |
-
----
-
-## Architecture
-
-Xazz is structured as a Cargo workspace with intentional dependency isolation. The CLI binary does not link Polars or Tokio — those are isolated to the execution engine binary (`xazz-runner` / `xazz-exec`).
-
-```
-xazz (CLI binary)
-│  clap + indicatif + colored + csv + anyhow + encoding_rs
-│  NO Polars  ·  NO Tokio
-│
-├── xazz-compiler          Lexer → Parser → Codegen → Emitter
-│   └── xazz-core          Shared AST / Token / Error types (serde only)
-│
-└── [subprocess spawn] ──► xazz-runner
-                           │
-                           └── xazz-exec       Polars LazyFrame runtime
-```
-
-**Crate responsibilities:**
-
-| Crate | Role | Heavy deps |
-|-------|------|------------|
-| `xazz` (CLI) | Argument parsing, import, new, emit, check | None |
-| `xazz-core` | Shared AST, Token, Error types | serde only |
-| `xazz-compiler` | Lexer / Parser / Codegen / Emitter | None |
-| `xazz-exec` | Polars execution engine | **Polars, encoding_rs** |
-| `xazz-runner` | Execution binary (spawned by CLI) | via xazz-exec |
-| `xazz-sde` | Synthetic data generation (standalone) | polars, rayon |
-| `xazz-server` | REST API server (standalone) | axum, tokio |
-
-**Why this structure?**  
-The CLI binary stays small (~2–5 MB) because it never links Polars. When `xazz run` is called, it spawns `xazz-runner` as a subprocess — the runner carries all the heavy Polars dependencies independently. Communication between them uses only CLI arguments (no IPC protocol).
-
-**Binary size trade-off:**
-
-| Binary | Approx. Size | Contains |
-|--------|-------------|----------|
-| `xazz` (CLI) | ~2–5 MB | Compiler, schema inference, project scaffolding |
-| `xazz-runner` | ~30+ MB | Polars execution engine |
-
-For more detail, see [docs/WORKSPACE.md](docs/WORKSPACE.md).
 
 ---
 
@@ -231,7 +242,7 @@ Place both `xazz` and `xazz-runner` in the same directory before use.
 
 ## Benchmark
 
-![Xazz Benchmark](benches/Xazz_benchmark2.png)
+![Xazz Benchmark](benches/x1zzLang_benchmark2.png)
 
 The benchmark compares Xazz against an equivalent pandas pipeline on a 3.4M-row Seoul air quality dataset.
 

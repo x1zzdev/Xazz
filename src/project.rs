@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::Path;
 
-/// 새 xazzLang 프로젝트 디렉터리를 생성합니다.
+/// 새 Xazz 프로젝트 디렉터리를 생성합니다.
 ///
 /// 생성 구조:
 /// ```text
@@ -47,7 +47,7 @@ Songpa,68.1,36.4,2026-01-10
         .with_context(|| "data/sample.csv 파일 작성에 실패했습니다.".to_string())?;
 
     // example.xzz — 즉시 실행 가능한 파이프라인 예제
-    let example_xzz = r#"// xazzLang Quick Start Example
+    let example_xzz = r#"// Xazz Quick Start Example
 // Run: xazz run example.xzz
 // Export: xazz run example.xzz --output result.csv
 
@@ -68,7 +68,7 @@ v result = data
         .with_context(|| "example.xzz 파일 작성에 실패했습니다.".to_string())?;
 
     // main.xzz — 빈 스타터 파일
-    let main_xzz = "// xazzLang Project\n// Edit this file or run: xazz run example.xzz\n\n";
+    let main_xzz = "// Xazz Project\n// Edit this file or run: xazz run example.xzz\n\n";
     fs::write(root.join("main.xzz"), main_xzz)
         .with_context(|| "main.xzz 파일 작성에 실패했습니다.".to_string())?;
 
