@@ -13,7 +13,13 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 
-use axum::{extract::Multipart, http::StatusCode, response::Json, routing::{get, post}, Router};
+use axum::{
+    extract::Multipart,
+    http::StatusCode,
+    response::Json,
+    routing::{get, post},
+    Router,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tower_http::cors::{Any, CorsLayer};
@@ -329,10 +335,8 @@ struct AuditResponse {
     code_length: usize,
 }
 
-async fn handle_security_audit(
-    Json(payload): Json<AuditRequest>,
-) -> Json<AuditResponse> {
-    use sha2::{Sha256, Digest};
+async fn handle_security_audit(Json(payload): Json<AuditRequest>) -> Json<AuditResponse> {
+    use sha2::{Digest, Sha256};
 
     let mut hasher = Sha256::new();
     hasher.update(payload.code.as_bytes());
@@ -362,10 +366,8 @@ struct VerifyResponse {
     algorithm: String,
 }
 
-async fn handle_security_verify(
-    Json(payload): Json<VerifyRequest>,
-) -> Json<VerifyResponse> {
-    use sha2::{Sha256, Digest};
+async fn handle_security_verify(Json(payload): Json<VerifyRequest>) -> Json<VerifyResponse> {
+    use sha2::{Digest, Sha256};
 
     let mut hasher = Sha256::new();
     hasher.update(payload.code.as_bytes());

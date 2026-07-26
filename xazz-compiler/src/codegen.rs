@@ -181,17 +181,16 @@ impl Codegen {
         }
         lines.push(String::new());
         lines.push(format!("// TODO: Burn 프레임워크 연동 코드 생성"));
-        lines.push(format!("// struct {} {{ ... }}  ← Burn nn 모듈로 변환", name));
+        lines.push(format!(
+            "// struct {} {{ ... }}  ← Burn nn 모듈로 변환",
+            name
+        ));
         lines.join("\n")
     }
 
     // ── TrainStmt 변환 ────────────────────────────────────────────────────────
 
-    fn emit_train_stmt(
-        source_var: &str,
-        model_name: &str,
-        config: &TrainConfig,
-    ) -> String {
+    fn emit_train_stmt(source_var: &str, model_name: &str, config: &TrainConfig) -> String {
         let batch_str = match config.batch_size {
             Some(b) => format!("{}", b),
             None => "전체".to_string(),

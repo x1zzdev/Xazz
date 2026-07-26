@@ -913,11 +913,19 @@ fn handle_train_stmt(
     // 데이터 소스 확인
     match symbol_table.get(source_var) {
         Some(df) => {
-            println!("  데이터 소스: {} ({} 행 × {} 열)", source_var, df.height(), df.width());
+            println!(
+                "  데이터 소스: {} ({} 행 × {} 열)",
+                source_var,
+                df.height(),
+                df.width()
+            );
             println!("  컬럼: {:?}", df.get_column_names());
         }
         None => {
-            eprintln!("  ⚠️  경고: 변수 '{}' 가 심볼 테이블에 없습니다.", source_var);
+            eprintln!(
+                "  ⚠️  경고: 변수 '{}' 가 심볼 테이블에 없습니다.",
+                source_var
+            );
         }
     }
 

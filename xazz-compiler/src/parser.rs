@@ -253,10 +253,23 @@ impl Parser {
         let mut config = TrainConfig::default();
         while self.eat(&TokenKind::Comma) {
             let arg_name = match self.current_kind() {
-                TokenKind::Target => { self.advance(); "target".to_string() }
-                TokenKind::Epochs => { self.advance(); "epochs".to_string() }
-                TokenKind::Lr => { self.advance(); "lr".to_string() }
-                TokenKind::Ident(name) => { let n = name.clone(); self.advance(); n }
+                TokenKind::Target => {
+                    self.advance();
+                    "target".to_string()
+                }
+                TokenKind::Epochs => {
+                    self.advance();
+                    "epochs".to_string()
+                }
+                TokenKind::Lr => {
+                    self.advance();
+                    "lr".to_string()
+                }
+                TokenKind::Ident(name) => {
+                    let n = name.clone();
+                    self.advance();
+                    n
+                }
                 other => {
                     return Err(CompileError::new(
                         ErrorKind::UnexpectedToken(format!("{:?}", other)),
@@ -270,7 +283,10 @@ impl Parser {
             match arg_name.as_str() {
                 "target" => {
                     config.target = match self.current_kind() {
-                        TokenKind::StringLit(s) => { self.advance(); s }
+                        TokenKind::StringLit(s) => {
+                            self.advance();
+                            s
+                        }
                         other => {
                             return Err(CompileError::new(
                                 ErrorKind::ExpectedToken("StringLit".into()),
