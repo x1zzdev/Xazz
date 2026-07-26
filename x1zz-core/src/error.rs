@@ -335,15 +335,7 @@ mod tests {
             "AI Suggestion 없음: {}",
             display
         );
-        assert!(
-            display.contains("pm25"),
-            "컬럼명 포함 안 됨: {}",
-            display
-        );
-        assert!(
-            display.contains("3"),
-            "0 개수 포함 안 됨: {}",
-            display
-        );
+        assert!(display.contains("pm25"), "컬럼명 포함 안 됨: {}", display);
+        assert!(display.contains("3"), "0 개수 포함 안 됨: {}", display);
     }
 }
