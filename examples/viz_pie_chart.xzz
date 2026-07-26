@@ -1,4 +1,4 @@
-// x1zzLang Visualization Example — Pie Chart
+// Xazz Visualization Example — Pie Chart
 // 예산 카테고리별 분포를 파이 차트로 시각화
 
 type BudgetData = {

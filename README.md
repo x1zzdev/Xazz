@@ -9,7 +9,7 @@
  ╚═╝  ╚═╝ ╚═╝ ╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ 
 ```
 
-# x1zzLang
+# Xazz
 
 **A Rust-based DSL platform exploring data analysis accessibility.**  
 *Scripting on the surface. Compiled at its core.*
@@ -17,8 +17,8 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Language: .xzz](https://img.shields.io/badge/Language-.xzz-orange.svg)]()
 [![Backend: Polars](https://img.shields.io/badge/Backend-Polars-red.svg)]()
-[![Version: v0.2.8](https://img.shields.io/badge/Version-v0.2.8-green.svg)](https://github.com/x1zzdev/x1zzLang/releases)
-[![CI](https://github.com/x1zzdev/x1zzLang/actions/workflows/ci.yml/badge.svg)](https://github.com/x1zzdev/x1zzLang/actions/workflows/ci.yml)
+[![Version: v0.2.8](https://img.shields.io/badge/Version-v0.2.8-green.svg)](https://github.com/xazzdev/Xazz/releases)
+[![CI](https://github.com/xazzdev/Xazz/actions/workflows/ci.yml/badge.svg)](https://github.com/xazzdev/Xazz/actions/workflows/ci.yml)
 
 [한국어 README](README_kr.md)
 
@@ -28,14 +28,14 @@
 
 ## Project Overview
 
-x1zzLang is a domain-specific language (DSL) designed to explore how data analysis tooling can be made more accessible. The language compiles `.xzz` scripts into optimized [Polars](https://github.com/pola-rs/polars) LazyFrame execution plans via a Rust-based compiler pipeline.
+Xazz is a domain-specific language (DSL) designed to explore how data analysis tooling can be made more accessible. The language compiles `.xzz` scripts into optimized [Polars](https://github.com/pola-rs/polars) LazyFrame execution plans via a Rust-based compiler pipeline.
 
 This project is primarily an exercise in **language design**, **compiler engineering**, and **type system research** — not a production-ready replacement for existing data analysis tools.
 
 **What this project demonstrates:**
 - A declarative pipeline DSL with a null-safe type system (`Option<T>`)
 - A multi-crate Rust workspace that isolates heavy dependencies (Polars) from the CLI binary
-- An auto schema inference tool (`x1zz import`) that generates type definitions from CSV files
+- An auto schema inference tool (`xazz import`) that generates type definitions from CSV files
 - A Visual IDE for graphical pipeline editing
 
 ---
@@ -44,7 +44,7 @@ This project is primarily an exercise in **language design**, **compiler enginee
 
 Most data analysis workflows require environment setup before touching a single row of data: install Python, install libraries, configure a virtual environment, infer column types by hand, handle nulls explicitly.
 
-x1zzLang explores a different approach: schema is declared upfront in the type system, null-safety is enforced at the type level, and the pipeline is expressed as a composition of named operations.
+Xazz explores a different approach: schema is declared upfront in the type system, null-safety is enforced at the type level, and the pipeline is expressed as a composition of named operations.
 
 ```
 Type declaration → Pipeline composition → Compiled execution
@@ -71,7 +71,7 @@ print(result)
 
 *Requires library installation. Type errors surface at runtime. Null handling is manual.*
 
-### x1zzLang
+### Xazz
 
 ```xzz
 type AirQuality = {
@@ -88,28 +88,28 @@ v data = load("data.csv") :: AirQuality
 
 *No imports. Schema declared upfront. Null-safe via `Option<T>`.*
 
-| | Python (pandas) | x1zzLang |
+| | Python (pandas) | Xazz |
 |--|-----------------|----------|
 | Library dependencies | `pandas`, `numpy` | None (built-in) |
 | Type validation | Runtime | Schema declaration time |
 | Null handling | Manual NaN checks | `Option<T>` in type definition |
 
-**From `x1zz import` to running pipeline:**
+**From `xazz import` to running pipeline:**
 
 ```bash
-x1zz new my-project    # scaffold project + sample CSV
+xazz new my-project    # scaffold project + sample CSV
 cd my-project
-x1zz import data.csv   # auto-infer schema → write type block to main.xzz
-x1zz run main.xzz      # compile + execute pipeline
+xazz import data.csv   # auto-infer schema → write type block to main.xzz
+xazz run main.xzz      # compile + execute pipeline
 ```
 
 ---
 
 ## Result Preview
 
-After running a pipeline with a `chart {}` block, x1zzLang renders the result as an HTML chart:
+After running a pipeline with a `chart {}` block, Xazz renders the result as an HTML chart:
 
-![x1zzLang chart](screenshot_result_chart.png)
+![Xazz chart](screenshot_result_chart.png)
 
 > *Example: pipeline execution result rendered as a bar chart. Chart output is written to an HTML file.*
 
@@ -117,10 +117,10 @@ After running a pipeline with a `chart {}` block, x1zzLang renders the result as
 
 ## Visual IDE
 
-[![x1zzLang Visual IDE](screenshot_visual_ide.png)](https://github.com/x1zzdev/x1zzLang-visual-ide)
+[![Xazz Visual IDE](screenshot_visual_ide.png)](https://github.com/xazzdev/Xazz-visual-ide)
 
 A graphical editing and execution environment for `.xzz` pipelines.  
-→ [x1zzLang Visual IDE repository](https://github.com/x1zzdev/x1zzLang-visual-ide)
+→ [Xazz Visual IDE repository](https://github.com/xazzdev/Xazz-visual-ide)
 
 ---
 
@@ -128,12 +128,12 @@ A graphical editing and execution environment for `.xzz` pipelines.
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| `x1zz run` | Compile and execute `.xzz` pipeline | Stable |
-| `x1zz import` | Auto-infer CSV schema → generate type block | Stable |
-| `x1zz new` | Scaffold project with sample CSV and runnable example | Stable |
-| `x1zz emit rust` | Transpile `.xzz` → Rust source (Polars LazyFrame calls) | Stable |
-| `x1zz check` | Static analysis via Neural Query Planner | Experimental |
-| `x1zz sde` | Synthetic data generation engine integration | Preview |
+| `xazz run` | Compile and execute `.xzz` pipeline | Stable |
+| `xazz import` | Auto-infer CSV schema → generate type block | Stable |
+| `xazz new` | Scaffold project with sample CSV and runnable example | Stable |
+| `xazz emit rust` | Transpile `.xzz` → Rust source (Polars LazyFrame calls) | Stable |
+| `xazz check` | Static analysis via Neural Query Planner | Experimental |
+| `xazz sde` | Synthetic data generation engine integration | Preview |
 | Built-in `chart {}` | Render pipeline results as bar / line / pie / scatter | Stable |
 | `Option<T>` type system | Null-safe column declarations, `fillNull` operator | Stable |
 | EUC-KR CSV support | Auto-detect and decode CP949-encoded Korean CSV files | Stable |
@@ -143,42 +143,42 @@ A graphical editing and execution environment for `.xzz` pipelines.
 
 ## Architecture
 
-x1zzLang is structured as a Cargo workspace with intentional dependency isolation. The CLI binary does not link Polars or Tokio — those are isolated to the execution engine binary (`x1zz-runner` / `x1zz-exec`).
+Xazz is structured as a Cargo workspace with intentional dependency isolation. The CLI binary does not link Polars or Tokio — those are isolated to the execution engine binary (`xazz-runner` / `xazz-exec`).
 
 ```
-x1zz (CLI binary)
+xazz (CLI binary)
 │  clap + indicatif + colored + csv + anyhow + encoding_rs
 │  NO Polars  ·  NO Tokio
 │
-├── x1zz-compiler          Lexer → Parser → Codegen → Emitter
-│   └── x1zz-core          Shared AST / Token / Error types (serde only)
+├── xazz-compiler          Lexer → Parser → Codegen → Emitter
+│   └── xazz-core          Shared AST / Token / Error types (serde only)
 │
-└── [subprocess spawn] ──► x1zz-runner
+└── [subprocess spawn] ──► xazz-runner
                            │
-                           └── x1zz-exec       Polars LazyFrame runtime
+                           └── xazz-exec       Polars LazyFrame runtime
 ```
 
 **Crate responsibilities:**
 
 | Crate | Role | Heavy deps |
 |-------|------|------------|
-| `x1zz` (CLI) | Argument parsing, import, new, emit, check | None |
-| `x1zz-core` | Shared AST, Token, Error types | serde only |
-| `x1zz-compiler` | Lexer / Parser / Codegen / Emitter | None |
-| `x1zz-exec` | Polars execution engine | **Polars, encoding_rs** |
-| `x1zz-runner` | Execution binary (spawned by CLI) | via x1zz-exec |
-| `x1zz-sde` | Synthetic data generation (standalone) | polars, rayon |
-| `x1zz-server` | REST API server (standalone) | axum, tokio |
+| `xazz` (CLI) | Argument parsing, import, new, emit, check | None |
+| `xazz-core` | Shared AST, Token, Error types | serde only |
+| `xazz-compiler` | Lexer / Parser / Codegen / Emitter | None |
+| `xazz-exec` | Polars execution engine | **Polars, encoding_rs** |
+| `xazz-runner` | Execution binary (spawned by CLI) | via xazz-exec |
+| `xazz-sde` | Synthetic data generation (standalone) | polars, rayon |
+| `xazz-server` | REST API server (standalone) | axum, tokio |
 
 **Why this structure?**  
-The CLI binary stays small (~2–5 MB) because it never links Polars. When `x1zz run` is called, it spawns `x1zz-runner` as a subprocess — the runner carries all the heavy Polars dependencies independently. Communication between them uses only CLI arguments (no IPC protocol).
+The CLI binary stays small (~2–5 MB) because it never links Polars. When `xazz run` is called, it spawns `xazz-runner` as a subprocess — the runner carries all the heavy Polars dependencies independently. Communication between them uses only CLI arguments (no IPC protocol).
 
 **Binary size trade-off:**
 
 | Binary | Approx. Size | Contains |
 |--------|-------------|----------|
-| `x1zz` (CLI) | ~2–5 MB | Compiler, schema inference, project scaffolding |
-| `x1zz-runner` | ~30+ MB | Polars execution engine |
+| `xazz` (CLI) | ~2–5 MB | Compiler, schema inference, project scaffolding |
+| `xazz-runner` | ~30+ MB | Polars execution engine |
 
 For more detail, see [docs/WORKSPACE.md](docs/WORKSPACE.md).
 
@@ -188,24 +188,24 @@ For more detail, see [docs/WORKSPACE.md](docs/WORKSPACE.md).
 
 ### Option A — Pre-built release (recommended)
 
-1. Download the latest release archive for your platform from [Releases](https://github.com/x1zzdev/x1zzLang/releases).
+1. Download the latest release archive for your platform from [Releases](https://github.com/xazzdev/Xazz/releases).
 
    | Platform | Archive |
    |----------|---------|
-   | Windows x64 | `x1zz-<version>-windows-x64.zip` |
-   | Linux x64 | `x1zz-<version>-linux-x64.tar.gz` |
-   | macOS arm64 | `x1zz-<version>-macos-arm64.tar.gz` |
+   | Windows x64 | `xazz-<version>-windows-x64.zip` |
+   | Linux x64 | `xazz-<version>-linux-x64.tar.gz` |
+   | macOS arm64 | `xazz-<version>-macos-arm64.tar.gz` |
 
-2. Extract the archive. You will find `x1zz` and `x1zz-runner` in the same directory.
+2. Extract the archive. You will find `xazz` and `xazz-runner` in the same directory.
 
-   > **Important:** Both binaries must remain in the same directory. `x1zz run` spawns `x1zz-runner` as a subprocess — if `x1zz-runner` is missing, pipeline execution will fail.
+   > **Important:** Both binaries must remain in the same directory. `xazz run` spawns `xazz-runner` as a subprocess — if `xazz-runner` is missing, pipeline execution will fail.
 
 3. Add the extracted directory to your `PATH`.
 
 4. Verify:
 
    ```bash
-   x1zz --help
+   xazz --help
    ```
 
 ### Option B — Build from source
@@ -213,29 +213,29 @@ For more detail, see [docs/WORKSPACE.md](docs/WORKSPACE.md).
 Requires Rust stable toolchain.
 
 ```bash
-git clone https://github.com/x1zzdev/x1zzLang.git
-cd x1zzLang
+git clone https://github.com/xazzdev/Xazz.git
+cd Xazz
 
 # Build CLI
-cargo build --release -p x1zz
+cargo build --release -p xazz
 
 # Build execution engine
-cargo build --release -p x1zz-runner
+cargo build --release -p xazz-runner
 
 # Both binaries land in target/release/
 ```
 
-Place both `x1zz` and `x1zz-runner` in the same directory before use.
+Place both `xazz` and `xazz-runner` in the same directory before use.
 
 ---
 
 ## Benchmark
 
-![x1zzLang Benchmark](benches/x1zzLang_benchmark2.png)
+![Xazz Benchmark](benches/Xazz_benchmark2.png)
 
-The benchmark compares x1zzLang against an equivalent pandas pipeline on a 3.4M-row Seoul air quality dataset.
+The benchmark compares Xazz against an equivalent pandas pipeline on a 3.4M-row Seoul air quality dataset.
 
-> x1zzLang achieved up to **3.84× faster** execution than the pandas baseline on this workload.
+> Xazz achieved up to **3.84× faster** execution than the pandas baseline on this workload.
 
 This performance comes primarily from the Polars LazyFrame backend, which applies query optimization before execution. The benchmark is measuring end-to-end pipeline throughput, not compiler overhead.
 
@@ -257,7 +257,7 @@ Benchmark source: [`benches/run_benchmark.py`](benches/run_benchmark.py) / [`ben
 
 ## Contributing
 
-x1zzLang is an open-source project. Bug reports, ideas, and discussions via GitHub Issues are always welcome.
+Xazz is an open-source project. Bug reports, ideas, and discussions via GitHub Issues are always welcome.
 
 **Note on code contributions (Pull Requests):**  
 To maintain authorship integrity during the 8th Korea CodeFair 2026 evaluation period, code contributions (Pull Requests) are temporarily suspended until October 2026. PRs will reopen after the competition concludes.
@@ -277,6 +277,6 @@ Apache-2.0 — see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**x1zzLang — 2026**
+**Xazz — 2026**
 
 </div>

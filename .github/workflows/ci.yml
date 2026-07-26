@@ -42,7 +42,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: target
-          key: build-test-${{ matrix.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('src/**/*.rs', 'x1zz-*/src/**/*.rs') }}
+          key: build-test-${{ matrix.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('src/**/*.rs', 'xazz-*/src/**/*.rs') }}
           restore-keys: |
             build-test-${{ matrix.os }}-${{ hashFiles('**/Cargo.lock') }}-
             build-test-${{ matrix.os }}-

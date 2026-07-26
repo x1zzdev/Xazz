@@ -1,5 +1,5 @@
 """
-benches/pandas_pipeline.py  —  x1zzLang Benchmark Suite · Pandas Baseline
+benches/pandas_pipeline.py  —  Xazz Benchmark Suite · Pandas Baseline
 ==========================================================================
 Receives a target CSV file path as a CLI argument, executes all pipeline
 segments (P2 → P7) using Pandas Eager Evaluation, and emits exactly ONE

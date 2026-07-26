@@ -1,0 +1,13 @@
+[package]
+name = "xazz-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Xazz core types — AST nodes, tokens, and shared data structures. Zero heavy dependencies."
+keywords = ["compiler", "ast", "data", "pipeline"]
+categories = ["compilers"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

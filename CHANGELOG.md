@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to x1zzLang are documented in this file.
+All notable changes to Xazz are documented in this file.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)  
 Versioning: [Semantic Versioning](https://semver.org/)
@@ -55,7 +55,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ### Added
 - Initial release pipeline
-- Binary separation: `x1zz` CLI + `x1zz-runner` + `x1zz-exec`
+- Binary separation: `xazz` CLI + `xazz-runner` + `xazz-exec`
 
 ---
 
@@ -63,24 +63,24 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ### Added
 - MVP release
-- `x1zz new` — project scaffolding with sample CSV
-- `x1zz import` — CSV schema auto-inference (EUC-KR/CP949 support)
-- `x1zz run` — pipeline execution via `x1zz-runner` subprocess
-- `x1zz emit rust` — transpile `.xzz` to Rust (Polars LazyFrame)
-- `x1zz check` — experimental NQP static analysis stub
-- `x1zz sde` — synthetic data engine integration stub
+- `xazz new` — project scaffolding with sample CSV
+- `xazz import` — CSV schema auto-inference (EUC-KR/CP949 support)
+- `xazz run` — pipeline execution via `xazz-runner` subprocess
+- `xazz emit rust` — transpile `.xzz` to Rust (Polars LazyFrame)
+- `xazz check` — experimental NQP static analysis stub
+- `xazz sde` — synthetic data engine integration stub
 - Chart visualization: `chart {}` block (bar, line, pie, scatter)
 - Pipeline operators: `filter`, `groupBy`, `join`, `withColumn`, `cast`, `rename`, `sort`, `select`, `mean`, `fillNull`
 - `Option<T>` null-safe type system
-- Dependency isolation: Polars removed from CLI binary, isolated to `x1zz-exec`
-- Multi-crate workspace: `x1zz-core`, `x1zz-compiler`, `x1zz-exec`, `x1zz-runner`, `x1zz-server`
+- Dependency isolation: Polars removed from CLI binary, isolated to `xazz-exec`
+- Multi-crate workspace: `xazz-core`, `xazz-compiler`, `xazz-exec`, `xazz-runner`, `xazz-server`
 - CSV LFS migration for large example data files
 - Benchmark: 3.84× speedup over pandas on 3.4M-row workload
 
 ### Architecture
-- `x1zz` CLI binary: no Polars, no Tokio (~2–5 MB)
-- `x1zz-runner` spawned as subprocess for pipeline execution
-- `x1zz-exec` carries Polars LazyFrame runtime (~30+ MB)
+- `xazz` CLI binary: no Polars, no Tokio (~2–5 MB)
+- `xazz-runner` spawned as subprocess for pipeline execution
+- `xazz-exec` carries Polars LazyFrame runtime (~30+ MB)
 
 ---
 

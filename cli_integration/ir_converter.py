@@ -1,8 +1,8 @@
 """
-ir_converter.py — x1zzLang → IR JSON converter (minimal regex-based stub)
+ir_converter.py — Xazz → IR JSON converter (minimal regex-based stub)
 
 Converts .xzz source code into a simple pipeline IR JSON that the NQP model
-can understand. This is a glue-layer stub; it does NOT execute x1zzLang.
+can understand. This is a glue-layer stub; it does NOT execute Xazz.
 """
 
 import re
@@ -11,7 +11,7 @@ import json
 
 def convert_xzz_to_ir(source: str) -> dict:
     """
-    Parse x1zzLang source (minimal regex) and return IR dict.
+    Parse Xazz source (minimal regex) and return IR dict.
 
     IR format:
     {
@@ -118,7 +118,7 @@ def build_nqp_instruction(ir: dict) -> tuple[str, str]:
     Returns a tuple compatible with run_inference(instruction, input_text).
     """
     instruction = (
-        "Predict the semantic output of the following x1zzLang pipeline. "
+        "Predict the semantic output of the following Xazz pipeline. "
         "Describe what data transformations will occur, what the expected "
         "result structure will be, and flag any potential data quality issues."
     )

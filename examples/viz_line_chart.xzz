@@ -1,4 +1,4 @@
-// x1zzLang 시각화 예제 2: line chart
+// Xazz 시각화 예제 2: line chart
 // 연도별 매출 추이 라인 차트
 
 v revenue_chart = load("examples/sales.csv") :: SalesData

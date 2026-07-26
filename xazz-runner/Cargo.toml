@@ -1,0 +1,23 @@
+[package]
+name = "xazz-runner"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Xazz IPC runner bridge — spawned by xazz CLI, spawns xazz-exec for Polars/heavy execution. Thin relay with zero heavy dependencies."
+keywords = ["data", "pipeline", "runner", "ipc"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "xazz-runner"
+path = "src/main.rs"
+
+# ── 허용 의존성: serde, serde_json, std 만 ───────────────────────────────────
+# ⚠️  xazz-exec / Polars / tokio / rayon / reqwest / hyper 절대 추가 금지
+[dependencies]
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# [profile.release] 설정은 workspace root (Cargo.toml)에서 관리합니다.
+# 서브크레이트의 profile 설정은 무시됩니다 (Cargo workspace 규칙).

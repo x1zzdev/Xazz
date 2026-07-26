@@ -1,4 +1,4 @@
-// x1zzLang Visualization Example — Scatter Chart
+// Xazz Visualization Example — Scatter Chart
 // 공부시간과 성적의 상관관계를 산점도로 시각화
 
 type StudentData = {

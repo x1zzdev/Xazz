@@ -113,7 +113,7 @@ fn filename_to_var_name(path: &str) -> std::string::String {
 
 // ─── 스키마 추론 ────────────────────────────────────────────────────────────
 
-/// CSV 파일을 읽어 x1zz 타입 정의 + load 문을 생성합니다.
+/// CSV 파일을 읽어 xazz 타입 정의 + load 문을 생성합니다.
 ///
 /// 최대 100행 샘플만 검사합니다.
 pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
@@ -221,15 +221,15 @@ pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
 
 // ─── Import 명령어 ──────────────────────────────────────────────────────────
 
-/// CSV 파일 경로에서 x1zz.toml이 있는 프로젝트 루트 디렉토리를 탐색합니다.
+/// CSV 파일 경로에서 xazz.toml이 있는 프로젝트 루트 디렉토리를 탐색합니다.
 ///
-/// 예) `a/data/seoul.csv` → `a/` (a/x1zz.toml 이 존재하므로)
+/// 예) `a/data/seoul.csv` → `a/` (a/xazz.toml 이 존재하므로)
 fn find_project_root(csv_path: &str) -> Option<std::path::PathBuf> {
     let path = std::path::Path::new(csv_path);
-    // CSV 파일의 부모 디렉토리부터 시작해서 상위로 올라가며 x1zz.toml 탐색
+    // CSV 파일의 부모 디렉토리부터 시작해서 상위로 올라가며 xazz.toml 탐색
     let mut dir = path.parent()?;
     loop {
-        if dir.join("x1zz.toml").exists() {
+        if dir.join("xazz.toml").exists() {
             return Some(dir.to_path_buf());
         }
         match dir.parent() {
@@ -243,7 +243,7 @@ fn find_project_root(csv_path: &str) -> Option<std::path::PathBuf> {
 pub fn import_csv(file: &str) -> Result<()> {
     let generated = infer_csv_schema(file)?;
 
-    // CSV 경로에서 프로젝트 루트(x1zz.toml이 있는 디렉토리)를 찾고,
+    // CSV 경로에서 프로젝트 루트(xazz.toml이 있는 디렉토리)를 찾고,
     // 없으면 현재 디렉토리를 폴백으로 사용합니다.
     let main_xzz_path = match find_project_root(file) {
         Some(root) => root.join("main.xzz"),

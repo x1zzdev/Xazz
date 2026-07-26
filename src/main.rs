@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         //
         // ⚠️  아키텍처 원칙 (바이너리 크기 최소화):
         //   CLI 바이너리는 Polars/Tokio를 링크하지 않는다.
-        //   run 명령어는 x1zz-runner 서브프로세스를 스폰해 실행을 위임한다.
+        //   run 명령어는 xazz-runner 서브프로세스를 스폰해 실행을 위임한다.
         //   통신: CLI args만 사용 (별도 IPC 불필요)
         Commands::Run {
             file,
@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if !file.exists() {
                 eprintln!(
-                    "[x1zz IO 에러]\n\
+                    "[xazz IO 에러]\n\
                      ─────────────────────────────────────────────\n\
                      Cause   : 소스 파일을 찾을 수 없습니다.\n\
                      Detail  : '{}' 경로에 파일이 존재하지 않습니다.\n\
@@ -63,8 +63,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!();
             }
 
-            // ── x1zz-runner 서브프로세스 스폰 ────────────────────────────────
-            // Polars/Tokio는 x1zz-runner 바이너리에만 링크되며,
+            // ── xazz-runner 서브프로세스 스폰 ────────────────────────────────
+            // Polars/Tokio는 xazz-runner 바이너리에만 링크되며,
             // 이 CLI 바이너리의 크기에 영향을 주지 않는다.
             let runner = find_runner()?;
             let mut cmd = std::process::Command::new(&runner);
@@ -80,8 +80,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let status = cmd.status().map_err(|e| {
                 format!(
-                    "x1zz-runner 실행 실패: {}\n\
-                     → 'x1zz-runner' 바이너리가 PATH 또는 x1zz 실행 파일과 같은 디렉토리에 있는지 확인하세요.",
+                    "xazz-runner 실행 실패: {}\n\
+                     → 'xazz-runner' 바이너리가 PATH 또는 xazz 실행 파일과 같은 디렉토리에 있는지 확인하세요.",
                     e
                 )
             })?;
@@ -104,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if !file.exists() {
                 eprintln!(
-                    "[x1zz IO 에러]\n\
+                    "[xazz IO 에러]\n\
                      ─────────────────────────────────────────────\n\
                      Cause   : 소스 파일을 찾을 수 없습니다.\n\
                      Detail  : '{}' 경로에 파일이 존재하지 않습니다.\n\
@@ -119,14 +119,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let out_path = out.as_ref().and_then(|p| p.to_str()).map(String::from);
 
                     println!(
-                        "⚙  x1zz emit rust  │  소스: {}  │  출력: {}",
+                        "⚙  xazz emit rust  │  소스: {}  │  출력: {}",
                         source_path,
                         out_path.as_deref().unwrap_or("stdout")
                     );
                     println!();
 
                     if let Err(e) =
-                        x1zz_compiler::emitter::emit_rust(&source_path, out_path.as_deref())
+                        xazz_compiler::emitter::emit_rust(&source_path, out_path.as_deref())
                     {
                         eprintln!("{}", e);
                         std::process::exit(1);
@@ -134,12 +134,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 unknown => {
                     eprintln!(
-                        "[x1zz emit 에러]\n\
+                        "[xazz emit 에러]\n\
                          ─────────────────────────────────────────────\n\
                          Cause   : 지원하지 않는 출력 형식입니다.\n\
                          Detail  : '{}' 는 유효한 emit 형식이 아닙니다.\n\
                          Available: rust\n\
-                         → Did you mean: x1zz emit rust {}",
+                         → Did you mean: xazz emit rust {}",
                         unknown, source_path
                     );
                     std::process::exit(1);
@@ -149,7 +149,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // ── check: sLM 정적 분석 (NQP) ──────────────────────────────────────
         Commands::Check { file } => {
-            println!("[Experimental] x1zz check — Neural Query Planner");
+            println!("[Experimental] xazz check — Neural Query Planner");
             println!("  이 기능은 현재 실험적 상태입니다. 출력은 시범용 결과입니다.");
             println!();
             println!("정적 분석을 시작합니다 …  ({})", file.display());
@@ -168,11 +168,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // ── sde: 합성 데이터 생성 ────────────────────────────────────────────
         Commands::Sde { rows, output } => {
-            println!("[Preview] x1zz sde — Synthetic Data Engine");
+            println!("[Preview] xazz sde — Synthetic Data Engine");
             println!("  이 기능은 현재 Preview 상태입니다. CLI 통합이 진행 중입니다.");
             println!();
             println!("  rows: {}  │  output: {}", rows, output.display());
-            println!("  x1zz-sde 엔진 연동 예정.");
+            println!("  xazz-sde 엔진 연동 예정.");
         }
 
         // ── new: 새 프로젝트 생성 ─────────────────────────────────────────────
@@ -183,7 +183,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // ── import: CSV → x1zz 타입 정의 + load 문 자동 생성 ─────────────────
+        // ── import: CSV → xazz 타입 정의 + load 문 자동 생성 ─────────────────
         Commands::Import { file } => {
             if let Err(e) = schema::import_csv(&file) {
                 eprintln!("{}", e);
@@ -200,19 +200,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// ── x1zz-runner 바이너리 탐색 ────────────────────────────────────────────────
+// ── xazz-runner 바이너리 탐색 ────────────────────────────────────────────────
 //
 // 탐색 순서:
-//   1. 현재 x1zz 실행 파일과 같은 디렉토리
+//   1. 현재 xazz 실행 파일과 같은 디렉토리
 //   2. PATH에서 찾기 (OS가 Command::new에서 자동 처리)
 fn find_runner() -> Result<std::path::PathBuf, String> {
     // 1. 현재 실행 파일 옆에서 탐색
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             #[cfg(windows)]
-            let candidate = dir.join("x1zz-runner.exe");
+            let candidate = dir.join("xazz-runner.exe");
             #[cfg(not(windows))]
-            let candidate = dir.join("x1zz-runner");
+            let candidate = dir.join("xazz-runner");
 
             if candidate.exists() {
                 return Ok(candidate);
@@ -221,5 +221,5 @@ fn find_runner() -> Result<std::path::PathBuf, String> {
     }
 
     // 2. PATH에서 탐색 (OS 위임)
-    Ok(std::path::PathBuf::from("x1zz-runner"))
+    Ok(std::path::PathBuf::from("xazz-runner"))
 }

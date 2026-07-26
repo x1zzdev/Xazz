@@ -23,7 +23,7 @@ pub fn print_mock_nqp_report(file_name: &str) {
     println!("{}", border.cyan());
     println!(
         "  {}",
-        "x1zzLang AI Neural Query Planner  정적 분석 리포트"
+        "xazzLang AI Neural Query Planner  정적 분석 리포트"
             .green()
             .bold()
     );
@@ -36,7 +36,7 @@ pub fn print_mock_nqp_report(file_name: &str) {
     );
     println!(
         "  분석 모델  : {}",
-        "x1zz-sLM v0.4.1-nightly  (local inference)".white()
+        "xazz-sLM v0.4.1-nightly  (local inference)".white()
     );
     println!("{}", thin.cyan());
 
@@ -119,7 +119,7 @@ pub fn print_mock_nqp_report(file_name: &str) {
     println!("{}", border.cyan());
     println!(
         "  {}",
-        "분석 완료.  x1zz check 는 패닉 없이 안전하게 종료되었습니다.".green()
+        "분석 완료.  xazz check 는 패닉 없이 안전하게 종료되었습니다.".green()
     );
     println!("{}", border.cyan());
 }

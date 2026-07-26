@@ -1,0 +1,15 @@
+[package]
+name = "xazz-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.8", features = ["json", "multipart"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tower-http = { version = "0.6", features = ["cors"] }
+tempfile = "3"
+csv = "1"
+encoding_rs = "0.8"
+uuid = { version = "1", features = ["v4"] }

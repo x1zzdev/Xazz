@@ -1,6 +1,6 @@
-//! predict.rs — x1zz CLI Integration: NQP Prediction Handler
+//! predict.rs — xazz CLI Integration: NQP Prediction Handler
 //!
-//! Handles `x1zz run <file> --predict`:
+//! Handles `xazz run <file> --predict`:
 //!   1. Reads the .xzz source file
 //!   2. Builds a JSON payload  {"source": "<code>"}
 //!   3. Spawns Python subprocess → cli_integration/nqp_predict.py
@@ -29,7 +29,7 @@ pub fn run_predict(source_path: &str) -> Result<(), String> {
     // ── 1. Read source file ──────────────────────────────────────────────────
     let source = std::fs::read_to_string(source_path).map_err(|e| {
         format!(
-            "[x1zz IO 에러]\n\
+            "[xazz IO 에러]\n\
              ─────────────────────────────────────────────\n\
              Cause  : 소스 파일을 읽을 수 없습니다.\n\
              Detail : {}\n\
@@ -59,7 +59,7 @@ pub fn run_predict(source_path: &str) -> Result<(), String> {
         .spawn()
         .map_err(|e| {
             format!(
-                "[x1zz 예측 에러]\n\
+                "[xazz 예측 에러]\n\
                  ─────────────────────────────────────────────\n\
                  Cause  : Python 서브프로세스를 시작할 수 없습니다.\n\
                  Detail : {}\n\
@@ -74,24 +74,24 @@ pub fn run_predict(source_path: &str) -> Result<(), String> {
         let stdin = child
             .stdin
             .as_mut()
-            .ok_or_else(|| "[x1zz 예측 에러] stdin 파이프를 열 수 없습니다.".to_string())?;
+            .ok_or_else(|| "[xazz 예측 에러] stdin 파이프를 열 수 없습니다.".to_string())?;
 
         stdin
             .write_all(payload_str.as_bytes())
-            .map_err(|e| format!("[x1zz 예측 에러] stdin 쓰기 실패: {}", e))?;
+            .map_err(|e| format!("[xazz 예측 에러] stdin 쓰기 실패: {}", e))?;
         // `stdin` drops here → EOF is sent to Python process
     }
 
     // ── 5. Collect stdout + wait ─────────────────────────────────────────────
     let output = child
         .wait_with_output()
-        .map_err(|e| format!("[x1zz 예측 에러] 서브프로세스 대기 실패: {}", e))?;
+        .map_err(|e| format!("[xazz 예측 에러] 서브프로세스 대기 실패: {}", e))?;
 
     let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
 
     if !output.status.success() && stdout_str.trim().is_empty() {
         return Err(format!(
-            "[x1zz 예측 에러] Python 프로세스가 비정상 종료했습니다.\n\
+            "[xazz 예측 에러] Python 프로세스가 비정상 종료했습니다.\n\
              종료 코드: {}",
             output.status
         ));

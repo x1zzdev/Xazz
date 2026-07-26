@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>x1zzLang vs. Pandas — Performance Benchmark</title>
+  <title>Xazz vs. Pandas — Performance Benchmark</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -247,12 +247,12 @@
 
   <!-- ══ Title Block ═════════════════════════════════════════════════════ -->
   <p class="subtitle">Technical Benchmark Report</p>
-  <h1>x1zzLang vs. Python Pandas: A Comparative Performance Evaluation<br>
+  <h1>Xazz vs. Python Pandas: A Comparative Performance Evaluation<br>
       at Scale on Real-World Air Quality Data</h1>
   <p class="meta">
     Generated: June 03, 2026  21:28 &nbsp;|&nbsp;
     Dataset: Seoul Metropolitan Air Quality (공공데이터포털) &nbsp;|&nbsp;
-    Engine A: x1zzLang v0.17 (Rust + Polars LazyFrame) &nbsp;|&nbsp;
+    Engine A: Xazz v0.17 (Rust + Polars LazyFrame) &nbsp;|&nbsp;
     Engine B: Python Pandas v2 (Eager Evaluation)
   </p>
 
@@ -260,14 +260,14 @@
   <h2>Abstract</h2>
   <div class="abstract">
     This report presents a controlled performance comparison between
-    <strong>x1zzLang</strong>, a domain-specific compiled language built atop
+    <strong>Xazz</strong>, a domain-specific compiled language built atop
     Rust and the Polars LazyFrame execution engine, and
     <strong>Python Pandas</strong>, the de-facto standard for tabular data
     processing.  Benchmarks are conducted across three dataset scales
     (Small&nbsp;&approx;&nbsp;228K rows, Medium&nbsp;&approx;&nbsp;1.6M rows,
     Large&nbsp;&approx;&nbsp;3.4M rows) derived from six real-world annual
     air-quality measurement files.  All pipeline stages are identical across
-    engines.  At the Large scale x1zzLang achieves a
+    engines.  At the Large scale Xazz achieves a
     <strong>3.84&times;</strong> speedup
     with a peak RSS of <strong>5,417&nbsp;MB</strong>
     (+3,308&nbsp;MB vs. Pandas, multi-threaded trade-off).
@@ -277,7 +277,7 @@
   <h2>Source Code</h2>
   <p style="font-size:13px;color:#334155;margin-bottom:12px">
     Complete source listings of the benchmark scripts used for both engines.
-    Left: <strong>x1zzLang</strong> declarative pipeline
+    Left: <strong>Xazz</strong> declarative pipeline
     (<code>benchmark_pipeline.xzz</code>) — compiled to Rust&nbsp;+&nbsp;Polars
     LazyFrame at runtime; execution is fully lazy until terminal
     <code>.collect()</code>.
@@ -286,11 +286,11 @@
   </p>
   <div class="code-columns">
     <div>
-      <div class="code-panel-label">x1zzLang — benchmark_pipeline.xzz</div>
-<pre class="src"><code>// benches/benchmark_pipeline.xzz — x1zzLang Benchmark Pipeline
+      <div class="code-panel-label">Xazz — benchmark_pipeline.xzz</div>
+<pre class="src"><code>// benches/benchmark_pipeline.xzz — Xazz Benchmark Pipeline
 // ================================================================
 // Declarative pipeline used during benchmarking (P2 → P7).
-// The x1zz-compiler compiles this to Rust / Polars LazyFrame code
+// The xazz-compiler compiles this to Rust / Polars LazyFrame code
 // at runtime; execution is fully lazy until the terminal `.collect()`.
 //
 // Schema: AirQuality { date: Str, station: Str, pm10: F64, pm25: F64 }
@@ -330,7 +330,7 @@ v p7 = load("scale_large.csv") :: AirQuality
     <div>
       <div class="code-panel-label">Python Pandas — pandas_pipeline.py</div>
 <pre class="src"><code>"""
-benches/pandas_pipeline.py  —  x1zzLang Benchmark Suite · Pandas Baseline
+benches/pandas_pipeline.py  —  Xazz Benchmark Suite · Pandas Baseline
 Receives a target CSV file path as a CLI argument, executes all pipeline
 segments (P2 → P7) using Pandas Eager Evaluation, and emits exactly ONE
 JSON line to stdout so the orchestrator can parse metrics flawlessly.
@@ -451,7 +451,7 @@ print(json.dumps(result))</code></pre>
       <div class="metric-label">Speedup Factor</div>
       <div class="metric-value">3.84&times;</div>
       <div class="metric-sub">
-        x1zzLang 14,339&nbsp;ms vs.
+        Xazz 14,339&nbsp;ms vs.
         Pandas 55,024&nbsp;ms
       </div>
     </div>
@@ -459,7 +459,7 @@ print(json.dumps(result))</code></pre>
       <div class="metric-label">Peak RSS Memory</div>
       <div class="metric-value">5,417&nbsp;MB</div>
       <div class="metric-sub">
-        x1zzLang 5417.2&nbsp;MB vs. Pandas 2109.5&nbsp;MB<br>
+        Xazz 5417.2&nbsp;MB vs. Pandas 2109.5&nbsp;MB<br>
         <span style="font-size:10.5px;color:#94a3b8;font-style:italic">(Multi-threaded Trade-off)</span>
       </div>
     </div>
@@ -512,11 +512,11 @@ print(json.dumps(result))</code></pre>
       </thead>
       <tbody>
         <tr style=""><td>Small</td><td>Python Pandas</td><td style="text-align:right;font-variant-numeric:tabular-nums">2,722.2</td><td style="text-align:right;font-variant-numeric:tabular-nums">203.1</td><td style="text-align:center"><span style="color:#166534;font-weight:600">OK</span></td></tr>
-<tr style=""><td>Small</td><td>x1zzLang (Rust)</td><td style="text-align:right;font-variant-numeric:tabular-nums">1,245.8</td><td style="text-align:right;font-variant-numeric:tabular-nums">372.2</td><td style="text-align:center"><span style="color:#166534;font-weight:600">OK</span></td></tr>
+<tr style=""><td>Small</td><td>Xazz (Rust)</td><td style="text-align:right;font-variant-numeric:tabular-nums">1,245.8</td><td style="text-align:right;font-variant-numeric:tabular-nums">372.2</td><td style="text-align:center"><span style="color:#166534;font-weight:600">OK</span></td></tr>
 <tr style="background:#f8fafc;"><td>Medium</td><td>Python Pandas</td><td style="text-align:right;font-variant-numeric:tabular-nums">21,375.5</td><td style="text-align:right;font-variant-numeric:tabular-nums">1,030.9</td><td style="text-align:center"><span style="color:#166534;font-weight:600">OK</span></td></tr>
-<tr style="background:#f8fafc;"><td>Medium</td><td>x1zzLang (Rust)</td><td style="text-align:right;font-variant-numeric:tabular-nums">5,004.5</td><td style="text-align:right;font-variant-numeric:tabular-nums">2,536.6</td><td style="text-align:center"><span style="color:#166534;font-weight:600">OK</span></td></tr>
+<tr style="background:#f8fafc;"><td>Medium</td><td>Xazz (Rust)</td><td style="text-align:right;font-variant-numeric:tabular-nums">5,004.5</td><td style="text-align:right;font-variant-numeric:tabular-nums">2,536.6</td><td style="text-align:center"><span style="color:#166534;font-weight:600">OK</span></td></tr>
 <tr style=""><td>Large</td><td>Python Pandas</td><td style="text-align:right;font-variant-numeric:tabular-nums">55,023.8</td><td style="text-align:right;font-variant-numeric:tabular-nums">2,109.5</td><td style="text-align:center"><span style="color:#166534;font-weight:600">OK</span></td></tr>
-<tr style=""><td>Large</td><td>x1zzLang (Rust)</td><td style="text-align:right;font-variant-numeric:tabular-nums">14,338.6</td><td style="text-align:right;font-variant-numeric:tabular-nums">5,417.2</td><td style="text-align:center"><span style="color:#166534;font-weight:600">OK</span></td></tr>
+<tr style=""><td>Large</td><td>Xazz (Rust)</td><td style="text-align:right;font-variant-numeric:tabular-nums">14,338.6</td><td style="text-align:right;font-variant-numeric:tabular-nums">5,417.2</td><td style="text-align:center"><span style="color:#166534;font-weight:600">OK</span></td></tr>
       </tbody>
     </table>
   </div>
@@ -533,7 +533,7 @@ print(json.dumps(result))</code></pre>
         <tr>
           <th>Stage</th>
           <th>Operation</th>
-          <th>x1zzLang Syntax</th>
+          <th>Xazz Syntax</th>
           <th>Pandas Equivalent</th>
         </tr>
       </thead>
@@ -576,7 +576,7 @@ print(json.dumps(result))</code></pre>
 
   <!-- ══ Footer ══════════════════════════════════════════════════════════ -->
   <div class="footer">
-    Generated by <strong>x1zzLang Benchmark Suite</strong> &nbsp;&middot;&nbsp;
+    Generated by <strong>Xazz Benchmark Suite</strong> &nbsp;&middot;&nbsp;
     Rust + Polars LazyFrame vs. Python Pandas Eager Evaluation &nbsp;&middot;&nbsp;
     June 03, 2026  21:28
   </div>
@@ -615,7 +615,7 @@ print(json.dumps(result))</code></pre>
           fill: true,
         },
         {
-          label: 'x1zzLang',
+          label: 'Xazz',
           data: XZZ_LAT,
           borderColor: NAVY,
           backgroundColor: NAVY_A,
@@ -658,7 +658,7 @@ print(json.dumps(result))</code></pre>
           borderRadius: 2,
         },
         {
-          label: 'x1zzLang',
+          label: 'Xazz',
           data: XZZ_MEM,
           backgroundColor: 'rgba(30,58,95,0.70)',
           borderColor: NAVY,

@@ -1,8 +1,8 @@
-// x1zzLang 시각화 예제 1: bar chart
+// Xazz 시각화 예제 1: bar chart
 // 지역별 범죄 건수 막대 차트
 //
-// 사용법: x1zz run examples/viz_bar_chart.xzz
-// 출력: [x1zz:chart] { "type": "bar", ... }
+// 사용법: xazz run examples/viz_bar_chart.xzz
+// 출력: [xazz:chart] { "type": "bar", ... }
 
 v crime_chart = load("examples/crime.csv") :: CrimeData
     |> groupBy("region")

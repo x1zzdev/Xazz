@@ -1,4 +1,4 @@
-// x1zzLang PoC Script — 오타 수정본 (p10 → pm10)
+// Xazz PoC Script — 오타 수정본 (p10 → pm10)
 //
 // emit rust 검증 목적:
 //   - pm10 / pm25 가 Option<float> 이므로

@@ -1,6 +1,6 @@
 """
 Quick integration test: verify stdin→nqp_predict.py JSON protocol.
-Run from x1zz-lang root:  python cli_integration/_test_protocol.py
+Run from xazz-lang root:  python cli_integration/_test_protocol.py
 """
 import subprocess
 import json
@@ -22,7 +22,7 @@ sample_source = (
 payload = json.dumps({"source": sample_source})
 
 print("=" * 60)
-print("x1zz NQP Predict — stdin/stdout protocol test")
+print("xazz NQP Predict — stdin/stdout protocol test")
 print("=" * 60)
 print(f"Script : {SCRIPT}")
 print(f"Payload: {payload[:80]}...")

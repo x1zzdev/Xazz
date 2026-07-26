@@ -1,10 +1,10 @@
 """
-benches/run_benchmark.py  —  x1zzLang Benchmark Suite · Master Orchestrator
+benches/run_benchmark.py  —  Xazz Benchmark Suite · Master Orchestrator
 =============================================================================
 Production-grade benchmark orchestrator:
   1. Discovers & merges 6 real-world air quality CSV files from examples/
   2. Writes 3 scale datasets (UTF-8, English headers) to benches/data/
-  3. Benchmarks Python Pandas (Eager) vs x1zzLang/Rust+Polars (LazyFrame)
+  3. Benchmarks Python Pandas (Eager) vs Xazz/Rust+Polars (LazyFrame)
   4. Generates an academic whitepaper-style HTML report (ACM/IEEE aesthetic)
   5. Auto-opens the report in the default browser
 
@@ -274,15 +274,15 @@ def run_pandas(csv_path: Path) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ── 5. x1zzLang Benchmark Runner ────────────────────────────────────────────
+# ── 5. Xazz Benchmark Runner ────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_x1zz(csv_path: Path) -> dict:
+def run_xazz(csv_path: Path) -> dict:
     """
-    Execute the compiled x1zz-compiler binary directly.
-    e.g. target/release/x1zz-compiler <target_csv_path>
+    Execute the compiled xazz-compiler binary directly.
+    e.g. target/release/xazz-compiler <target_csv_path>
 
-    The x1zz-compiler v0.17+ detects .csv input and auto-generates the
+    The xazz-compiler v0.17+ detects .csv input and auto-generates the
     equivalent benchmark .xzz pipeline internally.
 
     Scale files are UTF-8 with English headers, fully compatible with
@@ -292,14 +292,14 @@ def run_x1zz(csv_path: Path) -> dict:
     AccessDenied are handled gracefully. Peak is initialised with a non-zero
     fallback to prevent 0 MB readings on instant execution.
     """
-    binary_name = "x1zz-compiler.exe" if sys.platform == "win32" else "x1zz-compiler"
+    binary_name = "xazz-compiler.exe" if sys.platform == "win32" else "xazz-compiler"
     binary_path = ROOT_DIR / "target" / "release" / binary_name
 
     if not binary_path.exists():
         return {
             "total_latency_ms": -1.0,
             "peak_memory_mb": -1.0,
-            "error": f"Compiler binary not found at {binary_path}. Please build it manually using 'cargo build --release -p x1zz-compiler' in the terminal.",
+            "error": f"Compiler binary not found at {binary_path}. Please build it manually using 'cargo build --release -p xazz-compiler' in the terminal.",
         }
 
     cmd = [str(binary_path), str(csv_path)]
@@ -343,7 +343,7 @@ def run_x1zz(csv_path: Path) -> dict:
 
         if proc.returncode != 0:
             # Full stderr is logged to terminal for diagnosis
-            print(f"\n  [x1zzLang][STDERR] exit={proc.returncode}")
+            print(f"\n  [Xazz][STDERR] exit={proc.returncode}")
             for ln in stderr_txt.splitlines()[:30]:
                 print(f"    {ln}")
             return {
@@ -378,7 +378,7 @@ def run_all_benchmarks() -> dict:
 
         if not csv_path.exists():
             print(f"  [ERROR] {csv_path} not found — skipping.")
-            results[scale_name] = {"pandas": {}, "x1zz": {}}
+            results[scale_name] = {"pandas": {}, "xazz": {}}
             continue
 
         size_mb = csv_path.stat().st_size / 1_048_576
@@ -392,15 +392,15 @@ def run_all_benchmarks() -> dict:
             print(f"  [Pandas] latency = {pd_m['total_latency_ms']:>10.2f} ms  "
                   f"| peak RSS = {pd_m['peak_memory_mb']:.2f} MB")
 
-        print("\n  [x1zzLang] Executing compiled binary…")
-        xzz_m = run_x1zz(csv_path)
+        print("\n  [Xazz] Executing compiled binary…")
+        xzz_m = run_xazz(csv_path)
         if "error" in xzz_m:
-            print(f"  [x1zzLang] FAILED: {xzz_m['error'][:200]}")
+            print(f"  [Xazz] FAILED: {xzz_m['error'][:200]}")
         else:
-            print(f"  [x1zzLang] latency = {xzz_m['total_latency_ms']:>10.2f} ms  "
+            print(f"  [Xazz] latency = {xzz_m['total_latency_ms']:>10.2f} ms  "
                   f"| peak RSS = {xzz_m['peak_memory_mb']:.2f} MB")
 
-        results[scale_name] = {"pandas": pd_m, "x1zz": xzz_m}
+        results[scale_name] = {"pandas": pd_m, "xazz": xzz_m}
 
     return results
 
@@ -416,9 +416,9 @@ def _safe(r: dict, scale: str, eng: str, key: str) -> float:
 def compute_summary(results: dict) -> dict:
     lg      = results.get("large", {})
     pd_lat  = lg.get("pandas", {}).get("total_latency_ms", 0) or 0
-    xzz_lat = lg.get("x1zz",   {}).get("total_latency_ms", 1) or 1
+    xzz_lat = lg.get("xazz",   {}).get("total_latency_ms", 1) or 1
     pd_mem  = lg.get("pandas", {}).get("peak_memory_mb",   0) or 0
-    xzz_mem = lg.get("x1zz",   {}).get("peak_memory_mb",   0) or 0
+    xzz_mem = lg.get("xazz",   {}).get("peak_memory_mb",   0) or 0
     return {
         "speedup":    round(pd_lat / xzz_lat if xzz_lat > 0 else 0, 2),
         "saved_mem":  round(pd_mem - xzz_mem, 2),
@@ -442,7 +442,7 @@ def _booktabs_rows(results: dict) -> str:
     out   = []
     shade = False
     for scale in ("small", "medium", "large"):
-        for eng in ("pandas", "x1zz"):
+        for eng in ("pandas", "xazz"):
             m   = results.get(scale, {}).get(eng, {})
             lat = m.get("total_latency_ms", -1)
             mem = m.get("peak_memory_mb",   -1)
@@ -455,7 +455,7 @@ def _booktabs_rows(results: dict) -> str:
             )
             lat_s = f"{lat:,.1f}" if lat >= 0 else "—"
             mem_s = f"{mem:,.1f}" if mem >= 0 else "—"
-            lbl_map = {"pandas": "Python Pandas", "x1zz": "x1zzLang (Rust)"}
+            lbl_map = {"pandas": "Python Pandas", "xazz": "Xazz (Rust)"}
             scale_map = {"small": "Small", "medium": "Medium", "large": "Large"}
             out.append(
                 f'<tr style="{bg}">'
@@ -484,9 +484,9 @@ def generate_html(results: dict) -> str:
     scales = ["small", "medium", "large"]
 
     pd_lat  = [_safe(results, sc, "pandas", "total_latency_ms") for sc in scales]
-    xzz_lat = [_safe(results, sc, "x1zz",   "total_latency_ms") for sc in scales]
+    xzz_lat = [_safe(results, sc, "xazz",   "total_latency_ms") for sc in scales]
     pd_mem  = [_safe(results, sc, "pandas", "peak_memory_mb")   for sc in scales]
-    xzz_mem = [_safe(results, sc, "x1zz",   "peak_memory_mb")   for sc in scales]
+    xzz_mem = [_safe(results, sc, "xazz",   "peak_memory_mb")   for sc in scales]
 
     ts = time.strftime("%B %d, %Y  %H:%M")
 
@@ -495,7 +495,7 @@ def generate_html(results: dict) -> str:
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>x1zzLang vs. Pandas — Performance Benchmark</title>
+  <title>Xazz vs. Pandas — Performance Benchmark</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -739,12 +739,12 @@ def generate_html(results: dict) -> str:
 
   <!-- ══ Title Block ═════════════════════════════════════════════════════ -->
   <p class="subtitle">Technical Benchmark Report</p>
-  <h1>x1zzLang vs. Python Pandas: A Comparative Performance Evaluation<br>
+  <h1>Xazz vs. Python Pandas: A Comparative Performance Evaluation<br>
       at Scale on Real-World Air Quality Data</h1>
   <p class="meta">
     Generated: {ts} &nbsp;|&nbsp;
     Dataset: Seoul Metropolitan Air Quality (공공데이터포털) &nbsp;|&nbsp;
-    Engine A: x1zzLang v0.17 (Rust + Polars LazyFrame) &nbsp;|&nbsp;
+    Engine A: Xazz v0.17 (Rust + Polars LazyFrame) &nbsp;|&nbsp;
     Engine B: Python Pandas v2 (Eager Evaluation)
   </p>
 
@@ -752,14 +752,14 @@ def generate_html(results: dict) -> str:
   <h2>Abstract</h2>
   <div class="abstract">
     This report presents a controlled performance comparison between
-    <strong>x1zzLang</strong>, a domain-specific compiled language built atop
+    <strong>Xazz</strong>, a domain-specific compiled language built atop
     Rust and the Polars LazyFrame execution engine, and
     <strong>Python Pandas</strong>, the de-facto standard for tabular data
     processing.  Benchmarks are conducted across three dataset scales
     (Small&nbsp;&approx;&nbsp;228K rows, Medium&nbsp;&approx;&nbsp;1.6M rows,
     Large&nbsp;&approx;&nbsp;3.4M rows) derived from six real-world annual
     air-quality measurement files.  All pipeline stages are identical across
-    engines.  At the Large scale x1zzLang achieves a
+    engines.  At the Large scale Xazz achieves a
     <strong>{s['speedup']:.2f}&times;</strong> speedup
     and a <strong>{abs(s['saved_mem']):.0f}&nbsp;MB</strong> reduction in
     peak resident-set memory relative to Pandas.
@@ -769,7 +769,7 @@ def generate_html(results: dict) -> str:
   <h2>Source Code</h2>
   <p style="font-size:13px;color:#334155;margin-bottom:12px">
     Complete source listings of the benchmark scripts used for both engines.
-    Left: <strong>x1zzLang</strong> declarative pipeline
+    Left: <strong>Xazz</strong> declarative pipeline
     (<code>benchmark_pipeline.xzz</code>) — compiled to Rust&nbsp;+&nbsp;Polars
     LazyFrame at runtime; execution is fully lazy until terminal
     <code>.collect()</code>.
@@ -778,11 +778,11 @@ def generate_html(results: dict) -> str:
   </p>
   <div class="code-columns">
     <div>
-      <div class="code-panel-label">x1zzLang — benchmark_pipeline.xzz</div>
-<pre class="src"><code>// benches/benchmark_pipeline.xzz — x1zzLang Benchmark Pipeline
+      <div class="code-panel-label">Xazz — benchmark_pipeline.xzz</div>
+<pre class="src"><code>// benches/benchmark_pipeline.xzz — Xazz Benchmark Pipeline
 // ================================================================
 // Declarative pipeline used during benchmarking (P2 → P7).
-// The x1zz-compiler compiles this to Rust / Polars LazyFrame code
+// The xazz-compiler compiles this to Rust / Polars LazyFrame code
 // at runtime; execution is fully lazy until the terminal `.collect()`.
 //
 // Schema: AirQuality {{ date: Str, station: Str, pm10: F64, pm25: F64 }}
@@ -822,7 +822,7 @@ v p7 = load("scale_large.csv") :: AirQuality
     <div>
       <div class="code-panel-label">Python Pandas — pandas_pipeline.py</div>
 <pre class="src"><code>"""
-benches/pandas_pipeline.py  —  x1zzLang Benchmark Suite · Pandas Baseline
+benches/pandas_pipeline.py  —  Xazz Benchmark Suite · Pandas Baseline
 Receives a target CSV file path as a CLI argument, executes all pipeline
 segments (P2 → P7) using Pandas Eager Evaluation, and emits exactly ONE
 JSON line to stdout so the orchestrator can parse metrics flawlessly.
@@ -943,7 +943,7 @@ print(json.dumps(result))</code></pre>
       <div class="metric-label">Speedup Factor</div>
       <div class="metric-value">{s['speedup']:.2f}&times;</div>
       <div class="metric-sub">
-        x1zzLang {s['xzz_lat_ms']:,.0f}&nbsp;ms vs.
+        Xazz {s['xzz_lat_ms']:,.0f}&nbsp;ms vs.
         Pandas {s['pd_lat_ms']:,.0f}&nbsp;ms
       </div>
     </div>
@@ -951,7 +951,7 @@ print(json.dumps(result))</code></pre>
       <div class="metric-label">Memory Reduction</div>
       <div class="metric-value">{abs(s['saved_mem']):.0f}&nbsp;MB</div>
       <div class="metric-sub">
-        x1zzLang {s['xzz_mem_mb']:.1f}&nbsp;MB vs.
+        Xazz {s['xzz_mem_mb']:.1f}&nbsp;MB vs.
         Pandas {s['pd_mem_mb']:.1f}&nbsp;MB
       </div>
     </div>
@@ -1020,7 +1020,7 @@ print(json.dumps(result))</code></pre>
         <tr>
           <th>Stage</th>
           <th>Operation</th>
-          <th>x1zzLang Syntax</th>
+          <th>Xazz Syntax</th>
           <th>Pandas Equivalent</th>
         </tr>
       </thead>
@@ -1063,7 +1063,7 @@ print(json.dumps(result))</code></pre>
 
   <!-- ══ Footer ══════════════════════════════════════════════════════════ -->
   <div class="footer">
-    Generated by <strong>x1zzLang Benchmark Suite</strong> &nbsp;&middot;&nbsp;
+    Generated by <strong>Xazz Benchmark Suite</strong> &nbsp;&middot;&nbsp;
     Rust + Polars LazyFrame vs. Python Pandas Eager Evaluation &nbsp;&middot;&nbsp;
     {ts}
   </div>
@@ -1102,7 +1102,7 @@ print(json.dumps(result))</code></pre>
           fill: true,
         }},
         {{
-          label: 'x1zzLang',
+          label: 'Xazz',
           data: XZZ_LAT,
           borderColor: NAVY,
           backgroundColor: NAVY_A,
@@ -1145,7 +1145,7 @@ print(json.dumps(result))</code></pre>
           borderRadius: 2,
         }},
         {{
-          label: 'x1zzLang',
+          label: 'Xazz',
           data: XZZ_MEM,
           backgroundColor: 'rgba(30,58,95,0.70)',
           borderColor: NAVY,
@@ -1179,7 +1179,7 @@ print(json.dumps(result))</code></pre>
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    banner("x1zzLang Benchmark Suite  ·  Master Orchestrator")
+    banner("Xazz Benchmark Suite  ·  Master Orchestrator")
     print(f"  ROOT_DIR     : {ROOT_DIR}")
     print(f"  EXAMPLES_DIR : {EXAMPLES_DIR}")
     print(f"  DATA_DIR     : {DATA_DIR}")
@@ -1200,9 +1200,9 @@ def main() -> None:
     print(f"  Speedup Factor  (Large) : {s['speedup']:.2f}x")
     print(f"  Memory Reduction (Large): {s['saved_mem']:.1f} MB")
     print(f"  Pandas   latency (L)    : {s['pd_lat_ms']:>12,.2f} ms")
-    print(f"  x1zzLang latency (L)    : {s['xzz_lat_ms']:>12,.2f} ms")
+    print(f"  Xazz latency (L)    : {s['xzz_lat_ms']:>12,.2f} ms")
     print(f"  Pandas   RSS     (L)    : {s['pd_mem_mb']:>8.2f} MB")
-    print(f"  x1zzLang RSS     (L)    : {s['xzz_mem_mb']:>8.2f} MB")
+    print(f"  Xazz RSS     (L)    : {s['xzz_mem_mb']:>8.2f} MB")
 
     # Phase 4 ─────────────────────────────────────────────────────────────────
     banner("Phase 4  ·  HTML Report Generation")

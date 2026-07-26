@@ -1,7 +1,7 @@
-// benches/benchmark_pipeline.xzz — x1zzLang Benchmark Pipeline
+// benches/benchmark_pipeline.xzz — Xazz Benchmark Pipeline
 // ================================================================
 // Declarative pipeline used during benchmarking (P2 → P7).
-// The x1zz-compiler compiles this to Rust / Polars LazyFrame code
+// The xazz-compiler compiles this to Rust / Polars LazyFrame code
 // at runtime; execution is fully lazy until the terminal `.collect()`.
 //
 // Schema: AirQuality { date: Str, station: Str, pm10: F64, pm25: F64 }

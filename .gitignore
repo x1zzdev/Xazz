@@ -1,11 +1,11 @@
 /target
 
-# x1zzLang — Rule files (security: keep out of version control)
+# Xazz — Rule files (security: keep out of version control)
 .roorules
 .clinerules
 .roo/
 
-x1zz-sde
+xazz-sde
 
 benches/data/*.csv
 
@@ -19,4 +19,4 @@ result_file_input_chart.html
 dist/
 
 # Personal documents
-@x1zzLang_MVP_Roadmap_v3.docx
+@Xazz_MVP_Roadmap_v3.docx

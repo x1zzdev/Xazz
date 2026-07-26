@@ -4,7 +4,7 @@ import pandas as pd
 air = pd.read_csv("examples/seoul_air_2026.csv")
 stations = pd.read_csv("examples/seoul_station_info.csv")
 
-# 타입 개념 대응 (x1zz의 Option<float> → NaN 처리)
+# 타입 개념 대응 (xazz의 Option<float> → NaN 처리)
 air["pm25"] = air["pm25"].fillna(0.0)
 air["pm10"] = air["pm10"].fillna(0.0)
 

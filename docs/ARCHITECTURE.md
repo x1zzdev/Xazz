@@ -1,6 +1,6 @@
-# x1zzLang — Architecture Overview
+# Xazz — Architecture Overview
 
-This document describes the compiler pipeline, type system, and execution model of x1zzLang.
+This document describes the compiler pipeline, type system, and execution model of Xazz.
 
 For workspace structure and dependency graph, see [WORKSPACE.md](WORKSPACE.md).
 
@@ -15,7 +15,7 @@ A `.xzz` source file goes through the following stages:
     │
     ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│  x1zz-compiler                                                   │
+│  xazz-compiler                                                   │
 │                                                                  │
 │  1. Lexer (lexer.rs)                                             │
 │     Source text → Token stream                                   │
@@ -34,9 +34,9 @@ A `.xzz` source file goes through the following stages:
 │     Output: compilable Rust file                                 │
 └──────────────────────────────────────────────────────────────────┘
     │
-    ▼  (x1zz run path)
+    ▼  (xazz run path)
 ┌──────────────────────────────────────────────────────────────────┐
-│  x1zz-exec (via x1zz-runner subprocess)                         │
+│  xazz-exec (via xazz-runner subprocess)                         │
 │                                                                  │
 │  run_pipeline() — interprets compiled IR with Polars             │
 │  LazyFrame execution: filter, groupBy, join, sort, ...           │
@@ -51,7 +51,7 @@ Result: terminal output / CSV export / HTML chart
 
 ## AST Structure
 
-Core AST nodes (`x1zz-core/src/ast.rs`):
+Core AST nodes (`xazz-core/src/ast.rs`):
 
 | Node | Description |
 |------|-------------|
@@ -66,11 +66,11 @@ Core AST nodes (`x1zz-core/src/ast.rs`):
 
 ## Type System
 
-x1zzLang uses a structural type system with explicit null-safety.
+Xazz uses a structural type system with explicit null-safety.
 
 ### Column types
 
-| x1zzLang type | Polars equivalent | Notes |
+| Xazz type | Polars equivalent | Notes |
 |---------------|-------------------|-------|
 | `string` | `Utf8` | UTF-8 string column |
 | `float` | `Float64` | 64-bit float |
@@ -104,16 +104,16 @@ This makes schema violations detectable before execution.
 
 ## Execution Model
 
-`x1zz run` does not execute the pipeline directly. It delegates to `x1zz-runner` via subprocess:
+`xazz run` does not execute the pipeline directly. It delegates to `xazz-runner` via subprocess:
 
 ```
-x1zz run file.xzz
+xazz run file.xzz
   │
-  ├── compile .xzz → IR (in-process, x1zz-compiler)
+  ├── compile .xzz → IR (in-process, xazz-compiler)
   │
-  └── spawn x1zz-runner file.xzz [--verbose] [--output path]
+  └── spawn xazz-runner file.xzz [--verbose] [--output path]
        │
-       └── x1zz-exec: run_pipeline(ir, data_path, output_path)
+       └── xazz-exec: run_pipeline(ir, data_path, output_path)
             │
             └── Polars LazyFrame: scan_csv → filter → groupBy → collect
                  │
@@ -121,13 +121,13 @@ x1zz run file.xzz
 ```
 
 **Why subprocess?**  
-Polars adds ~28 MB to a binary. Isolating it to `x1zz-runner` keeps the `x1zz` CLI binary at ~2–5 MB. The CLI stays fast to start and install. The tradeoff is that `x1zz-runner` must exist alongside `x1zz` in the same directory.
+Polars adds ~28 MB to a binary. Isolating it to `xazz-runner` keeps the `xazz` CLI binary at ~2–5 MB. The CLI stays fast to start and install. The tradeoff is that `xazz-runner` must exist alongside `xazz` in the same directory.
 
 ---
 
 ## Neural Query Planner (NQP) — Experimental
 
-`x1zz check` invokes the Neural Query Planner, a planned static analysis layer that is currently in stub/experimental state.
+`xazz check` invokes the Neural Query Planner, a planned static analysis layer that is currently in stub/experimental state.
 
 The intended design:
 - Semantic analysis of pipeline structure
@@ -141,14 +141,14 @@ Current status: experimental stub. The check command outputs a mock report for d
 
 ## Synthetic Data Engine (SDE) — Preview
 
-`x1zzLang-sde` is a standalone crate (`x1zz-sde/`) for generating synthetic CSV datasets conforming to a given schema.
+`Xazz-sde` is a standalone crate (`xazz-sde/`) for generating synthetic CSV datasets conforming to a given schema.
 
-It is not part of the main CLI dependency graph. The `x1zz sde` CLI subcommand currently prints a preview notice — full integration is planned.
+It is not part of the main CLI dependency graph. The `xazz sde` CLI subcommand currently prints a preview notice — full integration is planned.
 
 Intended features:
 - Schema-driven row generation
 - Statistical distribution parameters (range, null rate, cardinality)
-- Output: CSV compatible with `x1zz import`
+- Output: CSV compatible with `xazz import`
 
 ---
 
@@ -170,16 +170,16 @@ chart {
 }
 ```
 
-Output: an HTML file containing an interactive chart. The chart renderer runs inside `x1zz-exec` after the Polars pipeline completes.
+Output: an HTML file containing an interactive chart. The chart renderer runs inside `xazz-exec` after the Polars pipeline completes.
 
 ---
 
-## x1zz emit rust
+## xazz emit rust
 
-`x1zz emit rust file.xzz` transpiles a `.xzz` script to Rust source code that directly calls the Polars LazyFrame API. This output is primarily useful for:
+`xazz emit rust file.xzz` transpiles a `.xzz` script to Rust source code that directly calls the Polars LazyFrame API. This output is primarily useful for:
 
-- Inspecting how x1zzLang maps DSL constructs to Polars operations
+- Inspecting how Xazz maps DSL constructs to Polars operations
 - Embedding pipeline logic into a larger Rust project
 - Debugging codegen output
 
-The emitted Rust code can be compiled with `cargo` independently of x1zzLang.
+The emitted Rust code can be compiled with `cargo` independently of Xazz.

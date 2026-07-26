@@ -1,13 +1,13 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-/// x1zzLang 통합 CLI — 컴파일러 · 정적 분석 · Rust 에밋 · 합성 데이터 생성기
+/// xazzLang 통합 CLI — 컴파일러 · 정적 분석 · Rust 에밋 · 합성 데이터 생성기
 #[derive(Parser, Debug)]
 #[command(
-    name = "x1zz",
+    name = "xazz",
     version,
     author,
-    about = "x1zzLang unified toolchain: run, check, emit, and generate synthetic data"
+    about = "xazzLang unified toolchain: run, check, emit, and generate synthetic data"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -16,11 +16,11 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// x1zz 데이터 분석 코드를 실행합니다
+    /// xazz 데이터 분석 코드를 실행합니다
     ///
-    /// 예: x1zz run examples/poc_script.xzz
-    /// 예: x1zz run examples/poc_script.xzz --predict
-    /// 예: x1zz run examples/pipeline.xzz --output result.csv
+    /// 예: xazz run examples/poc_script.xzz
+    /// 예: xazz run examples/poc_script.xzz --predict
+    /// 예: xazz run examples/pipeline.xzz --output result.csv
     Run {
         /// 실행할 .xzz 소스 파일 경로
         file: PathBuf,
@@ -47,7 +47,7 @@ pub enum Commands {
 
     /// sLM 기반 정적 상태 분석을 수행합니다 (Neural Query Planner)
     ///
-    /// 예: x1zz check examples/poc_script.xzz
+    /// 예: xazz check examples/poc_script.xzz
     Check {
         /// 분석할 .xzz 소스 파일 경로
         file: PathBuf,
@@ -55,7 +55,7 @@ pub enum Commands {
 
     /// .xzz 스크립트를 다른 언어/형식으로 변환 출력합니다
     ///
-    /// 예: x1zz emit rust examples/poc_script.xzz --out output.rs
+    /// 예: xazz emit rust examples/poc_script.xzz --out output.rs
     Emit {
         /// 출력 형식 (현재 지원: rust)
         format: String,
@@ -70,7 +70,7 @@ pub enum Commands {
 
     /// 합성 학습 데이터 쌍(pairs)을 자동 생성합니다
     ///
-    /// 예: x1zz sde --rows 5000 --output data/pairs/pairs.jsonl
+    /// 예: xazz sde --rows 5000 --output data/pairs/pairs.jsonl
     Sde {
         /// 생성할 데이터 행 수
         #[arg(long, default_value_t = 10000)]
@@ -81,9 +81,9 @@ pub enum Commands {
         output: PathBuf,
     },
 
-    /// 새 x1zzLang 프로젝트를 생성합니다
+    /// 새 xazzLang 프로젝트를 생성합니다
     ///
-    /// 예: x1zz new my-project
+    /// 예: xazz new my-project
     New {
         /// 생성할 프로젝트 이름
         name: String,
@@ -91,14 +91,14 @@ pub enum Commands {
 
     /// CSV 파일을 읽어 타입 정의 및 load 문을 main.xzz에 추가합니다
     ///
-    /// 예: x1zz import data/seoul_air.csv
+    /// 예: xazz import data/seoul_air.csv
     Import {
         /// 가져올 CSV 파일 경로
         file: String,
     },
 
-    /// x1zz 사용자 프로필을 분석하고 아이덴티티를 확인합니다
+    /// xazz 사용자 프로필을 분석하고 아이덴티티를 확인합니다
     ///
-    /// 예: x1zz whoami
+    /// 예: xazz whoami
     Whoami,
 }

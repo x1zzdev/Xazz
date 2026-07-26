@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-nqp_predict.py — x1zz CLI Integration: NQP Prediction Entry Point
+nqp_predict.py — xazz CLI Integration: NQP Prediction Entry Point
 ==================================================================
-Called by the x1zz CLI when `--predict` flag is set.
+Called by the xazz CLI when `--predict` flag is set.
 
 Protocol:
-  stdin  : JSON string  {"source": "<x1zz source code>"}
-           OR plain text (x1zz source code, fallback)
+  stdin  : JSON string  {"source": "<xazz source code>"}
+           OR plain text (xazz source code, fallback)
   stdout : JSON string  {"status": "ok", "result": "...",
                          "confidence": "...", "warnings": [...]}
            OR error JSON {"status": "error", "message": "..."}
@@ -23,7 +23,7 @@ import traceback
 
 # ── Path setup ────────────────────────────────────────────────────────────────
 _THIS_DIR    = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_DIR = os.path.dirname(_THIS_DIR)          # C:\Users\LG\x1zz-lang
+_PROJECT_DIR = os.path.dirname(_THIS_DIR)          # C:\Users\LG\xazz-lang
 CHECKPOINT_DIR = r"C:\checkpoint-2814"             # NQP model checkpoint
 
 # Make sure ir_converter is importable
@@ -56,7 +56,7 @@ def read_stdin_ir() -> dict:
         # JSON but not a dict (e.g. plain JSON string)
         return {"source": str(data)}
     except json.JSONDecodeError:
-        # Fallback: treat stdin as plain x1zz source text
+        # Fallback: treat stdin as plain xazz source text
         return {"source": raw}
 
 
@@ -174,7 +174,7 @@ def main():
         sys.stderr = _stderr_backup
 
     # 4. Run inference ─────────────────────────────────────────────────────────
-    SYSTEM_PROMPT = "You are the Neural Query Planner for x1zzLang."
+    SYSTEM_PROMPT = "You are the Neural Query Planner for Xazz."
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},

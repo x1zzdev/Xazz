@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::Path;
 
-/// 새 x1zzLang 프로젝트 디렉터리를 생성합니다.
+/// 새 xazzLang 프로젝트 디렉터리를 생성합니다.
 ///
 /// 생성 구조:
 /// ```text
@@ -11,7 +11,7 @@ use std::path::Path;
 /// │   └── sample.csv
 /// ├── example.xzz
 /// ├── main.xzz
-/// └── x1zz.toml
+/// └── xazz.toml
 /// ```
 pub fn create_project(name: &str) -> Result<()> {
     let root = Path::new(name);
@@ -47,9 +47,9 @@ Songpa,68.1,36.4,2026-01-10
         .with_context(|| "data/sample.csv 파일 작성에 실패했습니다.".to_string())?;
 
     // example.xzz — 즉시 실행 가능한 파이프라인 예제
-    let example_xzz = r#"// x1zzLang Quick Start Example
-// Run: x1zz run example.xzz
-// Export: x1zz run example.xzz --output result.csv
+    let example_xzz = r#"// xazzLang Quick Start Example
+// Run: xazz run example.xzz
+// Export: xazz run example.xzz --output result.csv
 
 type AirQuality = {
     station: string,
@@ -68,14 +68,14 @@ v result = data
         .with_context(|| "example.xzz 파일 작성에 실패했습니다.".to_string())?;
 
     // main.xzz — 빈 스타터 파일
-    let main_xzz = "// x1zzLang Project\n// Edit this file or run: x1zz run example.xzz\n\n";
+    let main_xzz = "// xazzLang Project\n// Edit this file or run: xazz run example.xzz\n\n";
     fs::write(root.join("main.xzz"), main_xzz)
         .with_context(|| "main.xzz 파일 작성에 실패했습니다.".to_string())?;
 
-    // x1zz.toml 작성
+    // xazz.toml 작성
     let toml_content = format!("[project]\nname = \"{}\"\nversion = \"0.1.0\"\n", name);
-    fs::write(root.join("x1zz.toml"), toml_content)
-        .with_context(|| "x1zz.toml 파일 작성에 실패했습니다.".to_string())?;
+    fs::write(root.join("xazz.toml"), toml_content)
+        .with_context(|| "xazz.toml 파일 작성에 실패했습니다.".to_string())?;
 
     println!("✅  프로젝트 '{}' 생성 완료!", name);
     println!();
@@ -84,12 +84,12 @@ v result = data
     println!("   │   └── sample.csv");
     println!("   ├── example.xzz");
     println!("   ├── main.xzz");
-    println!("   └── x1zz.toml");
+    println!("   └── xazz.toml");
     println!();
     println!("   Quick Start:");
     println!("   $ cd {}", name);
-    println!("   $ x1zz run example.xzz");
-    println!("   $ x1zz run example.xzz --output result.csv");
+    println!("   $ xazz run example.xzz");
+    println!("   $ xazz run example.xzz --output result.csv");
 
     Ok(())
 }

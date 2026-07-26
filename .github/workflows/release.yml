@@ -58,19 +58,19 @@ jobs:
         uses: actions/cache@v4
         with:
           path: target
-          key: build-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('src/**/*.rs', 'x1zz-*/src/**/*.rs') }}
+          key: build-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('src/**/*.rs', 'xazz-*/src/**/*.rs') }}
           restore-keys: |
             build-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}-
             build-${{ matrix.platform.target }}-
 
-      - name: Build x1zz
-        run: cargo build --release -p x1zz --target ${{ matrix.platform.target }}
+      - name: Build xazz
+        run: cargo build --release -p xazz --target ${{ matrix.platform.target }}
 
-      - name: Build x1zz-runner
-        run: cargo build --release -p x1zz-runner --target ${{ matrix.platform.target }}
+      - name: Build xazz-runner
+        run: cargo build --release -p xazz-runner --target ${{ matrix.platform.target }}
 
-      - name: Build x1zz-exec
-        run: cargo build --release -p x1zz-exec --target ${{ matrix.platform.target }}
+      - name: Build xazz-exec
+        run: cargo build --release -p xazz-exec --target ${{ matrix.platform.target }}
 
       - name: Stage and package (Windows)
         if: runner.os == 'Windows'
@@ -80,13 +80,13 @@ jobs:
           $version  = "${{ github.ref_name }}"
           $platform = "${{ matrix.platform.name }}"
           $target   = "${{ matrix.platform.target }}"
-          $dist     = "dist\x1zz"
-          $out      = "x1zz-${version}-${platform}.zip"
+          $dist     = "dist\xazz"
+          $out      = "xazz-${version}-${platform}.zip"
 
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
           $binaries = Get-ChildItem "target\${target}\release" -Filter "*.exe" |
-            Where-Object { $_.Name -match '^x1zz' }
+            Where-Object { $_.Name -match '^xazz' }
 
           if ($binaries.Count -eq 0) {
             Write-Error "ERROR: No binaries found for Windows packaging."
@@ -100,7 +100,7 @@ jobs:
           if (Test-Path "examples") { Copy-Item -Recurse "examples" "$dist\examples" }
           if (Test-Path "config")   { Copy-Item -Recurse "config"   "$dist\config"   }
 
-          Compress-Archive -Path "dist\x1zz" -DestinationPath $out
+          Compress-Archive -Path "dist\xazz" -DestinationPath $out
           "ARCHIVE=${out}" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Stage and package (Unix)
@@ -111,12 +111,12 @@ jobs:
           VERSION="${{ github.ref_name }}"
           PLATFORM="${{ matrix.platform.name }}"
           TARGET="${{ matrix.platform.target }}"
-          DIST="dist/x1zz"
-          OUT="x1zz-${VERSION}-${PLATFORM}.tar.gz"
+          DIST="dist/xazz"
+          OUT="xazz-${VERSION}-${PLATFORM}.tar.gz"
 
           mkdir -p "${DIST}"
 
-          binaries=$(find "target/${TARGET}/release" -maxdepth 1 -type f -name 'x1zz*' \
+          binaries=$(find "target/${TARGET}/release" -maxdepth 1 -type f -name 'xazz*' \
             ! -name '*.d' ! -name '*.rlib' ! -name '*.rmeta')
 
           if [ -z "$binaries" ]; then
@@ -131,7 +131,7 @@ jobs:
           [ -d examples ] && cp -r examples "${DIST}/examples"
           [ -d config   ] && cp -r config   "${DIST}/config"
 
-          tar -czf "${OUT}" -C dist x1zz
+          tar -czf "${OUT}" -C dist xazz
           echo "ARCHIVE=${OUT}" >> "$GITHUB_ENV"
 
       - name: Validate archive exists
@@ -139,7 +139,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=( x1zz-* )
+          files=( xazz-* )
           if [ ${#files[@]} -eq 0 ]; then
             echo "ERROR: no archive produced"
             exit 1
@@ -180,7 +180,7 @@ jobs:
           ls -lh release/
 
           shopt -s nullglob
-          archives=( release/x1zz-* )
+          archives=( release/xazz-* )
 
           if [ ${#archives[@]} -ne 3 ]; then
             echo "ERROR: expected 3 archives, found ${#archives[@]}"
@@ -188,7 +188,7 @@ jobs:
           fi
 
           for f in "${archives[@]}"; do
-            if [[ ! "$f" =~ ^release/x1zz-.* ]]; then
+            if [[ ! "$f" =~ ^release/xazz-.* ]]; then
               echo "ERROR: Unexpected archive name: $f"
               exit 1
             fi
@@ -228,16 +228,16 @@ jobs:
             echo ""
             echo "| Binary | Role |"
             echo "|--------|------|"
-            echo "| \`x1zz\` | CLI entry point |"
-            echo "| \`x1zz-runner\` | IPC bridge |"
-            echo "| \`x1zz-exec\` | Polars-powered runtime engine |"
+            echo "| \`xazz\` | CLI entry point |"
+            echo "| \`xazz-runner\` | IPC bridge |"
+            echo "| \`xazz-exec\` | Polars-powered runtime engine |"
             echo ""
             echo "## Installation"
             echo ""
             echo "1. Download the archive for your platform"
-            echo "2. Extract — all binaries land in \`x1zz/\`"
-            echo "3. Add \`x1zz/\` to your \`PATH\`"
-            echo "4. Run \`x1zz --help\`"
+            echo "2. Extract — all binaries land in \`xazz/\`"
+            echo "3. Add \`xazz/\` to your \`PATH\`"
+            echo "4. Run \`xazz --help\`"
             echo ""
             echo "> ⚠️ All three binaries must remain in the same directory."
           } > release_notes.md
@@ -261,7 +261,7 @@ jobs:
           fi
 
           gh release create "${VERSION}" \
-            --title "x1zzLang ${VERSION}" \
+            --title "Xazz ${VERSION}" \
             --notes-file release_notes.md \
             ${PRERELEASE} \
             "${archives[@]}" \

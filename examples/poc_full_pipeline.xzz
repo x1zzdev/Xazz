@@ -1,4 +1,4 @@
-// x1zzLang PoC — v0.16 Full Pipeline
+// Xazz PoC — v0.16 Full Pipeline
 //
 // 모든 새 런타임 기능을 망라한 종합 예제:
 //   col("x"), true/false, 1_200_000, groupBy, sum, mean, min, max,

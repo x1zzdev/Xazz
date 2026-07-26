@@ -1,11 +1,11 @@
 [workspace]
 
 members = [
-  "x1zz-core",
-  "x1zz-compiler",
-  "x1zz-runner",
-  "x1zz-exec",
-  "x1zz-server"
+  "xazz-core",
+  "xazz-compiler",
+  "xazz-runner",
+  "xazz-exec",
+  "xazz-server"
 ]
 resolver = "2"
 
@@ -14,21 +14,21 @@ resolver = "2"
 [workspace.package]
 version = "0.2.8"
 edition = "2024"
-authors = ["Jangseowoo <ax1s.x1zz.com>"]
+authors = ["Jangseowoo <ax1s.xazz.com>"]
 license = "Apache-2.0"
-repository = "https://github.com/x1zzdev/x1zzLang"
+repository = "https://github.com/xazzdev/Xazz"
 
-# ── 루트 패키지 (x1zz CLI 바이너리) ─────────────────────────────────────────────
+# ── 루트 패키지 (Xazz CLI 바이너리) ─────────────────────────────────────────────
 [package]
-name = "x1zz"
+name = "xazz"
 version = {workspace = true}
 edition = "2024"
-authors = ["Jangseowoo <ax1s.x1zz.com>"]
+authors = ["Jangseowoo <ax1s.xazz.com>"]
 license = "Apache-2.0"
-description = "x1zzLang — scripting on the surface, compiled at its core. A data pipeline language that compiles .xzz scripts into optimized Polars LazyFrame execution plans."
+description = "Xazz — scripting on the surface, compiled at its core. A data pipeline language that compiles .xzz scripts into optimized Polars LazyFrame execution plans."
 keywords = ["data", "pipeline", "polars", "compiler", "csv"]
 categories = ["command-line-utilities", "compilers", "science"]
-repository = "https://github.com/x1zzdev/x1zzLang"
+repository = "https://github.com/xazzdev/Xazz"
 readme = "README.md"
 
 exclude = [
@@ -44,7 +44,7 @@ exclude = [
 ]
 
 [[bin]]
-name = "x1zz"
+name = "xazz"
 path = "src/main.rs"
 
 [profile.release]
@@ -67,7 +67,7 @@ required-features = ["poc-examples"]
 [dependencies]
 # 컴파일러 (Lexer/Parser/Codegen/Emitter) — Polars 없음
 # `emit` 명령어에서 emit_rust() 호출에 필요
-x1zz-compiler = { version = "0.2.1", path = "x1zz-compiler" }
+xazz-compiler = { version = "0.2.1", path = "xazz-compiler" }
 
 # CLI 인자 파싱
 clap = { version = "4.4", features = ["derive", "cargo"] }
@@ -85,5 +85,5 @@ csv         = { version = "1.3" }
 anyhow      = { version = "1.0" }
 encoding_rs = { version = "0.8" }
 
-# ⚠️  REMOVED: tokio — run 명령어는 x1zz-runner 서브프로세스로 위임
-# ⚠️  REMOVED: x1zz-exec / Polars — CLI 바이너리에 절대 포함되지 않음
+# ⚠️  REMOVED: tokio — run 명령어는 xazz-runner 서브프로세스로 위임
+# ⚠️  REMOVED: xazz-exec / Polars — CLI 바이너리에 절대 포함되지 않음

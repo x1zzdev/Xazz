@@ -1,0 +1,30 @@
+[package]
+name = "xazz-exec"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Xazz execution engine — Polars LazyFrame runtime for .xzz pipeline scripts. Heavy dependencies (Polars, encoding_rs) are isolated here."
+keywords = ["data", "pipeline", "polars", "runtime", "csv"]
+categories = ["science"]
+
+# ── 실행 바이너리 (xazz-runner가 서브프로세스로 스폰) ─────────────────────────
+[[bin]]
+name = "xazz-exec"
+path = "src/main.rs"
+
+[dependencies]
+# 공유 핵심 타입
+xazz-core     = { version = "0.2.1", path = "../xazz-core" }
+# 컴파일러 (Lexer/Parser/Codegen) — Polars 없음
+xazz-compiler = { version = "0.2.1", path = "../xazz-compiler" }
+
+# ── 무거운 런타임 의존성 (CLI 바이너리에 절대 포함되면 안 됨) ─────────────────
+polars = { version = "0.53", features = ["lazy", "csv", "strings", "regex"] }
+
+# 한국 공공데이터 EUC-KR → UTF-8 디코딩
+encoding_rs = "0.8"
+
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"

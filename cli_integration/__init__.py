@@ -1,1 +1,1 @@
-# x1zz CLI Integration Layer
+# xazz CLI Integration Layer

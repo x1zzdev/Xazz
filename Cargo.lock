@@ -3873,7 +3873,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
-name = "x1zz"
+name = "xazz"
 version = "0.2.8"
 dependencies = [
  "anyhow",
@@ -3884,39 +3884,39 @@ dependencies = [
  "indicatif",
  "serde",
  "serde_json",
- "x1zz-compiler",
+ "xazz-compiler",
 ]
 
 [[package]]
-name = "x1zz-compiler"
+name = "xazz-compiler"
 version = "0.2.8"
 dependencies = [
  "serde",
  "serde_json",
- "x1zz-core",
+ "xazz-core",
 ]
 
 [[package]]
-name = "x1zz-core"
+name = "xazz-core"
 version = "0.2.8"
 dependencies = [
  "serde",
 ]
 
 [[package]]
-name = "x1zz-exec"
+name = "xazz-exec"
 version = "0.2.8"
 dependencies = [
  "encoding_rs",
  "polars",
  "serde",
  "serde_json",
- "x1zz-compiler",
- "x1zz-core",
+ "xazz-compiler",
+ "xazz-core",
 ]
 
 [[package]]
-name = "x1zz-runner"
+name = "xazz-runner"
 version = "0.2.8"
 dependencies = [
  "serde",
@@ -3924,7 +3924,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "x1zz-server"
+name = "xazz-server"
 version = "0.1.0"
 dependencies = [
  "axum",

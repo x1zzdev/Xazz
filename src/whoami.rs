@@ -40,10 +40,10 @@ pub fn run_whoami() -> Result<(), Box<dyn std::error::Error>> {
     let mut _input = String::new();
     io::stdin().read_line(&mut _input)?;
 
-    // ── Phase 5: ASCII Art — X1ZZ IT BASE ───────────────────────
+    // ── Phase 5: ASCII Art — XAZZ IT BASE ───────────────────────
     clear_screen();
 
-    let x1zz = [
+    let xazz = [
         "██╗  ██╗██╗████████╗",
         "██║  ██║██║╚══██╔══╝",
         "███████║██║   ██║   ",
@@ -73,7 +73,7 @@ pub fn run_whoami() -> Result<(), Box<dyn std::error::Error>> {
     thread::sleep(Duration::from_millis(200));
     println!("Generating identity...\n");
 
-    for line in &x1zz {
+    for line in &xazz {
         println!("{}", line.cyan());
     }
 
