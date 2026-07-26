@@ -30,7 +30,8 @@ use serde::Serialize;
 use crate::ast::{
     ChartConfig, ChartType, FillNullValue, JoinHow, PipelineOp, PipelineSource, Stmt,
 };
-use crate::{BinOpKind, Codegen, Expr, Lexer, Parser, StructField};
+use crate::error::{CompileError, ErrorKind};
+use crate::{BinOpKind, Codegen, Expr, Lexer, Parser, Span, StructField};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ── ChartSpec — 프론트엔드로 전달하는 시각화 명세 (v0.19) ─────────────────────
@@ -507,28 +508,49 @@ fn validate_schema_types(
     df: &polars::frame::DataFrame,
     schema_name: &str,
     schema_fields: &[StructField],
-) {
+) -> Result<(), CompileError> {
     for field in schema_fields {
         let is_optional = field.field_type.starts_with("Option<");
         match df.column(&field.name) {
             Ok(series) => {
                 let null_count = series.null_count();
-                let dtype = series.dtype();
                 if null_count > 0 && !is_optional {
-                    eprintln!(
-                        "[x1zz WARN] Null 위반 [{}]: 필수 필드 '{}' ({:?}) 에 null {} 개 발견",
-                        schema_name, field.name, dtype, null_count
-                    );
+                    return Err(CompileError::new(
+                        ErrorKind::NullViolation {
+                            field: field.name.clone(),
+                            schema: schema_name.to_string(),
+                        },
+                        Span::new(0, 0),
+                        format!(
+                            "필수 필드 '{}' 에 null {} 개 발견. dropNull(\"{}\") 또는 fillNull(\"{}\", <기본값>) 을 사용하세요.",
+                            field.name, null_count, field.name, field.name
+                        ),
+                    ));
                 }
             }
             Err(_) => {
-                eprintln!(
-                    "[x1zz WARN] 스키마 필드 '{}' 를 DataFrame에서 찾을 수 없음",
-                    field.name
-                );
+                // 스키마 필드가 DataFrame에 없으면 SafeLoadViolation
+                let available: Vec<String> = df
+                    .get_column_names()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+                return Err(CompileError::new(
+                    ErrorKind::SafeLoadViolation {
+                        col: field.name.clone(),
+                        schema: schema_name.to_string(),
+                        available,
+                    },
+                    Span::new(0, 0),
+                    format!(
+                        "스키마 '{}' 의 필드 '{}' 가 DataFrame에 존재하지 않습니다.",
+                        schema_name, field.name
+                    ),
+                ));
             }
         }
     }
+    Ok(())
 }
 
 // ── CSV 로더 (인코딩 자동 처리 + Dirty-data null 정규화) ──────────────────────
@@ -633,6 +655,30 @@ fn execute_var_decl(
                 lf = lf.filter(to_polars_expr(expr));
             }
             PipelineOp::Select(cols) => {
+                // ── Safe-Load 검증: 선택한 컬럼이 실제 DataFrame에 존재하는지 확인 ──
+                let df_snapshot = lf.clone().collect()?;
+                let available_cols: Vec<String> = df_snapshot
+                    .get_column_names()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+                for col_name in cols {
+                    if !available_cols.contains(col_name) {
+                        return Err(CompileError::new(
+                            ErrorKind::SafeLoadViolation {
+                                col: col_name.clone(),
+                                schema: "DataFrame".to_string(),
+                                available: available_cols.clone(),
+                            },
+                            Span::new(0, 0),
+                            format!(
+                                "select() 에서 컬럼 '{}' 를 찾을 수 없습니다.",
+                                col_name
+                            ),
+                        )
+                        .into());
+                    }
+                }
                 let exprs: Vec<polars::prelude::Expr> =
                     cols.iter().map(|c| col(c.as_str())).collect();
                 lf = lf.select(exprs);
@@ -870,13 +916,139 @@ fn execute_var_decl(
                 PipelineSource::Load { schema_name, .. } => schema_name.as_str(),
                 _ => "unknown",
             };
-            validate_schema_types(&df, schema_name, fields);
+            validate_schema_types(&df, schema_name, fields)?;
+        }
+    }
+
+    // ── DivisionByZero 검증 (WithColumn Div 연산 대상) ─────────────────────────
+    // collect된 DataFrame을 대상으로, withColumn에서 사용된 Div 연산의 분모 컬럼에
+    // 0이 포함되어 있는지 검사한다. 경고만 출력하고 실행은 계속한다.
+    for op in ops {
+        if let PipelineOp::WithColumn { name: _col_name, expr } = op {
+            check_division_by_zero(&df, expr);
         }
     }
 
     let _ = (var_name, has_count_flag); // suppress unused warnings
 
     Ok(df)
+}
+
+// ── DivisionByZero 검증 헬퍼 ─────────────────────────────────────────────────
+/// WithColumn 표현식에서 Div 연산의 분모에 0이 포함되어 있는지 검사한다.
+/// 분모가 리터럴 0이면 항상 경고, 컬럼 참조이면 해당 컬럼에 0이 있는지 확인한다.
+fn check_division_by_zero(df: &polars::frame::DataFrame, expr: &Expr) {
+    // 표현식에서 Div 연산의 분모 컬럼명을 재귀적으로 수집
+    let denominators = collect_div_denominators(expr);
+    for (denominator_col, expr_context) in denominators {
+        if let Ok(series) = df.column(&denominator_col) {
+            // 0 값 카운트 (null 제외)
+            let zero_count = count_zeros_in_series(series);
+            if zero_count > 0 {
+                eprintln!(
+                    "[x1zz WARN] DivisionByZero: 컬럼 '{}' 에 0이 {} 개 포함되어 있습니다.",
+                    denominator_col, zero_count
+                );
+                eprintln!("  표현식: {}", expr_context);
+                eprintln!(
+                    "  → filter({} != 0) 또는 fillNull(\"{}\", 1) 을 파이프라인에 추가하세요.",
+                    denominator_col, denominator_col
+                );
+            }
+        }
+    }
+}
+
+/// 표현식에서 Div 연산의 분모 컬럼명을 재귀적으로 수집한다.
+/// 반환값: Vec<(분모컬럼명, 전체표현식문자열)>
+fn collect_div_denominators(expr: &Expr) -> Vec<(String, String)> {
+    let mut results = Vec::new();
+    match expr {
+        Expr::BinOp { lhs, op, rhs } => {
+            if *op == BinOpKind::Div {
+                // 분모(rhs)가 컬럼 참조인 경우
+                if let Expr::Ident(col_name) = rhs.as_ref() {
+                    let context = format_expr_for_display(expr);
+                    results.push((col_name.clone(), context));
+                }
+                // 분모가 리터럴 0인 경우 (IntLit(0) 또는 FloatLit(0.0))
+                if is_zero_literal(rhs.as_ref()) {
+                    let context = format_expr_for_display(expr);
+                    eprintln!(
+                        "[x1zz WARN] DivisionByZero: 0으로 나누기가 감지되었습니다. ({})",
+                        context
+                    );
+                }
+            }
+            // 하위 표현식도 재귀적으로 탐색
+            results.extend(collect_div_denominators(lhs));
+            results.extend(collect_div_denominators(rhs));
+        }
+        _ => {}
+    }
+    results
+}
+
+/// 리터럴이 0인지 확인한다.
+fn is_zero_literal(expr: &Expr) -> bool {
+    match expr {
+        Expr::IntLit(0) => true,
+        Expr::FloatLit(f) => *f == 0.0,
+        _ => false,
+    }
+}
+
+/// 표현식을 사람이 읽기 좋은 문자열로 변환한다.
+fn format_expr_for_display(expr: &Expr) -> String {
+    match expr {
+        Expr::Ident(s) => format!("col(\"{}\")", s),
+        Expr::IntLit(n) => n.to_string(),
+        Expr::FloatLit(f) => f.to_string(),
+        Expr::StringLit(s) => format!("\"{}\"", s),
+        Expr::BoolLit(b) => b.to_string(),
+        Expr::BinOp { lhs, op, rhs } => {
+            let op_str = match op {
+                BinOpKind::Eq => "==",
+                BinOpKind::NotEq => "!=",
+                BinOpKind::Lt => "<",
+                BinOpKind::Gt => ">",
+                BinOpKind::LtEq => "<=",
+                BinOpKind::GtEq => ">=",
+                BinOpKind::Add => "+",
+                BinOpKind::Sub => "-",
+                BinOpKind::Mul => "*",
+                BinOpKind::Div => "/",
+            };
+            format!(
+                "{} {} {}",
+                format_expr_for_display(lhs),
+                op_str,
+                format_expr_for_display(rhs)
+            )
+        }
+    }
+}
+
+/// Series에서 0 값의 개수를 센다 (null 제외).
+fn count_zeros_in_series(series: &polars::series::Series) -> usize {
+    use polars::prelude::AnyValue;
+    let mut count = 0;
+    for i in 0..series.len() {
+        match series.get(i) {
+            Ok(AnyValue::Int8(0))
+            | Ok(AnyValue::Int16(0))
+            | Ok(AnyValue::Int32(0))
+            | Ok(AnyValue::Int64(0))
+            | Ok(AnyValue::UInt8(0))
+            | Ok(AnyValue::UInt16(0))
+            | Ok(AnyValue::UInt32(0))
+            | Ok(AnyValue::UInt64(0)) => count += 1,
+            Ok(AnyValue::Float32(f)) if f == 0.0 => count += 1,
+            Ok(AnyValue::Float64(f)) if f == 0.0 => count += 1,
+            _ => {}
+        }
+    }
+    count
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

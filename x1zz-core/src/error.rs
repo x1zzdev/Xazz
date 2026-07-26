@@ -34,6 +34,12 @@ pub enum ErrorKind {
         schema: String,
         available: Vec<String>,
     },
+    /// DivisionByZero: 0으로 나누기 감지
+    DivisionByZero {
+        col: String,
+        row_count: usize,
+        expr_context: String,
+    },
     /// 기타
     Other(String),
 }
@@ -52,6 +58,7 @@ impl ErrorKind {
             ErrorKind::IoError(_) => "IO 에러",
             ErrorKind::SchemaMappingFailed { .. } => "스키마 에러",
             ErrorKind::SafeLoadViolation { .. } => "Safe-Load 위반",
+            ErrorKind::DivisionByZero { .. } => "DivisionByZero",
             ErrorKind::Other(_) => "에러",
         }
     }
@@ -145,6 +152,14 @@ fn generate_suggestion(kind: &ErrorKind) -> Option<String> {
         ErrorKind::UndeclaredType(name) => Some(format!(
             "타입 '{}' 가 선언되지 않았습니다. → `type {} = {{ ... }}` 으로 먼저 선언하세요.",
             name, name
+        )),
+        ErrorKind::DivisionByZero {
+            col,
+            row_count,
+            expr_context: _,
+        } => Some(format!(
+            "컬럼 '{}' 에 0이 {} 개 포함되어 있습니다. → filter({} != 0) 또는 fillNull(\"{}\", 1) 등을 파이프라인에 추가하세요.",
+            col, row_count, col, col
         )),
         _ => None,
     }
@@ -296,5 +311,39 @@ mod tests {
         assert_eq!(edit_distance("pm10", "pm10"), 0);
         assert_eq!(edit_distance("pm_10", "pm10"), 1);
         assert_eq!(edit_distance("abc", "xyz"), 3);
+    }
+
+    #[test]
+    fn test_division_by_zero_suggestion() {
+        let err = CompileError::new(
+            ErrorKind::DivisionByZero {
+                col: "pm25".into(),
+                row_count: 3,
+                expr_context: "col(\"pm10\") / col(\"pm25\")".into(),
+            },
+            Span::new(0, 0),
+            "0으로 나누기 감지",
+        );
+        let display = format!("{}", err);
+        assert!(
+            display.contains("DivisionByZero"),
+            "DivisionByZero 카테고리 없음: {}",
+            display
+        );
+        assert!(
+            display.contains("💡 AI Suggestion:"),
+            "AI Suggestion 없음: {}",
+            display
+        );
+        assert!(
+            display.contains("pm25"),
+            "컬럼명 포함 안 됨: {}",
+            display
+        );
+        assert!(
+            display.contains("3"),
+            "0 개수 포함 안 됨: {}",
+            display
+        );
     }
 }
