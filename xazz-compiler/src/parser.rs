@@ -660,6 +660,36 @@ impl Parser {
                 self.expect(&TokenKind::LParen)?;
                 let col_name = self.expect_string_lit()?;
                 self.expect(&TokenKind::Comma)?;
+                // 전략 폼: fillNull("col", strategy: "mean")
+                if matches!(
+                    self.current_kind(),
+                    TokenKind::Ident(_) | TokenKind::Strategy
+                ) {
+                    self.advance(); // 'strategy'
+                    self.expect(&TokenKind::Colon)?;
+                    let strat = self.expect_string_lit()?.to_lowercase();
+                    let value = match strat.as_str() {
+                        "mean" => FillNullValue::Mean,
+                        "median" => FillNullValue::Median,
+                        "zero" | "0" => FillNullValue::Zero,
+                        other => {
+                            return Err(CompileError::new(
+                                ErrorKind::ExpectedToken(
+                                    "strategy: \"mean\" | \"median\" | \"zero\"".into(),
+                                ),
+                                self.current_span(),
+                                format!(
+                                    "fillNull() 전략 '{other}' 은 지원하지 않습니다. 지원: mean, median, zero"
+                                ),
+                            ));
+                        }
+                    };
+                    self.expect(&TokenKind::RParen)?;
+                    return Ok(PipelineOp::FillNull {
+                        col: col_name,
+                        value,
+                    });
+                }
                 // 채우기 값: 정수, 부동소수 또는 문자열 리터럴
                 let value = match self.current_kind() {
                     TokenKind::IntLit(n) => {

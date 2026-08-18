@@ -761,12 +761,16 @@ fn execute_var_decl(
                 col: fill_col,
                 value,
             } => {
-                let fill_lit: polars::prelude::Expr = match value {
+                // 전략형 채우기: fillNull("col", strategy: "mean" | "median" | "zero")
+                let fill_expr: polars::prelude::Expr = match value {
+                    FillNullValue::Mean => col(fill_col.as_str()).mean(),
+                    FillNullValue::Median => col(fill_col.as_str()).median(),
+                    FillNullValue::Zero => lit(0),
                     FillNullValue::Int(n) => lit(*n),
                     FillNullValue::Float(f) => lit(*f),
                     FillNullValue::Str(s) => lit(s.clone()),
                 };
-                lf = lf.with_columns([col(fill_col.as_str()).fill_null(fill_lit)]);
+                lf = lf.with_columns([col(fill_col.as_str()).fill_null(fill_expr)]);
             }
 
             // ── v0.16+ / v0.21 Join — left_on/right_on 분리 지원 ─────────────

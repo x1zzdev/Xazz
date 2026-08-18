@@ -211,6 +211,7 @@ pub fn run_pipeline(
 
     // 5-B: VarDecl 순차 실행 + SymbolTable 관리
     let mut symbol_table: HashMap<String, polars::frame::DataFrame> = HashMap::new();
+    let mut model_registry: HashMap<String, Vec<LayerKind>> = HashMap::new();
     let mut pipeline_count = 0usize;
     let mut last_var_name: Option<String> = None;
 
@@ -273,11 +274,12 @@ pub fn run_pipeline(
             Stmt::ModelDecl { name, layers } => {
                 pipeline_count += 1;
                 eprintln!(
-                    "[xazz] Pipeline #{} ModelDecl '{}' — 레이어 {} 개 (Burn 플레이스홀더)",
+                    "[xazz] Pipeline #{} ModelDecl '{}' — 레이어 {} 개",
                     pipeline_count,
                     name,
                     layers.len()
                 );
+                model_registry.insert(name.clone(), layers.clone());
                 handle_model_decl(name, layers);
             }
 
@@ -288,10 +290,14 @@ pub fn run_pipeline(
             } => {
                 pipeline_count += 1;
                 eprintln!(
-                    "[xazz] Pipeline #{} TrainStmt '{}' → 모델 '{}' (Burn 플레이스홀더)",
+                    "[xazz] Pipeline #{} TrainStmt '{}' → 모델 '{}'",
                     pipeline_count, source_var, model_name
                 );
-                handle_train_stmt(source_var, model_name, config, &symbol_table);
+                let layers = model_registry
+                    .get(model_name)
+                    .cloned()
+                    .unwrap_or_else(|| vec![LayerKind::Dense(1)]);
+                handle_train_stmt(source_var, model_name, &layers, config, &symbol_table);
             }
 
             _ => {}
@@ -717,12 +723,17 @@ fn execute_var_decl(
                 col: fill_col,
                 value,
             } => {
-                let fill_lit: polars::prelude::Expr = match value {
+                // 전략형 채우기: fillNull("col", strategy: "mean" | "median" | "zero")
+                // fill_null() 은 Expr 을 받으므로 컬럼 평균/중앙값 Expr 로 직접 채운다.
+                let fill_expr: polars::prelude::Expr = match value {
+                    FillNullValue::Mean => col(fill_col.as_str()).mean(),
+                    FillNullValue::Median => col(fill_col.as_str()).median(),
+                    FillNullValue::Zero => lit(0),
                     FillNullValue::Int(n) => lit(*n),
                     FillNullValue::Float(f) => lit(*f),
                     FillNullValue::Str(s) => lit(s.clone()),
                 };
-                lf = lf.with_columns([col(fill_col.as_str()).fill_null(fill_lit)]);
+                lf = lf.with_columns([col(fill_col.as_str()).fill_null(fill_expr)]);
             }
 
             PipelineOp::Join {
@@ -861,9 +872,9 @@ fn execute_var_decl(
     Ok(df)
 }
 
-// ── Burn 딥러닝 플레이스홀더 (v0.3) ────────────────────────────────────────────
+// ── Burn 딥러닝 실행 (v0.4) ───────────────────────────────────────────────────
 
-/// ModelDecl 처리 — Burn 모델 정의를 로깅하고 향후 Burn 코드 생성을 위한 기반 마련
+/// ModelDecl 처리 — 모델 정의를 로깅하고 학습에 사용할 레이어 정보를 등록한다.
 fn handle_model_decl(name: &str, layers: &[LayerKind]) {
     println!();
     println!("🧠 [xazz Model Declaration: {}]", name);
@@ -882,9 +893,6 @@ fn handle_model_decl(name: &str, layers: &[LayerKind]) {
         println!("    [{}] {}  →  {}", i, layer_desc, layer.to_burn_str());
     }
     println!();
-    println!("  ⚠️  Burn 프레임워크 연동은 아직 구현되지 않았습니다.");
-    println!("     향후 burn::nn 모듈로 자동 코드 생성될 예정입니다.");
-    println!();
 
     // [xazz:model] JSON 마커 — 서버/IDE에서 모델 정보를 파싱할 수 있도록 출력
     let model_json = serde_json::json!({
@@ -899,10 +907,11 @@ fn handle_model_decl(name: &str, layers: &[LayerKind]) {
     );
 }
 
-/// TrainStmt 처리 — 학습 설정을 로깅하고 향후 Burn 학습 루프를 위한 기반 마련
+/// TrainStmt 처리 — Burn 학습 루프를 실제 실행하고 결과를 리포트한다.
 fn handle_train_stmt(
     source_var: &str,
     model_name: &str,
+    layers: &[LayerKind],
     config: &TrainConfig,
     symbol_table: &HashMap<String, polars::frame::DataFrame>,
 ) {
@@ -910,25 +919,21 @@ fn handle_train_stmt(
     println!("🏋️  [xazz Training: {} → {}]", source_var, model_name);
     println!("{}", "─".repeat(60));
 
-    // 데이터 소스 확인
-    match symbol_table.get(source_var) {
-        Some(df) => {
-            println!(
-                "  데이터 소스: {} ({} 행 × {} 열)",
-                source_var,
-                df.height(),
-                df.width()
-            );
-            println!("  컬럼: {:?}", df.get_column_names());
-        }
-        None => {
-            eprintln!(
-                "  ⚠️  경고: 변수 '{}' 가 심볼 테이블에 없습니다.",
-                source_var
-            );
-        }
-    }
+    let Some(df) = symbol_table.get(source_var) else {
+        eprintln!(
+            "  ❌  데이터 소스 변수 '{}' 가 심볼 테이블에 없습니다.",
+            source_var
+        );
+        return;
+    };
 
+    println!(
+        "  데이터 소스: {} ({} 행 × {} 열)",
+        source_var,
+        df.height(),
+        df.width()
+    );
+    println!("  컬럼: {:?}", df.get_column_names());
     println!("  모델: {}", model_name);
     println!("  타겟 컬럼: {}", config.target);
     println!("  에포크: {}", config.epochs);
@@ -944,27 +949,59 @@ fn handle_train_stmt(
     println!("  배치 크기: {}", batch_str);
     println!("  검증 비율: {}", val_str);
     println!();
-    println!("  ⚠️  Burn 학습 루프는 아직 구현되지 않았습니다.");
-    println!("     향후 Autodiff + DataLoader 기반 학습이 추가될 예정입니다.");
-    println!();
 
-    // [xazz:train] JSON 마커
-    let train_json = serde_json::json!({
-        "type": "train_stmt",
-        "source_var": source_var,
-        "model_name": model_name,
-        "config": {
-            "target": config.target,
-            "epochs": config.epochs,
-            "learning_rate": config.learning_rate,
-            "batch_size": config.batch_size,
-            "validation_split": config.validation_split,
-        },
-    });
-    println!(
-        "[xazz:train] {}",
-        serde_json::to_string(&train_json).unwrap_or_default()
-    );
+    match crate::dl::train(df, model_name, layers, config) {
+        Ok(report) => {
+            println!("{}", "─".repeat(60));
+            println!("✅  학습 완료");
+            println!("  입력 차원  : {}", report.input_dim);
+            println!("  출력 차원  : {}", report.output_dim);
+            println!("  파라미터 수 : {}", report.num_params);
+            println!("  최종 손실(MSE) : {:.6}", report.final_train_loss);
+            if let Some(v) = report.final_val_loss {
+                println!("  검증 손실(MSE) : {:.6}", v);
+            }
+            println!("  특성 컬럼  : {:?}", report.feature_names);
+            if !report.predictions.is_empty() {
+                println!("  샘플 예측  :");
+                for i in 0..report.predictions.len().min(5) {
+                    println!(
+                        "    [{i}] 예측 = {:.4}   실제 = {:.4}",
+                        report.predictions[i], report.targets[i]
+                    );
+                }
+            }
+            println!("  체크포인트 : {}", report.checkpoint_path);
+            println!();
+
+            // [xazz:train] JSON 마커 — 서버/IDE에서 학습 결과를 파싱
+            let train_json = serde_json::json!({
+                "type": "train_stmt",
+                "success": true,
+                "source_var": source_var,
+                "model_name": model_name,
+                "report": serde_json::to_value(&report).unwrap_or_default(),
+            });
+            println!(
+                "[xazz:train] {}",
+                serde_json::to_string(&train_json).unwrap_or_default()
+            );
+        }
+        Err(e) => {
+            eprintln!("  ❌  학습 실패: {}", e);
+            let train_json = serde_json::json!({
+                "type": "train_stmt",
+                "success": false,
+                "source_var": source_var,
+                "model_name": model_name,
+                "error": e,
+            });
+            println!(
+                "[xazz:train] {}",
+                serde_json::to_string(&train_json).unwrap_or_default()
+            );
+        }
+    }
 }
 
 // ── write_chart_html — ChartSpec → Chart.js 기반 HTML 파일 생성 ───────────────

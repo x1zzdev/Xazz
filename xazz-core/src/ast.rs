@@ -50,6 +50,12 @@ pub enum FillNullValue {
     Float(f64),
     /// 문자열 채우기 값
     Str(String),
+    /// 평균 채우기 전략 (strategy: "mean")
+    Mean,
+    /// 중앙값 채우기 전략 (strategy: "median")
+    Median,
+    /// 0으로 채우기 전략 (strategy: "zero")
+    Zero,
 }
 
 /// join 방식
@@ -234,16 +240,16 @@ pub enum LayerKind {
 }
 
 impl LayerKind {
-    /// Burn 코드 생성용 문자열 반환
+    /// Burn 코드 생성용 문자열 반환 (입력 차원은 데이터셋 스키마에서 결정되므로 함수 인자로 받는다).
     pub fn to_burn_str(&self) -> String {
         match self {
-            LayerKind::Dense(n) => format!("nn::LinearConfig::new({}, {})", n, n),
-            LayerKind::ReLU => "nn::ReLU::new()".to_string(),
-            LayerKind::Sigmoid => "nn::Sigmoid::new()".to_string(),
-            LayerKind::Tanh => "nn::Tanh::new()".to_string(),
-            LayerKind::Softmax => "nn::Softmax::new()".to_string(),
+            LayerKind::Dense(n) => format!("nn::LinearConfig::new(<in_dim>, {})", n),
+            LayerKind::ReLU => "activation::relu()".to_string(),
+            LayerKind::Sigmoid => "activation::sigmoid()".to_string(),
+            LayerKind::Tanh => "activation::tanh()".to_string(),
+            LayerKind::Softmax => "activation::softmax(dim=1)".to_string(),
             LayerKind::Dropout(r) => format!("nn::DropoutConfig::new({})", r),
-            LayerKind::BatchNorm => "nn::BatchNormConfig::new()".to_string(),
+            LayerKind::BatchNorm => "BatchNorm(생략)".to_string(),
         }
     }
 }

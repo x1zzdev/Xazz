@@ -9,7 +9,16 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
-- Open source readiness pass (repository hygiene, documentation)
+### Added
+- Burn 딥러닝 실행 엔진 (`xazz-exec`): `model {}` 선언 → `train()` 학습 (Adam + MSE), 특성 표준화, train/validation 분할, in-sample 예측, `checkpoints/<model>.json` 체크포인트 저장
+- `emit rust` 딥러닝 코드 생성: `.xzz`의 `model {}`/`train()` → 독립 Burn nn 모듈 + 학습 코드로 변환
+- `fillNull(strategy:)` 연산자: 평균(`"mean"`)/중앙값(`"median"`)/0(`"zero"`) 채우기 전략 (README 예제 호환)
+- 서버 `/execute`가 `[xazz:train]` 마커를 파싱해 학습 결과(`training`)를 반환
+- 딥러닝 예제 (`examples/deep_learning/air_quality_predictor.xzz`) 개선 및 검증
+
+### Changed
+- `LayerKind::to_burn_str` Dense 매핑 오류 수정 (`Linear(n,n)` → 입력 차원 스키마 기반 추론)
+- README 기능/로드맵 상태 테이블을 실제 구현 상태로 정리
 
 ---
 

@@ -185,11 +185,13 @@ xazz run main.xzz      # 컴파일 + 파이프라인 실행
 | `xazz run` | `.xzz` 파이프라인 컴파일 및 실행 | Stable |
 | `xazz import` | CSV 스키마 자동 추론 → 타입 블록 생성 | Stable |
 | `xazz new` | 샘플 CSV + 실행 가능한 예제 포함 프로젝트 생성 | Stable |
-| `xazz emit rust` | `.xzz` → Rust 소스 변환 (Polars LazyFrame 호출) | Stable |
+| `xazz emit rust` | `.xzz` → Rust 소스 변환 (Polars LazyFrame + Burn) | Stable |
+| `model {}` + `train()` | Burn 딥러닝 모델 선언·학습 (Adam + MSE, CPU 백엔드) | Stable |
 | `xazz check` | Neural Query Planner 기반 정적 분석 | Experimental |
 | `xazz sde` | 합성 데이터 생성 엔진 연동 | Preview |
 | 내장 `chart {}` | 파이프라인 결과를 bar / line / pie / scatter 차트로 렌더링 | Stable |
 | `Option<T>` 타입 시스템 | null-safe 컬럼 선언, `fillNull` 연산자 | Stable |
+| `fillNull(strategy:)` | 평균/중앙값/0 채우기 전략 (`strategy: "mean"`) | Stable |
 | EUC-KR CSV 지원 | CP949 인코딩 한글 CSV 자동 감지 및 디코딩 | Stable |
 | Visual IDE | 그래픽 파이프라인 편집기 (별도 저장소) | Stable |
 
@@ -262,7 +264,7 @@ cargo build --release -p xazz-runner
 | Phase 2 — Execution Layer | Polars 연동, CLI 도구, 차트 출력 | 완료 |
 | Phase 3 — IDE Integration | Visual IDE, 그래픽 파이프라인 편집기 | 완료 |
 | Phase 4 — Expanded Language | 연산자 확장, join 개선, 스키마 진화 | 진행 중 |
-| Phase 5 — AI Expansion | 자연어 쿼리 인터페이스 (NQP), AI 기반 분석 | Experimental |
+| Phase 5 — AI Expansion | Burn 딥러닝 계층(모델 선언·학습·체크포인트), NQP | 딥러닝 완료 / NQP Experimental |
 
 ---
 

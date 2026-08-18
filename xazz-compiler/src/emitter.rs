@@ -18,7 +18,10 @@
 use std::collections::HashMap;
 use std::fs;
 
-use crate::ast::{BinOpKind, Expr, FillNullValue, PipelineOp, PipelineSource, Program, Stmt};
+use crate::ast::{
+    BinOpKind, Expr, FillNullValue, LayerKind, PipelineOp, PipelineSource, Program, Stmt,
+    TrainConfig,
+};
 use crate::{Codegen, Lexer, Parser, StructField};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -97,6 +100,10 @@ fn generate_rust_src(
     out.push_str("// [필요한 Cargo.toml 의존성]\n");
     out.push_str("//   polars      = { version = \"0.53\", features = [\"lazy\", \"csv\"] }\n");
     out.push_str("//   encoding_rs = \"0.8\"\n");
+    if program_has_dl(program) {
+        out.push_str("//   burn        = { version = \"0.21\", default-features = false, features = [\"std\", \"autodiff\"] }\n");
+        out.push_str("//   burn-ndarray = { version = \"0.21\", default-features = false, features = [\"std\", \"burn-autodiff\"] }\n");
+    }
     out.push_str("// ═══════════════════════════════════════════════════════════════\n\n");
 
     // 임포트
@@ -104,9 +111,25 @@ fn generate_rust_src(
     out.push_str("use encoding_rs::EUC_KR;\n");
     out.push_str("use std::io::Cursor;\n\n");
 
+    if program_has_dl(program) {
+        out.push_str(&emit_burn_imports());
+        out.push('\n');
+    }
+
     // CSV 로더 헬퍼
     out.push_str(&emit_csv_loader_fn());
     out.push('\n');
+
+    // 딥러닝 (Burn) 모델 정의 + 학습 헬퍼
+    if program_has_dl(program) {
+        for stmt in &program.stmts {
+            if let Stmt::ModelDecl { name, layers } = stmt {
+                out.push_str(&emit_dl_model_struct(name, layers));
+            }
+        }
+        out.push_str(&emit_extract_xy_fn());
+        out.push('\n');
+    }
 
     // fn main()
     out.push_str("fn main() -> Result<(), Box<dyn std::error::Error>> {\n");
@@ -327,6 +350,9 @@ fn generate_rust_src(
                         value,
                     } => {
                         let lit_str = match value {
+                            FillNullValue::Mean => format!("col(\"{}\").mean()", fill_col),
+                            FillNullValue::Median => format!("col(\"{}\").median()", fill_col),
+                            FillNullValue::Zero => "lit(0)".to_string(),
                             FillNullValue::Int(n) => format!("lit({}i64)", n),
                             FillNullValue::Float(f) => format!("lit({}f64)", f),
                             FillNullValue::Str(s) => format!("lit(\"{}\")", s),
@@ -503,10 +529,312 @@ fn generate_rust_src(
         }
     }
 
+    // 딥러닝 (Burn) 학습 문 실행
+    for stmt in &program.stmts {
+        if let Stmt::TrainStmt {
+            source_var,
+            model_name,
+            config,
+        } = stmt
+        {
+            out.push_str(&emit_dl_train_call(source_var, model_name, config));
+        }
+    }
+
     out.push_str("    Ok(())\n");
     out.push_str("}\n");
 
     Ok(out)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── 딥러닝 (Burn) 코드 생성 (v0.4) ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 스크립트에 DL 구문(ModelDecl / TrainStmt)이 포함되어 있는지 확인한다.
+fn program_has_dl(program: &Program) -> bool {
+    program
+        .stmts
+        .iter()
+        .any(|s| matches!(s, Stmt::ModelDecl { .. } | Stmt::TrainStmt { .. }))
+}
+
+/// Burn 임포트 블록.
+fn emit_burn_imports() -> String {
+    r#"use burn::{
+    backend::Autodiff,
+    module::Module,
+    nn::{Linear, LinearConfig},
+    optim::{AdamConfig, GradientsParams, Optimizer},
+    record::{FullPrecisionSettings, PrettyJsonFileRecorder},
+    tensor::{
+        Device, Tensor, TensorData,
+        activation::{relu, sigmoid, softmax, tanh},
+        backend::Backend,
+    },
+};
+use burn_ndarray::NdArray;
+
+type TrainBackend = Autodiff<NdArray<f32>>;
+"#
+    .to_string()
+}
+
+/// DSL 레이어 체인을 Dense (units, activation) 스펙 목록으로 정규화한다.
+/// 활성화 호출은 바로 앞선 Dense 레이어에 귀속된다 (dl.rs 와 동일한 시맨틱).
+fn dl_dense_specs(layers: &[LayerKind]) -> Vec<(usize, String)> {
+    let mut specs: Vec<(usize, String)> = Vec::new();
+    for layer in layers {
+        match layer {
+            LayerKind::Dense(n) if *n > 0 => specs.push((*n, String::from("None"))),
+            LayerKind::Dense(_) => {}
+            LayerKind::ReLU => set_dl_act(&mut specs, "relu"),
+            LayerKind::Sigmoid => set_dl_act(&mut specs, "sigmoid"),
+            LayerKind::Tanh => set_dl_act(&mut specs, "tanh"),
+            LayerKind::Softmax => set_dl_act(&mut specs, "softmax"),
+            LayerKind::Dropout(_) | LayerKind::BatchNorm => {}
+        }
+    }
+    specs
+}
+
+fn set_dl_act(specs: &mut [(usize, String)], act: &str) {
+    if let Some(last) = specs.last_mut() {
+        last.1 = act.to_string();
+    }
+}
+
+/// `model <Name> { ... }` → Burn nn 모듈 구조체 + new() + forward().
+fn emit_dl_model_struct(name: &str, layers: &[LayerKind]) -> String {
+    let specs = dl_dense_specs(layers);
+    if specs.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::new();
+    out.push_str(&format!(
+        "#[derive(Module, Debug)]\nstruct {}<B: Backend> {{\n",
+        name
+    ));
+    for (i, (units, _)) in specs.iter().enumerate() {
+        out.push_str(&format!("    layer{i}: Linear<B>,  // Dense({units})\n"));
+    }
+    out.push_str("}\n\n");
+
+    out.push_str(&format!(
+        "impl<B: Backend> {name}<B> {{\n    fn new(device: &Device<B>, input_dim: usize) -> Self {{\n        Self {{\n"
+    ));
+    let mut cur = "input_dim".to_string();
+    for (i, (units, _)) in specs.iter().enumerate() {
+        out.push_str(&format!(
+            "            layer{i}: LinearConfig::new({cur}, {units}).init(device),\n"
+        ));
+        cur = units.to_string();
+    }
+    out.push_str("        }\n    }\n\n");
+
+    out.push_str(
+        "    fn forward<const D: usize>(&self, x: Tensor<B, D>) -> Tensor<B, D> {\n        let x = x;\n",
+    );
+    for (i, (_, act)) in specs.iter().enumerate() {
+        out.push_str(&format!("        let x = self.layer{i}.forward(x);\n"));
+        match act.as_str() {
+            "relu" => out.push_str("        let x = relu(x);\n"),
+            "sigmoid" => out.push_str("        let x = sigmoid(x);\n"),
+            "tanh" => out.push_str("        let x = tanh(x);\n"),
+            "softmax" => out.push_str("        let x = softmax(x, 1);\n"),
+            _ => {}
+        }
+    }
+    out.push_str("        x\n    }\n}\n\n");
+
+    out
+}
+
+/// 컬럼 → f32 텐서 데이터 추출 헬퍼 (Polars DataFrame → (x_flat, y_flat, feature_count)).
+fn emit_extract_xy_fn() -> String {
+    r#"/// 타겟을 제외한 숫자형 컬럼을 특성으로, 타겟 컬럼을 라벨로 추출한다.
+fn extract_xy(
+    df: &DataFrame,
+    target: &str,
+) -> Result<(Vec<f32>, Vec<f32>, usize), Box<dyn std::error::Error>> {
+    let names = df.get_column_names();
+    let mut features: Vec<String> = Vec::new();
+    for name in names {
+        if name.as_str() == target {
+            continue;
+        }
+        if let Ok(col) = df.column(name.as_str()) {
+            if matches!(
+                col.dtype(),
+                DataType::Float64
+                    | DataType::Float32
+                    | DataType::Int64
+                    | DataType::Int32
+                    | DataType::Int16
+                    | DataType::Int8
+                    | DataType::UInt64
+                    | DataType::UInt32
+                    | DataType::UInt16
+                    | DataType::UInt8
+            ) {
+                features.push(name.to_string());
+            }
+        }
+    }
+    if features.is_empty() {
+        return Err("학습 가능한 숫자형 특성 컬럼이 없습니다.".into());
+    }
+    let n = df.height();
+    let mut xs = Vec::with_capacity(n * features.len());
+    let mut ys = Vec::with_capacity(n);
+    for i in 0..n {
+        for f in &features {
+            let v = df.column(f)?.get(i).unwrap_or(AnyValue::Float64(f64::NAN));
+            xs.push(xz_anyvalue_f32(v));
+        }
+        let v = df.column(target)?.get(i).unwrap_or(AnyValue::Float64(f64::NAN));
+        ys.push(xz_anyvalue_f32(v));
+    }
+    Ok((xs, ys, features.len()))
+}
+
+/// AnyValue → f32 (비숫자는 NaN).
+fn xz_anyvalue_f32(v: AnyValue) -> f32 {
+    match v {
+        AnyValue::Float64(x) => x as f32,
+        AnyValue::Float32(x) => x,
+        AnyValue::Int64(x) => x as f32,
+        AnyValue::Int32(x) => x as f32,
+        AnyValue::Int16(x) => x as f32,
+        AnyValue::Int8(x) => x as f32,
+        AnyValue::UInt64(x) => x as f32,
+        AnyValue::UInt32(x) => x as f32,
+        AnyValue::UInt16(x) => x as f32,
+        AnyValue::UInt8(x) => x as f32,
+        _ => f32::NAN,
+    }
+}
+
+/// 배치를 잘라 (특성 텐서, 라벨 텐서)로 만든다.
+fn make_both_tensors(
+    xs: &[f32],
+    ys: &[f32],
+    feature_count: usize,
+    start: usize,
+    end: usize,
+    device: &Device<TrainBackend>,
+) -> (Tensor<TrainBackend, 2>, Tensor<TrainBackend, 2>) {
+    let b = end - start;
+    let mut xv = Vec::with_capacity(b * feature_count);
+    let mut yv = Vec::with_capacity(b);
+    for i in start..end {
+        for j in 0..feature_count {
+            xv.push(xs[i * feature_count + j]);
+        }
+        yv.push(ys[i]);
+    }
+    let x = Tensor::<TrainBackend, 2>::from_data(TensorData::new(xv, [b, feature_count]), device);
+    let y = Tensor::<TrainBackend, 2>::from_data(TensorData::new(yv, [b, 1]), device);
+    (x, y)
+}
+"#
+    .to_string()
+}
+
+/// `run <src> |> train(<Model>, ...)` → main() 내부 학습 코드 블록.
+fn emit_dl_train_call(source_var: &str, model_name: &str, config: &TrainConfig) -> String {
+    let target = &config.target;
+    let epochs = config.epochs.max(1);
+    let lr = config.learning_rate;
+    let batch_size = config.batch_size.unwrap_or(32).max(1);
+    let val_split = config.validation_split.unwrap_or(0.0).clamp(0.0, 0.9);
+
+    format!(
+        r#"    // ── Deep Learning: run {source_var} |> train({model_name}, target: "{target}") ──────
+    {{
+        let (xs, ys, feature_count) = extract_xy(&{source_var}, "{target}")?;
+        let n = ys.len();
+        if n == 0 {{
+            return Err("학습 데이터가 비어 있습니다.".into());
+        }}
+
+        // NaN → 평균 대체 + 표준화 (특성별 z-score)
+        let mut fmean = vec![0f64; feature_count];
+        let mut fstd = vec![1f64; feature_count];
+        for j in 0..feature_count {{
+            let (mut s, mut c) = (0f64, 0usize);
+            for i in 0..n {{
+                let v = xs[i * feature_count + j] as f64;
+                if v.is_finite() {{ s += v; c += 1; }}
+            }}
+            fmean[j] = if c > 0 {{ s / c as f64 }} else {{ 0.0 }};
+        }}
+        for j in 0..feature_count {{
+            let (mut s, mut c) = (0f64, 0usize);
+            for i in 0..n {{
+                let d = xs[i * feature_count + j] as f64 - fmean[j];
+                if d.is_finite() {{ s += d * d; c += 1; }}
+            }}
+            fstd[j] = if c > 1 {{ (s / (c - 1) as f64).max(1e-8).sqrt() }} else {{ 1.0 }};
+        }}
+        let xs: Vec<f32> = xs
+            .iter()
+            .enumerate()
+            .map(|(idx, v)| {{
+                let row = idx / feature_count;
+                let col = idx % feature_count;
+                let v = v as f64;
+                let v = if !v.is_finite() {{ fmean[col] }} else {{ v }};
+                ((v - fmean[col]) / fstd[col]) as f32
+            }})
+            .collect();
+        let tmean: f64 = {{
+            let (mut s, mut c) = (0f64, 0usize);
+            for &t in &ys {{ if t.is_finite() {{ s += t as f64; c += 1; }} }}
+            if c > 0 {{ s / c as f64 }} else {{ 0.0 }}
+        }};
+        let ys: Vec<f32> = ys
+            .iter()
+            .map(|&t| if t.is_finite() {{ t as f32 }} else {{ tmean as f32 }})
+            .collect();
+
+        let device: Device<TrainBackend> = Default::default();
+        let mut model = {model_name}::<TrainBackend>::new(&device, feature_count);
+        let mut optim = AdamConfig::new().init::<TrainBackend, _>();
+
+        let train_n = n - ((n as f64 * {val_split}) as usize);
+        for epoch in 0..{epochs} {{
+            let mut loss_sum = 0f32;
+            let mut steps = 0usize;
+            for b in 0..((train_n + {batch_size} - 1) / {batch_size}) {{
+                let start = b * {batch_size};
+                let end = ((b + 1) * {batch_size}).min(train_n);
+                let (x, y) = make_both_tensors(&xs, &ys, feature_count, start, end, &device);
+                let out = model.forward(x);
+                let loss = ((out - y).powf_scalar(2.0)).mean();
+                let lv = loss.clone().into_data().to_vec::<f32>().unwrap_or_default()[0];
+                let grads = loss.backward();
+                let grads = GradientsParams::from_grads(grads, &model);
+                model = optim.step({lr}, model, grads);
+                loss_sum += lv;
+                steps += 1;
+            }}
+            println!(
+                "[Epoch {{epoch:>3}}/{{}}]  train_loss(MSE) = {{:.6}}",
+                {epochs},
+                if steps > 0 {{ loss_sum / steps as f32 }} else {{ 0.0 }}
+            );
+        }}
+
+        let valid = model.valid();
+        let recorder = PrettyJsonFileRecorder::<FullPrecisionSettings>::new();
+        std::fs::create_dir_all("checkpoints")?;
+        valid.save_file(&format!("checkpoints/{model_name}"), &recorder)?;
+        println!("[xazz] ✅ 체크포인트 저장 → checkpoints/{model_name}.json");
+    }}
+"#
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

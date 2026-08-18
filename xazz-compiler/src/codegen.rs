@@ -175,14 +175,17 @@ impl Codegen {
     fn emit_model_decl(name: &str, layers: &[LayerKind]) -> String {
         let mut lines: Vec<String> = Vec::new();
         lines.push(format!("// [ModelDecl] model {}", name));
-        lines.push(format!("// Burn 모델 정의 — 레이어 {} 개", layers.len()));
+        lines.push(format!("// Burn MLP 모델 (nn 모듈로 자동 생성)"));
         for (i, layer) in layers.iter().enumerate() {
             lines.push(format!("//   [{}] {}", i, layer.to_burn_str()));
         }
-        lines.push(String::new());
-        lines.push(format!("// TODO: Burn 프레임워크 연동 코드 생성"));
         lines.push(format!(
-            "// struct {} {{ ... }}  ← Burn nn 모듈로 변환",
+            "// #[derive(Module, Debug)] struct {}<B: Backend> {{ ... }}",
+            name
+        ));
+        lines.push(String::new());
+        lines.push(format!(
+            "// let mut model = {}::new(&device, input_dim).train():",
             name
         ));
         lines.join("\n")
@@ -212,14 +215,16 @@ impl Codegen {
         lines.push(format!("// 배치 크기: {}", batch_str));
         lines.push(format!("// 검증 비율: {}", val_str));
         lines.push(String::new());
-        lines.push(format!("// TODO: Burn 학습 루프 코드 생성"));
         lines.push(format!(
-            "// let mut model = {}::new(...);  // Burn 모델 초기화",
+            "// let mut model = {}::new(&device, input_dim);",
             model_name
         ));
         lines.push(format!(
-            "// train(model, {}.collect()?, target=\"{}\", epochs={}, lr={})",
-            source_var, config.target, config.epochs, config.learning_rate
+            "// let mut optim = AdamConfig::new().init();  // Burn Adam",
+        ));
+        lines.push(format!(
+            "// for _ in 0..{} {{ grads = loss.backward(); model = optim.step(lr, model, grads); }}",
+            config.epochs
         ));
         lines.join("\n")
     }
@@ -305,6 +310,9 @@ impl Codegen {
             }
             PipelineOp::FillNull { col, value } => {
                 let lit_str = match value {
+                    FillNullValue::Mean => format!("col(\"{}\").mean()", col),
+                    FillNullValue::Median => format!("col(\"{}\").median()", col),
+                    FillNullValue::Zero => "lit(0)".to_string(),
                     FillNullValue::Int(n) => format!("lit({}i64)", n),
                     FillNullValue::Float(f) => format!("lit({}f64)", f),
                     FillNullValue::Str(s) => format!("lit(\"{}\")", s),

@@ -1,0 +1,545 @@
+//! xazz-exec/src/dl.rs — Burn 딥러닝 실행 엔진 (v0.4)
+//!
+//! .xzz 스크립트의 `model {}` 선언과 `run v |> train(...)` 구문을 실제 Burn
+//! 신경망 학습으로 변환하여 실행한다.
+//!
+//! 백엔드: burn-ndarray (순수 Rust CPU). `Backend` 제네릭으로 구조화되어 있어
+//! torch / wgpu 로 전환 시 이 모듈의 `AD`/`Plain` 타입 별칭만 교체하면 된다.
+//!
+//!   - AD    = NdArrayAutodiff<f32>  (학습용: autodiff 그래프 활성)
+//!   - Plain = NdArray<f32>          (추론용)
+
+use std::collections::HashMap;
+
+use burn::{
+    backend::Autodiff,
+    module::{AutodiffModule, Module},
+    nn::{DropoutConfig, Linear, LinearConfig},
+    optim::{AdamConfig, GradientsParams, Optimizer},
+    record::{FullPrecisionSettings, PrettyJsonFileRecorder},
+    tensor::{
+        Device, Tensor, TensorData,
+        activation::{relu, sigmoid, softmax, tanh},
+        backend::Backend,
+    },
+};
+use burn_ndarray::NdArray;
+use polars::prelude::{Column, DataFrame, DataType};
+use xazz_compiler::ast::{LayerKind, TrainConfig};
+
+/// 학습용 autodiff 백엔드 (CPU): NdArray + Autodiff 래퍼.
+pub type AD = Autodiff<NdArray<f32>>;
+/// 추론용 순수 백엔드 (CPU).
+pub type Plain = NdArray<f32>;
+
+/// dsL 모델 블록의 활성화/정규화 레이어 종류.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Activation {
+    None,
+    ReLU,
+    Sigmoid,
+    Tanh,
+    Softmax,
+    Dropout(f64),
+}
+
+/// 레이어별 활성화 함수 적용.
+fn apply_activation<B: Backend, const D: usize>(act: &Activation, x: Tensor<B, D>) -> Tensor<B, D> {
+    match act {
+        Activation::None => x,
+        Activation::ReLU => relu(x),
+        Activation::Sigmoid => sigmoid(x),
+        Activation::Tanh => tanh(x),
+        Activation::Softmax => softmax(x, 1),
+        Activation::Dropout(prob) => DropoutConfig::new(*prob).init().forward(x),
+    }
+}
+
+/// DSL `model { Dense -> ReLU -> ... }` 를 동적 다층 퍼셉트론(MLP)으로 표현한 Burn 모듈.
+#[derive(Module, Debug)]
+struct Mlp<B: Backend> {
+    /// Dense(units) 레이어 시퀀스.
+    layers: Vec<Linear<B>>,
+    /// 각 Dense 뒤에 적용할 활성화 함수 (마지막 레이어 포함).
+    #[module(skip)]
+    activations: Vec<Activation>,
+}
+
+impl<B: Backend> Mlp<B> {
+    /// 순전파: [batch, input_dim] → [batch, output_dim].
+    fn forward<const D: usize>(&self, input: Tensor<B, D>) -> Tensor<B, D> {
+        let mut x = input;
+        for i in 0..self.layers.len() {
+            x = apply_activation(&self.activations[i], self.layers[i].forward(x));
+        }
+        x
+    }
+}
+
+/// DSM 레이어 목록과 입력 차원으로 MLP 를 구성한다.
+fn build_mlp<B: Backend>(
+    layers: &[LayerKind],
+    input_dim: usize,
+    device: &Device<B>,
+) -> Result<Mlp<B>, String> {
+    let mut linears: Vec<Linear<B>> = Vec::new();
+    let mut activations: Vec<Activation> = Vec::new();
+    let mut cur = input_dim;
+
+    for layer in layers {
+        match layer {
+            LayerKind::Dense(n) if *n > 0 => {
+                linears.push(LinearConfig::new(cur, *n).init(device));
+                activations.push(Activation::None); // DSL 활성화가 있으면 덮어씀
+                cur = *n;
+            }
+            LayerKind::Dense(_) => {
+                return Err("Dense 레이어의 유닛 수는 1 이상이어야 합니다.".into());
+            }
+            LayerKind::ReLU => set_activation(&mut activations, Activation::ReLU),
+            LayerKind::Sigmoid => set_activation(&mut activations, Activation::Sigmoid),
+            LayerKind::Tanh => set_activation(&mut activations, Activation::Tanh),
+            LayerKind::Softmax => set_activation(&mut activations, Activation::Softmax),
+            LayerKind::Dropout(r) => set_activation(&mut activations, Activation::Dropout(*r)),
+            // BatchNorm(1D MLP)은 Burn v2D BatchNorm 과 레이아웃이 달라 생략한다.
+            LayerKind::BatchNorm => { /* pass-through */ }
+        }
+    }
+
+    if linears.is_empty() {
+        return Err("모델에 Dense 레이어가 하나도 없습니다.".into());
+    }
+    Ok(Mlp {
+        layers: linears,
+        activations,
+    })
+}
+
+/// 마지막 Dense 뒤에 활성화를 기록한다 (연속 활성화는 마지막 것만 적용).
+fn set_activation(acts: &mut Vec<Activation>, act: Activation) {
+    if let Some(last) = acts.last_mut() {
+        *last = act;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 학습 결과 리포트
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TrainReport {
+    pub model_name: String,
+    pub target: String,
+    pub feature_names: Vec<String>,
+    pub input_dim: usize,
+    pub output_dim: usize,
+    pub num_params: usize,
+    pub epochs: usize,
+    pub batch_size: usize,
+    pub learning_rate: f32,
+    pub final_train_loss: f64,
+    pub final_val_loss: Option<f64>,
+    pub predictions: Vec<f64>,
+    pub targets: Vec<f64>,
+    pub checkpoint_path: String,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 공개 API
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `run <var> |> train(<model>, target: "...", epochs: N, ...)` 를 실행한다.
+pub fn train(
+    df: &DataFrame,
+    model_name: &str,
+    layers: &[LayerKind],
+    config: &TrainConfig,
+) -> Result<TrainReport, String> {
+    let (feature_names, features, targets) = extract_data(df, &config.target)?;
+    let n = features.len();
+    let input_dim = feature_names.len();
+    if input_dim == 0 {
+        return Err("학습 가능한 숫자형 특성(컬럼)이 없습니다.".into());
+    }
+    if n == 0 {
+        return Err("학습 데이터가 비어 있습니다.".into());
+    }
+
+    // ── 특성 표준화 통계 (NaN → 평균 대체) ─────────────────────────────────
+    let mut fmean = vec![0f64; input_dim];
+    let mut fstd = vec![1f64; input_dim];
+    for j in 0..input_dim {
+        let (mut s, mut c) = (0f64, 0usize);
+        for i in 0..n {
+            if let Some(v) = features.get(i).and_then(|row| row.get(j)) {
+                let v = *v as f64;
+                if v.is_finite() {
+                    s += v;
+                    c += 1;
+                }
+            }
+        }
+        fmean[j] = if c > 0 { s / c as f64 } else { 0.0 };
+    }
+    for j in 0..input_dim {
+        let (mut s, mut c) = (0f64, 0usize);
+        for i in 0..n {
+            if let Some(v) = features.get(i).and_then(|row| row.get(j)) {
+                let d = *v as f64 - fmean[j];
+                if d.is_finite() {
+                    s += d * d;
+                    c += 1;
+                }
+            }
+        }
+        fstd[j] = if c > 1 {
+            (s / (c - 1) as f64).max(1e-8).sqrt()
+        } else {
+            1.0
+        };
+    }
+
+    let mut xs = Vec::with_capacity(n * input_dim);
+    for i in 0..n {
+        for j in 0..input_dim {
+            let mut v = features[i][j] as f64;
+            if !v.is_finite() {
+                v = fmean[j];
+            }
+            xs.push(((v - fmean[j]) / fstd[j]) as f32);
+        }
+    }
+
+    let tmean: f64 = {
+        let (mut s, mut c) = (0f64, 0usize);
+        for &t in &targets {
+            if t.is_finite() {
+                s += t as f64;
+                c += 1;
+            }
+        }
+        if c > 0 { s / c as f64 } else { 0.0 }
+    };
+    let ys: Vec<f32> = targets
+        .iter()
+        .map(|&t| {
+            if t.is_finite() {
+                t as f32
+            } else {
+                tmean as f32
+            }
+        })
+        .collect();
+
+    // ── train / validation 분할 ────────────────────────────────────────────
+    let val_split = config.validation_split.unwrap_or(0.0).clamp(0.0, 0.9);
+    let val_n = (n as f64 * val_split) as usize;
+    let train_n = n - val_n;
+    let val_idx: Vec<usize> = (train_n..n).collect();
+
+    let device: Device<AD> = Default::default();
+    let mut model = build_mlp::<AD>(layers, input_dim, &device)?;
+
+    let batch_size = config.batch_size.unwrap_or(train_n.max(1));
+    let lr = config.learning_rate as f64;
+    let mut optim = AdamConfig::new().init::<AD, _>();
+
+    let make_batch = |idx: &[usize]| -> Option<(Tensor<AD, 2>, Tensor<AD, 2>)> {
+        if idx.is_empty() {
+            return None;
+        }
+        let b = idx.len();
+        let mut xv = Vec::with_capacity(b * input_dim);
+        let mut yv = Vec::with_capacity(b);
+        for &i in idx {
+            for j in 0..input_dim {
+                xv.push(xs[i * input_dim + j]);
+            }
+            yv.push(ys[i]);
+        }
+        let x = Tensor::<AD, 2>::from_data(TensorData::new(xv, [b, input_dim]), &device);
+        let y = Tensor::<AD, 2>::from_data(TensorData::new(yv, [b, 1]), &device);
+        Some((x, y))
+    };
+
+    let mut final_train_loss = f64::NAN;
+    let mut final_val_loss: Option<f64> = None;
+
+    for epoch in 0..config.epochs {
+        // 결정론적 셔플 (epoch 시드)
+        let mut order: Vec<usize> = (0..train_n).collect();
+        let mut seed = epoch as u64 + 1;
+        for i in (1..order.len()).rev() {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let j = (seed >> 33) as usize % (i + 1);
+            order.swap(i, j);
+        }
+
+        let mut epoch_loss = 0f64;
+        let mut steps = 0usize;
+        for chunk in order.chunks(batch_size) {
+            let (x, y) = match make_batch(chunk) {
+                Some(v) => v,
+                None => continue,
+            };
+            let out = model.forward(x);
+            let loss = ((out - y).powf_scalar(2.0)).mean();
+            let loss_val = loss
+                .clone()
+                .into_data()
+                .to_vec::<f32>()
+                .map(|v| v[0] as f64)
+                .unwrap_or(f64::NAN);
+
+            let grads = loss.backward();
+            let grads = GradientsParams::from_grads(grads, &model);
+            model = optim.step(lr, model, grads);
+
+            epoch_loss += loss_val;
+            steps += 1;
+        }
+        final_train_loss = if steps > 0 {
+            epoch_loss / steps as f64
+        } else {
+            f64::NAN
+        };
+
+        if !val_idx.is_empty() {
+            if let Some((xv, yv)) = make_batch(&val_idx) {
+                let vout = model.forward(xv);
+                let vloss = ((vout - yv).powf_scalar(2.0)).mean();
+                final_val_loss = vloss.into_data().to_vec::<f32>().map(|v| v[0] as f64).ok();
+            }
+        }
+
+        let val_line = final_val_loss
+            .map(|v| format!("  val_loss = {v:.6}"))
+            .unwrap_or_default();
+        println!(
+            "  [Epoch {:>3}/{}]  train_loss = {final_train_loss:.6}{val_line}",
+            epoch + 1,
+            config.epochs
+        );
+    }
+
+    // ── 샘플 예측 (in-sample) ──────────────────────────────────────────────
+    let n_pred = n.min(10);
+    let device_plain: Device<Plain> = Default::default();
+    let mut xv = Vec::with_capacity(n_pred * input_dim);
+    for i in 0..n_pred {
+        for j in 0..input_dim {
+            xv.push(xs[i * input_dim + j]);
+        }
+    }
+    let xp = Tensor::<Plain, 2>::from_data(TensorData::new(xv, [n_pred, input_dim]), &device_plain);
+    let valid_model = model.valid();
+    let pred_t = valid_model.forward(xp);
+    let preds = pred_t.into_data().to_vec::<f32>().unwrap_or_default();
+    let predictions: Vec<f64> = preds.iter().map(|&v| v as f64).collect();
+    let targets_out: Vec<f64> = (0..n_pred).map(|i| ys[i] as f64).collect();
+
+    let num_params = model.num_params();
+    let output_dim = model
+        .layers
+        .last()
+        .map(|l| l.weight.shape().dims::<2>()[1])
+        .unwrap_or(1);
+
+    // ── 체크포인트 저장 ────────────────────────────────────────────────────
+    let ckpt_dir = "checkpoints";
+    std::fs::create_dir_all(ckpt_dir)
+        .map_err(|e| format!("checkpoints/ 디렉토리 생성 실패: {e}"))?;
+    let ckpt = format!("{ckpt_dir}/{model_name}");
+    let recorder = PrettyJsonFileRecorder::<FullPrecisionSettings>::new();
+    valid_model
+        .save_file(&ckpt, &recorder)
+        .map_err(|e| format!("체크포인트 저장 실패: {e}"))?;
+
+    Ok(TrainReport {
+        model_name: model_name.to_string(),
+        target: config.target.clone(),
+        feature_names,
+        input_dim,
+        output_dim,
+        num_params,
+        epochs: config.epochs,
+        batch_size,
+        learning_rate: lr as f32,
+        final_train_loss,
+        final_val_loss,
+        predictions,
+        targets: targets_out,
+        checkpoint_path: format!("{ckpt}.json"),
+    })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 데이터 추출
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 타겟 컬럼을 제외한 숫자형 컬럼을 특성으로, 타겟 컬럼을 레이블로 추출한다.
+fn extract_data(
+    df: &DataFrame,
+    target: &str,
+) -> Result<(Vec<String>, Vec<Vec<f32>>, Vec<f32>), String> {
+    let names = df.get_column_names();
+    let mut feature_names: Vec<String> = Vec::new();
+    let mut target_col: Option<Column> = None;
+
+    for name in &names {
+        let col = df
+            .column(name.as_str())
+            .map_err(|e| format!("컬럼 접근 실패: {e}"))?;
+        if !is_numeric_dtype(col.dtype()) {
+            continue;
+        }
+        if name.as_str() == target {
+            target_col = Some(col.clone());
+        } else {
+            feature_names.push(name.to_string());
+        }
+    }
+
+    let target_series = target_col.ok_or_else(|| {
+        format!(
+            "타겟 컬럼 '{target}' 이 존재하지 않거나 숫자형이 아닙니다. 사용 가능한 숫자형 컬럼: {}",
+            names
+                .iter()
+                .filter(|n| {
+                    df.column(n.as_str())
+                        .map(|c| is_numeric_dtype(c.dtype()))
+                        .unwrap_or(false)
+                })
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    })?;
+
+    let n = df.height();
+    let feature_count = feature_names.len();
+    let target_vec = series_to_f32(&target_series);
+
+    let mut features: Vec<Vec<f32>> = vec![Vec::with_capacity(feature_count); n];
+    for name in &names {
+        if name.as_str() == target {
+            continue;
+        }
+        let col = df
+            .column(name.as_str())
+            .map_err(|e| format!("컬럼 접근 실패: {e}"))?;
+        if !is_numeric_dtype(col.dtype()) {
+            continue;
+        }
+        let vals = series_to_f32(col);
+        for i in 0..n {
+            features[i].push(vals[i]);
+        }
+    }
+
+    Ok((feature_names, features, target_vec))
+}
+
+fn is_numeric_dtype(dt: &DataType) -> bool {
+    matches!(
+        dt,
+        DataType::Float64
+            | DataType::Float32
+            | DataType::Int64
+            | DataType::Int32
+            | DataType::Int16
+            | DataType::Int8
+            | DataType::UInt64
+            | DataType::UInt32
+            | DataType::UInt16
+            | DataType::UInt8
+    )
+}
+
+/// 컬럼 값을 f32 벡터로 변환한다. null → NaN.
+fn series_to_f32(col: &Column) -> Vec<f32> {
+    match col.dtype() {
+        DataType::Float64 => col
+            .f64()
+            .map(|s| {
+                s.iter()
+                    .map(|o| o.map(|v| v as f32).unwrap_or(f32::NAN))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        DataType::Float32 => col
+            .f32()
+            .map(|s| s.iter().map(|o| o.unwrap_or(f32::NAN)).collect())
+            .unwrap_or_default(),
+        DataType::Int64 => col
+            .i64()
+            .map(|s| {
+                s.iter()
+                    .map(|o| o.map(|v| v as f32).unwrap_or(f32::NAN))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        DataType::Int32 => col
+            .i32()
+            .map(|s| {
+                s.iter()
+                    .map(|o| o.map(|v| v as f32).unwrap_or(f32::NAN))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        DataType::Int16 => col
+            .i16()
+            .map(|s| {
+                s.iter()
+                    .map(|o| o.map(|v| v as f32).unwrap_or(f32::NAN))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        DataType::Int8 => col
+            .i8()
+            .map(|s| {
+                s.iter()
+                    .map(|o| o.map(|v| v as f32).unwrap_or(f32::NAN))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        DataType::UInt64 => col
+            .u64()
+            .map(|s| {
+                s.iter()
+                    .map(|o| o.map(|v| v as f32).unwrap_or(f32::NAN))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        DataType::UInt32 => col
+            .u32()
+            .map(|s| {
+                s.iter()
+                    .map(|o| o.map(|v| v as f32).unwrap_or(f32::NAN))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        DataType::UInt16 => col
+            .u16()
+            .map(|s| {
+                s.iter()
+                    .map(|o| o.map(|v| v as f32).unwrap_or(f32::NAN))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        DataType::UInt8 => col
+            .u8()
+            .map(|s| {
+                s.iter()
+                    .map(|o| o.map(|v| v as f32).unwrap_or(f32::NAN))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        _ => vec![f32::NAN; col.len()],
+    }
+}
+
+/// Layered model registry helper: <model 이름, LayerKind 목록>.
+pub type ModelRegistry = HashMap<String, Vec<LayerKind>>;

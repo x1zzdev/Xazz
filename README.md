@@ -185,11 +185,13 @@ A graphical editing and execution environment for `.xzz` pipelines.
 | `xazz run` | Compile and execute `.xzz` pipeline | Stable |
 | `xazz import` | Auto-infer CSV schema → generate type block | Stable |
 | `xazz new` | Scaffold project with sample CSV and runnable example | Stable |
-| `xazz emit rust` | Transpile `.xzz` → Rust source (Polars LazyFrame calls) | Stable |
+| `xazz emit rust` | Transpile `.xzz` → Rust source (Polars LazyFrame + Burn) | Stable |
+| `model {}` + `train()` | Burn deep-learning model declaration & training (Adam + MSE, CPU backend) | Stable |
 | `xazz check` | Static analysis via Neural Query Planner | Experimental |
 | `xazz sde` | Synthetic data generation engine integration | Preview |
 | Built-in `chart {}` | Render pipeline results as bar / line / pie / scatter | Stable |
 | `Option<T>` type system | Null-safe column declarations, `fillNull` operator | Stable |
+| `fillNull(strategy:)` | Mean / median / zero fill strategies (`strategy: "mean"`) | Stable |
 | EUC-KR CSV support | Auto-detect and decode CP949-encoded Korean CSV files | Stable |
 | Visual IDE | Graphical pipeline editor (separate repository) | Stable |
 
@@ -262,7 +264,7 @@ Benchmark source: [`benches/run_benchmark.py`](benches/run_benchmark.py) / [`ben
 | Phase 2 — Execution Layer | Polars integration, CLI tooling, chart output | Complete |
 | Phase 3 — IDE Integration | Visual IDE, graphical pipeline editor | Complete |
 | Phase 4 — Expanded Language | More operators, join improvements, schema evolution | In progress |
-| Phase 5 — AI Expansion | Natural language query interface (NQP), AI-augmented analysis | Experimental |
+| Phase 5 — AI Expansion | Burn deep-learning layer (model declaration, training, checkpoints), NQP | DL complete / NQP Experimental |
 
 ---
 

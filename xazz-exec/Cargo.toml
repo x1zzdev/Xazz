@@ -28,3 +28,11 @@ encoding_rs = "0.8"
 
 serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# ── Burn 딥러닝 엔진 (v0.4) ─────────────────────────────────────────────────
+# CPU 백엔드(ndarray)는 순수 Rust로 빌드되어 CI/로컬 어디서든 동작한다.
+# GPU 백엔드로 전환 시 아래 두 줄만 교체하면 된다:
+#   burn-tch   = { version = "0.21" }   (libtorch 필요)
+#   burn-wgpu  = { version = "0.21" }   (WebGPU/GPU 필요)
+burn = { version = "0.21", default-features = false, features = ["std", "autodiff"] }
+burn-ndarray = { version = "0.21", default-features = false, features = ["std", "burn-autodiff"] }
