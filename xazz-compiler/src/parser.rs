@@ -249,7 +249,21 @@ impl Parser {
         self.expect(&TokenKind::LParen)?;
 
         let model_name = self.expect_ident()?;
+        let config = self.parse_train_args()?;
 
+        self.expect(&TokenKind::RParen)?;
+        self.eat(&TokenKind::Semicolon);
+        Ok(Stmt::TrainStmt {
+            source_var,
+            model_name,
+            config,
+        })
+    }
+
+    /// train() 명명 인자를 파싱한다 (model_name 소비 후 호출).
+    /// train_args = ("," named_arg)*
+    /// named_arg = ("target" | "epochs" | "lr" | "batch_size" | "validation_split") ":" literal
+    fn parse_train_args(&mut self) -> CompileResult<TrainConfig> {
         let mut config = TrainConfig::default();
         while self.eat(&TokenKind::Comma) {
             let arg_name = match self.current_kind() {
@@ -321,13 +335,7 @@ impl Parser {
             }
         }
 
-        self.expect(&TokenKind::RParen)?;
-        self.eat(&TokenKind::Semicolon);
-        Ok(Stmt::TrainStmt {
-            source_var,
-            model_name,
-            config,
-        })
+        Ok(config)
     }
 
     /// 현재 Ident 토큰 뒤에 |> (Pipeline) 토큰이 오는지 확인
@@ -1045,11 +1053,43 @@ impl Parser {
                 Ok(PipelineOp::Std(col_name))
             }
 
+            // ── v0.5 train(Model, ...) — Burn 딥러닝 학습 파이프라인 연산자 ──
+            TokenKind::Train => {
+                self.advance();
+                self.expect(&TokenKind::LParen)?;
+                let model_name = self.expect_ident()?;
+                let config = self.parse_train_args()?;
+                self.expect(&TokenKind::RParen)?;
+                Ok(PipelineOp::Train { model_name, config })
+            }
+
+            // ── v0.5 predict(model_var, as: "col") — 학습 모델 예측 연산자 ───
+            TokenKind::Ident(name) if name == "predict" => {
+                self.advance();
+                self.expect(&TokenKind::LParen)?;
+                let model_var = self.expect_ident()?;
+                let mut as_col: Option<String> = None;
+                if self.eat(&TokenKind::Comma) {
+                    let arg_name = self.expect_ident()?;
+                    if arg_name != "as" {
+                        return Err(CompileError::new(
+                            ErrorKind::UnexpectedToken(arg_name.clone()),
+                            self.current_span(),
+                            format!("predict() 지원 인수: as. 실제: '{arg_name}'"),
+                        ));
+                    }
+                    self.expect(&TokenKind::Colon)?;
+                    as_col = Some(self.expect_string_lit()?);
+                }
+                self.expect(&TokenKind::RParen)?;
+                Ok(PipelineOp::Predict { model_var, as_col })
+            }
+
             other => Err(CompileError::new(
                 ErrorKind::UnexpectedToken(format!("{:?}", other)),
                 self.current_span(),
                 format!(
-                    "|> 뒤에는 filter/select/count/groupBy/sum/mean/min/max/orderBy/take/dropNull/fillNull/join/withColumn/chart/cast/rename/replace/sample/median/variance/std 중 하나가 와야 합니다. 실제: {:?}",
+                    "|> 뒤에는 filter/select/count/groupBy/sum/mean/min/max/orderBy/take/dropNull/fillNull/join/withColumn/chart/cast/rename/replace/sample/median/variance/std/train/predict 중 하나가 와야 합니다. 실제: {:?}",
                     other
                 ),
             )),

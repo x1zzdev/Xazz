@@ -144,17 +144,34 @@ pub struct TrainReport {
     pub checkpoint_path: String,
 }
 
+/// 학습된 모델 — 예측(predict)에 필요한 표준화 통계까지 보유한다.
+#[derive(Debug, Clone)]
+pub struct TrainedModel {
+    /// 추론용 순수 모델 (autodiff 그래프 없음).
+    pub model: Mlp<Plain>,
+    /// 학습 결과 리포트 (마커/로그용).
+    pub report: TrainReport,
+    /// 특성 컬럼 순서 (표준화 통계와 1:1 대응).
+    pub feature_names: Vec<String>,
+    /// 특성별 평균 (z-score).
+    pub fmean: Vec<f64>,
+    /// 특성별 표준편차 (z-score).
+    pub fstd: Vec<f64>,
+    /// 학습 대상 컬럼.
+    pub target: String,
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 공개 API
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// `run <var> |> train(<model>, target: "...", epochs: N, ...)` 를 실행한다.
+/// `dataset |> train(<model>, target: "...", ...)` 를 실행하고 학습된 모델을 반환한다.
 pub fn train(
     df: &DataFrame,
     model_name: &str,
     layers: &[LayerKind],
     config: &TrainConfig,
-) -> Result<TrainReport, String> {
+) -> Result<TrainedModel, String> {
     let (feature_names, features, targets) = extract_data(df, &config.target)?;
     let n = features.len();
     let input_dim = feature_names.len();
@@ -354,13 +371,14 @@ pub fn train(
     let ckpt = format!("{ckpt_dir}/{model_name}");
     let recorder = PrettyJsonFileRecorder::<FullPrecisionSettings>::new();
     valid_model
+        .clone()
         .save_file(&ckpt, &recorder)
         .map_err(|e| format!("체크포인트 저장 실패: {e}"))?;
 
-    Ok(TrainReport {
+    let report = TrainReport {
         model_name: model_name.to_string(),
         target: config.target.clone(),
-        feature_names,
+        feature_names: feature_names.clone(),
         input_dim,
         output_dim,
         num_params,
@@ -372,7 +390,70 @@ pub fn train(
         predictions,
         targets: targets_out,
         checkpoint_path: format!("{ckpt}.json"),
+    };
+
+    Ok(TrainedModel {
+        model: valid_model,
+        report,
+        feature_names,
+        fmean,
+        fstd,
+        target: config.target.clone(),
     })
+}
+
+/// `dataset |> predict(model_var, as: "col")` — 학습된 모델로 예측 컬럼을 추가한다.
+///
+/// 예측 컬럼명 기본값: `<target>_pred`.
+pub fn predict(
+    trained: &TrainedModel,
+    df: &DataFrame,
+    as_col: Option<&str>,
+) -> Result<DataFrame, String> {
+    let feature_count = trained.feature_names.len();
+    let n = df.height();
+    if feature_count == 0 {
+        return Err("모델에 특성 정보가 없습니다. 먼저 train()으로 학습하세요.".into());
+    }
+    if n == 0 {
+        return Err("예측할 데이터가 비어 있습니다.".into());
+    }
+
+    let mut col_vecs: Vec<Vec<f32>> = Vec::with_capacity(feature_count);
+    for j in 0..feature_count {
+        let name = &trained.feature_names[j];
+        let col = df
+            .column(name.as_str())
+            .map_err(|e| format!("예측 특성 컬럼 '{name}' 접근 실패: {e}"))?;
+        col_vecs.push(series_to_f32(col));
+    }
+
+    let mut xs = Vec::with_capacity(n * feature_count);
+    for i in 0..n {
+        for j in 0..feature_count {
+            let mut v = col_vecs[j][i] as f64;
+            if !v.is_finite() {
+                v = trained.fmean[j];
+            }
+            xs.push(((v - trained.fmean[j]) / trained.fstd[j]) as f32);
+        }
+    }
+
+    let device: Device<Plain> = Default::default();
+    let x = Tensor::<Plain, 2>::from_data(TensorData::new(xs, [n, feature_count]), &device);
+    let pred_t = trained.model.forward(x);
+    let preds = pred_t.into_data().to_vec::<f32>().unwrap_or_default();
+
+    let out_col = match as_col {
+        Some(c) => c.to_string(),
+        None => format!("{}_pred", trained.target),
+    };
+    let pred_f64: Vec<f64> = preds.iter().map(|&v| v as f64).collect();
+
+    let mut out = df.clone();
+    out.with_column(Column::new(out_col.into(), pred_f64))
+        .map_err(|e| format!("예측 컬럼 추가 실패: {e}"))?;
+    Ok(out)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

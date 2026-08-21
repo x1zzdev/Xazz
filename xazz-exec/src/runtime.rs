@@ -209,9 +209,18 @@ pub fn run_pipeline(
         }
     }
 
+    // 5-A': ModelRegistry 구축 — ModelDecl 수집 (선언 순서와 무관하게 사용 가능)
+    let mut model_registry: HashMap<String, Vec<LayerKind>> = HashMap::new();
+    for stmt in &program.stmts {
+        if let Stmt::ModelDecl { name, layers } = stmt {
+            model_registry.insert(name.clone(), layers.clone());
+            handle_model_decl(name, layers);
+        }
+    }
+
     // 5-B: VarDecl 순차 실행 + SymbolTable 관리
     let mut symbol_table: HashMap<String, polars::frame::DataFrame> = HashMap::new();
-    let mut model_registry: HashMap<String, Vec<LayerKind>> = HashMap::new();
+    let mut model_table: HashMap<String, crate::dl::TrainedModel> = HashMap::new();
     let mut pipeline_count = 0usize;
     let mut last_var_name: Option<String> = None;
 
@@ -225,8 +234,16 @@ pub fn run_pipeline(
             } => {
                 pipeline_count += 1;
 
-                match execute_var_decl(var_name, source, ops, &symbol_table, &type_registry) {
-                    Ok(df) => {
+                match execute_var_decl(
+                    var_name,
+                    source,
+                    ops,
+                    &symbol_table,
+                    &type_registry,
+                    &model_registry,
+                    &mut model_table,
+                ) {
+                    Ok(Some(df)) => {
                         eprintln!(
                             "[xazz] Pipeline #{} '{}' 완료: {} 행 × {} 열",
                             pipeline_count,
@@ -236,6 +253,14 @@ pub fn run_pipeline(
                         );
                         last_var_name = Some(var_name.clone());
                         symbol_table.insert(var_name.clone(), df);
+                    }
+                    Ok(None) => {
+                        // 모델 변수 (train 파이프라인) — model_table 에 이미 등록됨
+                        eprintln!(
+                            "[xazz] Pipeline #{} '{}' 완료: 학습 모델 생성",
+                            pipeline_count, var_name
+                        );
+                        last_var_name = None;
                     }
                     Err(e) => {
                         eprintln!(
@@ -253,13 +278,27 @@ pub fn run_pipeline(
                     _ => format!("chart_{}", pipeline_count),
                 };
 
-                match execute_var_decl(&anon_name, source, ops, &symbol_table, &type_registry) {
-                    Ok(df) => {
+                match execute_var_decl(
+                    &anon_name,
+                    source,
+                    ops,
+                    &symbol_table,
+                    &type_registry,
+                    &model_registry,
+                    &mut model_table,
+                ) {
+                    Ok(Some(df)) => {
                         eprintln!(
                             "[xazz] Pipeline #{} (ExprStmt) 완료: {} 행 × {} 열",
                             pipeline_count,
                             df.height(),
                             df.width()
+                        );
+                    }
+                    Ok(None) => {
+                        eprintln!(
+                            "[xazz] Pipeline #{} (ExprStmt) 완료: 학습 모델 생성 (바인딩 없음)",
+                            pipeline_count
                         );
                     }
                     Err(e) => {
@@ -271,16 +310,9 @@ pub fn run_pipeline(
                 }
             }
 
-            Stmt::ModelDecl { name, layers } => {
+            Stmt::ModelDecl { name, layers: _ } => {
+                // ModelDecl 은 5-A' 단계에서 이미 로깅·등록됨 — 실행은 없다.
                 pipeline_count += 1;
-                eprintln!(
-                    "[xazz] Pipeline #{} ModelDecl '{}' — 레이어 {} 개",
-                    pipeline_count,
-                    name,
-                    layers.len()
-                );
-                model_registry.insert(name.clone(), layers.clone());
-                handle_model_decl(name, layers);
             }
 
             Stmt::TrainStmt {
@@ -559,7 +591,9 @@ fn execute_var_decl(
     ops: &[PipelineOp],
     symbol_table: &HashMap<String, polars::frame::DataFrame>,
     type_registry: &HashMap<String, Vec<StructField>>,
-) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    model_registry: &HashMap<String, Vec<LayerKind>>,
+    model_table: &mut HashMap<String, crate::dl::TrainedModel>,
+) -> Result<Option<polars::frame::DataFrame>, Box<dyn std::error::Error>> {
     use polars::prelude::{IntoLazy, JoinArgs, SortMultipleOptions, col, lit};
 
     let (mut lf, schema_fields_opt): (polars::prelude::LazyFrame, Option<Vec<StructField>>) =
@@ -849,6 +883,43 @@ fn execute_var_decl(
                 );
                 lf = snapshot.lazy();
             }
+
+            // ── v0.5 train(Model, ...) — Burn 딥러닝 학습 (파이프라인 연산자) ──
+            PipelineOp::Train { model_name, config } => {
+                let snapshot = lf.clone().collect()?;
+                let layers = model_registry
+                    .get(model_name.as_str())
+                    .cloned()
+                    .ok_or_else(|| {
+                        format!(
+                            "모델 블록 '{model_name}' 을 찾을 수 없습니다. 먼저 `model {model_name} {{ ... }}` 로 선언하세요."
+                        )
+                    })?;
+                let trained = crate::dl::train(&snapshot, model_name, &layers, config)
+                    .map_err(|e| format!("학습 실패: {e}"))?;
+                // 학습 리포트 출력
+                print_train_report(&trained);
+                model_table.insert(var_name.to_string(), trained);
+                return Ok(None);
+            }
+
+            // ── v0.5 predict(model_var, as: "col") — 학습 모델 예측 ──────────
+            PipelineOp::Predict { model_var, as_col } => {
+                let trained = model_table.get(model_var.as_str()).ok_or_else(|| {
+                    format!(
+                        "학습된 모델 변수 '{model_var}' 이 없습니다. 먼저 `v {model_var} = ... |> train(...)` 로 학습하세요."
+                    )
+                })?;
+                let snapshot = lf.clone().collect()?;
+                let out = crate::dl::predict(trained, &snapshot, as_col.as_deref())
+                    .map_err(|e| format!("예측 실패: {e}"))?;
+                eprintln!(
+                    "[xazz] Predict '{}' 완료: 예측 컬럼 추가 ({} 행)",
+                    model_var,
+                    out.height()
+                );
+                lf = out.lazy();
+            }
         }
     }
 
@@ -869,7 +940,7 @@ fn execute_var_decl(
 
     let _ = (var_name, has_count_flag);
 
-    Ok(df)
+    Ok(Some(df))
 }
 
 // ── Burn 딥러닝 실행 (v0.4) ───────────────────────────────────────────────────
@@ -951,28 +1022,8 @@ fn handle_train_stmt(
     println!();
 
     match crate::dl::train(df, model_name, layers, config) {
-        Ok(report) => {
-            println!("{}", "─".repeat(60));
-            println!("✅  학습 완료");
-            println!("  입력 차원  : {}", report.input_dim);
-            println!("  출력 차원  : {}", report.output_dim);
-            println!("  파라미터 수 : {}", report.num_params);
-            println!("  최종 손실(MSE) : {:.6}", report.final_train_loss);
-            if let Some(v) = report.final_val_loss {
-                println!("  검증 손실(MSE) : {:.6}", v);
-            }
-            println!("  특성 컬럼  : {:?}", report.feature_names);
-            if !report.predictions.is_empty() {
-                println!("  샘플 예측  :");
-                for i in 0..report.predictions.len().min(5) {
-                    println!(
-                        "    [{i}] 예측 = {:.4}   실제 = {:.4}",
-                        report.predictions[i], report.targets[i]
-                    );
-                }
-            }
-            println!("  체크포인트 : {}", report.checkpoint_path);
-            println!();
+        Ok(trained) => {
+            print_train_report(&trained);
 
             // [xazz:train] JSON 마커 — 서버/IDE에서 학습 결과를 파싱
             let train_json = serde_json::json!({
@@ -980,7 +1031,7 @@ fn handle_train_stmt(
                 "success": true,
                 "source_var": source_var,
                 "model_name": model_name,
-                "report": serde_json::to_value(&report).unwrap_or_default(),
+                "report": serde_json::to_value(&trained.report).unwrap_or_default(),
             });
             println!(
                 "[xazz:train] {}",
@@ -1002,6 +1053,32 @@ fn handle_train_stmt(
             );
         }
     }
+}
+
+/// 학습된 모델(TrainedModel)의 리포트를 콘솔에 출력한다.
+fn print_train_report(trained: &crate::dl::TrainedModel) {
+    let report = &trained.report;
+    println!("{}", "─".repeat(60));
+    println!("✅  학습 완료");
+    println!("  입력 차원  : {}", report.input_dim);
+    println!("  출력 차원  : {}", report.output_dim);
+    println!("  파라미터 수 : {}", report.num_params);
+    println!("  최종 손실(MSE) : {:.6}", report.final_train_loss);
+    if let Some(v) = report.final_val_loss {
+        println!("  검증 손실(MSE) : {:.6}", v);
+    }
+    println!("  특성 컬럼  : {:?}", report.feature_names);
+    if !report.predictions.is_empty() {
+        println!("  샘플 예측  :");
+        for i in 0..report.predictions.len().min(5) {
+            println!(
+                "    [{i}] 예측 = {:.4}   실제 = {:.4}",
+                report.predictions[i], report.targets[i]
+            );
+        }
+    }
+    println!("  체크포인트 : {}", report.checkpoint_path);
+    println!();
 }
 
 // ── write_chart_html — ChartSpec → Chart.js 기반 HTML 파일 생성 ───────────────

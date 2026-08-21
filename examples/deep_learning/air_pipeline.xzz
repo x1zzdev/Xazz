@@ -1,0 +1,40 @@
+// Xazz Deep Learning — Pipeline-style (v0.5)
+// 모델 선언은 type 과 같은 "선언 블록", train/predict 는 파이프라인 연산자.
+//
+// Run: xazz run examples/deep_learning/air_pipeline.xzz
+
+type AirSensor = {
+    date:     string,
+    station:  string,
+    pm10:     Option<float>,
+    pm25:     Option<float>,
+}
+
+v dataset = load("examples/data/seoul_air_2024.csv") :: AirSensor
+    |> cast("pm10", "float")
+    |> cast("pm25", "float")
+    |> fillNull("pm10", strategy: "mean")
+    |> fillNull("pm25", strategy: "mean")
+
+model AirPredictor {
+    Dense(32) -> ReLU() -> Dense(1)
+}
+
+// 1. 학습: train 은 파이프라인 연산자 → 학습된 모델 변수 (air_model)
+v air_model = dataset
+    |> train(AirPredictor, target: "pm10", epochs: 10, lr: 0.01)
+
+// 2. 예측: 데이터가 주체, 모델은 인자 → pm10_pred 컬럼 추가
+v predicted = dataset
+    |> predict(air_model, as: "pm10_pred")
+    |> rename("pm10", "pm10_actual")
+    |> take(5)
+
+// 3. 시각화: 실측 vs 예측
+v predicted_chart = predicted
+    |> chart {
+        type:  line,
+        x:     station,
+        y:     pm10_pred,
+        title: "PM10 예측 (상위 5개 지점)",
+    }

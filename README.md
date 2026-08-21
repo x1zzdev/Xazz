@@ -136,9 +136,18 @@ model AirPredictor {
     Dense(64) -> ReLU() -> Dense(1)
 }
 
-// 4. Integrated execution with Zero-Copy Tensor conversion
-run dataset 
+// 4. Integrated Pipeline Execution: train → predict → visualize
+v model = dataset
     |> train(AirPredictor, target: "pm10", epochs: 10)
+
+v prediction = dataset
+    |> predict(model, as: "pm10_pred")
+    |> chart {
+        type:  line,
+        x:     station,
+        y:     pm10_pred,
+        title: "PM10 Prediction",
+    }
 ```
 
 | Feature | Python (pandas + PyTorch) | Xazz (.xzz) |

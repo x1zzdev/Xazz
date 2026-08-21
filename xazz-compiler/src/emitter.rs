@@ -503,6 +503,23 @@ fn generate_rust_src(
                             ));
                         }
                     }
+                    // ── v0.5 딥러닝 연산자: emit rust 에서는 런타임 학습/예측으로 안내 ──
+                    PipelineOp::Train { model_name, config } => {
+                        out.push_str(&format!(
+                            "        // |> train({}, target: \"{}\", epochs: {})  → xazz 실행 시 Burn 학습 수행\n",
+                            model_name, config.target, config.epochs
+                        ));
+                    }
+                    PipelineOp::Predict { model_var, as_col } => {
+                        let as_str = as_col
+                            .as_deref()
+                            .map(|c| format!(", as: \"{}\"", c))
+                            .unwrap_or_default();
+                        out.push_str(&format!(
+                            "        // |> predict({}{})  → 예측 컬럼 추가 (xazz 실행 시)\n",
+                            model_var, as_str
+                        ));
+                    }
                 }
             }
 
@@ -946,6 +963,10 @@ fn validate_op_columns(
 
         // Cast: 컬럼은 DSL 작성자가 보장 (검증 생략)
         PipelineOp::Cast { .. } => {}
+
+        // v0.5 딥러닝 연산자: 모델 변수는 런타임에서 검증 (검증 생략)
+        PipelineOp::Train { .. } => {}
+        PipelineOp::Predict { .. } => {}
     }
     Ok(())
 }

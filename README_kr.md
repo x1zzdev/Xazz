@@ -136,9 +136,18 @@ model AirPredictor {
     Dense(64) -> ReLU() -> Dense(1)
 }
 
-// 4. 제로카피 텐서 변환 통합 실행
-run dataset 
+// 4. 파이프라인 통합 실행: 학습 → 예측 → 시각화
+v model = dataset
     |> train(AirPredictor, target: "pm10", epochs: 10)
+
+v prediction = dataset
+    |> predict(model, as: "pm10_pred")
+    |> chart {
+        type:  line,
+        x:     station,
+        y:     pm10_pred,
+        title: "PM10 예측",
+    }
 ```
 
 | 기능 | Python (pandas + PyTorch) | Xazz (.xzz) |

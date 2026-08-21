@@ -430,6 +430,17 @@ impl Codegen {
                     agg_col, agg_col
                 )
             }
+            PipelineOp::Train { model_name, config } => format!(
+                "  // |> train({}, target: \"{}\", epochs: {}, lr: {})  → 학습된 모델 변수",
+                model_name, config.target, config.epochs, config.learning_rate
+            ),
+            PipelineOp::Predict { model_var, as_col } => {
+                let as_str = as_col
+                    .as_deref()
+                    .map(|c| format!(", as: \"{}\"", c))
+                    .unwrap_or_default();
+                format!("  // |> predict({}{})  → 예측 컬럼 추가", model_var, as_str)
+            }
         }
     }
 
