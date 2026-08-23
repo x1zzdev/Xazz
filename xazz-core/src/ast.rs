@@ -199,6 +199,16 @@ pub enum PipelineOp {
     Variance(String),
     /// std("col") — 표준편차 집계 (v0.22)
     Std(String),
+    /// train(ModelName, target: "col", epochs: N, lr: F) — 학습 연산자 (v0.5)
+    Train {
+        model_name: String,
+        config: TrainConfig,
+    },
+    /// predict(model_var, as: "col") — 학습 모델 예측 연산자 (v0.5)
+    Predict {
+        model_var: String,
+        as_col: Option<String>,
+    },
 }
 
 /// 파이프라인의 소스 (데이터 원천)
