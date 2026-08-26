@@ -186,6 +186,31 @@ pub fn run_pipeline(
 
     eprintln!("[xazz] Parser 완료: {} AST 노드", program.stmts.len());
 
+    // ── STEP 3.5: 정적 의미 분석 (Type Checker) — 실행 전 결함 검출 ──────────
+    let check = xazz_compiler::check_program(&program);
+    if !check.errors.is_empty() || !check.warnings.is_empty() {
+        eprintln!(
+            "[xazz] 정적 분석: 오류 {}건 / 경고 {}건",
+            check.errors.len(),
+            check.warnings.len()
+        );
+        for err in &check.errors {
+            eprintln!("  [xazz DIAGNOSTIC ERROR] {}", err.message);
+        }
+        for warn in &check.warnings {
+            eprintln!("  [xazz DIAGNOSTIC WARN]  {}", warn.message);
+        }
+        // [xazz:diagnostics] JSON 마커 — 서버/IDE에서 파싱 가능
+        let diag_json = serde_json::json!({
+            "errors": check.errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>(),
+            "warnings": check.warnings.iter().map(|e| e.message.clone()).collect::<Vec<_>>(),
+        });
+        println!(
+            "[xazz:diagnostics] {}",
+            serde_json::to_string(&diag_json).unwrap_or_default()
+        );
+    }
+
     if verbose {
         println!();
         println!("⚡ STEP 2. Abstract Syntax Tree (Parser)");

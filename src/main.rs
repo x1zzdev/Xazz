@@ -147,23 +147,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // ── check: sLM 정적 분석 (NQP) ──────────────────────────────────────
+        // ── check: 정적 의미 분석 (Type Checker) ────────────────────────────
         Commands::Check { file } => {
-            println!("[Experimental] xazz check — Neural Query Planner");
-            println!("  이 기능은 현재 실험적 상태입니다. 출력은 시범용 결과입니다.");
+            let source = match std::fs::read_to_string(&file) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("IO 에러: 파일 읽기 실패 '{}' — {}", file.display(), e);
+                    std::process::exit(1);
+                }
+            };
+
+            let (parse_result, result) = xazz_compiler::check_source(&source);
+
+            // 파싱 단계 에러가 있으면 그대로 출력 후 실패 종료
+            if let Err(e) = &parse_result {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            }
+
+            println!("═══ xazz check: 정적 의미 분석 ═══");
+            println!("파일     : {}", file.display());
+            println!("오류     : {}건", result.errors.len());
+            println!("경고     : {}건", result.warnings.len());
             println!();
-            println!("정적 분석을 시작합니다 …  ({})", file.display());
 
-            let spinner = ux::create_spinner("sLM Neural Query Planner 분석 중 …");
-            // tokio::time::sleep 제거 → std::thread::sleep 사용
-            std::thread::sleep(std::time::Duration::from_millis(1_200));
-            spinner.finish_and_clear();
+            for err in &result.errors {
+                println!("❌ [오류] {}", err.message);
+                if let Some(s) = &err.ai_suggestion {
+                    println!("   💡 {}", s);
+                }
+                println!();
+            }
+            for warn in &result.warnings {
+                println!("⚠️  [경고] {}", warn.message);
+            }
 
-            let file_name = file
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown");
-            ux::print_mock_nqp_report(file_name);
+            if result.is_err() {
+                println!();
+                eprintln!(
+                    "[xazz check] 정적 분석에서 {}건의 오류를 발견했습니다.",
+                    result.errors.len()
+                );
+                std::process::exit(1);
+            }
+            println!();
+            println!("✅ 정적 분석 통과 — 실행 전 결함 없음");
         }
 
         // ── sde: 합성 데이터 생성 ────────────────────────────────────────────

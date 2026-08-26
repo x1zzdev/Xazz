@@ -41,6 +41,8 @@ struct ExecuteResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     training: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    diagnostics: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
 
@@ -121,7 +123,7 @@ async fn handle_execute(
     let success = output.status.success();
 
     // 4. stdout 파싱: [xazz:result], [xazz:chart], [xazz:train] 마커 추출
-    let (rows, schema, logs, training) = parse_stdout_markers(&stdout, &stderr);
+    let (rows, schema, logs, training, diagnostics) = parse_stdout_markers(&stdout, &stderr);
 
     if success {
         Ok(Json(ExecuteResponse {
@@ -131,6 +133,7 @@ async fn handle_execute(
             logs,
             stdout,
             training,
+            diagnostics,
             error: None,
         }))
     } else {
@@ -142,16 +145,21 @@ async fn handle_execute(
             logs,
             stdout,
             training,
+            diagnostics,
             error: Some(err_msg),
         }))
     }
 }
 
-/// stdout 에서 [xazz:result], [xazz:chart], [xazz:train] 마커를 파싱한다.
-fn parse_stdout_markers(stdout: &str, stderr: &str) -> (Value, Value, Vec<String>, Option<Value>) {
+/// stdout 에서 [xazz:result], [xazz:chart], [xazz:train], [xazz:diagnostics] 마커를 파싱한다.
+fn parse_stdout_markers(
+    stdout: &str,
+    stderr: &str,
+) -> (Value, Value, Vec<String>, Option<Value>, Option<Value>) {
     let mut rows = json!([]);
     let mut schema = json!([]);
     let mut training: Option<Value> = None;
+    let mut diagnostics: Option<Value> = None;
     let logs: Vec<String> = stderr.lines().map(|l| l.to_string()).collect();
 
     for line in stdout.lines() {
@@ -172,9 +180,15 @@ fn parse_stdout_markers(stdout: &str, stderr: &str) -> (Value, Value, Vec<String
                 training = Some(parsed);
             }
         }
+        // 정적 의미 분석(Type Checker) 진단 마커
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:diagnostics] ") {
+            if let Ok(parsed) = serde_json::from_str::<Value>(json_part) {
+                diagnostics = Some(parsed);
+            }
+        }
     }
 
-    (rows, schema, logs, training)
+    (rows, schema, logs, training, diagnostics)
 }
 
 // ── POST /schema ──────────────────────────────────────────────────────────────
@@ -434,6 +448,7 @@ fn internal_err(msg: String) -> (StatusCode, Json<ExecuteResponse>) {
             logs: vec![],
             stdout: String::new(),
             training: None,
+            diagnostics: None,
             error: Some(msg),
         }),
     )

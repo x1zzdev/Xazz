@@ -45,7 +45,10 @@ pub enum Commands {
         output: Option<PathBuf>,
     },
 
-    /// sLM 기반 정적 상태 분석을 수행합니다 (Neural Query Planner)
+    /// .xzz 코드를 실행 전에 정적 의미 분석(Type Checker)합니다
+    ///
+    /// 미선언 변수·모델·스키마, 스키마에 없는 컬럼, 타입 불일치 등을
+    /// 실행 전에 검출합니다.
     ///
     /// 예: xazz check examples/poc_script.xzz
     Check {
