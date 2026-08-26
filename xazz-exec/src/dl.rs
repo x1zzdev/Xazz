@@ -57,7 +57,7 @@ fn apply_activation<B: Backend, const D: usize>(act: &Activation, x: Tensor<B, D
 
 /// DSL `model { Dense -> ReLU -> ... }` 를 동적 다층 퍼셉트론(MLP)으로 표현한 Burn 모듈.
 #[derive(Module, Debug)]
-struct Mlp<B: Backend> {
+pub struct Mlp<B: Backend> {
     /// Dense(units) 레이어 시퀀스.
     layers: Vec<Linear<B>>,
     /// 각 Dense 뒤에 적용할 활성화 함수 (마지막 레이어 포함).

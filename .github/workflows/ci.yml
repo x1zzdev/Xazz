@@ -51,8 +51,41 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: cargo clippy
-        run: cargo clippy --workspace --all-targets
-        continue-on-error: true
+        # -D warnings 로 린트 실패를 CI 실패로 강제한다.
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: cargo test
         run: cargo test --workspace
+
+  # ── 프런트엔드 (Visual IDE) — Vite 빌드 + 컨트랙트/대비 테스트 ───────────────
+  frontend:
+    name: Frontend · Visual IDE
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: visual-ide
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: visual-ide/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Contract tests
+        run: npm run test:contract
+
+      - name: Contrast tests
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:contrast

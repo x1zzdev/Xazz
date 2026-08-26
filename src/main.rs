@@ -2,7 +2,6 @@ mod cli;
 mod predict;
 mod project;
 mod schema;
-mod ux;
 mod whoami;
 
 use clap::Parser;
@@ -24,6 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             verbose,
             predict,
             output,
+            json,
         } => {
             let source_path = match file.to_str() {
                 Some(p) => p.to_owned(),
@@ -76,6 +76,65 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(out_str) = out.to_str() {
                     cmd.arg("--output").arg(out_str);
                 }
+            }
+
+            // ── --json: 구조화된 JSON 실행 결과 출력 ────────────────────────
+            // xazz-runner 의 stdout 을 캡처해 [xazz:result] / [xazz:diagnostics]
+            // 마커를 파싱한 뒤 단일 JSON 객체로 재조립한다.
+            if json {
+                let output = cmd.output().map_err(|e| {
+                    format!(
+                        "xazz-runner 실행 실패: {}\n\
+                         → 'xazz-runner' 바이너리가 PATH 또는 xazz 실행 파일과 같은 디렉토리에 있는지 확인하세요.",
+                        e
+                    )
+                })?;
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                let success = output.status.success();
+
+                let mut rows = serde_json::Value::Array(vec![]);
+                let mut schema = serde_json::Value::Array(vec![]);
+                let mut diagnostics: Option<serde_json::Value> = None;
+
+                for line in stdout.lines() {
+                    let trimmed = line.trim();
+                    if let Some(json_part) = trimmed.strip_prefix("[xazz:result] ") {
+                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part) {
+                            if let Some(r) = parsed.get("rows") {
+                                rows = r.clone();
+                            }
+                            if let Some(s) = parsed.get("schema") {
+                                schema = s.clone();
+                            }
+                        }
+                    }
+                    if let Some(json_part) = trimmed.strip_prefix("[xazz:diagnostics] ") {
+                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part) {
+                            diagnostics = Some(parsed);
+                        }
+                    }
+                }
+
+                let exit_code = output.status.code().unwrap_or(1);
+                let summary = serde_json::json!({
+                    "success": success,
+                    "exit_code": exit_code,
+                    "source": source_path,
+                    "rows": rows,
+                    "schema": schema,
+                    "diagnostics": diagnostics,
+                    "error": if success { None } else { Some(stderr.trim()) },
+                    "logs": stderr.lines().map(|l| l.to_string()).collect::<Vec<_>>(),
+                });
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&summary).unwrap_or_default()
+                );
+                if !success {
+                    std::process::exit(exit_code);
+                }
+                return Ok(());
             }
 
             let status = cmd.status().map_err(|e| {

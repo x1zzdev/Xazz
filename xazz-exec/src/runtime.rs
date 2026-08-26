@@ -335,7 +335,7 @@ pub fn run_pipeline(
                 }
             }
 
-            Stmt::ModelDecl { name, layers: _ } => {
+            Stmt::ModelDecl { name: _, .. } => {
                 // ModelDecl 은 5-A' 단계에서 이미 로깅·등록됨 — 실행은 없다.
                 pipeline_count += 1;
             }

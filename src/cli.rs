@@ -43,6 +43,12 @@ pub enum Commands {
         /// 예: --output result.csv
         #[arg(long)]
         output: Option<PathBuf>,
+
+        /// 구조화된 JSON 실행 결과를 출력합니다 (기계 판독용)
+        ///
+        /// 예: xazz run examples/poc_script.xzz --json
+        #[arg(long)]
+        json: bool,
     },
 
     /// .xzz 코드를 실행 전에 정적 의미 분석(Type Checker)합니다

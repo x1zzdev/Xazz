@@ -4,8 +4,11 @@
 //!   POST /execute          { "code": "<xzz DSL>" }         → 파이프라인 실행, JSON 결과 반환
 //!   POST /schema           multipart/form-data (file)      → CSV 스키마 추론, 컬럼 타입 반환
 //!   GET  /health           {}                               → 서버 상태 확인
-//!   POST /security/audit   { "code": "<xzz DSL>" }         → SHA-256 감사 로그 생성
+//!   POST /security/audit   { "code": "<xzz DSL>" }         → SHA-256 감사 로그 생성 + 영구 저장
 //!   POST /security/verify  { "code": "<xzz DSL>", "hash": "<sha256>" } → 감사 해시 검증
+//!   GET  /security/audit/log                               → 전체 감사 로그 조회 (JSONL 해시 체인)
+//!   GET  /security/audit/log/:hash                         → 코드 해시로 감사 레코드 조회
+//!   GET  /security/audit/chain                             → 해시 체인 무결성 검증
 //!
 //! 포트: 8005 (frontend/.env: VITE_API_BASE_URL=http://127.0.0.1:8005)
 
@@ -14,7 +17,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use axum::{
-    extract::Multipart,
+    extract::{Multipart, Path},
     http::StatusCode,
     response::Json,
     routing::{get, post},
@@ -23,6 +26,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tower_http::cors::{Any, CorsLayer};
+
+mod audit_log;
 
 // ── 요청 / 응답 타입 ────────────────────────────────────────────────────────
 
@@ -78,6 +83,9 @@ async fn main() {
         .route("/health", get(handle_health))
         .route("/security/audit", post(handle_security_audit))
         .route("/security/verify", post(handle_security_verify))
+        .route("/security/audit/log", get(handle_audit_log))
+        .route("/security/audit/log/:hash", get(handle_audit_lookup))
+        .route("/security/audit/chain", get(handle_audit_chain))
         .layer(cors);
 
     let addr = "127.0.0.1:8005";
@@ -358,21 +366,36 @@ struct AuditResponse {
     algorithm: String,
     timestamp: String,
     code_length: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    index: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    record_hash: Option<String>,
 }
 
 async fn handle_security_audit(Json(payload): Json<AuditRequest>) -> Json<AuditResponse> {
-    use sha2::{Digest, Sha256};
+    let hash = audit_log::hash_code(&payload.code);
 
-    let mut hasher = Sha256::new();
-    hasher.update(payload.code.as_bytes());
-    let hash = format!("{:x}", hasher.finalize());
+    // append-only 감사 로그에 영구 저장 (실패해도 해시는 반환)
+    let stored = audit_log::append(&payload.code);
 
-    Json(AuditResponse {
-        hash,
-        algorithm: "SHA-256".to_string(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        code_length: payload.code.len(),
-    })
+    match stored {
+        Ok(record) => Json(AuditResponse {
+            hash,
+            algorithm: "SHA-256".to_string(),
+            timestamp: record.timestamp.clone(),
+            code_length: payload.code.len(),
+            index: Some(record.index),
+            record_hash: Some(record.record_hash.clone()),
+        }),
+        Err(_e) => Json(AuditResponse {
+            hash,
+            algorithm: "SHA-256".to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            code_length: payload.code.len(),
+            index: None,
+            record_hash: None,
+        }),
+    }
 }
 
 // ── POST /security/verify ────────────────────────────────────────────────────
@@ -389,6 +412,8 @@ struct VerifyResponse {
     computed_hash: String,
     provided_hash: String,
     algorithm: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    logged: Option<bool>,
 }
 
 async fn handle_security_verify(Json(payload): Json<VerifyRequest>) -> Json<VerifyResponse> {
@@ -398,13 +423,51 @@ async fn handle_security_verify(Json(payload): Json<VerifyRequest>) -> Json<Veri
     hasher.update(payload.code.as_bytes());
     let computed = format!("{:x}", hasher.finalize());
     let valid = computed == payload.hash;
+    // 로그에 존재하는지 여부도 함께 반환
+    let logged = audit_log::lookup_by_hash(&payload.hash)
+        .ok()
+        .map(|r| !r.is_empty());
 
     Json(VerifyResponse {
         valid,
         computed_hash: computed,
         provided_hash: payload.hash,
         algorithm: "SHA-256".to_string(),
+        logged,
     })
+}
+
+// ── GET /security/audit/log ──────────────────────────────────────────────────
+
+async fn handle_audit_log() -> Result<Json<Value>, (StatusCode, String)> {
+    let records = audit_log::all().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(json!({ "count": records.len(), "records": records })))
+}
+
+// ── GET /security/audit/log/:hash ────────────────────────────────────────────
+
+async fn handle_audit_lookup(
+    Path(hash): Path<String>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let records =
+        audit_log::lookup_by_hash(&hash).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if records.is_empty() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("해시 '{}' 에 해당하는 감사 레코드가 없습니다.", hash),
+        ));
+    }
+    Ok(Json(
+        json!({ "hash": hash, "matches": records.len(), "records": records }),
+    ))
+}
+
+// ── GET /security/audit/chain ────────────────────────────────────────────────
+
+async fn handle_audit_chain() -> Result<Json<Value>, (StatusCode, String)> {
+    let valid = audit_log::verify_chain().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let count = audit_log::all().map(|r| r.len()).unwrap_or(0);
+    Ok(Json(json!({ "intact": valid, "records": count })))
 }
 
 // ── 유틸리티 ──────────────────────────────────────────────────────────────────
