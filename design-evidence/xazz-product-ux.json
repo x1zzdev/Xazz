@@ -1,0 +1,579 @@
+{
+  "schema_version": "1.0",
+  "risk": {
+    "profile": "STRICT",
+    "rationale": "The design represents execution, security, integrity, and privacy states for an AI pipeline; false confidence could cause unsafe runs or incorrect claims about implemented controls.",
+    "profile_change": null,
+    "waivers": []
+  },
+  "brief": {
+    "actor": "Python data or ML developer evaluating or operating Xazz",
+    "context": "The current Rust repositories expose a typed DSL pipeline, but the product story and execution evidence were fragmented across code, README material, and future plans.",
+    "job_or_motivation": "Try useful pipeline behavior immediately, understand the effect of each operation, and know exactly what will run before crossing into Full Run.",
+    "observed_problem": "A feature-led or cyber-security-led interface could overstate unimplemented policy features, collapse independent runtime states, and delay the user's first useful result.",
+    "desired_user_outcome": "Reach a deterministic sample result quickly, inspect lineage and data impact, deliberately confirm execution scope, and recover from errors with a safe next action.",
+    "desired_service_outcome": "Create a truthful, accessible landing-to-tool experience that distinguishes current Core capabilities from Future contracts and is ready for implementation handoff.",
+    "success_criteria": [
+      "Five of five target users can open the sample and identify the selected node's row impact.",
+      "At least four of five distinguish process exit, pipeline verdict, Control, Integrity, and artifact outcome.",
+      "At least four of five find the safe recovery action within 45 seconds.",
+      "No CRITICAL or HIGH issue remains open after independent review."
+    ],
+    "constraints": [
+      "No production backend integration; the prototype uses deterministic synthetic data.",
+      "Policy-as-Code, DP, sLM repair, Burn training, monitoring, and durable audit remain Research or Planned.",
+      "English is primary; Korean is a validation locale.",
+      "The workspace is desktop-only while the landing page supports 390 px mobile."
+    ]
+  },
+  "problem": {
+    "statement": "Developers need to evaluate and run a typed AI data pipeline without guessing which capabilities exist, which data changed, or whether a process exit represents a valid pipeline result.",
+    "journey_scope": "end_to_end",
+    "omission_reason": null
+  },
+  "evidence": [
+    {
+      "id": "E-001",
+      "type": "observation",
+      "source_id": "repository-discovery",
+      "summary": "Repository inspection found the actual xazz to xazz-runner to xazz-exec chain, structured result markers, SHA-256 computation, and no current policy, DP, sLM, monitoring, or durable audit contract."
+    },
+    {
+      "id": "E-002",
+      "type": "synthesis",
+      "source_id": "spec/SPEC.yaml",
+      "summary": "The approved brief prioritizes a Python data or ML developer, a no-install sample, explicit Full Run, evidence-led state separation, accessibility, and Core versus Future truth."
+    },
+    {
+      "id": "E-003",
+      "type": "decision",
+      "source_id": "design/alternatives.md",
+      "summary": "The selected direction combines a light outcome-led landing page with a calm-dark compiler workspace and a visibly separate Future Labs layer."
+    },
+    {
+      "id": "E-004",
+      "type": "observation",
+      "source_id": "ui-prototype/src/data.js",
+      "summary": "A deterministic 100-row synthetic Seoul air-quality fixture uses the explicit fixed demo fill value 31.0, produces 41 result rows, and removes all PM2.5 null values."
+    },
+    {
+      "id": "E-005",
+      "type": "observation",
+      "source_id": "independent-design-critique",
+      "summary": "Two independent critique passes exposed and then rechecked truthfulness, lineage, receipt, recovery, contrast, mobile proof, and modal keyboard defects."
+    },
+    {
+      "id": "E-006",
+      "type": "observation",
+      "source_id": "automated-prototype-validation",
+      "summary": "The production build, 18-requirement contract, 11 token contrast pairs, two rendered-selector contrast scenarios, and ten Playwright scenarios pass on the final source state."
+    },
+    {
+      "id": "E-007",
+      "type": "observation",
+      "source_id": "figma-handoff",
+      "summary": "The Figma file contains five organized pages, editable Core screen imports, ten verified click transitions, token-bound reusable component sets, a Future trust map, and an exact 390 px QA reference."
+    }
+  ],
+  "traceability": {
+    "pain_points": [
+      {
+        "id": "P-001",
+        "statement": "A new user cannot safely infer capability maturity or execution validity from a single success-like badge.",
+        "evidence_ids": [
+          "E-001",
+          "E-005"
+        ]
+      },
+      {
+        "id": "P-002",
+        "statement": "Installing or configuring before seeing value weakens immediacy and perceived efficacy.",
+        "evidence_ids": [
+          "E-002",
+          "E-003"
+        ]
+      }
+    ],
+    "insights": [
+      {
+        "id": "I-001",
+        "statement": "Trust comes from exposing independent evidence axes and unknowns, not from adding security decoration.",
+        "evidence_ids": [
+          "E-001",
+          "E-005"
+        ]
+      },
+      {
+        "id": "I-002",
+        "statement": "The sample-first path should show a meaningful data delta before asking for execution responsibility.",
+        "evidence_ids": [
+          "E-002",
+          "E-004"
+        ]
+      }
+    ],
+    "hmw": [
+      {
+        "id": "HMW-001",
+        "statement": "How might we let a Python developer feel value immediately while making every increase in execution responsibility explicit?",
+        "evidence_ids": [
+          "E-002",
+          "E-003",
+          "E-004"
+        ]
+      }
+    ],
+    "selected_solutions": [
+      {
+        "id": "ALT-B",
+        "statement": "Outcome-led landing plus evidence-led compiler workspace with a separate Future trust layer.",
+        "evidence_ids": [
+          "E-001",
+          "E-002",
+          "E-003",
+          "E-005"
+        ]
+      }
+    ],
+    "tests": [
+      {
+        "id": "T-001",
+        "statement": "Validate sample-first routing, keyboard preflight, state truth, recovery, Korean copy, and 390 px layout.",
+        "evidence_ids": [
+          "E-004",
+          "E-006"
+        ]
+      }
+    ],
+    "kpis": [
+      {
+        "id": "K-001",
+        "statement": "Sample-to-evidence comprehension",
+        "evidence_ids": [
+          "E-002",
+          "E-004"
+        ]
+      },
+      {
+        "id": "K-002",
+        "statement": "Execution-state comprehension",
+        "evidence_ids": [
+          "E-001",
+          "E-005"
+        ]
+      },
+      {
+        "id": "K-003",
+        "statement": "Safe error recovery",
+        "evidence_ids": [
+          "E-002",
+          "E-005"
+        ]
+      }
+    ]
+  },
+  "journey": [
+    {
+      "step": "Discover",
+      "action": "Read the product outcome and compare current Core with Future Labs.",
+      "goal": "Decide whether Xazz is relevant without parsing the repository architecture.",
+      "touchpoint": "Light landing hero, proof pipeline, and capability truth map.",
+      "friction": "Security-heavy language can obscure the primary data-pipeline value.",
+      "evidence": [
+        "E-002",
+        "E-003"
+      ],
+      "failure": "The visitor assumes research capabilities are production-ready or leaves before seeing a concrete outcome.",
+      "recovery": "Lead with the typed-pipeline result and show per-capability maturity badges."
+    },
+    {
+      "step": "Try sample",
+      "action": "Open the deterministic air-quality sample without an account or install.",
+      "goal": "Experience useful output with minimal commitment.",
+      "touchpoint": "Project Start sample card and English or Korean validation copy.",
+      "friction": "Unavailable import and blank-project paths could look broken.",
+      "evidence": [
+        "E-002",
+        "E-004"
+      ],
+      "failure": "The user expects an unavailable option to work.",
+      "recovery": "Mark unavailable options as prototype limitations and keep the sample primary."
+    },
+    {
+      "step": "Inspect impact",
+      "action": "Select an operation and compare graph, code, lineage, result rows, nulls, and schema.",
+      "goal": "Build confidence that the DSL effect is understandable before execution.",
+      "touchpoint": "Compiler Canvas, semantic operation list, code pane, inspector, and result dock.",
+      "friction": "Canvas-only interaction and color-only relations exclude keyboard users and hide causality.",
+      "evidence": [
+        "E-004",
+        "E-005",
+        "E-006"
+      ],
+      "failure": "The user cannot identify upstream or downstream impact.",
+      "recovery": "Mirror the graph with keyboard-selectable semantic controls and explicit relation labels."
+    },
+    {
+      "step": "Confirm Full Run",
+      "action": "Review execution location, synthetic readiness, input scope, artifact request, and user confirmation.",
+      "goal": "Cross the run boundary deliberately without confusing policy state with consent.",
+      "touchpoint": "Focus-trapped preflight dialog with inert workspace background.",
+      "friction": "Synthetic readiness can look like a real backend health check.",
+      "evidence": [
+        "E-001",
+        "E-005",
+        "E-006"
+      ],
+      "failure": "The user reads Control Needs review as policy evidence or tabs into the background.",
+      "recovery": "Keep Control Not configured, add a separate Run confirmation axis, and label readiness Future contract not verified."
+    },
+    {
+      "step": "Read receipt or recover",
+      "action": "Interpret process, pipeline, integrity, and artifact evidence or open the failed code location.",
+      "goal": "Know what is valid and what to do next.",
+      "touchpoint": "Run timeline, receipt, error evidence, and recovery actions.",
+      "friction": "Exit code 0, stale sample metrics, or an optional export can be mistaken for successful run evidence.",
+      "evidence": [
+        "E-001",
+        "E-005",
+        "E-006"
+      ],
+      "failure": "The user trusts an invalid artifact or reruns before inspecting the error.",
+      "recovery": "Treat artifact as Not requested on success, make failed-run values unavailable, and make Open code primary."
+    }
+  ],
+  "blueprint": [
+    {
+      "frontstage": "Outcome-led landing, proof pipeline, and honest maturity map.",
+      "backstage": "Static React route and deterministic synthetic fixture.",
+      "support_system_data": "Approved product brief, capability ledger, and local fixture.",
+      "owner": "Xazz UI/UX",
+      "failure_point": "Future capability appears production-ready.",
+      "recovery": "Per-capability Available, Research, or Planned labels.",
+      "metric": "Correct Core versus Future identification in moderated testing."
+    },
+    {
+      "frontstage": "Compiler Canvas with graph, code, lineage, impact, and result tabs.",
+      "backstage": "React state model and @xyflow/react graph synchronized with a semantic list.",
+      "support_system_data": "100-row fixture and operation metadata.",
+      "owner": "Xazz UI/UX and frontend",
+      "failure_point": "Selected operation and affected scope diverge.",
+      "recovery": "One selectedId drives graph, code, semantic list, and inspector.",
+      "metric": "Correct selected-node impact identified within three minutes."
+    },
+    {
+      "frontstage": "Preflight dialog and explicit Full Run confirmation.",
+      "backstage": "Synthetic Future readiness contract with no backend call.",
+      "support_system_data": "State contract for Process, Pipeline, Control, Integrity, artifact, and confirmation.",
+      "owner": "Xazz UI/UX and runtime team",
+      "failure_point": "Synthetic state is mistaken for live readiness.",
+      "recovery": "Future contract not verified on all three runtime rows; no Ready label.",
+      "metric": "Correct explanation of what was and was not verified."
+    },
+    {
+      "frontstage": "Run receipt or error recovery.",
+      "backstage": "Prototype route state with truthful unavailable fields and deterministic branch controls separated from product UI.",
+      "support_system_data": "Structured-result contract, error evidence, local SHA-256 computation, and artifact rules.",
+      "owner": "Xazz UI/UX and runtime team",
+      "failure_point": "Process exit or optional export is promoted to pipeline success evidence.",
+      "recovery": "Independent axis badges and safe full-retry path through preflight.",
+      "metric": "Correct verdict interpretation and safe action found within 45 seconds."
+    }
+  ],
+  "alternatives": {
+    "considered": [
+      {
+        "id": "ALT-A",
+        "summary": "Security-command-center landing and tool with policy visuals as the primary story."
+      },
+      {
+        "id": "ALT-B",
+        "summary": "Outcome-led landing plus evidence-led compiler workspace with a separate Future trust layer."
+      },
+      {
+        "id": "ALT-C",
+        "summary": "Documentation-first developer portal that postpones the interactive workspace."
+      }
+    ],
+    "selected": "ALT-B",
+    "selection_criteria": [
+      "Fastest path to felt value",
+      "Truthful separation of current and future capabilities",
+      "Strong lineage and execution-evidence comprehension",
+      "Compatibility with the existing Rust repository contract",
+      "Accessible keyboard and mobile entry experience"
+    ],
+    "rejected_reasons": [
+      {
+        "alternative_id": "ALT-A",
+        "reason": "It overweights unimplemented control features and makes security theater more likely."
+      },
+      {
+        "alternative_id": "ALT-C",
+        "reason": "It delays the immediate sample result and weakens the user's sense of efficacy."
+      }
+    ],
+    "remaining_uncertainty": "Actual target users have not yet validated the information density, terminology, or time-to-comprehension."
+  },
+  "prototype": {
+    "unknown": "Can a Python data or ML developer understand typed impact and execution trust without learning the Rust architecture first?",
+    "hypothesis": "A no-install sample followed by synchronized graph, code, impact, and independent evidence axes will create immediate efficacy and safer Full Run decisions.",
+    "fidelity": "High-fidelity interactive React prototype plus editable Figma handoff and local token variables.",
+    "task": "Open the air-quality sample, inspect Fill null and Filter threshold impact, complete preflight by keyboard, interpret success, then recover from the error state.",
+    "success_criterion": "At least four of five target participants complete the task, correctly describe independent state axes, and find the safe recovery action."
+  },
+  "interaction_states": [
+    {
+      "task": "Sample-to-run evidence flow",
+      "states": {
+        "default": {
+          "status": "covered",
+          "evidence": "Landing, Project Start, and Workspace Sample Ready screenshots."
+        },
+        "focus": {
+          "status": "covered",
+          "evidence": "Visible focus ring and Playwright keyboard path for CTA, checkbox, modal actions, and focus restoration."
+        },
+        "pressed": {
+          "status": "covered",
+          "evidence": "Native button and checkbox pressed behavior in the interactive React prototype."
+        },
+        "disabled": {
+          "status": "covered",
+          "evidence": "Start full run remains disabled until confirmation; Cancel unavailable is visibly disabled."
+        },
+        "loading_pending": {
+          "status": "covered",
+          "evidence": "Run In Progress screen separates Process Running from Pipeline Unknown and stale Live Check."
+        },
+        "empty": {
+          "status": "not_applicable",
+          "reason": "The approved eight-state review scope uses a deterministic sample and does not include a separate empty-project frame."
+        },
+        "partial_stale": {
+          "status": "covered",
+          "evidence": "Running labels prior Live Check stale; Error Recovery refuses to substitute sample metrics."
+        },
+        "error": {
+          "status": "covered",
+          "evidence": "Error Recovery shows exact operation, unavailable failed-run impact, untrusted artifact, and safe next action."
+        },
+        "cancelled": {
+          "status": "not_applicable",
+          "reason": "The current backend exposes no cancellation acknowledgement; the product control is intentionally unavailable."
+        },
+        "success": {
+          "status": "covered",
+          "evidence": "Success receipt requires structured result evidence and shows Artifact Not requested."
+        },
+        "recovery": {
+          "status": "covered",
+          "evidence": "Open code is primary and retry routes through preflight."
+        }
+      }
+    }
+  ],
+  "accessibility": {
+    "keyboard": {
+      "status": "pass",
+      "evidence": "Playwright follows the real modal focus order, trap, Escape close, and Full Run focus restoration."
+    },
+    "visible_focus": {
+      "status": "pass",
+      "evidence": "The landing CTA, native checkbox, buttons, tabs, and semantic operation list expose a visible focus indicator."
+    },
+    "accessible_name": {
+      "status": "pass",
+      "evidence": "Semantic roles and accessible names cover dialogs, tabs, status badges, result region, graph mirror, and controls."
+    },
+    "contrast": {
+      "status": "pass",
+      "evidence": "Eleven semantic pairs pass normal text at 4.5:1 or higher and essential boundaries at 3:1 or higher."
+    },
+    "overflow": {
+      "status": "pass",
+      "evidence": "The 390 px landing route has no horizontal overflow; the workspace intentionally switches to a desktop requirement message below 1024 px."
+    },
+    "target_reachability": {
+      "status": "pass",
+      "evidence": "Primary controls use 44 px minimum targets and the graph has a keyboard-selectable semantic mirror."
+    }
+  },
+  "responsiveness": {
+    "mobile": {
+      "status": "pass",
+      "evidence": "Exact 390 px Playwright capture and no-overflow assertion for the complete landing experience."
+    },
+    "laptop": {
+      "status": "pass",
+      "evidence": "All workspace states are captured and tested at 1440 by 960 with fixed evidence panels."
+    },
+    "large": {
+      "status": "pass",
+      "evidence": "The landing uses bounded content width and the workspace uses flexible graph and code columns within a minimum desktop shell."
+    }
+  },
+  "heuristic_review": {
+    "status": "completed",
+    "reviewer": "Independent design critic plus root verification",
+    "findings": [
+      {
+        "id": "H-001",
+        "severity": "HIGH",
+        "status": "resolved",
+        "summary": "Preflight collapsed Control, confirmation, verdict, and synthetic runtime readiness.",
+        "evidence": "Control remains Not configured, Pipeline is Not evaluated, confirmation is separate, and all runtime rows say Future contract not verified."
+      },
+      {
+        "id": "H-002",
+        "severity": "HIGH",
+        "status": "resolved",
+        "summary": "Succeeded conflicted with a promised but unwritten artifact.",
+        "evidence": "The run requests no artifact; optional browser export is a separate post-result action."
+      },
+      {
+        "id": "H-003",
+        "severity": "HIGH",
+        "status": "resolved",
+        "summary": "Preflight keyboard focus escaped into the background and did not restore.",
+        "evidence": "The modal now focuses the checkbox, traps Tab, marks background surfaces inert, supports Escape, and restores Full Run focus."
+      },
+      {
+        "id": "H-004",
+        "severity": "HIGH",
+        "status": "resolved",
+        "summary": "Receipt and failed-run impact presented unsupported or stale evidence.",
+        "evidence": "Run ID and engine version are explicitly unavailable, warnings and maturity are disclosed, and failed-node impact is unavailable while stale Live Check data is labelled."
+      },
+      {
+        "id": "H-005",
+        "severity": "MEDIUM",
+        "status": "resolved",
+        "summary": "Mobile proof and workspace control boundaries were difficult to read.",
+        "evidence": "The mobile proof uses a 3 plus 2 grid and control border tokens pass 3:1."
+      },
+      {
+        "id": "H-006",
+        "severity": "HIGH",
+        "status": "resolved",
+        "summary": "Opening Logs or Receipt before Full Run invented Exited and Succeeded evidence.",
+        "evidence": "Ready and running states now render explicit Not started, Not evaluated, Unknown, and pending receipt states; a browser regression scenario forbids pre-run success."
+      },
+      {
+        "id": "H-007",
+        "severity": "HIGH",
+        "status": "resolved",
+        "summary": "Token-only contrast checks missed low-contrast rendered badge axes and code line numbers.",
+        "evidence": "Foreground tokens were corrected and Playwright now measures actual computed foreground and effective background for landing badges and ready, selected, and error code rows."
+      },
+      {
+        "id": "H-008",
+        "severity": "HIGH",
+        "status": "resolved",
+        "summary": "The fixed synthetic fill value 31.0 was incorrectly described as the fixture median.",
+        "evidence": "The transform now uses one exported demoFillValue, the contract pins that invariant, and local plus Figma copy explicitly identifies 31.0 as a fixed synthetic demo value."
+      }
+    ],
+    "evidence": "design/review-verification.md and the final nine screenshot set",
+    "reason": "Two independent visual and contract critique passes plus three independent code-review tracks were completed."
+  },
+  "user_test": {
+    "status": "not_run",
+    "reason": "No actual target participants were recruited in this implementation session; automated and independent expert checks are not treated as user evidence.",
+    "participant_count": 0,
+    "participant_criteria": "Planned: five Python data or ML developers, including at least two unfamiliar with Xazz.",
+    "task": "Planned: sample to impact to preflight to receipt and error recovery.",
+    "start_condition": "Not observed.",
+    "end_condition": "Not observed.",
+    "success": "Not measured.",
+    "time": "Not measured.",
+    "errors": "Not measured.",
+    "satisfaction": "Not measured.",
+    "observations": "No participant observations collected.",
+    "consent_privacy": "No participant data collected."
+  },
+  "artifacts": {
+    "design_system": "design-system/xazz/MASTER.md and Figma 01 Foundations / 04 Components",
+    "prototype_or_figma": "https://www.figma.com/design/WqomiXUlVze79yz3s0GRmS",
+    "screenshots": [
+      "design/screenshots/landing-desktop-1440.png",
+      "design/screenshots/landing-mobile-390.png",
+      "design/screenshots/project-start.png",
+      "design/screenshots/project-start-ko.png",
+      "design/screenshots/workspace-sample-ready.png",
+      "design/screenshots/preflight-needs-review.png",
+      "design/screenshots/run-in-progress.png",
+      "design/screenshots/run-success-receipt.png",
+      "design/screenshots/error-recovery.png"
+    ],
+    "interaction_evidence": [
+      "npm run test:e2e: 10/10 passed",
+      "npm run test:contract: fixture 100 to 41 and requirements 18/18",
+      "npm run test:contrast: 11 token pairs and 2 rendered-selector scenarios passed",
+      "Figma Core frames 17:2, 18:2, 19:2, 20:2, 22:2, 23:2, 24:2, 26:2, and 36:2; ten click transitions; component sets 40:27, 40:76, and 40:125 with 50 variants, 19 variables, and five text styles"
+    ],
+    "commit": "ffa32d42bbcacedef8483a79bc4e49d27883ada4"
+  },
+  "review": {
+    "reviewer": "Independent design critic, independent code reviewers, and Codex root",
+    "timestamp": "2026-07-27T05:22:37+09:00",
+    "open_issues": [
+      {
+        "id": "RISK-USER-TEST",
+        "severity": "MEDIUM",
+        "status": "open",
+        "summary": "No actual target-user comprehension or usability evidence exists yet.",
+        "evidence": "user_test.status is not_run and participant_count is zero."
+      }
+    ],
+    "exceptions": [
+      {
+        "gate": "user_test",
+        "reason": "The user approved proceeding with the high-fidelity implementation before participant recruitment; no actual participants were available in this session.",
+        "risk": "Information density, terminology, and time-to-comprehension may still fail for first-time target users.",
+        "owner": "Xazz UI/UX team",
+        "revisit": "Before production UI adoption or a merge that presents this prototype as validated product design."
+      }
+    ]
+  },
+  "kpis": [
+    {
+      "id": "K-001",
+      "definition": "Target users who open the sample and correctly identify the selected node's row impact.",
+      "formula": "Successful participants divided by total participants.",
+      "baseline": "Not measured; no actual participants tested.",
+      "target": "At least 80 percent, with five of five preferred.",
+      "measurement_window": "One moderated 15-minute prototype session.",
+      "data_source": "Task observation and post-task explanation.",
+      "owner": "Xazz UI/UX team",
+      "decision_threshold": "Revise the landing or inspector if fewer than four of five succeed."
+    },
+    {
+      "id": "K-002",
+      "definition": "Target users who distinguish process exit, pipeline verdict, Control, Integrity, and artifact outcome.",
+      "formula": "Participants explaining all five without prompting divided by total participants.",
+      "baseline": "Not measured; no actual participants tested.",
+      "target": "At least four of five participants.",
+      "measurement_window": "Immediately after the success receipt task.",
+      "data_source": "Think-aloud explanation and comprehension probe.",
+      "owner": "Xazz UI/UX team",
+      "decision_threshold": "Revise state labels if any axis is confused by more than one participant."
+    },
+    {
+      "id": "K-003",
+      "definition": "Target users who find the safe error-recovery action within 45 seconds.",
+      "formula": "Participants selecting Open code or explaining the safe next step within 45 seconds divided by total participants.",
+      "baseline": "Not measured; no actual participants tested.",
+      "target": "At least four of five participants.",
+      "measurement_window": "First exposure to Error Recovery.",
+      "data_source": "Task timing and observed first action.",
+      "owner": "Xazz UI/UX team",
+      "decision_threshold": "Revise error hierarchy if fewer than four of five succeed."
+    }
+  ],
+  "verdict": {
+    "decision": "revise",
+    "rationale": "The implementation, accessibility gates, truth contract, and independent review are complete, but actual target-user comprehension remains unvalidated.",
+    "next_step": "Run the planned five-participant moderated test, record KPI baselines, and revise only from observed failure patterns before production adoption."
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "xazz-ui-prototype",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "node scripts/build.mjs",
+    "capture": "node scripts/capture.mjs",
+    "preview": "vite preview --host 127.0.0.1",
+    "test:contrast": "node tests/contrast.mjs && playwright test tests/computed-contrast.spec.mjs",
+    "test:contract": "node tests/contract.mjs",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@xyflow/react": "12.10.2",
+    "lucide-react": "1.16.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.1",
+    "vite": "7.3.6"
+  }
+}
