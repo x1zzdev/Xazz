@@ -34,6 +34,40 @@ const frames = [
   ['run-in-progress', '/?screen=workspace&state=running', 1440, 960, false],
   ['run-success-receipt', '/?screen=workspace&state=success', 1440, 960, false],
   ['error-recovery', '/?screen=workspace&state=error', 1440, 960, false],
+  // The Monitor view is deliberately absent from the URL, so these frames need a
+  // click step to reach the state they document.
+  [
+    'monitor-no-run',
+    '/?screen=workspace',
+    1440,
+    960,
+    false,
+    (page) => page.getByRole('button', { name: 'Monitor' }).click(),
+  ],
+  [
+    'monitor-after-success',
+    '/?screen=workspace&state=success',
+    1440,
+    960,
+    false,
+    (page) => page.getByRole('button', { name: 'Monitor' }).click(),
+  ],
+  [
+    'monitor-after-error',
+    '/?screen=workspace&state=error',
+    1440,
+    960,
+    false,
+    (page) => page.getByRole('button', { name: 'Monitor' }).click(),
+  ],
+  [
+    'ml-compile-band',
+    '/?screen=workspace',
+    1440,
+    960,
+    false,
+    (page) => page.getByRole('button', { name: /Train model/ }).first().click(),
+  ],
 ]
 
 let browser
@@ -72,7 +106,7 @@ try {
   )
 
   browser = await chromium.launch({ headless: true })
-  for (const [name, route, width, height, fullPage] of frames) {
+  for (const [name, route, width, height, fullPage, prepare] of frames) {
     const page = await browser.newPage({
       viewport: { width, height },
       colorScheme: 'light',
@@ -81,6 +115,10 @@ try {
     await page.goto(`${baseURL}${route}`, { waitUntil: 'networkidle' })
     await page.evaluate(() => document.fonts.ready)
     assert.match(await page.title(), /^Xazz/, `${name} did not render the Xazz app`)
+    if (prepare) {
+      await prepare(page)
+      await page.waitForTimeout(150)
+    }
     await page.screenshot({
       path: resolve(temporaryRoot, `${name}.png`),
       fullPage,

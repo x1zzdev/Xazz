@@ -1,0 +1,35 @@
+{
+  "_contract": "proposed",
+  "_measured": false,
+  "_source": "none — no such endpoint exists in xazz-server",
+  "_note": "This file is a UI-side proposal for a response shape the backend does not implement. Every number here is illustrative structure. It must never be rendered as a measurement, and no panel consuming it may use a success, warning, or brand colour.",
+  "privacy_budget": {
+    "maturity": "Research",
+    "proposed_endpoint": "GET /privacy/budget",
+    "blocking_gap": "No DP accountant exists in xazz-core, xazz-compiler, xazz-exec, or xazz-server.",
+    "unit": "epsilon",
+    "total": 1.0,
+    "spent": 0.42,
+    "delta": 1e-6,
+    "mechanism": "gaussian",
+    "ledger": [
+      { "op": "load", "epsilon": 0.0, "note": "no query released" },
+      { "op": "fillNull", "epsilon": 0.05 },
+      { "op": "filter", "epsilon": 0.12 },
+      { "op": "train", "epsilon": 0.25, "note": "DP-SGD per-step accounting" }
+    ]
+  },
+  "resource_efficiency": {
+    "maturity": "Planned",
+    "proposed_endpoint": "GET /run/{run_id}/resources",
+    "blocking_gap": "/health returns server status, version, and timestamp only. No run_id is issued by /execute.",
+    "samples": [
+      { "stage": "preprocess", "cpu_percent": 34, "memory_mb": 210 },
+      { "stage": "compile", "cpu_percent": 61, "memory_mb": 340 },
+      { "stage": "train", "cpu_percent": 88, "memory_mb": 720 },
+      { "stage": "predict", "cpu_percent": 22, "memory_mb": 260 }
+    ],
+    "gpu": null,
+    "gpu_reason": "No device enumeration contract exists."
+  }
+}

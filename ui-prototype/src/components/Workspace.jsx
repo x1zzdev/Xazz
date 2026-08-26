@@ -8,8 +8,10 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
+  Activity,
   AlertTriangle,
   ArrowDownToLine,
+  Boxes,
   Braces,
   Check,
   CheckCircle2,
@@ -40,6 +42,7 @@ import {
   Sparkles,
   Square,
   Table2,
+  Target,
   TerminalSquare,
   TriangleAlert,
   Workflow,
@@ -47,6 +50,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { Brand, StatusBadge } from './Common'
+import { MonitorView } from './Monitor'
 import {
   chartData,
   codeLines,
@@ -55,20 +59,22 @@ import {
   scenario,
 } from '../data'
 
+const nodeIcons = {
+  load: Database,
+  schema: Braces,
+  result: Table2,
+  compile: Boxes,
+  train: Sparkles,
+  predict: Target,
+}
+
 function PipelineNode({ data }) {
-  const Icon =
-    data.id === 'load'
-      ? Database
-      : data.id === 'schema'
-        ? Braces
-        : data.id === 'result'
-          ? Table2
-          : Workflow
+  const Icon = nodeIcons[data.id] ?? Workflow
 
   return (
     <div
       className={`flow-node flow-node--${data.visualState} flow-node--relation-${data.relation}`}
-      aria-label={`${data.label}, ${data.evidence}, ${data.visualState}, ${data.relation}`}
+      aria-label={`${data.label}, ${data.band} band, ${data.evidence}, ${data.visualState}, ${data.relation}`}
     >
       {data.id !== 'load' && <Handle type="target" position={Position.Left} />}
       <div className="flow-node__top">
@@ -78,6 +84,7 @@ function PipelineNode({ data }) {
         </span>
         <i>{data.order}</i>
       </div>
+      <span className="flow-node__band">{data.band}</span>
       <strong>{data.label}</strong>
       <span className="flow-node__evidence">{data.evidence}</span>
       <span className="flow-node__state">
@@ -102,7 +109,7 @@ function getNodeRelation(id, selectedId) {
 function getNodeVisualState(id, selectedId, runState) {
   if (runState === 'error') {
     if (id === 'fill') return 'failed'
-    if (['filter', 'result'].includes(id)) return 'stale'
+    if (['filter', 'result', 'train', 'predict'].includes(id)) return 'stale'
   }
   if (runState === 'success') return 'success'
   if (runState === 'running') return 'unknown'
@@ -328,6 +335,7 @@ function CanvasToolbar({ view, onView }) {
           ['graph', Workflow, 'Graph'],
           ['split', PanelRight, 'Split'],
           ['code', Code2, 'Code'],
+          ['monitor', Activity, 'Monitor'],
         ].map(([id, Icon, label]) => (
           <button
             type="button"
@@ -352,7 +360,7 @@ function PipelineCanvas({ selectedId, onSelect, runState }) {
       pipeline.map((node, index) => ({
         id: node.id,
         type: 'pipeline',
-        position: { x: 22 + index * 174, y: index % 2 === 0 ? 70 : 132 },
+        position: node.position,
         data: {
           ...node,
           order: String(index + 1).padStart(2, '0'),
@@ -367,17 +375,20 @@ function PipelineCanvas({ selectedId, onSelect, runState }) {
 
   const edges = useMemo(
     () =>
-      pipeline.slice(0, -1).map((node, index) => ({
-        id: `${node.id}-${pipeline[index + 1].id}`,
-        source: node.id,
-        target: pipeline[index + 1].id,
-        animated: runState === 'running',
-        className: [
-          'flow-edge',
-          runState === 'error' && index >= 2 ? 'flow-edge--stale' : '',
-          index < selectedIndex ? 'flow-edge--upstream' : 'flow-edge--downstream',
-        ].join(' '),
-      })),
+      pipeline.flatMap((node) => {
+        const targetIndex = pipeline.findIndex((item) => item.id === node.id)
+        return node.from.map((sourceId) => ({
+          id: `${sourceId}-${node.id}`,
+          source: sourceId,
+          target: node.id,
+          animated: runState === 'running',
+          className: [
+            'flow-edge',
+            runState === 'error' && targetIndex >= 3 ? 'flow-edge--stale' : '',
+            targetIndex <= selectedIndex ? 'flow-edge--upstream' : 'flow-edge--downstream',
+          ].join(' '),
+        }))
+      }),
     [runState, selectedIndex],
   )
 
@@ -393,7 +404,7 @@ function PipelineCanvas({ selectedId, onSelect, runState }) {
         elementsSelectable
         fitView
         fitViewOptions={{ padding: 0.14 }}
-        minZoom={0.65}
+        minZoom={0.4}
         maxZoom={1.25}
         proOptions={{ hideAttribution: true }}
       >
@@ -1396,19 +1407,25 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
             className={`compiler-split compiler-split--${view}`}
             data-testid="compiler-split"
           >
-            {view !== 'code' && (
-              <PipelineCanvas
-                selectedId={selectedId}
-                onSelect={setSelectedId}
-                runState={runState}
-              />
-            )}
-            {view !== 'graph' && (
-              <CodePane
-                selectedNode={selectedNode}
-                runState={runState}
-                draftApplied={draftApplied}
-              />
+            {view === 'monitor' ? (
+              <MonitorView runState={runState} />
+            ) : (
+              <>
+                {view !== 'code' && (
+                  <PipelineCanvas
+                    selectedId={selectedId}
+                    onSelect={setSelectedId}
+                    runState={runState}
+                  />
+                )}
+                {view !== 'graph' && (
+                  <CodePane
+                    selectedNode={selectedNode}
+                    runState={runState}
+                    draftApplied={draftApplied}
+                  />
+                )}
+              </>
             )}
           </div>
         </main>

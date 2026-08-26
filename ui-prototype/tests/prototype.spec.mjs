@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { resultRows } from '../src/data.js'
+import { pipeline, resultRows } from '../src/data.js'
 
 function observeRuntime(page) {
   const consoleErrors = []
@@ -210,10 +210,20 @@ test('graph selection highlights code and exposes measured impact', async ({ pag
 
   await page.getByRole('button', { name: /Fill null/ }).click()
   await expect(page.locator('.code-pane li.is-selected')).toContainText('fillNull')
-  await expect(page.locator('.flow-node--relation-upstream')).toHaveCount(2)
-  await expect(page.locator('.flow-node--relation-downstream')).toHaveCount(2)
-  await expect(page.locator('.operation-list button.is-upstream')).toHaveCount(2)
-  await expect(page.locator('.operation-list button.is-downstream')).toHaveCount(2)
+  // Derived from the fixture so adding a stage cannot silently stale this assertion.
+  const fillIndex = pipeline.findIndex((node) => node.id === 'fill')
+  const upstreamCount = fillIndex
+  const downstreamCount = pipeline.length - fillIndex - 1
+  await expect(page.locator('.flow-node--relation-upstream')).toHaveCount(upstreamCount)
+  await expect(page.locator('.flow-node--relation-downstream')).toHaveCount(
+    downstreamCount,
+  )
+  await expect(page.locator('.operation-list button.is-upstream')).toHaveCount(
+    upstreamCount,
+  )
+  await expect(page.locator('.operation-list button.is-downstream')).toHaveCount(
+    downstreamCount,
+  )
   await expect(page.getByText(`−6`, { exact: true }).first()).toBeVisible()
   await expect(page.getByText('Not emitted by current runtime').first()).toBeVisible()
 
@@ -318,5 +328,113 @@ test('390px landing has no horizontal overflow and keeps primary proof', async (
   await expect(
     page.getByRole('button', { name: 'Open a sample pipeline' }).first(),
   ).toBeVisible()
+  assertRuntime()
+})
+
+test('ML compile band is visible in the graph before any run', async ({ page }) => {
+  const assertRuntime = observeRuntime(page)
+  await page.goto('/?screen=workspace')
+
+  // The ML half of the program must be legible without running anything.
+  for (const label of ['Compile AirNet', 'Train model', 'Predict']) {
+    await expect(page.getByRole('button', { name: new RegExp(label) })).toBeVisible()
+  }
+  const mlNodes = page.locator('.flow-node__band', { hasText: 'ML COMPILE' })
+  await expect(mlNodes).toHaveCount(3)
+
+  // Pre-run ML stages state configuration, never an outcome.
+  await page.getByRole('button', { name: /Train model/ }).first().click()
+  await expect(page.getByText('Not available in this version').first()).toBeVisible()
+
+  assertRuntime()
+})
+
+test('monitor view separates a measured contract from a proposed one', async ({
+  page,
+}) => {
+  const assertRuntime = observeRuntime(page)
+  await page.goto('/?screen=workspace&state=success')
+
+  await page.getByRole('button', { name: 'Monitor' }).click()
+
+  const burn = page.getByLabel('Burn compile and training')
+  const privacy = page.getByLabel('Differential privacy budget')
+  const resource = page.getByLabel('Resource efficiency')
+  await expect(burn).toBeVisible()
+  await expect(privacy).toBeVisible()
+  await expect(resource).toBeVisible()
+
+  // The measured panel may show TrainReport fields.
+  await expect(burn.getByText('209').first()).toBeVisible()
+  await expect(burn.getByText('0.0417').first()).toBeVisible()
+
+  // The unimplemented panels carry a permanent maturity badge and synthetic scope,
+  // and must never present a number as measured.
+  await expect(privacy.getByLabel('Maturity: Research')).toBeVisible()
+  await expect(resource.getByLabel('Maturity: Planned')).toBeVisible()
+  for (const panel of [privacy, resource]) {
+    await expect(
+      panel.getByText('Synthetic structure · not measured · proposed contract'),
+    ).toBeVisible()
+    await expect(panel.getByText('Not available in this version').first()).toBeVisible()
+  }
+
+  // A proposed bar is hollow: it has no filled background.
+  const proposedBar = resource.locator('.monitor-bars__fill--proposed').first()
+  const background = await proposedBar.evaluate(
+    (node) => window.getComputedStyle(node).backgroundColor,
+  )
+  expect(background).toBe('rgba(0, 0, 0, 0)')
+
+  assertRuntime()
+})
+
+test('monitor view tells the truth before a run and after a failed run', async ({
+  page,
+}) => {
+  const assertRuntime = observeRuntime(page)
+
+  await page.goto('/?screen=workspace')
+  await page.getByRole('button', { name: 'Monitor' }).click()
+  const burn = page.getByLabel('Burn compile and training')
+  await expect(
+    burn.getByText('No Full Run has produced a training report yet.'),
+  ).toBeVisible()
+  await expect(burn.locator('.monitor-bars__fill--train')).toHaveCount(0)
+
+  await page.goto('/?screen=workspace&state=error')
+  await page.getByRole('button', { name: 'Monitor' }).click()
+  await expect(
+    page
+      .getByLabel('Burn compile and training')
+      .getByText('The run failed before a training report was emitted.'),
+  ).toBeVisible()
+
+  assertRuntime()
+})
+
+test('switching to monitor keeps run context and never scrolls the page sideways', async ({
+  page,
+}) => {
+  const assertRuntime = observeRuntime(page)
+  await page.goto('/?screen=workspace&state=success')
+
+  await page.getByRole('button', { name: 'Monitor' }).click()
+  await expect(page.getByRole('button', { name: 'Monitor' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  // The Monitor view is deliberately not written to the URL.
+  await expect(page).toHaveURL(/state=success/)
+  await expect(page).not.toHaveURL(/monitor/)
+
+  for (const width of [1280, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    )
+    expect(overflow, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(0)
+  }
+
   assertRuntime()
 })

@@ -3,8 +3,10 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import {
+  codeLines,
   demoFillValue,
   filledRows,
+  pipeline,
   resultRows,
   scenario,
   sourceRows,
@@ -92,6 +94,104 @@ assert.doesNotMatch(css, /backdrop-filter|text-shadow/i)
 assert.match(css, /\.preflight-warning__check/)
 assert.match(css, /\.flow-node--relation-upstream/)
 
+// ── ML compile band + monitoring (issue x1zzdev/Xazz#1) ─────────────────────
+//
+// These guard the one property the Monitor view exists to hold: a capability the
+// backend does not implement must never be able to render as a measurement.
+
+const mlNodes = ['compile', 'train', 'predict']
+for (const id of mlNodes) {
+  const node = pipeline.find((item) => item.id === id)
+  assert.ok(node, `${id} node must exist in the pipeline`)
+  assert.equal(node.band, 'ML COMPILE', `${id} must declare the ML COMPILE band`)
+  assert.ok(
+    codeLines[node.codeLine - 1] !== undefined,
+    `${id} must point at a real source line`,
+  )
+}
+assert.equal(
+  pipeline.filter((node) => node.band === 'PREPROCESS').length,
+  5,
+  'the five preprocessing stages must keep their band',
+)
+for (const node of pipeline) {
+  assert.ok(Array.isArray(node.from), `${node.id} must declare its edge sources`)
+  assert.ok(node.position, `${node.id} must declare an explicit canvas position`)
+  for (const source of node.from) {
+    assert.ok(
+      pipeline.some((item) => item.id === source),
+      `${node.id} references unknown source ${source}`,
+    )
+  }
+}
+
+const monitor = await read('ui-prototype/src/components/Monitor.jsx')
+const implemented = JSON.parse(await read('ui-prototype/src/mock/execute-response.json'))
+const proposed = JSON.parse(await read('ui-prototype/src/mock/telemetry-proposed.json'))
+
+// The two mock files must stay honest about which contract they represent.
+assert.equal(implemented._contract, 'implemented')
+assert.equal(proposed._contract, 'proposed')
+assert.equal(proposed._measured, false)
+
+// TrainReport has no epoch history and no timing. Nothing may invent them.
+const reportFields = Object.keys(implemented.training.report)
+for (const forbidden of ['loss_history', 'epoch_losses', 'duration_ms', 'elapsed']) {
+  assert.ok(
+    !reportFields.includes(forbidden),
+    `TrainReport does not emit ${forbidden}; the fixture must not add it`,
+  )
+}
+assert.ok(implemented._absent_from_contract.per_epoch_loss_history)
+
+// data.js ML evidence lines must agree with the mock contract they claim to mirror.
+const trainNode = pipeline.find((node) => node.id === 'train')
+assert.match(
+  trainNode.evidence,
+  new RegExp(String(implemented.training.report.epochs)),
+  'train node evidence must cite the epochs the fixture reports',
+)
+assert.match(
+  trainNode.evidence,
+  new RegExp(String(implemented.training.report.final_train_loss)),
+  'train node evidence must cite the loss the fixture reports',
+)
+const compileNode = pipeline.find((node) => node.id === 'compile')
+assert.match(
+  compileNode.evidence,
+  new RegExp(String(implemented.training.report.num_params)),
+  'compile node evidence must cite the parameter count the fixture reports',
+)
+
+// Research/Planned panels stay Research/Planned, and never borrow a success colour.
+assert.match(monitor, /maturity="Research"/)
+assert.match(monitor, /maturity="Planned"/)
+assert.match(monitor, /contract="proposed"/)
+assert.match(monitor, /Synthetic structure · not measured · proposed contract/)
+assert.doesNotMatch(monitor, /tone="success"|tone="warning"|tone="danger"/)
+for (const forbidden of [
+  /budget safe/i,
+  /policy passed/i,
+  /\baudited\b/i,
+  /\bsandboxed\b/i,
+  /budget remaining/i,
+]) {
+  assert.doesNotMatch(monitor, forbidden, `forbidden claim ${forbidden} reappeared`)
+}
+
+// Unmeasured bars are hollow, not filled — the distinction cannot be colour-only.
+assert.match(css, /\.monitor-bars__fill--proposed \{[^}]*background: transparent/)
+assert.match(css, /\.monitor-bars__fill--proposed \{[^}]*border: 1px dashed/)
+assert.doesNotMatch(
+  css,
+  /\.monitor-panel--proposed \{[^}]*var\(--success-dark\)/,
+  'a proposed panel must not use the success token',
+)
+
+const workspaceMonitor = workspace
+assert.match(workspaceMonitor, /\['monitor', Activity, 'Monitor'\]/)
+assert.match(workspaceMonitor, /view === 'monitor'/)
+
 console.log(
-  `contract: ok; fixture=100→${scenario.resultCount}; requirements=18/18; forbidden CDN/effects=0`,
+  `contract: ok; fixture=100→${scenario.resultCount}; requirements=18/18; forbidden CDN/effects=0; ml-nodes=${mlNodes.length}; monitor-panels=3`,
 )
