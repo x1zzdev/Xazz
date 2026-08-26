@@ -226,13 +226,13 @@ impl Analyzer {
                         model_name, config.target, source_var
                     ),
                 );
-            } else if let Some(t) = var.columns.get(&config.target) {
-                if !t.is_numeric() {
-                    self.warning(format!(
-                        "타겟 컬럼 '{}' 이 숫자형이 아니어서 학습 입력이 될 수 없습니다. 학습은 숫자형 타겟을 요구합니다.",
-                        config.target
-                    ));
-                }
+            } else if let Some(t) = var.columns.get(&config.target)
+                && !t.is_numeric()
+            {
+                self.warning(format!(
+                    "타겟 컬럼 '{}' 이 숫자형이 아니어서 학습 입력이 될 수 없습니다. 학습은 숫자형 타겟을 요구합니다.",
+                    config.target
+                ));
             }
         }
     }
@@ -686,7 +686,7 @@ mod tests {
         let r = check(
             "type X = { a: string, id: int };
              v left = load(\"x.csv\") :: X;
-             v right = left |> join(nope, left_on: [id], right_on: [id], how: inner);",
+             v right = left |> join(nope, left_on: [\"id\"], right_on: [\"id\"], how: \"inner\");",
         );
         assert!(r.is_err());
         assert!(
@@ -709,7 +709,7 @@ mod tests {
     #[test]
     fn group_by_without_aggregation_is_error() {
         let r = check(
-            "type X = { g: string, v: float };
+            "type X = { g: string, val: float };
              v p = load(\"x.csv\") :: X |> groupBy(\"g\");",
         );
         assert!(r.is_err());
@@ -719,8 +719,8 @@ mod tests {
     #[test]
     fn train_missing_model_is_error() {
         let r = check(
-            "type X = { v: float };
-             v p = load(\"x.csv\") :: X |> train(Nope, target: \"v\", epochs: 10);",
+            "type X = { val: float };
+             v p = load(\"x.csv\") :: X |> train(Nope, target: \"val\", epochs: 10);",
         );
         assert!(r.is_err());
         assert!(err_kinds(&r).iter().any(|k| k.contains("미선언 모델")));
@@ -729,7 +729,7 @@ mod tests {
     #[test]
     fn predict_non_model_var_is_error() {
         let r = check(
-            "type X = { v: float };
+            "type X = { val: float };
              v data = load(\"x.csv\") :: X;
              v out = data |> predict(not_a_model);",
         );
@@ -759,10 +759,10 @@ mod tests {
     fn valid_train_and_predict_no_error() {
         let r = check(
             "type X = { a: float, b: float, y: float };
-             model M { Dense(8) -> ReLU -> Dense(1) }
+             model M { Dense(8) -> ReLU() -> Dense(1) }
              v data = load(\"x.csv\") :: X;
-             v model = data |> train(M, { target: \"y\", epochs: 5 });
-             v pred = data |> predict(model, as: \"pred\");",
+             v trained = data |> train(M, target: \"y\", epochs: 5);
+             v pred = data |> predict(trained, as: \"pred\");",
         );
         assert!(r.is_ok(), "오류: {:?}", r.errors);
     }
@@ -773,7 +773,7 @@ mod tests {
             "type X = { a: float, y: float };
              model M { Dense(4) }
              v data = load(\"x.csv\") :: X;
-             v m = data |> train(M, { target: \"y\" });
+             v m = data |> train(M, target: \"y\");
              v bad = m |> select([a]);",
         );
         assert!(r.is_err());
@@ -786,7 +786,7 @@ mod tests {
 
     #[test]
     fn model_decl_requires_dense() {
-        let r = check("model M { ReLU -> ReLU }");
+        let r = check("model M { ReLU() -> ReLU() }");
         assert!(r.is_err());
         assert!(err_kinds(&r).iter().any(|k| k.contains("Dense 레이어")));
     }
@@ -794,7 +794,7 @@ mod tests {
     #[test]
     fn chart_checks_columns() {
         let r = check(
-            "type X = { a: string, v: float };
+            "type X = { a: string, val: float };
              v p = load(\"x.csv\") :: X |> chart { type: bar, x: a, y: missing_col };",
         );
         assert!(r.is_err());

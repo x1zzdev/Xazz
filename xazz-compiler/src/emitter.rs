@@ -1182,7 +1182,7 @@ mod tests {
             "type S = { a: string, b: float };
              v p = load(\"x.csv\") :: S |> filter(b > 10) |> mean(\"b\");",
         );
-        assert!(out.contains("LazyCsvReader"), "LazyCsvReader 없음");
+        assert!(out.contains("load_csv("), "load_csv 없음");
         assert!(out.contains(".collect()"), ".collect() 없음");
         assert!(out.contains("mean"), "mean 집계 없음");
     }
@@ -1191,7 +1191,7 @@ mod tests {
     fn emit_rust_emits_burn_for_dl_program() {
         let out = emit(
             "type S = { a: float, y: float };
-             model M { Dense(4) -> ReLU -> Dense(1) }
+             model M { Dense(4) -> ReLU() -> Dense(1) }
              v data = load(\"x.csv\") :: S |> train(M, target: \"y\", epochs: 3);",
         );
         assert!(out.contains("use burn::"), "burn import 없음");

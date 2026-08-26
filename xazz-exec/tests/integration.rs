@@ -95,7 +95,7 @@ fn run_join_between_two_pipelines() {
             "type T = {{ id: int, val: int }};
              v left = load(\"{abs}\") :: T;
              v right = left |> filter(val > 15);
-             v joined = left |> join(right, left_on: [id], right_on: [id], how: inner);"
+             v joined = left |> join(right, left_on: [\"id\"], right_on: [\"id\"], how: \"inner\");"
         ),
     );
     let result = run_pipeline(xzz.to_str().unwrap(), false, None);
