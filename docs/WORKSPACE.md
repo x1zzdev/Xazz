@@ -10,7 +10,7 @@ Rust 바이너리는 정적 링크됩니다.
 ## Final Workspace Structure
 
 ```
-xazz-lang/
+Xazz/
 ├── Cargo.toml              ← workspace + xazz CLI (루트 패키지)
 ├── src/                    ← xazz CLI (경량 — Polars/Tokio 없음)
 │   ├── main.rs             ← run 명령어 → xazz-runner 서브프로세스 스폰
@@ -40,16 +40,15 @@ xazz-lang/
 │       ├── emitter.rs
 │       └── main.rs         ← 컴파일 전용 (파싱+AST 출력)
 │
-├── xazz-exec/              ← 실행 엔진 (Polars 격리 크레이트)
+├── xazz-exec/              ← 실행 엔진 (Polars + Burn 격리 크레이트)
 │   └── src/
 │       ├── lib.rs
-│       └── runtime.rs      ← run_pipeline() — Polars LazyFrame 엔진
+│       └── runtime.rs      ← run_pipeline() — Polars LazyFrame / Burn 텐서 엔진
 │
 ├── xazz-runner/            ← 실행 바이너리 (CLI가 서브프로세스로 스폰)
 │   └── src/
 │       └── main.rs         ← xazz-runner <file.xzz> [--verbose] [--output]
 │
-├── xazz-sde/               ← 합성 데이터 생성기 (독립 — CLI와 무관)
 ├── xazz-server/            ← REST API 서버 (독립 — CLI와 무관)
 └── ...
 ```

@@ -279,13 +279,10 @@ Benchmark source: [`benches/run_benchmark.py`](benches/run_benchmark.py) / [`ben
 
 ## Contributing
 
-Xazz is an open-source project. Bug reports, ideas, and discussions via GitHub Issues are always welcome.
-
-**Note on code contributions (Pull Requests):**  
-To maintain authorship integrity during the 8th Korea CodeFair 2026 evaluation period, code contributions (Pull Requests) are temporarily suspended until October 2026. PRs will reopen after the competition concludes.
+Xazz is an open-source project. We welcome your help — bug reports, ideas, and discussions via GitHub Issues are always welcome, and code contributions via Pull Requests are open to everyone.
 
 - Issues (bug reports, ideas, discussion): Open
-- Pull Requests: Suspended until October 2026
+- Pull Requests: Open
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for local build instructions and contribution guidelines.
 

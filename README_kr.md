@@ -279,15 +279,12 @@ cargo build --release -p xazz-runner
 
 ## 기여
 
-버그 제보, 아이디어, 논의는 GitHub Issues로 언제든 환영한다.
+버그 제보, 아이디어, 논의는 GitHub Issues로, 코드 기여는 Pull Request로 언제든 환영해요. 여러분의 참여를 기다리고 있습니다.
 
-**코드 기여(Pull Request) 관련:**  
-2026년 제8회 한국코드페어 평가 기간 동안 저작자 동일성 보장을 위해 코드 기여(PR)는 2026년 10월까지 임시 중단 상태다. 대회 종료 후 재개된다.
+- 이슈(버그 제보, 아이디어, 논의): 항상 열려 있어요
+- Pull Request: 항상 열려 있어요
 
-- 이슈(버그 제보, 아이디어, 논의): 항상 열림
-- Pull Request: 2026년 10월까지 중단
-
-로컬 빌드 방법과 기여 가이드는 [CONTRIBUTING.md](CONTRIBUTING.md) 참고.
+로컬 빌드 방법과 기여 가이드는 [CONTRIBUTING.md](CONTRIBUTING.md)에서 확인하세요.
 
 ---
 

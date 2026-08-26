@@ -2,17 +2,16 @@
 
 Thank you for your interest in Xazz.
 
-## Current Contribution Status
+## Welcome
 
-> **Pull Requests are temporarily suspended.**  
-> To maintain authorship integrity during the 8th Korea CodeFair 2026 evaluation period, code contributions (PRs) are paused until October 2026. They will reopen after the competition concludes.
+Thanks for your interest in Xazz! Whether you want to report a bug, propose a feature, join a discussion, or open a pull request, we're glad to have you.
 
 | Contribution type | Status |
 |-------------------|--------|
 | Issues (bugs, ideas, discussion) | Open |
-| Pull Requests | Suspended until October 2026 |
+| Pull Requests | Open |
 
-If you have feedback or find a bug, please open a GitHub Issue. All issue reports are welcome.
+If you have feedback or find a bug, please open a GitHub Issue — all issue reports are welcome. For code changes, the build and contribution guidelines below will help you get started.
 
 ---
 
@@ -21,15 +20,17 @@ If you have feedback or find a bug, please open a GitHub Issue. All issue report
 Xazz is a Rust-based DSL compiler platform. The workspace is structured as follows:
 
 ```
-xazz-lang/
+Xazz/
 ├── src/                    xazz CLI binary (lightweight — no Polars/Tokio)
 ├── xazz-core/              Shared AST / Token / Error types
 ├── xazz-compiler/          Lexer, Parser, Codegen, Emitter
-├── xazz-exec/              Polars execution engine (isolated crate)
+├── xazz-exec/              Polars + Burn execution engine (isolated crate)
 ├── xazz-runner/            Execution binary (spawned by CLI as subprocess)
 ├── xazz-server/            REST API server (standalone)
-├── xazz-sde/               Synthetic data engine (standalone, git-ignored)
 ├── docs/                   Architecture and workspace documentation
+├── design/                 Product & UX design artifacts
+├── design-system/          UI design system
+├── spec/                   Product spec and discovery notes
 ├── benches/                Benchmark scripts and results
 └── examples/               Example .xzz scripts and CSV data
 ```
@@ -75,6 +76,18 @@ Binaries are produced in `target/release/`. For `xazz run` to work, both `xazz` 
 ```bash
 ./xazz emit rust examples/poc_correct.xzz
 ```
+
+### Run tests
+
+```bash
+cargo test
+```
+
+---
+
+## First Contributions
+
+Not sure where to start? Look for issues labeled **`good first issue`** or **`help wanted`** — they're a great place to begin. We're happy to answer questions and help you get your first PR merged. Don't hesitate to open a draft PR early for feedback.
 
 ---
 
