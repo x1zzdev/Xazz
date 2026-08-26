@@ -28,6 +28,9 @@ pub struct AuditRecord {
     pub hash: String,
     /// 원본 코드 길이 (바이트)
     pub code_length: usize,
+    /// 실행 결과 상태 ("success" | "failed" | enum 값). 없으면 None.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
     /// 이전 레코드의 SHA-256 해시 (체인 형성) — 첫 레코드는 "GENESIS"
     pub prev_hash: String,
     /// 이 레코드 전체(prev_hash 제외)의 SHA-256 해시
@@ -53,6 +56,10 @@ fn compute_record_hash(r: &AuditRecord) -> String {
     hasher.update(&[0u8]);
     hasher.update(r.code_length.to_string().as_bytes());
     hasher.update(&[0u8]);
+    if let Some(outcome) = &r.outcome {
+        hasher.update(outcome.as_bytes());
+        hasher.update(&[0u8]);
+    }
     hasher.update(r.prev_hash.as_bytes());
     format!("{:x}", hasher.finalize())
 }
@@ -72,11 +79,27 @@ fn ensure_log_dir() -> Result<std::path::PathBuf, String> {
 }
 
 /// 새 감사 레코드를 생성해 파일 끝에 추가한다. (append-only)
+///
+/// `outcome`은 실행 결과 상태("success"/"failed" 등)로, 기존 서명 호환을
+/// 위해 `append(code)` 형태(결과 미지정)도 지원한다.
 pub fn append(code: &str) -> Result<AuditRecord, String> {
+    append_with_outcome(code, None)
+}
+
+/// 실행 결과(outcome)를 포함해 감사 레코드를 추가한다. (기본 로그 파일)
+pub fn append_with_outcome(code: &str, outcome: Option<&str>) -> Result<AuditRecord, String> {
     ensure_log_dir()?;
     let file_path = std::path::PathBuf::from(AUDIT_LOG_FILE);
+    append_to_path(code, outcome, &file_path)
+}
 
-    let existing = read_all(&file_path).map_err(|e| format!("감사 로그 읽기 실패: {e}"))?;
+/// 코드 + outcome을 지정된 파일(append-only)에 기록한다. (내부, 테스트용)
+fn append_to_path(
+    code: &str,
+    outcome: Option<&str>,
+    file_path: &std::path::Path,
+) -> Result<AuditRecord, String> {
+    let existing = read_all(file_path).map_err(|e| format!("감사 로그 읽기 실패: {e}"))?;
     let index = existing.len() as u64;
     let prev_hash = existing
         .last()
@@ -88,6 +111,7 @@ pub fn append(code: &str) -> Result<AuditRecord, String> {
         timestamp: chrono::Utc::now().to_rfc3339(),
         hash: hash_code(code),
         code_length: code.len(),
+        outcome: outcome.map(|s| s.to_string()),
         prev_hash,
         record_hash: String::new(),
     };
@@ -102,7 +126,7 @@ pub fn append(code: &str) -> Result<AuditRecord, String> {
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&file_path)
+        .open(file_path)
         .map_err(|e| format!("감사 로그 파일 열기 실패: {e}"))?;
     let line = serde_json::to_string(&record).map_err(|e| format!("JSON 직렬화 실패: {e}"))?;
     writeln!(file, "{}", line).map_err(|e| format!("감사 로그 기록 실패: {e}"))?;
@@ -167,12 +191,48 @@ mod tests {
     }
 
     #[test]
+    fn append_to_path_records_outcome_and_chain() {
+        let dir = std::env::temp_dir().join(format!(
+            "xazz_audit_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("audit.jsonl");
+
+        let r1 = append_to_path("v a = load(\"x.csv\") :: S;", Some("success"), &file).unwrap();
+        let r2 = append_to_path("v b = load(\"y.csv\") :: T;", Some("failed"), &file).unwrap();
+
+        // 인덱스·체인 연결
+        assert_eq!(r1.index, 0);
+        assert_eq!(r2.index, 1);
+        assert_eq!(r2.prev_hash, r1.record_hash);
+        // outcome 기록
+        assert_eq!(r1.outcome.as_deref(), Some("success"));
+        assert_eq!(r2.outcome.as_deref(), Some("failed"));
+
+        // 파일에서 재읽어 검증
+        let recs = read_all(&file).unwrap();
+        assert_eq!(recs.len(), 2);
+        for r in &recs {
+            assert!(r.verify(), "레코드 해시 불일치");
+        }
+        assert_eq!(recs[1].prev_hash, recs[0].record_hash);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn record_hash_is_stable_and_verifiable() {
         let mut r = AuditRecord {
             index: 0,
             timestamp: "2026-08-26T00:00:00Z".to_string(),
             hash: hash_code("code"),
             code_length: 4,
+            outcome: None,
             prev_hash: "GENESIS".to_string(),
             record_hash: String::new(),
         };
@@ -191,6 +251,7 @@ mod tests {
             timestamp: "t0".into(),
             hash: "h0".into(),
             code_length: 1,
+            outcome: None,
             prev_hash: "GENESIS".into(),
             record_hash: String::new(),
         };
@@ -201,6 +262,7 @@ mod tests {
             timestamp: "t1".into(),
             hash: "h1".into(),
             code_length: 1,
+            outcome: Some("failed".into()),
             prev_hash: "WRONG".into(),
             record_hash: String::new(),
         };

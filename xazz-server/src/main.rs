@@ -84,7 +84,7 @@ async fn main() {
         .route("/security/audit", post(handle_security_audit))
         .route("/security/verify", post(handle_security_verify))
         .route("/security/audit/log", get(handle_audit_log))
-        .route("/security/audit/log/:hash", get(handle_audit_lookup))
+        .route("/security/audit/log/{hash}", get(handle_audit_lookup))
         .route("/security/audit/chain", get(handle_audit_chain))
         .layer(cors);
 
@@ -132,6 +132,21 @@ async fn handle_execute(
 
     // 4. stdout 파싱: [xazz:result], [xazz:chart], [xazz:train] 마커 추출
     let (rows, schema, logs, training, diagnostics) = parse_stdout_markers(&stdout, &stderr);
+
+    // 5. 실행 이력 자동 감사 기록 (신뢰성 인프라 — 모든 연산 이력 영구 보존)
+    //    실패해도 실행은 반환하되, 감사 기록 실패만 로그에 경고로 남긴다.
+    match audit_log::append_with_outcome(
+        &payload.code,
+        Some(if success { "success" } else { "failed" }),
+    ) {
+        Ok(rec) => eprintln!(
+            "[xazz] 감사 기록 #{} 저장: outcome={}, hash={}",
+            rec.index,
+            rec.outcome.as_deref().unwrap_or("unknown"),
+            &rec.hash[..rec.hash.len().min(12)]
+        ),
+        Err(e) => eprintln!("[xazz] ⚠️ 감사 로그 저장 실패: {}", e),
+    }
 
     if success {
         Ok(Json(ExecuteResponse {
