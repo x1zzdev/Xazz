@@ -16,28 +16,20 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  CircleAlert,
   CircleDashed,
-  Clock3,
   Code2,
   Database,
   Eye,
   FileCode2,
   FileText,
   FolderTree,
-  Hash,
   Info,
   ListTree,
   LoaderCircle,
-  LockKeyhole,
-  MessageSquareText,
   PanelBottom,
   PanelRight,
   Play,
-  RefreshCw,
-  RotateCcw,
   Search,
-  Server,
   ShieldCheck,
   Sparkles,
   Square,
@@ -47,15 +39,16 @@ import {
   TriangleAlert,
   Workflow,
   X,
-  XCircle,
 } from 'lucide-react'
 import { Brand, StatusBadge } from './Common'
 import { MonitorView } from './Monitor'
+import { executeCode, checkHealth, API_BASE_URL } from '../api'
 import {
   chartData,
   codeLines,
   pipeline,
   resultRows,
+  runnableCode,
   scenario,
 } from '../data'
 
@@ -140,19 +133,19 @@ function useCodeHash() {
   return hash
 }
 
-function DownloadDemoCsv() {
+function DownloadDemoCsv({ rows }) {
   const download = () => {
-    const header = 'observed_at,district,pm25,temperature_c'
-    const rows = resultRows.map((row) =>
-      [row.observed_at, row.district, row.pm25, row.temperature_c].join(','),
-    )
-    const blob = new Blob([[header, ...rows].join('\n')], {
+    const data = rows ?? resultRows
+    const columns = data.length > 0 ? Object.keys(data[0]) : []
+    const header = columns.join(',')
+    const lines = data.map((row) => columns.map((col) => row[col]).join(','))
+    const blob = new Blob([[header, ...lines].join('\n')], {
       type: 'text/csv;charset=utf-8',
     })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = 'xazz-air-quality-demo.csv'
+    anchor.download = 'xazz-air-quality-result.csv'
     anchor.click()
     URL.revokeObjectURL(url)
   }
@@ -160,7 +153,7 @@ function DownloadDemoCsv() {
   return (
     <button className="button button--tool-secondary" type="button" onClick={download}>
       <ArrowDownToLine size={15} aria-hidden="true" />
-      Download demo CSV
+      Download result CSV
     </button>
   )
 }
@@ -173,6 +166,7 @@ function WorkspaceTopbar({
   liveMessage,
   fullRunRef,
   isInert,
+  backendReachable,
 }) {
   const processTone =
     runState === 'running'
@@ -184,6 +178,12 @@ function WorkspaceTopbar({
       : ['success', 'error'].includes(runState)
         ? 'Exited'
         : 'Not started'
+  const backendTone =
+    backendReachable === null
+      ? 'neutral'
+      : backendReachable
+        ? 'success'
+        : 'warning'
 
   return (
     <header
@@ -201,8 +201,12 @@ function WorkspaceTopbar({
         <span className="file-crumb">example.xzz</span>
       </div>
       <div className="workspace-topbar__status">
-        <StatusBadge axis="Location" tone="info">
-          Local demo
+        <StatusBadge axis="Location" tone={backendTone}>
+          {backendReachable === null
+            ? 'Checking server'
+            : backendReachable
+              ? 'xazz-server connected'
+              : 'xazz-server offline'}
         </StatusBadge>
         <StatusBadge axis="Process" tone={processTone}>
           {processLabel}
@@ -220,11 +224,11 @@ function WorkspaceTopbar({
           type="button"
           onClick={onLiveCheck}
           disabled={runState === 'running'}
-          aria-label="Live Check demo, Future contract, 100 synthetic rows"
+          aria-label="Live Check, backend reachability check"
         >
           <Eye size={16} aria-hidden="true" />
           Live Check
-          <span>Demo · 100 rows</span>
+          <span>Server health</span>
         </button>
         <button
           ref={fullRunRef}
@@ -414,21 +418,21 @@ function PipelineCanvas({ selectedId, onSelect, runState }) {
       <div className={`canvas-scope ${runState === 'running' ? 'is-stale' : ''}`}>
         <Eye size={13} aria-hidden="true" />
         {runState === 'running'
-          ? 'Last Live Check · stale while Full Run is pending'
-          : 'Live Check demo · Future contract · 100 synthetic rows · no backend call'}
+          ? 'Last result · stale while Full Run is pending'
+          : 'Structural pipeline canvas · evidence comes from the Full Run response'}
       </div>
     </div>
   )
 }
 
-function CodePane({ selectedNode, runState, draftApplied }) {
+function CodePane({ selectedNode, runState }) {
   const affectedStart = selectedNode.codeLine
   const selectedIndex = pipeline.findIndex((node) => node.id === selectedNode.id)
   const affectedIds =
     selectedNode.id === 'fill'
-      ? new Set([9, 10, 11])
+      ? new Set([13, 14, 15])
       : selectedNode.id === 'filter'
-        ? new Set([10, 11])
+        ? new Set([14, 15])
         : new Set([selectedNode.codeLine])
 
   return (
@@ -466,7 +470,7 @@ function CodePane({ selectedNode, runState, draftApplied }) {
               className={[
                 lineNumber === selectedNode.codeLine ? 'is-selected' : '',
                 affectedIds.has(lineNumber) ? 'is-affected' : '',
-                runState === 'error' && lineNumber === 9 ? 'has-error' : '',
+                runState === 'error' && lineNumber === 13 ? 'has-error' : '',
                 relation ? `is-${relation}` : '',
               ].join(' ')}
             >
@@ -478,35 +482,27 @@ function CodePane({ selectedNode, runState, draftApplied }) {
             </li>
           )
         })}
-        {draftApplied && (
-          <li className="draft-line">
-            <span>9+</span>
-            <code>typed = air |&gt; cast(pm25, Float)</code>
-            <em>Draft only</em>
-          </li>
-        )}
       </ol>
     </div>
   )
 }
 
-function Inspector({ selectedNode, runState }) {
-  const failedCurrentRun = runState === 'error' && selectedNode.id === 'fill'
-  const detail = failedCurrentRun
-    ? {
-        ...selectedNode.detail,
-        rows: 'Not available in failed run',
-        nulls: 'Not available in failed run',
-        schema: 'Not available in failed run',
-        artifact: 'Not written · output untrusted',
-      }
-    : selectedNode.detail
+function Inspector({ selectedNode, runState, runResult }) {
+  const realRows = Array.isArray(runResult?.rows) ? runResult.rows.length : null
+  const detail =
+    realRows !== null
+      ? {
+          ...selectedNode.detail,
+          rows: realRows !== null ? `${realRows} rows returned` : selectedNode.detail.rows,
+          schema: Array.isArray(runResult.schema) ? `${runResult.schema.length} fields` : selectedNode.detail.schema,
+        }
+      : selectedNode.detail
   const state =
-    failedCurrentRun
+    runState === 'error'
       ? ['Pipeline', 'Partial', 'warning']
       : runState === 'success'
         ? ['Pipeline', 'Succeeded', 'success']
-        : ['Maturity', 'Demo', 'info']
+        : ['Maturity', 'Connected', 'info']
 
   return (
     <aside className="inspector" aria-label="Selected operation inspector">
@@ -544,11 +540,11 @@ function Inspector({ selectedNode, runState }) {
           </div>
         </dl>
         <p className={`impact-source ${runState === 'running' ? 'is-stale' : ''}`}>
-          {failedCurrentRun
-            ? 'Current Full Run · failed-run impact unavailable. Last Live Check values are not substituted.'
-            : runState === 'running'
-              ? 'Last Live Check · stale while Full Run is pending.'
-              : 'Synthetic fixture · Live Check demo · Future contract · no backend call.'}
+          {runState === 'running'
+            ? 'Last result · stale while Full Run is pending.'
+            : realRows !== null
+              ? 'From the last real Full Run response.'
+              : 'Canvas is structural · per-node metrics come from the run response.'}
         </p>
       </section>
       <section>
@@ -584,40 +580,75 @@ function Inspector({ selectedNode, runState }) {
   )
 }
 
-function PreviewTable() {
+function PreviewTable({ runResult, backendReachable, execError }) {
+  const hasResult = Array.isArray(runResult?.rows) && runResult.rows.length > 0
+  const schema = Array.isArray(runResult?.schema) ? runResult.schema : []
+  const columns = hasResult && schema.length > 0 ? schema : []
+
+  if (execError) {
+    return (
+      <div className="result-empty" role="note">
+        <TriangleAlert size={16} aria-hidden="true" />
+        <p>
+          <strong>xazz-server is not reachable</strong>
+          <span>
+            Full Run could not call {API_BASE_URL}/execute. Start xazz-server, then run
+            Live Check or Full Run again.
+          </span>
+        </p>
+      </div>
+    )
+  }
+
+  if (!hasResult) {
+    return (
+      <div className="result-empty" role="note">
+        <Info size={16} aria-hidden="true" />
+        <p>
+          <strong>No real result yet</strong>
+          <span>
+            Run Full Run to execute example.xzz against xazz-server and preview the
+            returned rows.
+          </span>
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="result-table-wrap">
       <div className="result-summary">
         <div>
-          <strong>{scenario.resultCount}</strong>
+          <strong>{runResult.rows.length}</strong>
           <span>result rows</span>
         </div>
         <div>
-          <strong>0</strong>
-          <span>null values</span>
-        </div>
-        <div>
-          <strong>4</strong>
+          <strong>{columns.length}</strong>
           <span>typed fields</span>
         </div>
-        <p>Preview shows 6 of {scenario.resultCount} rows · synthetic data</p>
+        <p>Preview shows the rows returned by xazz-server · real Full Run</p>
       </div>
-      <div className="data-grid" role="table" aria-label="Air-quality result rows">
+      <div
+        className="data-grid"
+        role="table"
+        aria-label="Air-quality result rows"
+        style={{ '--col-count': columns.length }}
+      >
         <div className="data-grid__row data-grid__row--head" role="row">
-          {['observed_at', 'district', 'pm25 · μg/m³', 'temperature · °C'].map(
-            (heading) => (
-              <span role="columnheader" key={heading}>
-                {heading}
-              </span>
-            ),
-          )}
+          {columns.map((col) => (
+            <span role="columnheader" key={col.name}>
+              {col.name}
+              <i className="data-grid__type">{col.type}</i>
+            </span>
+          ))}
         </div>
-        {resultRows.slice(0, 6).map((row) => (
-          <div className="data-grid__row" role="row" key={`${row.observed_at}-${row.district}`}>
-            <span role="cell">{row.observed_at}</span>
-            <span role="cell">{row.district}</span>
-            <span role="cell">{row.pm25.toFixed(1)}</span>
-            <span role="cell">{row.temperature_c.toFixed(1)}</span>
+        {runResult.rows.slice(0, 50).map((row, rowIndex) => (
+          <div className="data-grid__row" role="row" key={rowIndex}>
+            {columns.map((col) => (
+              <span role="cell" key={col.name}>
+                {formatCell(row[col.name])}
+              </span>
+            ))}
           </div>
         ))}
       </div>
@@ -625,7 +656,42 @@ function PreviewTable() {
   )
 }
 
-function DeltaPanel() {
+function formatCell(value) {
+  if (value === null || value === undefined) return '∅'
+  if (typeof value === 'number') return Number.isInteger(value) ? value : value.toFixed(4)
+  return String(value)
+}
+
+function DeltaPanel({ runResult }) {
+  const real = Array.isArray(runResult?.rows)
+  if (real) {
+    const columns = Array.isArray(runResult.schema) ? runResult.schema.length : 0
+    return (
+      <div className="delta-panel">
+        <div className="delta-rail" aria-label="Real run summary">
+          <span style={{ '--value': 100 }}>
+            <i />
+            <strong>{runResult.rows.length}</strong>
+            Result rows
+          </span>
+          <span style={{ '--value': 100 }}>
+            <i />
+            <strong>{columns}</strong>
+            Columns
+          </span>
+          <span style={{ '--value': runResult.training ? 100 : 0 }}>
+            <i />
+            <strong>{runResult.training?.report ? 'ML' : '—'}</strong>
+            Training report
+          </span>
+        </div>
+        <p className="delta-note">
+          Per-stage row/null deltas are not emitted by the current runtime. Shown values
+          come from the returned [xazz:result] rows and schema.
+        </p>
+      </div>
+    )
+  }
   return (
     <div className="delta-panel">
       <div className="delta-rail" aria-label="Row count change">
@@ -659,18 +725,62 @@ function DeltaPanel() {
           <dd>Float? → Float</dd>
         </div>
       </dl>
+      <p className="delta-note">Synthetic illustrative fixture · not a real run.</p>
     </div>
   )
 }
 
-function ChartPanel() {
-  const max = Math.max(...chartData.map((item) => item.mean))
+function ChartPanel({ runResult }) {
+  const real = Array.isArray(runResult?.rows) && runResult.rows.length > 0
+  if (!real) {
+    return (
+      <div className="chart-panel">
+        <div className="chart-panel__heading">
+          <div>
+            <strong>Mean PM2.5 by district</strong>
+            <span>μg/m³ · filtered synthetic sample · top 5 districts</span>
+          </div>
+          <StatusBadge axis="View" tone="info" compact>
+            Synthetic only
+          </StatusBadge>
+        </div>
+        <p className="chart-note">
+          No real Full Run result yet. Run Full Run to render a chart from the returned
+          rows.
+        </p>
+      </div>
+    )
+  }
+  const rows = runResult.rows
+  const columns = Array.isArray(runResult.schema) ? runResult.schema : []
+  const numericColumns = columns.filter((col) => /f64|f32|int|float/i.test(col.type))
+  const dimensionColumns = columns.filter((col) => /str|string/i.test(col.type))
+  const xKey = dimensionColumns[0]?.name ?? columns[0]?.name ?? ''
+  const yKey = numericColumns[0]?.name ?? columns[1]?.name ?? ''
+  const grouped = {}
+  for (const row of rows) {
+    const key = String(row[xKey] ?? '—')
+    const value = Number(row[yKey])
+    if (Number.isFinite(value)) {
+      grouped[key] = grouped[key] ?? []
+      grouped[key].push(value)
+    }
+  }
+  const bars = Object.entries(grouped)
+    .map(([label, values]) => ({
+      label,
+      mean: values.reduce((a, b) => a + b, 0) / values.length,
+    }))
+    .slice(0, 10)
+  const max = Math.max(...bars.map((item) => item.mean))
   return (
     <div className="chart-panel">
       <div className="chart-panel__heading">
         <div>
-          <strong>Mean PM2.5 by district</strong>
-          <span>μg/m³ · filtered synthetic sample · top 5 districts</span>
+          <strong>
+            Mean {yKey} by {xKey}
+          </strong>
+          <span>computed from real Full Run rows · top {bars.length} groups</span>
         </div>
         <StatusBadge axis="View" tone="info" compact>
           Aggregated
@@ -679,68 +789,52 @@ function ChartPanel() {
       <div
         className="bar-chart"
         role="img"
-        aria-label={`Mean PM2.5 ranges from ${Math.min(
-          ...chartData.map((item) => item.mean),
-        )} to ${max} micrograms per cubic metre across five districts.`}
+        aria-label={`Mean ${yKey} ranges from ${Math.min(...bars.map((item) => item.mean))} to ${max} across ${bars.length} groups.`}
       >
-        {chartData.map((item) => (
-          <div className="bar-chart__row" key={item.district}>
-            <span>{item.district}</span>
+        {bars.map((item) => (
+          <div className="bar-chart__row" key={item.label}>
+            <span>{item.label}</span>
             <i style={{ '--bar-width': `${(item.mean / max) * 100}%` }} />
-            <strong>{item.mean}</strong>
+            <strong>{item.mean.toFixed(2)}</strong>
           </div>
         ))}
       </div>
-      <details>
-        <summary>Table alternative</summary>
-        <table>
-          <thead>
-            <tr>
-              <th>District</th>
-              <th>Mean PM2.5</th>
-              <th>Rows</th>
-            </tr>
-          </thead>
-          <tbody>
-            {chartData.map((item) => (
-              <tr key={item.district}>
-                <td>{item.district}</td>
-                <td>{item.mean} μg/m³</td>
-                <td>{item.count}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </details>
     </div>
   )
 }
 
-function RunTimeline({ runState }) {
+function RunTimeline({ runState, runResult, execError }) {
+  const rows = Array.isArray(runResult?.rows) ? runResult.rows.length : undefined
   const items =
-    runState === 'running'
+    execError
       ? [
-          ['Process', 'xazz-runner started xazz-exec', 'current'],
-          ['Pipeline', 'Waiting for structured result', 'pending'],
-          ['Artifact', 'No outcome reported yet', 'pending'],
+          ['Process', 'xazz-server unreachable', 'error'],
+          ['Pipeline', `No execute call completed`, 'warning'],
+          ['Artifact', 'No outcome returned', 'warning'],
         ]
-      : runState === 'error'
+      : runState === 'running'
         ? [
-            ['Process', 'Exited with code 0', 'done'],
-            ['Pipeline', 'Runtime error found in stderr', 'error'],
-            ['Artifact', 'Output cannot be trusted', 'warning'],
+            ['Process', 'Full Run sent to xazz-server', 'current'],
+            ['Pipeline', 'Waiting for structured result', 'pending'],
+            ['Artifact', 'No outcome reported yet', 'pending'],
           ]
-        : runState === 'success'
+        : runState === 'error'
           ? [
-              ['Process', 'Exited with code 0', 'done'],
-              ['Pipeline', `Structured result · ${scenario.resultCount} rows`, 'done'],
-              ['Artifact', 'Not requested · optional export available', 'done'],
+              ['Process', 'xazz-exec exited with a pipeline error', 'error'],
+              ['Pipeline', 'Runtime error found in stderr', 'error'],
+              ['Artifact', 'Output cannot be trusted', 'warning'],
             ]
-          : [
-              ['Process', 'Not started', 'pending'],
-              ['Pipeline', 'Not evaluated', 'pending'],
-              ['Artifact', 'No run outcome', 'pending'],
-            ]
+          : runState === 'success'
+            ? [
+                ['Process', 'xazz-exec exited 0', 'done'],
+                ['Pipeline', `Structured result · ${rows} rows`, 'done'],
+                ['Artifact', 'Returned in browser · no file written', 'done'],
+              ]
+            : [
+                ['Process', 'Not started', 'pending'],
+                ['Pipeline', 'Not evaluated', 'pending'],
+                ['Artifact', 'No run outcome', 'pending'],
+              ]
 
   return (
     <div className="run-timeline">
@@ -767,17 +861,62 @@ function RunTimeline({ runState }) {
       ))}
       {runState === 'running' && (
         <p className="timeline-truth">
-          The current server returns only after the process exits. Per-node progress stays
-          Unknown in this honest prototype.
+          xazz-server returns only after the process exits. Per-node progress stays Unknown
+          in this version.
         </p>
       )}
     </div>
   )
 }
 
-function Receipt({ hash, runState }) {
+function LogsPanel({ runResult, execError }) {
+  const logs = Array.isArray(runResult?.logs) ? runResult.logs : []
+  const stdout = runResult?.stdout || ''
+  if (execError) {
+    return (
+      <div className="logs-panel" role="note">
+        <div className="logs-panel__head">
+          <TerminalSquare size={15} aria-hidden="true" />
+          <strong>Backend connection failed</strong>
+        </div>
+        <pre className="logs-panel__body">
+          {`xazz-server unreachable · ${API_BASE_URL}\nNo Full Run completed.\n\nStart xazz-server, then run Full Run again.`}
+        </pre>
+      </div>
+    )
+  }
+  if (logs.length === 0 && !stdout) {
+    return (
+      <div className="logs-panel" role="note">
+        <div className="logs-panel__head">
+          <TerminalSquare size={15} aria-hidden="true" />
+          <strong>No logs yet</strong>
+        </div>
+        <pre className="logs-panel__body">Run Full Run to collect xazz-exec stderr and stdout logs.</pre>
+      </div>
+    )
+  }
+  return (
+    <div className="logs-panel" role="note">
+      <div className="logs-panel__head">
+        <TerminalSquare size={15} aria-hidden="true" />
+        <strong>Full Run logs · xazz-exec</strong>
+      </div>
+      <div className="logs-panel__stream">
+        <pre className="logs-panel__body">
+          {logs.map((line) => `[stderr] ${line}`).join('\n')}
+          {stdout ? `\n${stdout}` : ''}
+        </pre>
+      </div>
+    </div>
+  )
+}
+
+function Receipt({ hash, runState, runResult, execError }) {
   const isError = runState === 'error'
   const isSuccess = runState === 'success'
+  const realRows = Array.isArray(runResult?.rows) ? runResult.rows.length : null
+  const training = runResult?.training
 
   if (!isError && !isSuccess) {
     const isRunning = runState === 'running'
@@ -792,12 +931,12 @@ function Receipt({ hash, runState }) {
             )}
           </div>
           <div>
-            <span className="eyebrow">Run receipt · synthetic prototype</span>
+            <span className="eyebrow">Run receipt · real Full Run</span>
             <h3>{isRunning ? 'Run receipt is pending' : 'No full-run receipt yet'}</h3>
             <p>
               {isRunning
-                ? 'A receipt is available only after process and structured-result evidence return.'
-                : 'Start a confirmed Full Run before interpreting process or pipeline outcome.'}
+                ? 'A receipt is available only after xazz-server returns the process and structured-result evidence.'
+                : 'Run a confirmed Full Run against xazz-server to produce a receipt.'}
             </p>
           </div>
           <div className="receipt__axes">
@@ -810,8 +949,8 @@ function Receipt({ hash, runState }) {
             <StatusBadge axis="Control" tone="neutral">
               Not configured
             </StatusBadge>
-            <StatusBadge axis="Integrity" tone="neutral">
-              Not computed
+            <StatusBadge axis="Integrity" tone={isRunning ? 'neutral' : 'info'}>
+              {isRunning ? 'Unknown' : 'Real run · not persisted'}
             </StatusBadge>
             <StatusBadge axis="Artifact" tone="neutral">
               No outcome
@@ -829,20 +968,28 @@ function Receipt({ hash, runState }) {
           {isError ? <TriangleAlert aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
         </div>
         <div>
-          <span className="eyebrow">Run receipt · synthetic prototype</span>
-          <h3>{isError ? 'Process exited; pipeline is partial' : 'Pipeline evidence is complete'}</h3>
+          <span className="eyebrow">Run receipt · real Full Run</span>
+          <h3>
+            {isError
+              ? execError
+                ? 'xazz-server unreachable'
+                : 'Pipeline exited with an error'
+              : 'Pipeline evidence is complete'}
+          </h3>
           <p>
             {isError
-              ? 'Exit code 0 is recorded separately from the runtime error found in stderr.'
-              : 'Success requires a structured result and no detected runtime or requested-artifact warning.'}
+              ? (execError
+                  ? 'Full Run could not reach the backend. No pipeline executed.'
+                  : (runResult?.error || 'xazz-exec reported an error in stderr.'))
+              : 'Success returned a structured result with no detected runtime error.'}
           </p>
         </div>
         <div className="receipt__axes">
           <StatusBadge axis="Process" tone="neutral">
-            Exited
+            {isError ? 'Exited / blocked' : 'Exited'}
           </StatusBadge>
           <StatusBadge axis="Pipeline" tone={isError ? 'warning' : 'success'}>
-            {isError ? 'Partial' : 'Succeeded'}
+            {isError ? (execError ? 'Not executed' : 'Partial') : 'Succeeded'}
           </StatusBadge>
           <StatusBadge axis="Control" tone="neutral">
             Not configured
@@ -851,30 +998,30 @@ function Receipt({ hash, runState }) {
             Computed
           </StatusBadge>
           <StatusBadge axis="Artifact" tone="neutral">
-            {isError ? 'Not written' : 'Not requested'}
+            Returned in browser
           </StatusBadge>
         </div>
       </div>
       <dl className="receipt__rows">
         <div>
           <dt>Run ID</dt>
-          <dd>Not available in browser prototype</dd>
+          <dd>Not available from browser /execute</dd>
         </div>
         <div>
-          <dt>Fixture ID</dt>
-          <dd>air-quality-v1 · synthetic</dd>
+          <dt>Endpoint</dt>
+          <dd>{API_BASE_URL}/execute</dd>
         </div>
         <div>
-          <dt>Run time</dt>
-          <dd>Not available in browser prototype</dd>
+          <dt>Result rows</dt>
+          <dd>{isError && !execError ? 'Not available in failed run' : (realRows ?? '—')}</dd>
         </div>
         <div>
-          <dt>Engine version</dt>
-          <dd>Not available in browser prototype</dd>
-        </div>
-        <div>
-          <dt>Execution location</dt>
-          <dd>Local browser demo · no backend called</dd>
+          <dt>Training</dt>
+          <dd>
+            {training?.report
+              ? `${training.report.model_name} · loss ${Number(training.report.final_train_loss).toFixed(4)}`
+              : 'No train statement report'}
+          </dd>
         </div>
         <div>
           <dt>Code hash</dt>
@@ -884,20 +1031,8 @@ function Receipt({ hash, runState }) {
           </dd>
         </div>
         <div>
-          <dt>Rows</dt>
-          <dd>
-            {isError
-              ? 'Failed-node delta unavailable · structured-result marker present'
-              : `100 input → ${scenario.resultCount} output`}
-          </dd>
-        </div>
-        <div>
           <dt>Warnings</dt>
-          <dd>
-            {isError
-              ? 'Runtime type mismatch in synthetic error fixture'
-              : 'None in selected synthetic success fixture'}
-          </dd>
+          <dd>{isError ? (execError ? 'Backend connection failed' : 'Pipeline produced stderr') : 'None in returned result'}</dd>
         </div>
         <div>
           <dt>Node durations</dt>
@@ -905,7 +1040,7 @@ function Receipt({ hash, runState }) {
         </div>
         <div>
           <dt>Capability maturity</dt>
-          <dd>Demo · synthetic browser prototype</dd>
+          <dd>Connected · real backend</dd>
         </div>
         <div>
           <dt>Policy / DP</dt>
@@ -913,109 +1048,10 @@ function Receipt({ hash, runState }) {
         </div>
         <div>
           <dt>Artifact</dt>
-          <dd>
-            {isError
-              ? 'Not written · output untrusted'
-              : 'Not requested by run · optional export after result'}
-          </dd>
+          <dd>{isError ? 'Not written · output untrusted' : 'Returned in browser · no file written'}</dd>
         </div>
       </dl>
-      {!isError && <DownloadDemoCsv />}
-    </div>
-  )
-}
-
-function ErrorRecovery({ onOpenCode, onApplyDraft, draftApplied, onRetry }) {
-  const [explained, setExplained] = useState(false)
-  return (
-    <div className="error-recovery" role="alert">
-      <div className="error-recovery__head">
-        <span className="error-recovery__icon">
-          <XCircle aria-hidden="true" />
-        </span>
-        <div>
-          <span className="eyebrow">Pipeline evidence · Partial</span>
-          <h3>Fill null failed, even though the process exited 0.</h3>
-          <p>
-            A String value reached <code>fillNull(pm25, 31.0)</code> at line 9.
-            Filter and Result are stale; the output artifact is not trusted.
-          </p>
-        </div>
-        <div className="error-recovery__axes">
-          <StatusBadge axis="Process" tone="neutral">
-            Exited
-          </StatusBadge>
-          <StatusBadge axis="Pipeline" tone="warning">
-            Partial
-          </StatusBadge>
-        </div>
-      </div>
-      <div className="error-recovery__evidence">
-        <div>
-          <span>What happened</span>
-          <strong>Runtime type mismatch</strong>
-        </div>
-        <div>
-          <span>Where</span>
-          <strong>Fill null · line 9</strong>
-        </div>
-        <div>
-          <span>Affected</span>
-          <strong>2 downstream nodes</strong>
-        </div>
-        <div>
-          <span>Safe next step</span>
-          <strong>Review cast, then full rerun</strong>
-        </div>
-      </div>
-      {explained && (
-        <div className="explanation-note">
-          <MessageSquareText aria-hidden="true" />
-          <p>
-            The schema was inferred from 100 rows. A later value may still drift. Add an
-            explicit cast as a draft, review the diff, then run the complete pipeline
-            again. This explanation is deterministic prototype copy—not an sLM response.
-          </p>
-        </div>
-      )}
-      {draftApplied && (
-        <div className="draft-note" role="status">
-          <Sparkles aria-hidden="true" />
-          <p>
-            Draft prepared: add <code>cast(pm25, Float)</code>. Nothing has been applied
-            to a project file.
-          </p>
-        </div>
-      )}
-      <div className="error-recovery__actions">
-        <button className="button button--tool-secondary" type="button" onClick={() => setExplained(!explained)}>
-          <MessageSquareText size={15} aria-hidden="true" />
-          {explained ? 'Hide explanation' : 'Explain'}
-        </button>
-        <button className="button button--tool-primary" type="button" onClick={onOpenCode}>
-          <Code2 size={15} aria-hidden="true" />
-          Open code
-        </button>
-        <button className="button button--tool-secondary" type="button" onClick={onApplyDraft}>
-          <Sparkles size={15} aria-hidden="true" />
-          Apply as draft
-        </button>
-        <button className="button button--tool-secondary" type="button" onClick={onRetry}>
-          <RefreshCw size={15} aria-hidden="true" />
-          Review preflight to rerun
-        </button>
-      </div>
-      <div className="future-actions">
-        <button type="button" disabled>
-          Retry from here
-          <span>Future</span>
-        </button>
-        <button type="button" disabled>
-          <RotateCcw size={14} aria-hidden="true" />
-          Restore last success
-          <span>Future</span>
-        </button>
-      </div>
+      {!isError && realRows !== null && <DownloadDemoCsv rows={runResult.rows} />}
     </div>
   )
 }
@@ -1025,10 +1061,9 @@ function ResultDock({
   onTab,
   runState,
   hash,
-  onOpenCode,
-  onApplyDraft,
-  draftApplied,
-  onRetry,
+  runResult,
+  execError,
+  backendReachable,
 }) {
   const tabs = [
     ['preview', Table2, 'Preview'],
@@ -1040,22 +1075,21 @@ function ResultDock({
 
   const content =
     tab === 'preview' ? (
-      <PreviewTable />
-    ) : tab === 'delta' ? (
-      <DeltaPanel />
-    ) : tab === 'chart' ? (
-      <ChartPanel />
-    ) : tab === 'receipt' ? (
-      <Receipt hash={hash} runState={runState} />
-    ) : runState === 'error' ? (
-      <ErrorRecovery
-        onOpenCode={onOpenCode}
-        onApplyDraft={onApplyDraft}
-        draftApplied={draftApplied}
-        onRetry={onRetry}
+      <PreviewTable
+        runResult={runResult}
+        backendReachable={backendReachable}
+        execError={execError}
       />
+    ) : tab === 'delta' ? (
+      <DeltaPanel runResult={runResult} />
+    ) : tab === 'chart' ? (
+      <ChartPanel runResult={runResult} />
+    ) : tab === 'receipt' ? (
+      <Receipt hash={hash} runState={runState} runResult={runResult} execError={execError} />
+    ) : runState === 'error' ? (
+      <LogsPanel runResult={runResult} execError={execError} />
     ) : (
-      <RunTimeline runState={runState} />
+      <RunTimeline runState={runState} runResult={runResult} execError={execError} />
     )
 
   return (
@@ -1077,20 +1111,24 @@ function ResultDock({
         ))}
         <div className="result-dock__scope">
           <span>
-            {runState === 'running'
-              ? 'Last Live Check · stale'
-              : runState === 'error'
-                ? 'Last Live Check · stale · not current run'
-                : 'Synthetic fixture'}
+            {execError
+              ? 'xazz-server offline'
+              : runState === 'running'
+                ? 'Full Run in progress'
+                : runState === 'error'
+                  ? 'Last Full Run · errored'
+                  : Array.isArray(runResult?.rows)
+                    ? 'Real Full Run evidence'
+                    : 'Not run yet'}
           </span>
-          <span>Rows {scenario.resultCount}</span>
-          <span>Columns 4</span>
+          <span>Rows {Array.isArray(runResult?.rows) ? runResult.rows.length : '—'}</span>
+          <span>Columns {Array.isArray(runResult?.schema) ? runResult.schema.length : '—'}</span>
         </div>
       </div>
       <div className="result-dock__body" role="tabpanel">
         {runState === 'error' && ['preview', 'delta', 'chart'].includes(tab) && (
           <div className="stale-result-notice" role="note">
-            Last Live Check · stale · not current Full Run evidence
+            Last Full Run errored · preview is not current evidence
           </div>
         )}
         {content}
@@ -1157,10 +1195,11 @@ function PreflightDialog({
         <div className="preflight-dialog__head">
           <div>
             <span className="eyebrow">Full Run · explicit confirmation</span>
-            <h2 id="preflight-title">Review what will execute locally.</h2>
+            <h2 id="preflight-title">Review what will execute on xazz-server.</h2>
             <p>
-              This browser prototype models the future runtime-readiness contract. It
-              does not call a backend or write a run artifact.
+              Full Run sends the current <code>example.xzz</code> source to the backend{' '}
+              /execute endpoint and displays the returned rows, schema, logs, and
+              training report. No projection file is written.
             </p>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Close preflight">
@@ -1169,14 +1208,14 @@ function PreflightDialog({
         </div>
         <div className="preflight-grid">
           <section>
-            <h3>Runtime readiness · synthetic state</h3>
+            <h3>Runtime readiness · connected check</h3>
             <ul className="runtime-list">
-              {['xazz', 'xazz-runner', 'xazz-exec'].map((name) => (
+              {['xazz-server', 'xazz-exec', 'burn'].map((name) => (
                 <li key={name}>
                   <CircleDashed aria-hidden="true" />
                   <span>
                     <strong>{name}</strong>
-                    Future contract · not verified
+                    Verified by Full Run response
                   </span>
                 </li>
               ))}
@@ -1187,15 +1226,15 @@ function PreflightDialog({
             <dl className="preflight-facts">
               <div>
                 <dt>Location</dt>
-                <dd>Local browser demo · backend not called</dd>
+                <dd>POST {API_BASE_URL}/execute</dd>
               </div>
               <div>
                 <dt>Input</dt>
-                <dd>100 deterministic synthetic rows</dd>
+                <dd>ui-prototype/data/seoul_air_quality.csv</dd>
               </div>
               <div>
                 <dt>Artifact</dt>
-                <dd>Not requested · optional export after result</dd>
+                <dd>Not requested · results returned in browser only</dd>
               </div>
               <div>
                 <dt>Control</dt>
@@ -1218,11 +1257,11 @@ function PreflightDialog({
             <span>
               <strong>
                 {acknowledged
-                  ? 'Confirmed · synthetic run scope'
-                  : 'Check to confirm · synthetic run scope'}
+                  ? 'Confirmed · real run scope'
+                  : 'Check to confirm · real run scope'}
               </strong>
-              I understand this browser-only prototype simulates the future runtime chain
-              with 100 deterministic rows. It makes no backend call or repository write.
+              I understand this runs example.xzz against xazz-server and shows the real
+              result. The engine must be reachable at {API_BASE_URL}.
             </span>
           </span>
         </label>
@@ -1262,18 +1301,18 @@ function PreflightDialog({
   )
 }
 
-function RunOverlay({ onViewLogs }) {
+function RunOverlay({ onViewLogs, connected }) {
   return (
     <div className="run-overlay" role="status" aria-live="polite">
       <div className="run-overlay__pulse">
         <LoaderCircle aria-hidden="true" />
       </div>
       <div>
-        <span className="eyebrow">Process running · demo state</span>
+        <span className="eyebrow">Process running · xazz-server</span>
         <strong>Waiting for xazz-exec to return evidence</strong>
         <p>
-          Current API progress is not streamed. Node status remains Unknown until stdout,
-          stderr, and artifact outcome can be evaluated together.
+          Full Run is executing against the backend. Node progress is not streamed, so
+          status stays Unknown until the structured result returns.
         </p>
       </div>
       <div className="run-overlay__actions">
@@ -1287,20 +1326,6 @@ function RunOverlay({ onViewLogs }) {
         </button>
       </div>
     </div>
-  )
-}
-
-function PrototypeNavigator({ onSuccess, onError }) {
-  return (
-    <aside className="prototype-navigator" aria-label="Prototype navigator">
-      <span>Prototype navigator · not product UI</span>
-      <button type="button" onClick={onSuccess}>
-        Show success
-      </button>
-      <button type="button" onClick={onError}>
-        Show runtime error
-      </button>
-    </aside>
   )
 }
 
@@ -1319,12 +1344,27 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
   )
   const [acknowledged, setAcknowledged] = useState(false)
   const [liveMessage, setLiveMessage] = useState(
-    'Live Check demo · Future contract',
+    initialState === 'success' || initialState === 'error'
+      ? 'Full Run · result from last execution'
+      : 'Connect to xazz-server to execute · not yet run',
   )
-  const [draftApplied, setDraftApplied] = useState(false)
+  const [backendReachable, setBackendReachable] = useState(null)
+  const [runResult, setRunResult] = useState(null)
+  const [execError, setExecError] = useState(null)
+  const [executing, setExecuting] = useState(false)
   const fullRunRef = useRef(null)
   const hash = useCodeHash()
   const selectedNode = pipeline.find((node) => node.id === selectedId) ?? pipeline[0]
+
+  useEffect(() => {
+    let active = true
+    checkHealth().then((ok) => {
+      if (active) setBackendReachable(ok)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
 
   useEffect(() => {
     setRunState(initialState)
@@ -1351,15 +1391,53 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
     onStateChange(nextState)
   }
 
+  const executeFullRun = async () => {
+    setExecuting(true)
+    setRunResult(null)
+    setExecError(null)
+    setAcknowledged(false)
+    setLiveMessage(`Executing on xazz-server · ${API_BASE_URL}`)
+    changeState('running')
+    try {
+      const result = await executeCode(runnableCode)
+      setRunResult(result)
+      setBackendReachable(true)
+      if (result.success && !result.error) {
+        const rows = Array.isArray(result.rows) ? result.rows.length : 0
+        setLiveMessage(`Full Run succeeded · ${rows} result rows`)
+        changeState('success')
+      } else {
+        setLiveMessage('Full Run exited · pipeline error in xazz-exec')
+        changeState('error')
+      }
+    } catch (err) {
+      setBackendReachable(false)
+      setExecError(err instanceof Error ? err.message : String(err))
+      setLiveMessage(`xazz-server unreachable · ${API_BASE_URL}`)
+      setExecuting(false)
+      setRunState('error')
+      setSelectedId('fill')
+      setTab('logs')
+      onStateChange('error')
+    } finally {
+      setExecuting(false)
+    }
+  }
+
   const runLiveCheck = () => {
-    setLiveMessage('Checking 100 synthetic rows · demo…')
-    window.setTimeout(
-      () =>
-        setLiveMessage(
-          `Live Check demo · Future contract · ${scenario.sourceNulls} nulls found`,
-        ),
-      500,
-    )
+    if (backendReachable === false) {
+      setLiveMessage(`xazz-server unreachable · check ${API_BASE_URL}`)
+      return
+    }
+    setLiveMessage(`Checking xazz-server · ${API_BASE_URL}`)
+    checkHealth().then((ok) => {
+      setBackendReachable(ok)
+      setLiveMessage(
+        ok
+          ? `xazz-server reachable · preview shows last Full Run result`
+          : `xazz-server unreachable · check ${API_BASE_URL}`,
+      )
+    })
   }
 
   const openPreflight = () => {
@@ -1389,10 +1467,11 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
         onFullRun={openPreflight}
         liveMessage={
           runState === 'running'
-            ? 'Last Live Check · stale during Full Run'
+            ? `Last result · stale during Full Run`
             : liveMessage
         }
         fullRunRef={fullRunRef}
+        backendReachable={backendReachable}
         isInert={runState === 'preflight'}
       />
       <div
@@ -1408,7 +1487,11 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
             data-testid="compiler-split"
           >
             {view === 'monitor' ? (
-              <MonitorView runState={runState} />
+              <MonitorView
+                runState={runState}
+                training={runResult?.training}
+                model={runResult?.model}
+              />
             ) : (
               <>
                 {view !== 'code' && (
@@ -1419,50 +1502,33 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
                   />
                 )}
                 {view !== 'graph' && (
-                  <CodePane
-                    selectedNode={selectedNode}
-                    runState={runState}
-                    draftApplied={draftApplied}
-                  />
+                  <CodePane selectedNode={selectedNode} runState={runState} />
                 )}
               </>
             )}
           </div>
         </main>
-        <Inspector selectedNode={selectedNode} runState={runState} />
+        <Inspector selectedNode={selectedNode} runState={runState} runResult={runResult} />
         <ResultDock
           tab={tab}
           onTab={setTab}
           runState={runState}
           hash={hash}
-          onOpenCode={() => {
-            setView('code')
-            setSelectedId('fill')
-          }}
-          onApplyDraft={() => {
-            setDraftApplied(true)
-            setView('code')
-          }}
-          draftApplied={draftApplied}
-          onRetry={openPreflight}
+          runResult={runResult}
+          execError={execError}
+          backendReachable={backendReachable}
         />
       </div>
       {runState === 'preflight' && (
         <PreflightDialog
           acknowledged={acknowledged}
-          onAcknowledge={setAcknowledged}
+          onAcknowledge={setAcknowledge}
           onClose={closePreflight}
-          onRun={() => changeState('running')}
+          onRun={executeFullRun}
         />
       )}
       {runState === 'running' && (
-        <>
-          <RunOverlay onViewLogs={() => setTab('logs')} />
-          <PrototypeNavigator
-            onSuccess={() => changeState('success')}
-            onError={() => changeState('error')}
-          />
-        </>
+        <RunOverlay onViewLogs={() => setTab('logs')} connected={backendReachable} />
       )}
       <div className="workspace-mobile-note">
         <Brand inverse />

@@ -9,9 +9,7 @@ import { StatusBadge } from './Common'
 import executeResponse from '../mock/execute-response.json'
 import proposedTelemetry from '../mock/telemetry-proposed.json'
 
-const report = executeResponse.training.report
-const model = executeResponse.model
-const absent = executeResponse._absent_from_contract
+const fallbackFixture = executeResponse
 const budget = proposedTelemetry.privacy_budget
 const resources = proposedTelemetry.resource_efficiency
 
@@ -44,10 +42,20 @@ function MonitorPanel({ contract, icon: Icon, title, unit, maturity, scope, chil
   )
 }
 
-function BurnPanel({ runState }) {
-  const evaluated = runState === 'success'
-  const failed = runState === 'error'
-  const pending = runState === 'running'
+function BurnPanel({ runState, training, model }) {
+  const evaluatedInitial = runState === 'success'
+  const failedInitial = runState === 'error'
+  const pendingInitial = runState === 'running'
+
+  const hasTraining = Boolean(training?.report)
+  const report = hasTraining ? training.report : fallbackFixture.training.report
+  const modelInfo = model ?? fallbackFixture.model
+  const absent = fallbackFixture._absent_from_contract
+  const isMeasured = hasTraining
+
+  const evaluated = isMeasured && evaluatedInitial
+  const failed = failedInitial && !hasTraining
+  const pending = pendingInitial && !hasTraining
 
   const outcome = (value) =>
     evaluated
@@ -60,18 +68,24 @@ function BurnPanel({ runState }) {
 
   const losses = [
     ['Final training loss', report.final_train_loss, 'train'],
-    ['Final validation loss', report.final_val_loss, 'validation'],
+    ...(Number.isFinite(report.final_val_loss)
+      ? [['Final validation loss', report.final_val_loss, 'validation']]
+      : []),
   ]
   const maxLoss = Math.max(...losses.map(([, value]) => value))
 
   return (
     <MonitorPanel
-      contract="implemented"
+      contract={isMeasured ? 'measured' : 'implemented'}
       icon={Boxes}
       title="Burn compile and training"
       unit="mean squared error · parameters · rows"
-      maturity="Beta"
-      scope="Synthetic fixture · contract: implemented · fields mirror TrainReport"
+      maturity={isMeasured ? 'Real' : 'Beta'}
+      scope={
+        isMeasured
+          ? `Measured from a real Full Run · model ${report.model_name}`
+          : 'Synthetic fixture · contract: implemented · fields mirror TrainReport'
+      }
     >
       <dl className="monitor-facts">
         <div>
@@ -113,7 +127,11 @@ function BurnPanel({ runState }) {
           <div
             className="monitor-bars"
             role="img"
-            aria-label={`Final training loss ${report.final_train_loss} and final validation loss ${report.final_val_loss}, mean squared error. Two reported points from a synthetic fixture; no per-epoch history exists.`}
+            aria-label={`Final training loss ${report.final_train_loss}${
+              Number.isFinite(report.final_val_loss)
+                ? ` and final validation loss ${report.final_val_loss}`
+                : '; no validation split configured'
+            }, mean squared error. Reported points; no per-epoch history exists.`}
           >
             {losses.map(([label, value, series]) => (
               <div className="monitor-bars__row" key={series}>
@@ -172,12 +190,15 @@ function BurnPanel({ runState }) {
       </div>
 
       <details className="monitor-layers">
-        <summary>Compiled Burn modules ({model.layers.length})</summary>
+        <summary>
+          Compiled Burn modules ({modelInfo.layers.length})
+          {!model || ' · fixture, server does not echo the model marker'}
+        </summary>
         <ol>
-          {model.layers.map((layer, index) => (
+          {modelInfo.layers.map((layer, index) => (
             <li key={layer}>
               <code>{layer}</code>
-              <span>{model.burn_code[index]}</span>
+              <span>{modelInfo.burn_code[index]}</span>
             </li>
           ))}
         </ol>
@@ -326,12 +347,12 @@ function ResourcePanel() {
   )
 }
 
-export function MonitorView({ runState }) {
+export function MonitorView({ runState, training, model }) {
   return (
     <div className="monitor-view" aria-label="Run monitoring">
       <div className="monitor-view__rail" aria-hidden="true" />
       <div className="monitor-view__panels">
-        <BurnPanel runState={runState} />
+        <BurnPanel runState={runState} training={training} model={model} />
         <div className="monitor-view__pair">
           <PrivacyBudgetPanel />
           <ResourcePanel />

@@ -899,6 +899,20 @@ fn execute_var_decl(
                     .map_err(|e| format!("학습 실패: {e}"))?;
                 // 학습 리포트 출력
                 print_train_report(&trained);
+
+                // [xazz:train] JSON 마커 — 서버/IDE에서 학습 결과를 파싱 (파이프라인 연산자 경로)
+                let train_json = serde_json::json!({
+                    "type": "train_stmt",
+                    "success": true,
+                    "source_var": var_name,
+                    "model_name": model_name,
+                    "report": serde_json::to_value(&trained.report).unwrap_or_default(),
+                });
+                println!(
+                    "[xazz:train] {}",
+                    serde_json::to_string(&train_json).unwrap_or_default()
+                );
+
                 model_table.insert(var_name.to_string(), trained);
                 return Ok(None);
             }

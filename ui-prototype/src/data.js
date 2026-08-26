@@ -2,6 +2,8 @@ const districts = ['Jongno', 'Mapo', 'Gangnam', 'Songpa', 'Yongsan']
 
 export const demoFillValue = 31
 
+export const dataFilePath = 'ui-prototype/data/seoul_air_quality.csv'
+
 export const sourceRows = Array.from({ length: 100 }, (_, index) => {
   const pm25 = index % 17 === 0 ? null : 12 + ((index * 7) % 65)
   return {
@@ -39,7 +41,7 @@ export const pipeline = [
     label: 'Load CSV',
     stage: 'SOURCE',
     evidence: '100 rows · UTF-8',
-    codeLine: 8,
+    codeLine: 12,
     detail: {
       intent: 'Read the synthetic air-quality sample.',
       rows: '100 → 100',
@@ -75,7 +77,7 @@ export const pipeline = [
     label: 'Fill null',
     stage: 'TRANSFORM',
     evidence: `${scenario.sourceNulls} → 0 nulls`,
-    codeLine: 9,
+    codeLine: 13,
     detail: {
       intent: `Replace missing PM2.5 values with the fixed synthetic demo value ${demoFillValue.toFixed(1)}.`,
       rows: '100 → 100',
@@ -93,7 +95,7 @@ export const pipeline = [
     label: 'Filter threshold',
     stage: 'TRANSFORM',
     evidence: `100 → ${scenario.resultCount} rows`,
-    codeLine: 10,
+    codeLine: 14,
     detail: {
       intent: 'Keep observations at or below 35 μg/m³.',
       rows: `100 → ${scenario.resultCount}`,
@@ -111,7 +113,7 @@ export const pipeline = [
     label: 'Result',
     stage: 'OUTPUT',
     evidence: `${scenario.resultCount} rows`,
-    codeLine: 11,
+    codeLine: 15,
     detail: {
       intent: 'Expose a bounded result preview with an optional browser export.',
       rows: `${scenario.resultCount} rows`,
@@ -129,7 +131,7 @@ export const pipeline = [
     label: 'Compile AirNet',
     stage: 'MODEL',
     evidence: '5 layers · 209 params',
-    codeLine: 13,
+    codeLine: 9,
     detail: {
       intent: 'Lower the declared layer stack to Burn module configuration.',
       rows: 'No rows consumed · declaration',
@@ -147,7 +149,7 @@ export const pipeline = [
     label: 'Train model',
     stage: 'TRAIN',
     evidence: '40 epochs · loss 0.0417',
-    codeLine: 19,
+    codeLine: 16,
     detail: {
       intent: 'Fit AirNet on the filtered rows with pm25 as the target column.',
       rows: `${scenario.resultCount} rows · batch 16`,
@@ -165,7 +167,7 @@ export const pipeline = [
     label: 'Predict',
     stage: 'PREDICT',
     evidence: `+1 column · ${scenario.resultCount} rows`,
-    codeLine: 20,
+    codeLine: 17,
     detail: {
       intent: 'Apply the trained model back onto the rows as a new column.',
       rows: `${scenario.resultCount} → ${scenario.resultCount}`,
@@ -178,27 +180,26 @@ export const pipeline = [
 ]
 
 export const codeLines = [
-  'type AirRow {',
-  '  observed_at: String,',
-  '  district: String,',
-  '  pm25: Float?,',
-  '  temperature_c: Float',
+  'type AirRow = {',
+  '  observed_at: string,',
+  '  district: string,',
+  '  pm25: Option<float>,',
+  '  temperature_c: float',
   '}',
   '',
-  'air = load<AirRow>("data/seoul_air_quality.csv")',
-  'clean = air |> fillNull(pm25, 31.0)',
-  'safe = clean |> filter(pm25 <= 35.0)',
-  'result = safe |> select(observed_at, district, pm25, temperature_c)',
-  '',
-  'model AirNet {',
-  '  Dense(16) ReLU',
-  '  Dense(8) ReLU',
-  '  Dense(1)',
+  'model AirPredictor {',
+  '  Dense(32) -> ReLU() -> Dense(1)',
   '}',
   '',
-  'trained = result |> train(AirNet, target: "pm25", epochs: 40, lr: 0.01)',
-  'scored = result |> predict(trained, as: "pm25_pred")',
+  'v air = load("ui-prototype/data/seoul_air_quality.csv") :: AirRow',
+  'v clean = air |> fillNull("pm25", 31.0)',
+  'v safe = clean |> filter(pm25 <= 35.0)',
+  'v result = safe |> select([observed_at, district, pm25, temperature_c])',
+  'v trained = result |> train(AirPredictor, target: "pm25", epochs: 3, lr: 0.01)',
+  'v predicted = result |> predict(trained, as: "pm25_pred") |> take(5)',
 ]
+
+export const runnableCode = codeLines.join('\n')
 
 export const chartData = districts.map((district) => {
   const rows = resultRows.filter((row) => row.district === district)

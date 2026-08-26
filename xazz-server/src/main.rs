@@ -396,20 +396,29 @@ async fn handle_security_verify(Json(payload): Json<VerifyRequest>) -> Json<Veri
 // ── 유틸리티 ──────────────────────────────────────────────────────────────────
 
 fn find_xazz_exe() -> PathBuf {
+    // 플랫폼별 실행 파일명
+    let names: &[&str] = if cfg!(windows) {
+        &["xazz.exe"]
+    } else {
+        &["xazz", "xazz.exe"]
+    };
+
     // 1. 현재 실행파일과 같은 디렉터리
     if let Ok(current_exe) = std::env::current_exe() {
-        let sibling = current_exe
-            .parent()
-            .unwrap_or(&current_exe)
-            .join("xazz.exe");
-        if sibling.exists() {
-            return sibling;
+        let dir = current_exe.parent().unwrap_or(&current_exe);
+        for name in names {
+            let sibling = dir.join(name);
+            if sibling.exists() {
+                return sibling;
+            }
         }
     }
-    // 2. target/release/xazz.exe (CWD 기준)
-    let candidate = PathBuf::from("target/release/xazz.exe");
-    if candidate.exists() {
-        return candidate;
+    // 2. target/release (CWD 기준)
+    for name in names {
+        let candidate = PathBuf::from("target/release").join(name);
+        if candidate.exists() {
+            return candidate;
+        }
     }
     // 3. PATH fallback
     PathBuf::from("xazz")

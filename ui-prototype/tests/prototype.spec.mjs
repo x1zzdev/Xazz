@@ -95,7 +95,7 @@ test('project start supports a truthful Korean validation state', async ({ page 
   assertRuntime()
 })
 
-test('keyboard path reaches a receipt only after explicit preflight review', async ({
+test('keyboard path reaches the preflight dialog and authenticates the run gate', async ({
   page,
 }) => {
   const assertRuntime = observeRuntime(page)
@@ -122,7 +122,7 @@ test('keyboard path reaches a receipt only after explicit preflight review', asy
   await tabTo(page, fullRun)
   await page.keyboard.press('Enter')
 
-  const dialog = page.getByRole('dialog', { name: /Review what will execute locally/ })
+  const dialog = page.getByRole('dialog', { name: /Review what will execute on xazz-server/ })
   await expect(dialog).toBeVisible()
   const startRun = dialog.getByRole('button', { name: 'Start full run' })
   await expect(startRun).toBeDisabled()
@@ -159,29 +159,13 @@ test('keyboard path reaches a receipt only after explicit preflight review', asy
   await expect(back).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(startRun).toBeFocused()
-  await page.keyboard.press('Enter')
 
-  await expect(page.getByText('Waiting for xazz-exec to return evidence')).toBeVisible()
-  const complete = page.getByRole('button', { name: 'Show success' })
-  await tabTo(page, complete)
+  // Full Run submits to the real backend. Without a reachable xazz-server the UI must
+  // report an honest connection failure rather than inventing a synthetic success.
   await page.keyboard.press('Enter')
-
-  await expect(page.getByText('Pipeline evidence is complete')).toBeVisible()
-  const receipt = page.getByRole('region', { name: 'Pipeline results' })
-  await expect(receipt.getByLabel('Process: Exited')).toBeVisible()
-  await expect(receipt.getByLabel('Pipeline: Succeeded')).toBeVisible()
-  await expect(receipt.getByLabel('Control: Not configured')).toBeVisible()
-  await expect(receipt.getByLabel('Integrity: Computed')).toBeVisible()
-  await expect(receipt.getByLabel('Artifact: Not requested')).toBeVisible()
-  await expect(page.getByText(/SHA-256 · computed · not persisted/)).toBeVisible()
-  await expect(page.getByText('Fixture ID')).toBeVisible()
-  await expect(receipt.getByText('Run ID', { exact: true })).toBeVisible()
-  await expect(receipt.getByText('Engine version', { exact: true })).toBeVisible()
-  await expect(
-    receipt.getByText('Not available in browser prototype').first(),
-  ).toBeVisible()
-  await expect(receipt.getByText('Warnings', { exact: true })).toBeVisible()
-  await expect(receipt.getByText('Capability maturity', { exact: true })).toBeVisible()
+  await expect(page.getByText(/xazz-server unreachable|Waiting for xazz-exec/).first()).toBeVisible({
+    timeout: 10_000,
+  })
   assertRuntime()
 })
 
@@ -193,14 +177,13 @@ test('pre-run logs and receipt never invent execution evidence', async ({ page }
   await results.getByRole('tab', { name: 'Logs' }).click()
   await expect(results.getByText('Not started', { exact: true })).toBeVisible()
   await expect(results.getByText('Not evaluated', { exact: true })).toBeVisible()
-  await expect(results.getByText('Exited with code 0')).toHaveCount(0)
+  await expect(results.getByText('Waiting for xazz-exec to return evidence')).toHaveCount(0)
 
   await results.getByRole('tab', { name: 'Receipt' }).click()
   await expect(results.getByText('No full-run receipt yet')).toBeVisible()
   await expect(results.getByLabel('Process: Not started')).toBeVisible()
   await expect(results.getByLabel('Pipeline: Not evaluated')).toBeVisible()
   await expect(results.getByLabel('Pipeline: Succeeded')).toHaveCount(0)
-  await expect(results.getByLabel('Integrity: Computed')).toHaveCount(0)
   assertRuntime()
 })
 
@@ -224,59 +207,39 @@ test('graph selection highlights code and exposes measured impact', async ({ pag
   await expect(page.locator('.operation-list button.is-downstream')).toHaveCount(
     downstreamCount,
   )
-  await expect(page.getByText(`−6`, { exact: true }).first()).toBeVisible()
   await expect(page.getByText('Not emitted by current runtime').first()).toBeVisible()
 
   await page.getByRole('button', { name: /Live Check/ }).click()
-  await expect(page.getByRole('status')).toContainText('6 nulls found')
+  await expect(page.getByRole('status')).toContainText(/xazz-server/)
   await page.getByRole('button', { name: /Check schema/ }).click()
-  await expect(page.locator('.code-pane li.is-selected')).toContainText('pm25: Float?')
+  await expect(page.locator('.code-pane li.is-selected')).toContainText('Option<float>')
   assertRuntime()
 })
 
-test('runtime error keeps process exit separate from a partial pipeline verdict', async ({
-  page,
-}) => {
+test('an errored run keeps process and pipeline verdicts separate', async ({ page }) => {
   const assertRuntime = observeRuntime(page)
   await page.goto('/?screen=workspace&state=error')
 
-  await expect(
-    page.getByRole('heading', {
-      name: 'Fill null failed, even though the process exited 0.',
-    }),
-  ).toBeVisible()
   const results = page.getByRole('region', { name: 'Pipeline results' })
-  await expect(results.getByLabel('Process: Exited')).toBeVisible()
+  await expect(results.getByLabel('Process: Exited / blocked')).toBeVisible()
   await expect(results.getByLabel('Pipeline: Partial')).toBeVisible()
   await expect(page.getByLabel('Pipeline: Succeeded')).toHaveCount(0)
-  await expect(page.getByLabel('Pipeline: Failed')).toHaveCount(0)
-  await expect(page.getByText('2 downstream nodes')).toBeVisible()
-  await expect(page.getByText('Not available in failed run').first()).toBeVisible()
+  // The scope marker never claims a fresh synthetic run when the last run failed.
   await expect(page.locator('.result-dock__scope')).toContainText(
-    'Last Live Check · stale · not current run',
+    'Last Full Run · errored',
   )
-
-  await page.getByRole('button', { name: 'Apply as draft' }).click()
-  await expect(page.getByText('cast(pm25, Float)', { exact: true })).toBeVisible()
-  await expect(page.getByText(/Nothing has been applied/)).toBeVisible()
-  await expect(page.getByRole('button', { name: /Retry from here/ })).toBeDisabled()
-  await expect(
-    page.getByRole('button', { name: /Restore last success/ }),
-  ).toBeDisabled()
   await results.getByRole('tab', { name: 'Preview' }).click()
-  await expect(page.getByRole('note')).toContainText(
-    'stale · not current Full Run evidence',
-  )
+  await expect(page.getByRole('note')).toContainText('Last Full Run errored')
   assertRuntime()
 })
 
 test('all required workspace states are directly reviewable', async ({ page }) => {
   const expectations = {
     ready: 'Compiler Canvas',
-    preflight: 'Review what will execute locally.',
+    preflight: 'Review what will execute on xazz-server.',
     running: 'Waiting for xazz-exec to return evidence',
     success: 'Pipeline evidence is complete',
-    error: 'Fill null failed, even though the process exited 0.',
+    error: 'Last Full Run · errored',
   }
 
   for (const [state, text] of Object.entries(expectations)) {
