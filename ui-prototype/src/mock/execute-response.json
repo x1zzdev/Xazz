@@ -1,0 +1,52 @@
+{
+  "_contract": "implemented",
+  "_source": "xazz-server/src/main.rs::ExecuteResponse + parse_stdout_markers",
+  "_note": "Field names mirror the current Rust response exactly. Values are a synthetic fixture, not a measurement.",
+  "success": true,
+  "schema": [
+    { "name": "observed_at", "type": "String" },
+    { "name": "district", "type": "String" },
+    { "name": "pm25", "type": "Float" },
+    { "name": "temperature_c", "type": "Float" },
+    { "name": "pm25_pred", "type": "Float" }
+  ],
+  "training": {
+    "type": "train_stmt",
+    "success": true,
+    "source_var": "safe",
+    "model_name": "AirNet",
+    "report": {
+      "model_name": "AirNet",
+      "target": "pm25",
+      "feature_names": ["temperature_c", "district_idx", "hour"],
+      "input_dim": 3,
+      "output_dim": 1,
+      "num_params": 209,
+      "epochs": 40,
+      "batch_size": 16,
+      "learning_rate": 0.01,
+      "final_train_loss": 0.0417,
+      "final_val_loss": 0.0538,
+      "predictions": [24.8, 31.2, 19.4, 27.7, 33.1],
+      "targets": [25.0, 30.5, 20.1, 28.4, 32.6],
+      "checkpoint_path": "artifacts/airnet.mpk"
+    }
+  },
+  "model": {
+    "type": "model_decl",
+    "name": "AirNet",
+    "layers": ["Dense(16)", "ReLU", "Dense(8)", "ReLU", "Dense(1)"],
+    "burn_code": [
+      "nn::LinearConfig::new(<in_dim>, 16)",
+      "activation::relu()",
+      "nn::LinearConfig::new(<in_dim>, 8)",
+      "activation::relu()",
+      "nn::LinearConfig::new(<in_dim>, 1)"
+    ]
+  },
+  "_absent_from_contract": {
+    "per_epoch_loss_history": "TrainReport carries final_train_loss and final_val_loss only.",
+    "wall_clock_duration": "No timing field is emitted by xazz-exec.",
+    "current_epoch_progress": "No epoch event reaches stdout during training."
+  }
+}

@@ -1,0 +1,550 @@
+{
+  "schema_version": "1.1",
+  "workflow": {
+    "mode": "0TO1",
+    "reason": "A new canvas view and a new pipeline stage band are added inside an accepted master; MASTER.md is used as a visual-system constraint, not re-persisted.",
+    "first_value": "The ML stage band appears in the compiler canvas the moment the pipeline is opened, before any run, so the whole program is legible.",
+    "efficacy_moment": "After a Full Run the Burn panel changes from 'Not evaluated' to real TrainReport fields, a visible effect that could only have come from the user's run."
+  },
+  "risk": {
+    "profile": "STRICT",
+    "rationale": "Inherits design-evidence/xazz-product-ux.json: representing execution, security and privacy state falsely would assert controls that are not implemented. This scope adds the privacy representation itself, the sharpest case of that risk.",
+    "profile_change": null,
+    "waivers": []
+  },
+  "brief": {
+    "actor": "Python data or ML developer (P-001)",
+    "context": "An .xzz pipeline that now contains train/predict operators backed by a working Burn engine in xazz-exec/src/dl.rs.",
+    "job_or_motivation": "Understand what the ML half of the pipeline did, with the inspectability the preprocessing half already has.",
+    "observed_problem": "data.js modelled five preprocessing stages only, so train/predict had no visual representation; and README promises DP budget and resource monitoring for which no backend exists, leaving the first builder no contract for which numbers are real.",
+    "desired_user_outcome": "The developer can name, for every stage and monitored quantity, whether it was measured by this run, is a synthetic fixture, or does not exist yet.",
+    "desired_service_outcome": "A reviewable UI contract telling the backend team the exact response shape a DP accountant and resource monitor must return, without any shipped screen claiming those systems exist.",
+    "success_criteria": [
+      "Every ML node evidence line traces to a TrainReport field or the [xazz:model] marker.",
+      "Per-epoch loss history and wall-clock duration render as 'Not available in this version'.",
+      "DP and resource panels carry a persistent Research/Planned badge and synthetic scope line in every state.",
+      "tests/contract.mjs fails if a forbidden claim string reappears.",
+      "The pre-existing 18 traced requirements and the 100 to 41 fixture invariant keep passing."
+    ],
+    "constraints": [
+      "design/state-contract.md section 7: Burn, DP, policy, sLM and monitoring values must not be filled with realistic invented numbers.",
+      "design-system/xazz/pages/workspace.md: dark tokens, no glow/blur/gradient/glass, canvas keeps visual dominance, status never colour-only.",
+      "MASTER.md section 6: normal text at least 4.5:1, essential boundaries at least 3:1, no CDN asset.",
+      "Charts need title, unit, series label, text summary and a table alternative.",
+      "Mobile IDE is out of scope; 1280 and 1440 are the responsive targets."
+    ]
+  },
+  "problem": {
+    "statement": "When inspecting a pipeline that trains a model, a data or ML developer cannot tell which displayed quantities were measured, because the interface represents preprocessing evidence and unimplemented capability with the same visual language, which risks trusting a privacy or resource guarantee that does not exist. Success means every quantity is attributable to a named contract status.",
+    "journey_scope": "touchpoint_only",
+    "omission_reason": "No new service handoff, accountable owner, support process or channel is introduced; the unchanged baseline blueprint in design/service-blueprint.md still applies."
+  },
+  "evidence": [
+    {
+      "id": "E-101",
+      "type": "observation",
+      "source_id": "ui-prototype/src/data.js",
+      "summary": "The pipeline fixture modelled five preprocessing stages ending at 'result'; no train, predict or model stage existed."
+    },
+    {
+      "id": "E-102",
+      "type": "observation",
+      "source_id": "ui-prototype/src/components/Workspace.jsx",
+      "summary": "PipelineCanvas derived edges from array order (slice(0,-1) to index+1), which cannot represent an operator consuming two sources."
+    },
+    {
+      "id": "E-103",
+      "type": "observation",
+      "source_id": "xazz-exec/src/runtime.rs",
+      "summary": "handle_train_stmt emits a [xazz:train] marker after crate::dl::train runs; the earlier 'training loop not implemented' warning is gone."
+    },
+    {
+      "id": "E-104",
+      "type": "observation",
+      "source_id": "xazz-exec/src/dl.rs",
+      "summary": "TrainReport carries final_train_loss and final_val_loss but no per-epoch history and no timing field."
+    },
+    {
+      "id": "E-105",
+      "type": "observation",
+      "source_id": "xazz-server/src/main.rs",
+      "summary": "The router exposes /execute, /schema, /health, /security/audit and /security/verify only. No privacy or resource endpoint exists, and no run_id is issued."
+    },
+    {
+      "id": "E-106",
+      "type": "observation",
+      "source_id": "design/state-contract.md",
+      "summary": "Section 3.1 classifies the DP budget as Research and run monitoring as Planned; section 7 forbids filling Burn, DP, policy, sLM and monitoring values with realistic invented numbers."
+    },
+    {
+      "id": "E-107",
+      "type": "synthesis",
+      "source_id": "E-104",
+      "summary": "Any rendered loss curve or elapsed time would be interpolation, not evidence, so the loss view is restricted to two reported points."
+    },
+    {
+      "id": "E-108",
+      "type": "synthesis",
+      "source_id": "E-105",
+      "summary": "The DP and resource panels have zero backend evidence, so their only defensible job is to specify a proposed contract rather than display a state."
+    },
+    {
+      "id": "E-109",
+      "type": "inference",
+      "source_id": "E-106",
+      "summary": "Hypothesis: without an enforced contract, a later implementer fills the monitoring dashboard with plausible numbers, because a dashboard with no run to be empty about invites invention."
+    },
+    {
+      "id": "E-110",
+      "type": "decision",
+      "source_id": "design/ml-monitoring-alternatives.md",
+      "summary": "ALT-003 selected: monitoring becomes a fourth canvas view mode, keeping it bound to run state so its empty state stays meaningful."
+    },
+    {
+      "id": "E-111",
+      "type": "observation",
+      "source_id": "design/screenshots/monitor-after-success.png",
+      "summary": "First captured layout pushed both proposed charts below the fold at 1440x960; the panel grid was changed to two columns and re-captured."
+    },
+    {
+      "id": "E-112",
+      "type": "observation",
+      "source_id": "x1zzdev/x1zzLang-visual-ide/frontend/src/transpiler/stdoutParser.js",
+      "summary": "The separate Visual IDE repository still parses [x1zz:chart] and [x1zz:error] only, so it is behind both the xazz rename and the train/model markers. Reported to the team; out of scope for this repository."
+    }
+  ],
+  "traceability": {
+    "pain_points": [
+      {
+        "id": "PAIN-001",
+        "statement": "The ML half of the program is invisible in the canvas.",
+        "evidence_ids": [
+          "E-101",
+          "E-102"
+        ]
+      },
+      {
+        "id": "PAIN-002",
+        "statement": "Promised privacy and resource monitoring have no designed surface and no backend.",
+        "evidence_ids": [
+          "E-105",
+          "E-106"
+        ]
+      }
+    ],
+    "insights": [
+      {
+        "id": "INSIGHT-001",
+        "statement": "The interface must distinguish three evidence grades, not two: measured by a real contract, synthetic fixture, and not implemented at all.",
+        "evidence_ids": [
+          "E-104",
+          "E-105",
+          "E-106"
+        ]
+      },
+      {
+        "id": "INSIGHT-002",
+        "statement": "Detaching a monitoring surface from a run removes the anchor that makes an honest empty state possible.",
+        "evidence_ids": [
+          "E-109"
+        ]
+      }
+    ],
+    "hmw": [
+      {
+        "id": "HMW-001",
+        "statement": "How might we let a developer see the ML stages and their cost without any unmeasured quantity reading as a measurement?",
+        "evidence_ids": [
+          "E-104",
+          "E-106"
+        ]
+      }
+    ],
+    "selected_solutions": [
+      {
+        "id": "SOL-001",
+        "statement": "An ML COMPILE stage band with explicit branch edges, driven by per-node from and position fields.",
+        "evidence_ids": [
+          "E-101",
+          "E-102"
+        ]
+      },
+      {
+        "id": "SOL-002",
+        "statement": "A Monitor canvas view with three panels whose surface, rule, text colour and bar fill all change with contract status.",
+        "evidence_ids": [
+          "E-110",
+          "E-104",
+          "E-105"
+        ]
+      },
+      {
+        "id": "SOL-003",
+        "statement": "Two mock files that separate the implemented ExecuteResponse contract from a proposed telemetry contract marked _measured false.",
+        "evidence_ids": [
+          "E-108"
+        ]
+      },
+      {
+        "id": "ALT-003",
+        "statement": "Monitoring is a fourth canvas view mode, so it stays bound to run state and its empty case remains truthful.",
+        "evidence_ids": [
+          "E-109",
+          "E-110"
+        ]
+      }
+    ],
+    "tests": [
+      {
+        "id": "TEST-001",
+        "statement": "Contract assertions fail when a forbidden claim, a success tone, a filled unmeasured bar, an invented TrainReport field, or a fixture mismatch is introduced; verified by five mutations.",
+        "evidence_ids": [
+          "E-104",
+          "E-106"
+        ]
+      },
+      {
+        "id": "TEST-002",
+        "statement": "Playwright asserts the ML band renders pre-run and that proposed bars compute to a transparent background in a real browser.",
+        "evidence_ids": [
+          "E-108"
+        ]
+      }
+    ],
+    "kpis": [
+      {
+        "id": "KPI-001",
+        "statement": "Share of participants who correctly classify each panel's evidence status.",
+        "evidence_ids": [
+          "E-104",
+          "E-105",
+          "E-106"
+        ]
+      }
+    ]
+  },
+  "journey": [
+    {
+      "step": "J-1",
+      "action": "Open a pipeline containing train and predict",
+      "goal": "See the whole program",
+      "touchpoint": "Compiler canvas",
+      "friction": "The ML half had no representation",
+      "evidence": [
+        "E-101"
+      ],
+      "failure": "User assumes the ML stages failed to parse",
+      "recovery": "The ML band renders before any run and every node states its band in text"
+    },
+    {
+      "step": "J-4",
+      "action": "Read the training outcome",
+      "goal": "Judge whether the model is usable",
+      "touchpoint": "Monitor view, Burn panel",
+      "friction": "TrainReport has final losses but no epoch history",
+      "evidence": [
+        "E-104",
+        "E-107"
+      ],
+      "failure": "A drawn loss curve invents the epochs between",
+      "recovery": "Two reported points plus an explicit absent-from-contract list"
+    },
+    {
+      "step": "J-5",
+      "action": "Check the privacy budget spent",
+      "goal": "Decide whether another run is safe",
+      "touchpoint": "Monitor view, DP panel",
+      "friction": "No DP accountant exists anywhere in the codebase",
+      "evidence": [
+        "E-105",
+        "E-106"
+      ],
+      "failure": "A success badge asserts a control that does not exist",
+      "recovery": "Research badge, synthetic scope line, hollow bar, and every value reading Not available in this version"
+    },
+    {
+      "step": "J-6",
+      "action": "Check resource efficiency",
+      "goal": "Decide whether to scale the job",
+      "touchpoint": "Monitor view, resource panel",
+      "friction": "No monitoring endpoint and no run_id",
+      "evidence": [
+        "E-105"
+      ],
+      "failure": "Live-looking CPU and GPU gauges",
+      "recovery": "Planned badge, same treatment, and the absent endpoint named in the panel"
+    },
+    {
+      "step": "J-7",
+      "action": "Return to the graph",
+      "goal": "Continue editing",
+      "touchpoint": "View segmented control",
+      "friction": "A view switch could lose node selection",
+      "evidence": [
+        "E-102"
+      ],
+      "failure": "Selection resets and code lineage breaks",
+      "recovery": "Selected node id is owned by Workspace, not by the view"
+    }
+  ],
+  "blueprint": [
+    {
+      "frontstage": "Monitor view Burn panel showing TrainReport fields after a Full Run",
+      "backstage": "xazz-exec runs crate::dl::train and prints a [xazz:train] marker; xazz-server parses stdout into ExecuteResponse.training",
+      "support_system_data": "TrainReport (model_name, target, feature_names, input_dim, output_dim, num_params, epochs, batch_size, learning_rate, final_train_loss, final_val_loss, predictions, targets, checkpoint_path)",
+      "owner": "Xazz runtime maintainer",
+      "failure_point": "Training fails and the marker carries success false with an error string; or the process exits without emitting the marker at all",
+      "recovery": "The panel states the missing report and marks report fields Not available in failed run; the existing result-dock recovery actions are unchanged",
+      "metric": "Share of successful runs whose stdout contains a parseable [xazz:train] marker"
+    },
+    {
+      "frontstage": "Monitor view privacy and resource panels showing a proposed contract",
+      "backstage": "None. No accountant, no monitoring collector, and no run identity exist.",
+      "support_system_data": "ui-prototype/src/mock/telemetry-proposed.json, marked _contract proposed and _measured false",
+      "owner": "unassigned — naming this owner is the decision this panel exists to force",
+      "failure_point": "A later implementer wires real-looking numbers into these panels without adding a backend, converting a specification into a false claim",
+      "recovery": "tests/contract.mjs fails the build on a success tone, a filled unmeasured bar, or a forbidden claim string; the guards were verified by five injected mutations",
+      "metric": "Contract-test pass rate on every commit touching the Monitor view"
+    }
+  ],
+  "alternatives": {
+    "considered": [
+      {
+        "id": "ALT-001",
+        "summary": "Monitoring as a sixth result-dock tab"
+      },
+      {
+        "id": "ALT-002",
+        "summary": "Monitoring as a separate screen route"
+      },
+      {
+        "id": "ALT-003",
+        "summary": "Monitoring as a fourth canvas view mode"
+      }
+    ],
+    "selected": "ALT-003",
+    "selection_criteria": [
+      "Privacy and misuse safety",
+      "State truth of the empty case",
+      "Layout integrity against the master's canvas-dominance rule"
+    ],
+    "rejected_reasons": [
+      {
+        "alternative_id": "ALT-001",
+        "reason": "The 232px dock cannot hold two charts and a ledger without shrinking the canvas or scrolling a chart, and dock proximity implies the other five tabs' evidence status."
+      },
+      {
+        "alternative_id": "ALT-002",
+        "reason": "Detaching the panels from a run removes the anchor for an honest empty state, which is the exact condition that invites invented telemetry."
+      }
+    ],
+    "remaining_uncertainty": "Whether developers look for monitoring under a canvas view switch rather than a dock tab."
+  },
+  "prototype": {
+    "unknown": "Whether three different evidence grades can be told apart at a glance without colour-only signalling.",
+    "hypothesis": "Changing surface, rule, text colour and bar fill together makes a proposed panel unmistakable even when its numbers are present.",
+    "fidelity": "Clickable high-fidelity code prototype",
+    "task": "After a successful run, open Monitor and say which panel's numbers were produced by this run.",
+    "success_criterion": "The participant attributes the Burn panel to the run and both other panels to an unimplemented capability, without prompting."
+  },
+  "interaction_states": [
+    {
+      "task": "Inspect the ML half of a pipeline in the Monitor view",
+      "states": {
+        "default": {
+          "status": "covered",
+          "evidence": "design/screenshots/monitor-after-success.png"
+        },
+        "focus": {
+          "status": "covered",
+          "evidence": "tests/prototype.spec.mjs::switching to monitor keeps run context"
+        },
+        "pressed": {
+          "status": "covered",
+          "evidence": "Monitor segmented button reuses the existing aria-pressed control"
+        },
+        "disabled": {
+          "status": "not_applicable",
+          "reason": "No Monitor control becomes unavailable; the view is always reachable."
+        },
+        "loading_pending": {
+          "status": "covered",
+          "evidence": "design/screenshots/monitor-after-success.png shows the running case rendering Unknown rather than a progress value"
+        },
+        "empty": {
+          "status": "covered",
+          "evidence": "design/screenshots/monitor-no-run.png"
+        },
+        "partial_stale": {
+          "status": "covered",
+          "evidence": "tests/prototype.spec.mjs asserts the Burn panel hides the previous report while a run is pending"
+        },
+        "error": {
+          "status": "covered",
+          "evidence": "design/screenshots/monitor-after-error.png"
+        },
+        "cancelled": {
+          "status": "not_applicable",
+          "reason": "No cancel or termination API exists; state-contract.md keeps cancellation a Future surface."
+        },
+        "success": {
+          "status": "covered",
+          "evidence": "design/screenshots/monitor-after-success.png"
+        },
+        "recovery": {
+          "status": "covered",
+          "evidence": "The failed run states the missing report and leaves the existing Open code and retry actions in the result dock untouched"
+        }
+      }
+    }
+  ],
+  "accessibility": {
+    "keyboard": {
+      "status": "pass",
+      "evidence": "tests/prototype.spec.mjs reaches the Monitor control through the existing segmented control; the canvas graph keeps its keyboard-selectable operation-list mirror, now covering all eight nodes."
+    },
+    "visible_focus": {
+      "status": "pass",
+      "evidence": "Monitor reuses the segmented-control focus treatment; no focus style was removed."
+    },
+    "accessible_name": {
+      "status": "pass",
+      "evidence": "Each panel is an aria-labelled section; every chart is role=img with a summary that repeats the synthetic status; pipeline nodes announce their band."
+    },
+    "contrast": {
+      "status": "pass",
+      "evidence": "npm run test:contrast 2 passed; new pairs measured at 9.24, 6.03 and 6.92 to 1. The dashed unmeasured-bar boundary was moved from --dark-control-border (2.94) to --dark-text-3 (6.03) to clear the 3:1 essential-boundary rule."
+    },
+    "overflow": {
+      "status": "pass",
+      "evidence": "tests/prototype.spec.mjs asserts zero horizontal overflow at 1280 and 1440."
+    },
+    "target_reachability": {
+      "status": "pass",
+      "evidence": "Monitor uses the existing 30px-visual segmented button with the established extended hit area."
+    }
+  },
+  "responsiveness": {
+    "mobile": {
+      "status": "not_applicable",
+      "reason": "The workspace is desktop-only by approved scope; the mobile note screen is unchanged."
+    },
+    "laptop": {
+      "status": "pass",
+      "evidence": "tests/prototype.spec.mjs asserts no horizontal overflow at 1280px."
+    },
+    "large": {
+      "status": "pass",
+      "evidence": "design/screenshots/monitor-after-success.png at 1440x960 shows all three panels with the privacy chart above the fold."
+    }
+  },
+  "heuristic_review": {
+    "status": "completed",
+    "reviewer": "author self-review against references/quality-gates.md; no independent reviewer available in this session",
+    "findings": [
+      {
+        "id": "UX-001",
+        "severity": "HIGH",
+        "status": "resolved",
+        "summary": "The first layout gave the Burn panel full width, pushing the privacy and resource charts below the fold at the 1440x960 reference frame, so the issue's chart requirement was not actually met on screen.",
+        "evidence": "design/screenshots/monitor-after-success.png"
+      },
+      {
+        "id": "UX-002",
+        "severity": "MEDIUM",
+        "status": "resolved",
+        "summary": "The dashed boundary marking an unmeasured bar measured 2.94:1, under the master's 3:1 rule for essential graphical boundaries.",
+        "evidence": "npm run test:contrast"
+      },
+      {
+        "id": "UX-003",
+        "severity": "MEDIUM",
+        "status": "resolved",
+        "summary": "Adding three nodes widened the graph past the 0.65 minimum zoom, clipping the first and last node in the default Split view.",
+        "evidence": "design/screenshots/workspace-sample-ready.png"
+      },
+      {
+        "id": "UX-004",
+        "severity": "LOW",
+        "status": "open",
+        "summary": "The resource panel's chart sits at the lower edge of the 960px reference frame and needs a short scroll; the privacy chart, which the issue names, is fully visible.",
+        "evidence": "design/screenshots/monitor-after-success.png"
+      }
+    ],
+    "evidence": "design/ml-monitoring-behavior-contract.md"
+  },
+  "user_test": {
+    "status": "not_run",
+    "reason": "No representative participants were available in this session. The prototype task and success criterion are pre-registered above; the STRICT profile's actual-user requirement is carried as the open exception below."
+  },
+  "artifacts": {
+    "design_system": "design-system/xazz/pages/monitor.md (page override added manually; MASTER.md unchanged and not re-persisted)",
+    "screenshots": [
+      "design/screenshots/monitor-no-run.png",
+      "design/screenshots/monitor-after-success.png",
+      "design/screenshots/monitor-after-error.png",
+      "design/screenshots/ml-compile-band.png",
+      "design/screenshots/workspace-sample-ready.png"
+    ],
+    "interaction_evidence": [
+      "tests/prototype.spec.mjs — 14 passed, including four Monitor and ML-band tests",
+      "tests/contract.mjs — mutation-verified with five injected violations, all caught"
+    ],
+    "commit": "feat/1-ml-pipeline-visual-dashboard",
+    "prototype_or_figma": "ui-prototype (npm run dev, then Workspace > Monitor)"
+  },
+  "review": {
+    "reviewer": "not_run",
+    "timestamp": "2026-08-26T00:00:00Z",
+    "open_issues": [
+      {
+        "id": "UX-004",
+        "severity": "LOW",
+        "status": "open",
+        "summary": "The resource panel chart needs a short scroll at 1440x960.",
+        "evidence": "design/screenshots/monitor-after-success.png"
+      }
+    ],
+    "exceptions": [
+      {
+        "gate": "review.independent_reviewer",
+        "reason": "Subagent dispatch was disabled for this session by operator instruction, so no fresh reviewer could be given the raw artifact and criteria.",
+        "risk": "Author bias may leave a finding unseen; mitigated by mutation-verified automated guards and by four heuristic findings recorded and three fixed.",
+        "owner": "repository maintainer",
+        "revisit": "Before merge of the pull request."
+      },
+      {
+        "gate": "user_test",
+        "reason": "No representative participants available before the delivery deadline.",
+        "risk": "Whether developers discover Monitor under the view control, and whether they read the three evidence grades correctly, is unvalidated.",
+        "owner": "repository maintainer",
+        "revisit": "Run the pre-registered task with five participants before production adoption."
+      },
+      {
+        "gate": "dependency_audit",
+        "reason": "npm audit reports one pre-existing high advisory in nanoid via vite and postcss, present identically before this change and build-time only.",
+        "risk": "No shipped browser code is affected; fixing it would churn the lockfile outside this issue's scope.",
+        "owner": "repository maintainer",
+        "revisit": "Handle in a dedicated dependency update."
+      }
+    ]
+  },
+  "kpis": [
+    {
+      "id": "KPI-001",
+      "definition": "Evidence-grade attribution accuracy in a moderated task.",
+      "formula": "correct panel classifications divided by (participants times 3 panels)",
+      "baseline": 0,
+      "target": 0.9,
+      "measurement_window": "One moderated round of five participants",
+      "data_source": "Moderated task test using the pre-registered prototype task",
+      "owner": "repository maintainer",
+      "decision_threshold": "Below 0.9, revise the proposed-panel treatment before production adoption."
+    }
+  ],
+  "verdict": {
+    "decision": "revise",
+    "rationale": "Implementation, state coverage, accessibility, responsive checks and mutation-verified automated guards are complete and passing, but the STRICT profile's independent review and actual-user evidence are both unrun and carried as explicit exceptions.",
+    "next_step": "Obtain independent review on the pull request, then run the pre-registered five-participant task before production adoption."
+  }
+}
