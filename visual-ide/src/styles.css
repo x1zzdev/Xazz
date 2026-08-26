@@ -3951,3 +3951,212 @@ summary:focus-visible,
     align-items: start;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   DagEditor — Xazz DAG 편집 뷰
+   원본의 정적 캔버스와 분리된 편집 가능한 DAG 에디터.
+   ═══════════════════════════════════════════════════════════════════════ */
+.dag-editor {
+  display: grid;
+  grid-template-columns: 200px 1fr 320px;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-canvas, #141a21);
+}
+
+.dag-palette {
+  background: var(--bg-elevated, #1c2733);
+  border-right: 1px solid var(--border-color, #2d3b35);
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.dag-palette__title {
+  margin-bottom: 10px;
+}
+
+.dag-palette__group {
+  margin-bottom: 14px;
+}
+
+.dag-palette__cat {
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #7c8a96);
+  margin-bottom: 6px;
+}
+.dag-palette__cat--ml { color: #34d399; }
+.dag-palette__cat--security { color: #f59e0b; }
+
+.dag-palette__tool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-secondary, #cbd5e1);
+  font-size: 0.76rem;
+  cursor: pointer;
+  text-align: left;
+}
+.dag-palette__tool:hover {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+.dag-palette__tool--ml { color: #34d399; }
+.dag-palette__tool--ml:hover { border-color: #34d399; background: rgba(52, 211, 153, 0.1); }
+.dag-palette__tool--security { color: #f59e0b; }
+.dag-palette__tool--security:hover { border-color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+
+.dag-canvas {
+  position: relative;
+  background: var(--bg-canvas, #141a21);
+  min-width: 0;
+}
+
+.dag-canvas__hint {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.68rem;
+  color: var(--text-muted, #7c8a96);
+  background: rgba(0, 0, 0, 0.5);
+  padding: 4px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+  z-index: 5;
+}
+
+/* 노드 */
+.dag-node {
+  min-width: 120px;
+  background: var(--bg-elevated, #1c2733);
+  border: 1px solid var(--border-color, #2d3b35);
+  border-left: 3px solid #3b82f6;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.75rem;
+  color: #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.dag-node.is-selected {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4);
+}
+.dag-node.ml { border-left-color: #34d399; }
+.dag-node.security { border-left-color: #f59e0b; }
+.dag-node.inout { border-left-color: #22c55e; }
+
+.dag-node__body {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dag-side {
+  background: var(--bg-elevated, #1c2733);
+  border-left: 1px solid var(--border-color, #2d3b35);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dag-side__section {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color, #2d3b35);
+}
+.dag-side__section--params { flex: 1; overflow-y: auto; }
+
+.dag-side__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.dag-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid var(--border-color, #2d3b35);
+  color: var(--text-secondary, #cbd5e1);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+.dag-mini-btn--danger { color: #ef4444; border-color: rgba(239, 68, 68, 0.4); }
+.dag-mini-btn:hover { border-color: #6366f1; }
+
+.dag-code {
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 0.7rem;
+  line-height: 1.6;
+  color: #e2e8f0;
+  background: #0d1117;
+  padding: 10px;
+  border-radius: 6px;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre;
+}
+
+.dag-params {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dag-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.7rem;
+  color: var(--text-secondary, #cbd5e1);
+}
+.dag-field input {
+  background: var(--bg-canvas, #141a21);
+  border: 1px solid var(--border-color, #2d3b35);
+  border-radius: 5px;
+  color: #e2e8f0;
+  padding: 5px 8px;
+  font-size: 0.74rem;
+  font-family: 'JetBrains Mono', monospace;
+}
+.dag-field input:focus {
+  outline: none;
+  border-color: #6366f1;
+}
+
+.dag-side__empty, .dag-p__empty {
+  font-size: 0.72rem;
+  color: var(--text-muted, #7c8a96);
+}
+
+.dag-side__actions {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-color, #2d3b35);
+}
+
+.dag-btn {
+  width: 100%;
+  padding: 7px 12px;
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dag-btn:hover { background: #4f46e5; }

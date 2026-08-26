@@ -25,3 +25,7 @@ dist/
 
 # Personal documents
 @Xazz_MVP_Roadmap_v3.docx
+# xazz runtime outputs
+audit_log/
+checkpoints/
+*_chart.html

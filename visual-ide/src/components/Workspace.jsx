@@ -28,6 +28,7 @@ import {
   LoaderCircle,
   PanelBottom,
   PanelRight,
+  Pencil,
   Play,
   Search,
   ShieldCheck,
@@ -42,6 +43,7 @@ import {
 } from 'lucide-react'
 import { Brand, StatusBadge } from './Common'
 import { MonitorView } from './Monitor'
+import DagEditor from './DagEditor'
 import { executeCode, checkHealth, API_BASE_URL } from '../api'
 import {
   chartData,
@@ -336,6 +338,7 @@ function CanvasToolbar({ view, onView }) {
       </div>
       <div className="segmented-control" aria-label="Canvas view">
         {[
+          ['edit', Pencil, 'Edit'],
           ['graph', Workflow, 'Graph'],
           ['split', PanelRight, 'Split'],
           ['code', Code2, 'Code'],
@@ -1333,6 +1336,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
   const [runState, setRunState] = useState(initialState)
   const [selectedId, setSelectedId] = useState(initialState === 'error' ? 'fill' : 'filter')
   const [view, setView] = useState(initialState === 'error' ? 'split' : 'split')
+  const [dagCode, setDagCode] = useState(runnableCode)
   const [tab, setTab] = useState(
     initialState === 'error'
       ? 'logs'
@@ -1399,7 +1403,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
     setLiveMessage(`Executing on xazz-server · ${API_BASE_URL}`)
     changeState('running')
     try {
-      const result = await executeCode(runnableCode)
+      const result = await executeCode(dagCode)
       setRunResult(result)
       setBackendReachable(true)
       if (result.success && !result.error) {
@@ -1492,6 +1496,8 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
                 training={runResult?.training}
                 model={runResult?.model}
               />
+            ) : view === 'edit' ? (
+              <DagEditor initialCode={runnableCode} onCodeChange={setDagCode} />
             ) : (
               <>
                 {view !== 'code' && (
