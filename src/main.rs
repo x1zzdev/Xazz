@@ -207,7 +207,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // ── check: 정적 의미 분석 (Type Checker) ────────────────────────────
-        Commands::Check { file } => {
+        Commands::Check { file, json } => {
             let source = match std::fs::read_to_string(&file) {
                 Ok(s) => s,
                 Err(e) => {
@@ -220,8 +220,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // 파싱 단계 에러가 있으면 그대로 출력 후 실패 종료
             if let Err(e) = &parse_result {
-                eprintln!("{}", e);
+                if json {
+                    let out = serde_json::json!({
+                        "success": false,
+                        "parse_error": e.to_string(),
+                        "errors": [],
+                        "warnings": [],
+                    });
+                    println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+                } else {
+                    eprintln!("{}", e);
+                }
                 std::process::exit(1);
+            }
+
+            // ── --json: 구조화된 진단 결과 출력 ─────────────────────────────
+            if json {
+                let diag = |e: &xazz_compiler::CompileError| {
+                    serde_json::json!({
+                        "line": if e.span.line > 0 { e.span.line } else { 0 },
+                        "col": if e.span.line > 0 { e.span.col } else { 0 },
+                        "category": e.kind.category(),
+                        "message": e.message,
+                        "suggestion": e.ai_suggestion,
+                    })
+                };
+                let errors: Vec<_> = result.errors.iter().map(&diag).collect();
+                let warnings: Vec<_> = result.warnings.iter().map(&diag).collect();
+                let out = serde_json::json!({
+                    "success": result.is_ok(),
+                    "source": file.display().to_string(),
+                    "error_count": errors.len(),
+                    "warning_count": warnings.len(),
+                    "errors": errors,
+                    "warnings": warnings,
+                });
+                println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+                if result.is_err() {
+                    std::process::exit(1);
+                }
+                return Ok(());
             }
 
             println!("═══ xazz check: 정적 의미 분석 ═══");

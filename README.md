@@ -44,6 +44,7 @@ Xazz is a Rust-based end-to-end DSL platform combining the **Polars** engine and
 
 ### 1. Compiler Core & Acceleration
 - **Compiler Core**: Independent AI scripting language parser and abstract syntax tree (AST) toolchain implementation
+- **Static Semantic Analyzer (Type Checker)**: Detects undeclared variables/models/schemas, duplicate declarations, missing columns (with did-you-mean hints), invalid `cast` types, and missing `groupBy` aggregations **before execution** — with source `line:col` diagnostics
 - **Deep Learning Compilation Layer**: Integration with **Burn**, a high-performance Rust AI framework, to compile zero-copy tensor operations into deep learning training layers
 - **Data Acceleration Engine**: Fusing with the **Polars** engine to transform user preprocessing commands into ultra-fast LazyFrame operation graphs and execute them
 
@@ -56,9 +57,10 @@ Xazz is a Rust-based end-to-end DSL platform combining the **Polars** engine and
 - **Visual Console UI**: A node-based web IDE built with React and `@xyflow/react` that visualizes data preprocessing and deep learning compilation flows
 - **Real-Time Monitoring**: A statistical dashboard for monitoring the privacy budget consumption status of Differential Privacy and computational resource efficiency
 
-### 4. 💎 Reliability Infrastructure
-- **Reliability Infrastructure**: Design of a **SHA-256-based audit log** system that permanently preserves all operation histories
-- **Global CI/CD**: Automated testing and high-reliability verification environment built on GitHub Actions
+### 4. Reliability Infrastructure
+- **Reliability Infrastructure**: **SHA-256-based append-only audit log** that permanently preserves all operation histories with a verifiable hash chain (queryable via `xazz-server` API)
+- **Global CI/CD**: Automated testing and high-reliability verification environment built on GitHub Actions (Rust + Visual IDE frontend pipelines)
+- **Structured CLI output**: `xazz check --json` / `xazz run --json` emit machine-readable JSON diagnostics/results; `xazz-runner --check-engine` verifies engine availability
 
 ---
 
@@ -70,7 +72,7 @@ Xazz is organized as a modularized Rust workspace.
 | :--- | :--- |
 | **`xazz`** | CLI binary entry point (`xazz run`, `xazz emit`, etc.) |
 | **`xazz-core`** | AST (Abstract Syntax Tree), static type checker, common data types, and tensor definitions |
-| **`xazz-compiler`** | `.xzz` DSL script parsing, AST generation, Burn/Polars operation compiler |
+| **`xazz-compiler`** | `.xzz` DSL script parsing, AST generation, static Type Checker, Burn/Polars operation compiler |
 | **`xazz-runner`** | Data-flow-tracking security sandboxing and subprocess-isolated runtime |
 | **`xazz-exec`** | Polars LazyFrame preprocessing and Burn tensor deep learning execution engine |
 | **`xazz-server`** | sLM security correction engine, web console backend, and SHA-256 audit log server |

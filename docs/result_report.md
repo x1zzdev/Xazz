@@ -56,6 +56,7 @@ Xazz는 이 세 가지 한계를 정면에서 해결하고자 한다. 첫째, Ru
 **프로젝트 주요기능**
 
 - **[컴파일러 코어]** .xzz 스크립트를 위한 파서(Parser)와 내부 구문 트리(AST) 툴체인을 직접 구현
+- **[정적 의미 분석기(Type Checker)]** 실행 전 단계에서 미선언 변수·모델·스키마, 중복 선언, 스키마에 없는 컬럼(오타 did-you-mean 제안), 잘못된 `cast` 타입, `groupBy` 후 집계 누락 등을 컴파일 시점에 검출 — `xazz check`로 라인·컬럼(Span) 단위 진단과 `--json` 구조화 출력 제공
 - **[데이터 가속 엔진]** 전처리 명령을 Polars LazyFrame 연산 그래프로 변환·실행 (pandas 대비 최대 3.84배)
 - **[딥러닝 컴파일]** Burn 프레임워크 연동 — 제로카피 텐서 연산과 학습 레이어로 변환하는 컴파일 계층 구현 (`model {}` 선언 + `train()`, Adam+MSE, 체크포인트)
 - **[데이터 변환 인터페이스]** Polars LazyFrame 연산 결과를 Burn 텐서(Tensor) 계층으로 전환하는 제로카피 변환 인터페이스와 파이프라인 데이터 흐름용 schema/type 표준화
@@ -63,7 +64,7 @@ Xazz는 이 세 가지 한계를 정면에서 해결하고자 한다. 첫째, Ru
 - **[프라이버시 R&D]** Rust/Python 환경에서 Laplace / Gaussian Mechanism 기반 차등 프라이버시(DP) 노이즈 주입 알고리즘 구현 — 지정된 Privacy Budget 하에서 Polars DataFrame 연산 결과에 노이즈를 적용하고, Privacy Budget 소모 상태를 모니터링
 - **[내장형 sLM 엔진]** Qwen2.5-Coder-1.5B를 Unsloth + QLoRA로 보안 위반 코드 보정에 특화 파인튜닝 후 GGUF 변환, llama.cpp/Ollama 기반 온프레미스 서빙 환경 구축. 정적 가드레일에 차단된 코드를 자동 보정하고, 수정된 안전한 코드와 위반 사유·분석 리포트를 JSON API로 반환
 - **[비주얼 콘솔 UI]** React·@xyflow/react 기반으로 데이터 전처리·딥러닝 컴파일 파이프라인 흐름을 시각화하는 웹 IDE
-- **[신뢰성 인프라]** 모든 연산 이력을 영구 보존하는 SHA-256 감사 로그 시스템과 GitHub Actions 기반 CI/CD·자동화 테스트 환경
+- **[신뢰성 인프라]** SHA-256 append-only 해시 체인 감사 로그로 모든 연산 이력을 영구 보존하고 변조를 검증(조회·재생·체인 무결성 API)하며, GitHub Actions 기반 CI/CD·자동화 테스트(Rust 전체 + Visual IDE 프런트엔드) 환경 구축. `xazz run --json`으로 기계 판독 실행 결과, `xazz-runner --check-engine`으로 실행 엔진 가용성 진단
 
 **구동 및 시연**
 

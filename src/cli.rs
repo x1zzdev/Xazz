@@ -57,9 +57,14 @@ pub enum Commands {
     /// 실행 전에 검출합니다.
     ///
     /// 예: xazz check examples/poc_script.xzz
+    /// 예: xazz check examples/poc_script.xzz --json
     Check {
         /// 분석할 .xzz 소스 파일 경로
         file: PathBuf,
+
+        /// 구조화된 JSON 진단 결과를 출력합니다 (기계 판독용)
+        #[arg(long)]
+        json: bool,
     },
 
     /// .xzz 스크립트를 다른 언어/형식으로 변환 출력합니다

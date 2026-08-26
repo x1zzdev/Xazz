@@ -21,6 +21,19 @@ use std::path::Path;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
+    // ── 도우미 플래그 ───────────────────────────────────────────────────────
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("xazz-exec {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        println!(
+            "[xazz-exec] 사용법: xazz-exec <file.xzz|file.csv> [--verbose] [--output <path.csv>]"
+        );
+        println!("[xazz-exec] 도우미: --version | --help");
+        return;
+    }
+
     if args.len() < 2 {
         eprintln!(
             "[xazz-exec] 사용법: xazz-exec <file.xzz|file.csv> [--verbose] [--output <path.csv>]"
