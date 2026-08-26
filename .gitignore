@@ -8,6 +8,11 @@
 xazz-sde
 
 benches/data/*.csv
+__pycache__/
+*.pyc
+
+# IDE data folder (runtime uploads from xazz-server)
+uploads/
 
 # Personal development notes (not for distribution)
 commitGuide.txt

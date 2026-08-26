@@ -1,0 +1,274 @@
+spec:
+  name: Xazz Product UX
+  version: 0.1.1
+  status: approved
+  created: 2026-07-27
+  approved: 2026-07-27
+  source:
+    - INTAKE-NOTES.md
+    - DISCOVERY.md
+    - PRODUCT-UX-BRIEF.md
+  scope: "Landing-to-tool Figma clickable prototype; no production implementation"
+
+stack:
+  design:
+    tool: Figma Design
+    file: https://www.figma.com/design/WqomiXUlVze79yz3s0GRmS
+    assumption: false
+  source_prototype:
+    framework: Vite + React
+    graph: "@xyflow/react"
+    assumption: false
+  backend:
+    value: none
+    reason: "Static synthetic prototype states only"
+  database:
+    value: none
+  auth:
+    value: none
+  deployment:
+    value: local-preview-only
+  i18n:
+    primary: English
+    validation_locale: Korean
+    assumption: true
+  testing:
+    - task-based-prototype-test
+    - wcag-contrast
+    - keyboard-path-review
+    - responsive-screenshot-review
+
+personas:
+  primary:
+    id: P-001
+    name: Python data or ML developer
+    certainty: assumption
+  secondary:
+    id: P-002
+    name: Pipeline reviewer or operator
+    certainty: assumption
+
+requirements:
+  - id: R-001
+    source: INTAKE-2026-07-27.07
+    actor: New visitor
+    action: understand
+    object: Xazz's user value
+    condition: "after viewing the landing hero for 10 seconds"
+    acceptance: "At least 4 of 5 target users explain that Xazz helps inspect typed data pipelines and catch issues before expensive execution."
+    certainty: assumption
+    priority: must
+
+  - id: R-002
+    source: INTAKE-2026-07-27.07
+    actor: New visitor
+    action: reach
+    object: a tangible sample result
+    condition: "from the landing primary CTA without installing or authenticating"
+    acceptance: "At least 4 of 5 target users reach the sample table or chart within 90 seconds and no more than 3 decisions."
+    certainty: assumption
+    priority: must
+
+  - id: R-003
+    source: INTAKE-2026-07-27.05
+    actor: User
+    action: distinguish
+    object: feature maturity
+    condition: "wherever a non-core capability appears"
+    acceptance: "Available, Beta, Demo, Research, and Planned are text-labeled consistently; no planned capability is presented as available."
+    certainty: confirmed
+    priority: must
+
+  - id: R-004
+    source: INTAKE-2026-07-27.07
+    actor: Visitor
+    action: continue
+    object: from landing into the tool
+    condition: "after selecting the sample CTA"
+    acceptance: "The sample, terminology, visual identity, and promised outcome remain continuous between landing and workspace."
+    certainty: confirmed
+    priority: must
+
+  - id: R-005
+    source: INTAKE-2026-07-27.05
+    actor: Data developer
+    action: review
+    object: inferred CSV schema
+    condition: "before generated .xzz is accepted"
+    acceptance: "The UI shows 100-row sample scope, detected encoding, source-column to field mapping, inferred type, nullable state, and pending file change."
+    certainty: confirmed
+    priority: must
+
+  - id: R-006
+    source: INTAKE-2026-07-27.05
+    actor: Data developer
+    action: trace
+    object: a pipeline operation
+    condition: "when selecting a graph node or .xzz statement"
+    acceptance: "The corresponding code, node, upstream ancestors, and downstream descendants are simultaneously highlighted."
+    certainty: confirmed
+    priority: must
+
+  - id: R-007
+    source: INTAKE-2026-07-27.07
+    actor: Data developer
+    action: preview
+    object: a pipeline change
+    condition: "during editing"
+    acceptance: "Automatic feedback is explicitly labeled Live Check, capped to sample data, side-effect free, and visually distinct from Full Run."
+    certainty: confirmed
+    priority: must
+
+  - id: R-008
+    source: INTAKE-2026-07-27.05
+    actor: Data developer
+    action: execute
+    object: a full pipeline
+    condition: "after environment and preflight validation"
+    acceptance: "Full Run requires an explicit action and separately exposes xazz, xazz-runner, and xazz-exec readiness, execution location, validation verdict, and approval requirement; missing readiness blocks the action."
+    certainty: confirmed
+    priority: must
+
+  - id: R-009
+    source: INTAKE-2026-07-27.05
+    actor: Reviewer
+    action: follow
+    object: the control lifecycle
+    condition: "for a policy-controlled future flow"
+    acceptance: "The prototype represents Validate, Needs Review or Rejected, Approve, Freeze, Run, and Receipt as distinct labeled states."
+    certainty: assumption
+    priority: should
+
+  - id: R-010
+    source: INTAKE-2026-07-27.07
+    actor: Data developer
+    action: inspect
+    object: node impact
+    condition: "after sample preview or run"
+    acceptance: "For the selected node, the UI shows input/output rows, null delta, schema/type delta, duration, and produced artifact when available."
+    certainty: confirmed
+    priority: must
+
+  - id: R-011
+    source: INTAKE-2026-07-27.07
+    actor: Data developer
+    action: recover
+    object: a validation or execution failure
+    condition: "from the error surface"
+    acceptance: "The UI states what happened, where, downstream impact, and a safe next step; actions include Explain, Open code, Apply as draft, Retry from here, and Restore last success as applicable."
+    certainty: assumption
+    priority: must
+
+  - id: R-012
+    source: INTAKE-2026-07-27.05
+    actor: Reviewer
+    action: inspect
+    object: a run receipt
+    condition: "after a completed or failed full run"
+    acceptance: "Core receipt includes run ID/time, engine version, execution location, code hash, artifacts, row counts, node durations, warnings, and capability maturity; unavailable future fields are explicitly labeled."
+    certainty: assumption
+    priority: must
+
+  - id: R-013
+    source: INTAKE-2026-07-27.07
+    actor: Keyboard or low-vision user
+    action: complete
+    object: the sample-to-result path
+    condition: "using the interactive prototype"
+    acceptance: "Core path is keyboard operable with visible focus; small text contrast is at least 4.5:1, UI boundaries/icons at least 3:1, and status is not color-only."
+    certainty: confirmed
+    priority: must
+
+  - id: R-014
+    source: INTAKE-2026-07-27.07
+    actor: Designer or developer
+    action: reuse
+    object: the Figma design system
+    condition: "when inspecting delivered frames"
+    acceptance: "Repeated UI is built with components/variants; color, spacing, radius, and typography use variables/styles; no placeholder text or clipped content remains."
+    certainty: confirmed
+    priority: must
+
+  - id: R-015
+    source: INTAKE-2026-07-27.07
+    actor: Mobile visitor
+    action: understand and start
+    object: the landing experience
+    condition: "at 390px viewport width"
+    acceptance: "Hero message, primary CTA, proof pipeline, and maturity disclosure remain readable without horizontal overflow; mobile IDE is out of scope."
+    certainty: assumption
+    priority: should
+
+  - id: R-016
+    source: INTAKE-2026-07-27.05
+    actor: Prototype operator
+    action: use
+    object: demonstration data and assets
+    condition: "during prototype creation and validation"
+    acceptance: "Only synthetic data is used, and fonts/icons/runtime assets required for the local prototype do not depend on external CDNs."
+    certainty: confirmed
+    priority: must
+
+  - id: R-017
+    source: INTAKE-2026-07-27.05
+    actor: Data developer
+    action: interpret
+    object: a generated chart
+    condition: "when raw category count exceeds the readable threshold"
+    acceptance: "The UI exposes aggregation/sample scope and offers top-N, aggregation, or table view; title, unit, and series label are never blank."
+    certainty: assumption
+    priority: should
+
+  - id: R-018
+    source: "DISCOVERY.md §9"
+    actor: Data developer
+    action: distinguish
+    object: process exit, pipeline verdict, and artifact outcome
+    condition: "after a full run returns or emits runtime warnings"
+    acceptance: "The prototype never maps process exit alone to Succeeded; runtime errors, empty structured results, or artifact-write warnings produce Unknown, Partial, or Failed with evidence and a safe full-retry action."
+    certainty: confirmed
+    priority: must
+
+design_direction:
+  macrostructure: Compiler Canvas
+  landing_theme: light
+  workspace_theme: calm-dark
+  anti_patterns:
+    - generic-ai-gradient
+    - glass-card-repetition
+    - decorative-glow
+    - cyber-security-cliche
+    - color-only-status
+    - auto-apply-ai-fix
+
+figma:
+  pages:
+    - "00 · Brief & Flow"
+    - "01 · Foundations"
+    - "02 · Core Experience"
+    - "03 · Trust Flow · Future"
+    - "04 · Components"
+  prototype_frames:
+    - "Landing · Desktop 1440"
+    - "Landing · Mobile editable reference"
+    - "Landing · Mobile 390 · QA raster reference"
+    - "Project Start"
+    - "Workspace · Sample Ready"
+    - "Preflight · Needs Review"
+    - "Run · In Progress"
+    - "Run · Success + Receipt"
+    - "Error Recovery"
+
+resolved_decisions:
+  Q1: "Core follows current implementation; unimplemented Guard, DP, Burn, and sLM capabilities remain in a separate Future/Labs flow."
+  Q2: "Primary persona is a Python data or ML developer."
+  Q3: "Landing primary CTA opens a sample pipeline without installation or authentication."
+  Q4: "English is primary; Korean is a validation locale."
+  Q5: "Scope is the 8-state landing-to-receipt prototype."
+  Q6: "Visual direction is a light landing and calm-dark workspace without cyber-security clichés."
+
+approval:
+  approved: true
+  approved_by: user
+  approved_at: "2026-07-27T03:40:05+09:00"
+  source: INTAKE-2026-07-27.08

@@ -172,7 +172,7 @@ xazz run main.xzz      # 컴파일 + 파이프라인 실행
 
 `chart {}` 블록이 포함된 파이프라인을 실행하면 HTML 차트로 결과를 렌더링한다.
 
-![Xazz chart](screenshot_result_chart.png)
+![Xazz chart](docs/assets/screenshot_result_chart.png)
 
 > *예시: 파이프라인 실행 결과를 bar 차트로 렌더링. 차트 출력은 HTML 파일로 저장된다.*
 
@@ -180,7 +180,7 @@ xazz run main.xzz      # 컴파일 + 파이프라인 실행
 
 ## Visual IDE
 
-[![Xazz Visual IDE](screenshot_visual_ide.png)](https://github.com/xazzdev/Xazz-visual-ide)
+[![Xazz Visual IDE](docs/assets/screenshot_visual_ide.png)](https://github.com/xazzdev/Xazz-visual-ide)
 
 `.xzz` 파이프라인을 위한 그래픽 편집 및 실행 환경.  
 → [Xazz Visual IDE 저장소](https://github.com/xazzdev/Xazz-visual-ide)
@@ -253,7 +253,7 @@ cargo build --release -p xazz-runner
 
 ## 벤치마크
 
-![Xazz Benchmark](benches/x1zzLang_benchmark2.png)
+![Xazz Benchmark](benches/xazz_benchmark2.png)
 
 서울 공기질 데이터셋 340만 행을 기준으로 Xazz와 동일한 pandas 파이프라인을 비교했다.
 

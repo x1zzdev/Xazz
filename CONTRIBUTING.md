@@ -26,11 +26,15 @@ Xazz/
 ├── xazz-compiler/          Lexer, Parser, Codegen, Emitter
 ├── xazz-exec/              Polars + Burn execution engine (isolated crate)
 ├── xazz-runner/            Execution binary (spawned by CLI as subprocess)
-├── xazz-server/            REST API server (standalone)
-├── docs/                   Architecture and workspace documentation
-├── design/                 Product & UX design artifacts
-├── design-system/          UI design system
-├── spec/                   Product spec and discovery notes
+├── xazz-server/            REST API server (standalone, powers the visual IDE)
+├── visual-ide/             Node-based web IDE (React + @xyflow/react)
+├── docs/                   All documentation
+│   ├── ARCHITECTURE.md / WORKSPACE.md / result_report.md
+│   ├── design/             Product & UX design artifacts (incl. screenshots)
+│   ├── design-system/      UI design system
+│   ├── design-evidence/    Design evidence records (JSON)
+│   ├── spec/               Product spec and discovery notes
+│   └── assets/             Screenshots used by README
 ├── benches/                Benchmark scripts and results
 └── examples/               Example .xzz scripts and CSV data
 ```

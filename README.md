@@ -172,7 +172,7 @@ xazz run main.xzz      # compile + execute pipeline
 
 After running a pipeline with a `chart {}` block, Xazz renders the result as an HTML chart:
 
-![Xazz chart](screenshot_result_chart.png)
+![Xazz chart](docs/assets/screenshot_result_chart.png)
 
 > *Example: pipeline execution result rendered as a bar chart. Chart output is written to an HTML file.*
 
@@ -180,7 +180,7 @@ After running a pipeline with a `chart {}` block, Xazz renders the result as an 
 
 ## Visual IDE
 
-[![Xazz Visual IDE](screenshot_visual_ide.png)](https://github.com/xazzdev/Xazz-visual-ide)
+[![Xazz Visual IDE](docs/assets/screenshot_visual_ide.png)](https://github.com/xazzdev/Xazz-visual-ide)
 
 A graphical editing and execution environment for `.xzz` pipelines.  
 → [Xazz Visual IDE repository](https://github.com/xazzdev/Xazz-visual-ide)
@@ -253,7 +253,7 @@ Place both `xazz` and `xazz-runner` in the same directory before use.
 
 ## Benchmark
 
-![Xazz Benchmark](benches/x1zzLang_benchmark2.png)
+![Xazz Benchmark](benches/xazz_benchmark2.png)
 
 The benchmark compares Xazz against an equivalent pandas pipeline on a 3.4M-row Seoul air quality dataset.
 
