@@ -231,14 +231,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!();
 
             for err in &result.errors {
-                println!("❌ [오류] {}", err.message);
+                let loc = if err.span.line > 0 {
+                    format!(" [{}행:{}열]", err.span.line, err.span.col)
+                } else {
+                    String::new()
+                };
+                println!("❌ [오류{}] {}", loc, err.message);
                 if let Some(s) = &err.ai_suggestion {
                     println!("   💡 {}", s);
                 }
                 println!();
             }
             for warn in &result.warnings {
-                println!("⚠️  [경고] {}", warn.message);
+                let loc = if warn.span.line > 0 {
+                    format!(" [{}행:{}열]", warn.span.line, warn.span.col)
+                } else {
+                    String::new()
+                };
+                println!("⚠️  [경고{}] {}", loc, warn.message);
             }
 
             if result.is_err() {

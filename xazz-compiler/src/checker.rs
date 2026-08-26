@@ -67,6 +67,10 @@ struct Analyzer {
     trained_vars: HashSet<String>,
     errors: Vec<CompileError>,
     warnings: Vec<CompileError>,
+    /// 명령문별 토큰 슬라이스 (check_source 경유 시 Some, Span 해석용)
+    stmt_tokens: Option<Vec<Vec<crate::Token>>>,
+    /// 현재 처리 중인 명령문 인덱스
+    cur_stmt: usize,
 }
 
 /// 변수에 대한 추론된 컬럼 스키마
@@ -84,6 +88,8 @@ pub fn check_program(program: &Program) -> CheckResult {
         trained_vars: HashSet::new(),
         errors: Vec::new(),
         warnings: Vec::new(),
+        stmt_tokens: None,
+        cur_stmt: 0,
     };
     a.check_program(program);
     CheckResult {
@@ -93,24 +99,103 @@ pub fn check_program(program: &Program) -> CheckResult {
 }
 
 /// 소스 문자열을 렉싱·파싱·검사한 결과를 반환한다.
+///
+/// 렉서/파서 에러가 있으면 (Err, 빈 결과) 를 반환한다.
+/// 성공 시 CheckResult 의 각 진단에는 소스 내 라인/컬럼(Span)이 첨부된다.
 pub fn check_source(source: &str) -> (crate::CompileResult<crate::Program>, CheckResult) {
     let tokens = match crate::Lexer::new(source).tokenize() {
         Ok(t) => t,
         Err(e) => return (Err(e), CheckResult::default()),
     };
-    match crate::Parser::new(tokens).parse() {
+    match crate::Parser::new(tokens.clone()).parse() {
         Ok(program) => {
-            let result = check_program(&program);
-            (Ok(program), result)
+            let stmt_tokens = segment_statements(&tokens, program.stmts.len());
+            let mut a = Analyzer {
+                schemas: HashMap::new(),
+                models: HashMap::new(),
+                vars: HashMap::new(),
+                trained_vars: HashSet::new(),
+                errors: Vec::new(),
+                warnings: Vec::new(),
+                stmt_tokens: Some(stmt_tokens),
+                cur_stmt: 0,
+            };
+            for stmt in &program.stmts {
+                a.check_stmt(stmt);
+                a.cur_stmt += 1;
+            }
+            (
+                Ok(program),
+                CheckResult {
+                    errors: a.errors,
+                    warnings: a.warnings,
+                },
+            )
         }
         Err(e) => (Err(e), CheckResult::default()),
     }
+}
+
+/// 토큰 스트림을 명령문 단위로 분할한다.
+///
+/// 파서는 명령문을 `type` / `v` / `mut` / `model` / `run` 또는
+/// `Ident |> ...`(expression statement) 로 시작한다. 이 경계에서 잘라
+/// 명령문별 토큰 슬라이스를 반환한다. (개수는 AST stmts 와 일치해야 함)
+fn segment_statements(tokens: &[crate::Token], expected: usize) -> Vec<Vec<crate::Token>> {
+    use crate::TokenKind;
+
+    let starts_stmt = |k: &TokenKind| {
+        matches!(
+            k,
+            TokenKind::Type | TokenKind::V | TokenKind::Mut | TokenKind::Model | TokenKind::Run
+        )
+    };
+
+    let mut segments: Vec<Vec<crate::Token>> = Vec::new();
+    let mut current: Vec<crate::Token> = Vec::new();
+
+    for i in 0..tokens.len() {
+        let tk = &tokens[i].kind;
+        // expression statement 경계: `Ident |> ...` 는 직전 토큰이 문장 종결자
+        // (`;` `}` `)`) 일 때만 새 명령문으로 간주한다. 이는 `v x = ... |> ...`
+        // 처럼 파이프라인 중간에 등장하는 Ident 를 오분할하는 것을 방지한다.
+        let prev_is_terminator = current
+            .last()
+            .map(|t| {
+                matches!(
+                    &t.kind,
+                    TokenKind::Semicolon | TokenKind::RBrace | TokenKind::RParen
+                )
+            })
+            .unwrap_or(false);
+        let expr_boundary = matches!(tk, TokenKind::Ident(_))
+            && matches!(
+                tokens.get(i + 1).map(|t| &t.kind),
+                Some(TokenKind::Pipeline)
+            )
+            && prev_is_terminator;
+
+        if !current.is_empty() && (starts_stmt(tk) || expr_boundary) {
+            segments.push(std::mem::take(&mut current));
+        }
+        current.push(tokens[i].clone());
+    }
+    if !current.is_empty() {
+        segments.push(current);
+    }
+
+    // 경계 감지 실패 시 전체를 하나로 묶어 반환 (동작은 보장)
+    if segments.len() != expected {
+        return vec![tokens.to_vec()];
+    }
+    segments
 }
 
 impl Analyzer {
     fn check_program(&mut self, program: &Program) {
         for stmt in &program.stmts {
             self.check_stmt(stmt);
+            self.cur_stmt += 1;
         }
     }
 
@@ -524,17 +609,67 @@ impl Analyzer {
     }
 
     fn error(&mut self, kind: ErrorKind, message: impl Into<String>) {
-        self.errors
-            .push(CompileError::new(kind, crate::Span::new(0, 0), message));
+        let message = message.into();
+        let span = self.resolve_span(&message);
+        self.errors.push(CompileError::new(kind, span, message));
     }
 
     fn warning(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        let span = self.resolve_span(&message);
         self.warnings.push(CompileError::new(
             ErrorKind::Other("경고".to_string()),
-            crate::Span::new(0, 0),
+            span,
             message,
         ));
     }
+
+    /// 진단 메시지에서 피식별자(첫 번째 `'...'`)를 뽑아 현재 명령문의 토큰에서
+    /// 해당 식별자의 Span(라인/컬럼)을 찾아 반환한다.
+    ///
+    /// - stmt_tokens 가 없으면(내부/런타임 경유) Span(0,0) 반환
+    /// - 식별자를 찾지 못하면 명령문 시작 토큰의 Span 으로 폴백
+    fn resolve_span(&self, message: &str) -> crate::Span {
+        use crate::TokenKind;
+
+        let Some(stmts) = &self.stmt_tokens else {
+            return crate::Span::new(0, 0);
+        };
+        let Some(tokens) = stmts.get(self.cur_stmt) else {
+            return crate::Span::new(0, 0);
+        };
+
+        // 첫 번째 '...' 안의 식별자 추출
+        let name = extract_quoted(message);
+
+        // 식별자 토큰 매칭 (Ident 또는 예약 키워드)
+        let matched = tokens.iter().find(|t| match &t.kind {
+            TokenKind::Ident(n) => Some(n.as_str()) == name.as_deref(),
+            other => {
+                format!("{:?}", other).to_lowercase()
+                    == name
+                        .as_deref()
+                        .map(|s| s.to_lowercase())
+                        .unwrap_or_default()
+            }
+        });
+
+        match matched {
+            Some(t) => t.span.clone(),
+            None => tokens
+                .first()
+                .map(|t| t.span.clone())
+                .unwrap_or_else(|| crate::Span::new(0, 0)),
+        }
+    }
+}
+
+/// 메시지의 첫 번째 `'...'` 사이 문자열을 반환한다. 없으면 None.
+fn extract_quoted(message: &str) -> Option<String> {
+    let start = message.find('\'')? + 1;
+    let rest = &message[start..];
+    let end = rest.find('\'')?;
+    Some(rest[..end].to_string())
 }
 
 /// 스키마 field_type 문자열 → ColType 변환 (Option<T> 지원)
@@ -803,5 +938,54 @@ mod tests {
                 .iter()
                 .any(|k| k.contains("SafeLoadViolation"))
         );
+    }
+
+    // ── Span(위치) 해석 검증 ──────────────────────────────────────────────────
+
+    #[test]
+    fn source_diagnostics_carry_line_numbers() {
+        let src = "type X = { a: string, val: float };\nv bad = load(\"x.csv\") :: X |> filter(missing_col > 1);\n";
+        let (parse, r) = check_source(src);
+        assert!(parse.is_ok(), "파싱 실패: {:?}", parse);
+        assert!(r.is_err(), "오류가 있어야 함");
+        let err = &r.errors[0];
+        assert!(
+            err.span.line >= 2,
+            "오류 Span 라인이 2행이어야 함(실제 {}): {}",
+            err.span.line,
+            err.message
+        );
+        assert!(err.span.line > 0, "Span 이 0,0 이면 안 됨");
+    }
+
+    #[test]
+    fn source_diagnostics_point_to_offending_identifier() {
+        // missing_col 은 두 번째 명령문에만 있으므로 그쪽 Span(라인 2)을 가리켜야 함
+        let src = "type X = { missing_col: float };\nv bad = load(\"x.csv\") :: X |> filter(other_col > 1);\n";
+        let (parse, r) = check_source(src);
+        assert!(parse.is_ok());
+        let err = r
+            .errors
+            .iter()
+            .find(|e| e.message.contains("other_col"))
+            .unwrap();
+        assert!(
+            err.span.line == 2,
+            "오타 컬럼이 라인 2에 위치해야 함(실제 {}): {}",
+            err.span.line,
+            err.message
+        );
+    }
+
+    #[test]
+    fn program_check_has_no_span() {
+        // check_program(내부 경로)는 Span 이 없어 0,0 을 유지
+        let r = check(
+            "type X = { a: string };
+             v bad = load(\"x.csv\") :: X |> filter(nope > 1);",
+        );
+        let err = &r.errors[0];
+        assert_eq!(err.span.line, 0);
+        assert_eq!(err.span.col, 0);
     }
 }
