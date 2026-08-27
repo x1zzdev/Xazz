@@ -17,6 +17,12 @@ __pycache__/
 # IDE data folder (runtime uploads from xazz-server)
 uploads/
 
+# Environment / local secrets
+.env
+
+# Windows metadata artifacts
+*.Zone.Identifier
+
 # Personal development notes (not for distribution)
 commitGuide.txt
 
