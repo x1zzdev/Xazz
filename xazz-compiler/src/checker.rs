@@ -426,8 +426,12 @@ impl Analyzer {
                     self.check_column(group_col, "groupBy", &cols);
                     pending_group = Some(group_col.clone());
                 }
-                PipelineOp::Count(Some(c))
-                | PipelineOp::Sum(c)
+                // count(col) 은 행 수를 세는 연산이라 컬럼 타입과 무관하다 — 존재성만 검사
+                PipelineOp::Count(Some(c)) => {
+                    self.check_column(c, "count", &cols);
+                    pending_group = None;
+                }
+                PipelineOp::Sum(c)
                 | PipelineOp::Mean(c)
                 | PipelineOp::Min(c)
                 | PipelineOp::Max(c)

@@ -29,6 +29,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
 
 mod audit_log;
 mod guardrail;
@@ -90,6 +91,11 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
+    let web_root = resolve_web_dir();
+    if web_root.is_some() {
+        println!("[xazz-server] 📁 Serving IDE from {:?}", web_root);
+    }
+
     let app = Router::new()
         .route("/execute", post(handle_execute))
         .route("/schema", post(handle_schema))
@@ -104,11 +110,59 @@ async fn main() {
         .route("/security/remediate", post(handle_remediate))
         .layer(cors);
 
+    let app = match web_root {
+        Some(root) => app.fallback_service(
+            ServeDir::new(root).not_found_service(serve_index()),
+        ),
+        None => app,
+    };
+
     let addr = "127.0.0.1:8005";
     println!("[xazz-server] 🚀 Listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+// ── Static IDE serving ───────────────────────────────────────────────────────
+
+/// 빌드된 Visual IDE 정적 자산 디렉터리를 찾는다. 없으면 None.
+///
+/// 우선순위:
+///   1. 환경변수 `XAZZ_WEB_DIR` (명시적 지정)
+///   2. 실행 바이너리 옆의 `web/`
+///   3. 실행 바이너리 상위의 `web/` (pkg에서 bin/ 과 web/ 를 나란히 둘 경우)
+///   4. 현재 작업 디렉터리의 `web/`
+fn resolve_web_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("XAZZ_WEB_DIR") {
+        let p = PathBuf::from(dir);
+        if p.join("index.html").exists() {
+            return Some(p);
+        }
+    }
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            candidates.push(parent.join("web"));
+            if let Some(grand) = parent.parent() {
+                candidates.push(grand.join("web"));
+            }
+        }
+    }
+    candidates.push(PathBuf::from("web"));
+
+    candidates
+        .into_iter()
+        .find(|p| p.join("index.html").exists())
+}
+
+/// SPA 폴백 — ServeDir 에서 매치되는 파일이 없으면 index.html 을 반환한다.
+/// Vite SPA 라우터(/editor, /monitor 등)가 클라이언트 사이드에서 처리하도록 한다.
+fn serve_index() -> tower_http::services::ServeFile {
+    let web_root = resolve_web_dir().unwrap_or_else(|| PathBuf::from("web"));
+    let index = web_root.join("index.html");
+    tower_http::services::ServeFile::new(index)
 }
 
 // ── POST /execute ─────────────────────────────────────────────────────────────
@@ -650,6 +704,13 @@ async fn handle_remediate(
 // ── 유틸리티 ──────────────────────────────────────────────────────────────────
 
 fn find_xazz_exe() -> PathBuf {
+    // 0. 환경변수로 경로 고정 (배포 하드닝) — 지정되면 PATH 폴백을 절대 수행하지 않는다
+    if let Ok(pinned) = std::env::var("XAZZ_EXEC_PATH") {
+        if !pinned.trim().is_empty() {
+            return PathBuf::from(pinned);
+        }
+    }
+
     // 플랫폼별 실행 파일명
     let names: &[&str] = if cfg!(windows) {
         &["xazz.exe"]
@@ -675,6 +736,9 @@ fn find_xazz_exe() -> PathBuf {
         }
     }
     // 3. PATH fallback
+    eprintln!(
+        "[xazz WARN] 실행기 xazz 를 PATH 에서 찾았습니다 (운영 환경에서는 XAZZ_EXEC_PATH 로 절대 경로를 고정하세요)"
+    );
     PathBuf::from("xazz")
 }
 

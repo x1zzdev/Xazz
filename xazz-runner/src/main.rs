@@ -178,6 +178,13 @@ fn resolve_exec_binary() -> PathBuf {
     #[cfg(not(target_os = "windows"))]
     let exec_name = "xazz-exec";
 
+    // 0. 환경변수로 경로 고정 (배포 하드닝) — 지정되면 PATH 폴백을 절대 수행하지 않는다
+    if let Ok(pinned) = std::env::var("XAZZ_EXEC_PATH") {
+        if !pinned.trim().is_empty() {
+            return PathBuf::from(pinned);
+        }
+    }
+
     // 현재 실행 파일 옆에서 찾기
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(dir) = current_exe.parent() {
@@ -189,5 +196,8 @@ fn resolve_exec_binary() -> PathBuf {
     }
 
     // PATH 폴백
+    eprintln!(
+        "[xazz WARN] 실행기 xazz-exec 를 PATH 에서 찾았습니다 (운영 환경에서는 XAZZ_EXEC_PATH 로 절대 경로를 고정하세요)"
+    );
     PathBuf::from(exec_name)
 }

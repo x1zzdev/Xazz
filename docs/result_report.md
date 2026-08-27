@@ -114,7 +114,8 @@ cd my-project
 | Phase 4 | 연산자 확장·join 개선·스키마 진화 | 진행 중 |
 | Phase 5 | Burn 딥러닝 계층(모델·학습·체크포인트), NQP | 딥러닝 완료 / NQP Experimental |
 | Phase 6 | DP 노이즈 주입 모듈 + Polars→Burn 데이터 변환 인터페이스 | 완료 |
-| Phase 7 | 정적 가드레일 + 파인튜닝 sLM 자동 보정 모듈 (GGUF/Ollama 서빙) | 완료 |
+| Phase 7 | 정적 가드레일 + 자동 보정 모듈 (sLM 어댑터·QLoRA 파이프라인) | 완료 |
+| Phase 8 | sLM 실학습(QLoRA) · GGUF 배포 · 보정 정확도 측정 | 진행 중 |
 
 향후 계획: Phase 4(연산자·조인·스키마 진화) 및 Phase 5(NQP 쿼리 플래너 고도화) 완성, GPU 백엔드 및 분산 학습 지원, sLM 파인튜닝 데이터·보정 정확도 고도화 및 다양한 언어 모델 확장, 커뮤니티 기여·유지보수 체계 지속 강화.
 

@@ -687,6 +687,14 @@ fn execute_var_decl(
                     lf_raw
                 };
 
+                // 스키마 Null/타입 검증은 집계 등 파이프라인 연산 적용 전,
+                // load() 직후의 원본(브리지/캐스트된) 프레임을 대상으로 수행한다.
+                // 결과 프레임을 대상으로 하면 집계로 사라진 컬럼이 "찾을 수 없음" 오탐이 된다.
+                if let Some(ref fields) = schema_fields {
+                    let df_loaded = lf_bridged.clone().collect()?;
+                    validate_schema_types(&df_loaded, schema_name, fields);
+                }
+
                 (lf_bridged, schema_fields)
             }
 
@@ -1040,20 +1048,7 @@ fn execute_var_decl(
 
     let df = lf.collect()?;
 
-    let has_rename_or_select = ops
-        .iter()
-        .any(|op| matches!(op, PipelineOp::Rename { .. } | PipelineOp::Select(_)));
-    if let Some(ref fields) = schema_fields_opt {
-        if !has_rename_or_select {
-            let schema_name = match source {
-                PipelineSource::Load { schema_name, .. } => schema_name.as_str(),
-                _ => "unknown",
-            };
-            validate_schema_types(&df, schema_name, fields);
-        }
-    }
-
-    let _ = (var_name, has_count_flag);
+    let _ = (var_name, has_count_flag, schema_fields_opt);
 
     Ok(Some(df))
 }
