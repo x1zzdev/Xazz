@@ -1,0 +1,18 @@
+// Xazz 시연 2 — Burn 딥러닝 선언 + 학습
+type Air = {
+    observed_at: string,
+    district: string,
+    pm25: Option<float>,
+    temperature_c: Option<float>,
+};
+
+v dataset = load("visual-ide/data/seoul_air_quality.csv") :: Air
+    |> fillNull("pm25", strategy: "mean")
+    |> fillNull("temperature_c", strategy: "mean");
+
+model AirPredictor {
+    Dense(16) -> ReLU() -> Dense(8) -> ReLU() -> Dense(1)
+}
+
+run dataset
+    |> train(AirPredictor, target: "pm25", epochs: 5, lr: 0.01);

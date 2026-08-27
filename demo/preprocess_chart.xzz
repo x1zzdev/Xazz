@@ -1,0 +1,13 @@
+// Xazz 시연 1 — Polars 전처리 + 차트
+type Air = {
+    observed_at: string,
+    district: string,
+    pm25: Option<float>,
+    temperature_c: Option<float>,
+};
+
+v by_district = load("visual-ide/data/seoul_air_quality.csv") :: Air
+    |> fillNull("pm25", strategy: "mean")
+    |> groupBy("district")
+    |> mean("pm25")
+    |> orderBy("pm25", desc: true);

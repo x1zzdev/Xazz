@@ -1,0 +1,13 @@
+// Xazz 시연 3 — 차등 프라이버시(Laplace) 노이즈 + 예산 리포트
+type Air = {
+    observed_at: string,
+    district: string,
+    pm25: Option<float>,
+    temperature_c: Option<float>,
+};
+
+v dp_stats = load("visual-ide/data/seoul_air_quality.csv") :: Air
+    |> fillNull("pm25", strategy: "mean")
+    |> groupBy("district")
+    |> mean("pm25")
+    |> withDp(epsilon: 1.0, mechanism: laplace, sensitivity: 1.0, seed: 42);
