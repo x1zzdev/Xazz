@@ -100,7 +100,9 @@ xazz CLI ──spawn──► xazz-runner ──link──► xazz-exec ──li
 [독립 크레이트 — CLI 의존성 그래프 외부]
 
 xazz-sde:    polars + rayon + xazz-compiler (독립 바이너리)
-xazz-server: axum + tokio (독립 바이너리, xazz-compiler 미사용)
+xazz-server: axum + tokio + xazz-compiler (독립 바이너리 — Polars 는 링크하지 않음)
+             └ Policy-as-Code 가드레일을 /execute 앞단에서 강제하기 위해
+               xazz-compiler(경량, Polars 없음)를 사용한다 (issue #2)
 ```
 
 ---
@@ -111,10 +113,10 @@ xazz-server: axum + tokio (독립 바이너리, xazz-compiler 미사용)
 |---|---|---|---|
 | `xazz` (CLI) | 인자 파싱, emit, import, check | 없음 | ✅ CLI 자신 |
 | `xazz-core` | AST/Token/Error 공유 타입 + DL 타입 (v0.3) | 없음 (serde만) | ✅ 간접 |
-| `xazz-compiler` | Lexer/Parser/Codegen/Emitter + DL 파싱 (v0.3) | 없음 | ✅ emit 명령어 |
+| `xazz-compiler` | Lexer/Parser/Codegen/Emitter + DL 파싱 + Policy-as-Code 가드레일 (v0.7) | 없음 | ✅ emit · policy 명령어 |
 | `xazz-exec` | Polars 실행 엔진 + Burn 플레이스홀더 (v0.3) | **Polars, encoding_rs** | ❌ 없음 |
 | `xazz-runner` | 실행 바이너리 | xazz-exec 통해 간접 | ❌ 없음 |
-| `xazz-server` | REST API + 보안/감사 엔드포인트 (v0.3) | axum, tokio, sha2 | ❌ 없음 |
+| `xazz-server` | REST API + 보안/감사/가드레일 엔드포인트 (v0.7) | axum, tokio, sha2, xazz-compiler | ❌ 없음 |
 
 ---
 

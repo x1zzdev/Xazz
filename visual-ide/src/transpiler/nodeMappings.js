@@ -297,17 +297,21 @@ export const NODE_MAPPINGS = {
   },
 
   // ── guardrail (issue #2 — Policy-as-Code 정적 가드레일) ──────────────────
-  // 아직 백엔드 미구현: 명확한 placeholder 주석으로 생성.
-  // #2 완료 시 실제 API 호출/연산자로 교체하면 된다.
+  // 가드레일은 파이프라인 연산자가 아니라 **실행 전 게이트**다. 따라서 .xzz
+  // 구문을 만들어 내지 않는다 — 서버(POST /execute)와 실행 엔진(xazz-exec)이
+  // 정책을 자동으로 강제하며, 위반이면 실행 자체가 일어나지 않는다.
+  //
+  // 이 노드는 그래프에서 "여기서 정책이 적용된다"는 사실을 보여 주는 표식이며,
+  // 생성 코드에는 주석만 남긴다. 실제 판정은 다음으로 확인한다:
+  //   · POST /security/policy/check  (api.js: checkPolicy)
+  //   · POST /security/remediate     (api.js: remediateCode)
   guardrail: (node) => {
     const params = node.data?.parameters || {};
     const policy = params.policy || 'PII';
-    const action = params.action || 'block';
     return {
       type: 'pipeline',
       lines: [
-        `// [guardrail:${policy}] Policy-as-Code 정적 가드레일 — 위반 시 ${action}`,
-        `// TODO(#2): sLM 코드 자동 보정 API 로 교체 예정`,
+        `// [guardrail:${policy}] Policy-as-Code 게이트 — 실행 전 자동 적용 (차단 시 HTTP 422)`,
       ],
     };
   },

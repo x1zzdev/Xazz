@@ -199,6 +199,7 @@ A graphical editing and execution environment for `.xzz` pipelines.
 | `xazz emit rust` | Transpile `.xzz` → Rust source (Polars LazyFrame + Burn) | Stable |
 | `model {}` + `train()` | Burn deep-learning model declaration & training (Adam + MSE, CPU backend) | Stable |
 | `xazz check` | Static analysis via Neural Query Planner | Experimental |
+| `xazz policy` | Policy-as-Code security guardrail — blocks PII/secret leaks pre-execution, `--fix` proposes verified safe code ([docs](docs/SECURITY_GUARDRAIL.md)) | Stable |
 | `xazz sde` | Synthetic data generation engine integration | Preview |
 | Built-in `chart {}` | Render pipeline results as bar / line / pie / scatter | Stable |
 | `Option<T>` type system | Null-safe column declarations, `fillNull` operator | Stable |

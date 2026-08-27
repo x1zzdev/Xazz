@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# 정적 보안 가드레일 (Policy-as-Code) — Polars/Tokio 를 링크하지 않는 경량 크레이트
+xazz-compiler = { version = "0.2.1", path = "../xazz-compiler" }
+
 axum = { version = "0.8", features = ["json", "multipart"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -15,3 +18,12 @@ encoding_rs = "0.8"
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
+
+# 온프레미스 sLM(Ollama) 호출용 로컬 HTTP 클라이언트.
+# axum 이 이미 hyper 1.x 를 끌어오므로 새 의존성 트리는 늘어나지 않는다.
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "tokio"] }
+http-body-util = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "macros", "rt-multi-thread"] }

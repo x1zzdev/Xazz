@@ -7252,6 +7252,9 @@ dependencies = [
  "chrono",
  "csv",
  "encoding_rs",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "serde",
  "serde_json",
  "sha2",
@@ -7259,6 +7262,7 @@ dependencies = [
  "tokio",
  "tower-http",
  "uuid",
+ "xazz-compiler",
 ]
 
 [[package]]

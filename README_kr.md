@@ -197,6 +197,7 @@ xazz run main.xzz      # 컴파일 + 파이프라인 실행
 | `xazz emit rust` | `.xzz` → Rust 소스 변환 (Polars LazyFrame + Burn) | Stable |
 | `model {}` + `train()` | Burn 딥러닝 모델 선언·학습 (Adam + MSE, CPU 백엔드) | Stable |
 | `xazz check` | Neural Query Planner 기반 정적 분석 | Experimental |
+| `xazz policy` | Policy-as-Code 보안 가드레일 — 실행 전 개인정보·비밀키 유출 차단, `--fix` 로 검증된 안전 코드 제안 ([문서](docs/SECURITY_GUARDRAIL.md)) | Stable |
 | `xazz sde` | 합성 데이터 생성 엔진 연동 | Preview |
 | 내장 `chart {}` | 파이프라인 결과를 bar / line / pie / scatter 차트로 렌더링 | Stable |
 | `Option<T>` 타입 시스템 | null-safe 컬럼 선언, `fillNull` 연산자 | Stable |
