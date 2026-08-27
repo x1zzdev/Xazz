@@ -111,9 +111,7 @@ async fn main() {
         .layer(cors);
 
     let app = match web_root {
-        Some(root) => app.fallback_service(
-            ServeDir::new(root).not_found_service(serve_index()),
-        ),
+        Some(root) => app.fallback_service(ServeDir::new(root).not_found_service(serve_index())),
         None => app,
     };
 
