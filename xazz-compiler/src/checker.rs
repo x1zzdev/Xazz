@@ -508,6 +508,22 @@ impl Analyzer {
                 PipelineOp::Replace { col, .. } => {
                     self.check_column(col, "replace", &cols);
                 }
+
+                // ── v0.6 withDp — 인수 범위는 파서가 검증, 숫자형 컬럼 존재는 런타임이 검증 ──
+                PipelineOp::WithDp(args) => {
+                    // 노이즈 주입 후 숫자형 컬럼은 float 로 승격된다
+                    for (_, t) in cols.iter_mut() {
+                        if t.is_numeric() {
+                            *t = ColType::new("float", t.option);
+                        }
+                    }
+                    if args.epsilon > 10.0 {
+                        self.warning(format!(
+                            "withDp(epsilon: {}) : ε 이 10을 초과하면 프라이버시 보호 효과가 사실상 없습니다. 1.0 이하 권장.",
+                            args.epsilon
+                        ));
+                    }
+                }
             }
         }
 
