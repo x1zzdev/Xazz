@@ -257,11 +257,9 @@ pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), 
     }
 
     if noised_columns.is_empty() {
-        return Err(
-            "DP 에러: 노이즈를 적용할 숫자형 컬럼이 없습니다. \
+        return Err("DP 에러: 노이즈를 적용할 숫자형 컬럼이 없습니다. \
              withDp 는 집계 결과(count/sum/mean 등) 뒤에 사용하세요."
-                .to_string(),
-        );
+            .to_string());
     }
 
     let report = DpReport {
@@ -345,8 +343,7 @@ mod tests {
         )
         .unwrap();
 
-        let (noised, report) =
-            apply_dp(&frame, &test_args(DpMechanism::Laplace, 1.0, 42)).unwrap();
+        let (noised, report) = apply_dp(&frame, &test_args(DpMechanism::Laplace, 1.0, 42)).unwrap();
 
         // 문자열 컬럼은 그대로
         assert_eq!(

@@ -458,6 +458,5 @@ pub fn predict(
     Ok(out)
 }
 
-
 /// Layered model registry helper: <model 이름, LayerKind 목록>.
 pub type ModelRegistry = HashMap<String, Vec<LayerKind>>;
