@@ -246,6 +246,8 @@ pub fn run_pipeline(
     // 5-B: VarDecl 순차 실행 + SymbolTable 관리
     let mut symbol_table: HashMap<String, polars::frame::DataFrame> = HashMap::new();
     let mut model_table: HashMap<String, crate::dl::TrainedModel> = HashMap::new();
+    // 세션 프라이버시 예산 (ε-budget) — withDp 호출마다 차감, 초과 시 해당 파이프라인 거부
+    let mut dp_budget = crate::dp::PrivacyBudget::from_env();
     let mut pipeline_count = 0usize;
     let mut last_var_name: Option<String> = None;
 
@@ -267,6 +269,7 @@ pub fn run_pipeline(
                     &type_registry,
                     &model_registry,
                     &mut model_table,
+                    &mut dp_budget,
                 ) {
                     Ok(Some(df)) => {
                         eprintln!(
@@ -311,6 +314,7 @@ pub fn run_pipeline(
                     &type_registry,
                     &model_registry,
                     &mut model_table,
+                    &mut dp_budget,
                 ) {
                     Ok(Some(df)) => {
                         eprintln!(
@@ -618,6 +622,7 @@ fn execute_var_decl(
     type_registry: &HashMap<String, Vec<StructField>>,
     model_registry: &HashMap<String, Vec<LayerKind>>,
     model_table: &mut HashMap<String, crate::dl::TrainedModel>,
+    dp_budget: &mut crate::dp::PrivacyBudget,
 ) -> Result<Option<polars::frame::DataFrame>, Box<dyn std::error::Error>> {
     use polars::prelude::{IntoLazy, JoinArgs, SortMultipleOptions, col, lit};
 
@@ -761,6 +766,35 @@ fn execute_var_decl(
                 let seed_u64 = seed.map(|s| s as u64);
                 let sampled = snapshot.sample_n_literal(*n as usize, false, false, seed_u64)?;
                 lf = sampled.lazy();
+            }
+
+            // ── v0.6 withDp(epsilon: ...) — 차등 프라이버시 노이즈 주입 ──────
+            PipelineOp::WithDp(dp_args) => {
+                // 1) 세션 ε-budget 차감 — 초과 시 파이프라인 전체 거부 (재구성 공격 방어)
+                dp_budget.spend(dp_args.epsilon)?;
+
+                // 2) 현재까지의 파이프라인을 collect 후 출력 섭동(output perturbation)
+                let snapshot = lf.clone().collect()?;
+                let (noised, report) = crate::dp::apply_dp(&snapshot, dp_args)?;
+
+                // 3) 감사로그 마커 — 프론트엔드/증적 시스템이 파싱 가능한 두 줄 출력
+                println!("[xazz:dp]");
+                println!(
+                    "{}",
+                    serde_json::to_string(&report).unwrap_or_else(|_| "{}".to_string())
+                );
+                eprintln!(
+                    "[xazz] DP 적용: {} (ε={}, Δf={}, 노이즈 파라미터={:.4}) — 컬럼 {:?} | 예산 {:.2}/{:.2} 사용",
+                    report.mechanism,
+                    report.epsilon,
+                    report.sensitivity,
+                    report.noise_param,
+                    report.noised_columns,
+                    dp_budget.spent(),
+                    dp_budget.total(),
+                );
+
+                lf = noised.lazy();
             }
 
             PipelineOp::OrderBy {
