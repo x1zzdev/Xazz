@@ -777,12 +777,16 @@ fn execute_var_decl(
                 let snapshot = lf.clone().collect()?;
                 let (noised, report) = crate::dp::apply_dp(&snapshot, dp_args)?;
 
-                // 3) 감사로그 마커 — 프론트엔드/증적 시스템이 파싱 가능한 두 줄 출력
+                // 3) 감사로그 마커 — 프론트엔드/증적 시스템이 파싱 가능한 두 줄 출력.
+                //    프라이버시 예산 게이지를 그릴 수 있도록 누적 spent/total 을 함께 실는다.
                 println!("[xazz:dp]");
-                println!(
-                    "{}",
-                    serde_json::to_string(&report).unwrap_or_else(|_| "{}".to_string())
-                );
+                let mut dp_json =
+                    serde_json::to_value(&report).unwrap_or_else(|_| serde_json::json!({}));
+                if let Some(obj) = dp_json.as_object_mut() {
+                    obj.insert("budget_spent".into(), serde_json::json!(dp_budget.spent()));
+                    obj.insert("budget_total".into(), serde_json::json!(dp_budget.total()));
+                }
+                println!("{}", dp_json);
                 eprintln!(
                     "[xazz] DP 적용: {} (ε={}, Δf={}, 노이즈 파라미터={:.4}) — 컬럼 {:?} | 예산 {:.2}/{:.2} 사용",
                     report.mechanism,

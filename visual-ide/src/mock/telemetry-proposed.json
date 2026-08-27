@@ -4,9 +4,9 @@
   "_source": "none — no such endpoint exists in xazz-server",
   "_note": "This file is a UI-side proposal for a response shape the backend does not implement. Every number here is illustrative structure. It must never be rendered as a measurement, and no panel consuming it may use a success, warning, or brand colour.",
   "privacy_budget": {
-    "maturity": "Research",
-    "proposed_endpoint": "GET /privacy/budget",
-    "blocking_gap": "No DP accountant exists in xazz-core, xazz-compiler, xazz-exec, or xazz-server.",
+    "maturity": "Implemented · measured via [xazz:dp]",
+    "measured_endpoint": "POST /execute → response.dp",
+    "note": "DP is implemented in xazz-exec (PrivacyBudget + apply_dp) and surfaced by xazz-server as response.dp. This file is now only a UI fallback shape for a session-level ledger the backend does not yet emit; it must never render as a measurement.",
     "unit": "epsilon",
     "total": 1.0,
     "spent": 0.42,

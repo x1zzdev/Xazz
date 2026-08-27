@@ -313,17 +313,16 @@ export const NODE_MAPPINGS = {
   },
 
   // ── dp (issue #3 — 차등 프라이버시 노이즈) ──────────────────────────────
-  // 플레이스홀더: #3 구현 시 Laplace/Gaussian 실제 메커니즘으로 교체.
+  // v0.6 구현 완료: |> withDp(epsilon, mechanism, sensitivity) 실제 구문을 생성한다.
+  // 노드는 집계(mean/sum/count 등) 뒤에 배치되어야 숫자형 컬럼에 노이즈가 주입된다.
   dp: (node) => {
     const params = node.data?.parameters || {};
     const mech = params.mechanism || 'laplace';
     const eps = params.epsilon ?? 1.0;
+    const sens = params.sensitivity ?? 1.0;
     return {
       type: 'pipeline',
-      lines: [
-        `// [dp:${mech}] Differential Privacy 노이즈 주입 · ε=${eps}`,
-        `// TODO(#3): Polars-Burn 바인딩 시 실제 DP 메커니즘으로 교체 예정`,
-      ],
+      lines: [`|> withDp(epsilon: ${eps}, mechanism: ${mech}, sensitivity: ${sens})`],
     };
   },
 };

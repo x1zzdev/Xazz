@@ -3820,6 +3820,20 @@ summary:focus-visible,
   border-right: 2px dashed var(--dark-text-3);
 }
 
+/* Measured budget: a real [xazz:dp] report returned, so the consumed epsilon
+   is a solid fill, not an outline. The two states differ in fill, not colour
+   alone. */
+.monitor-budget--measured .monitor-budget__track {
+  border-style: solid;
+  border-color: var(--dark-control-border);
+}
+
+.monitor-budget--measured .monitor-budget__track i {
+  background: var(--success-dark);
+  border-right: none;
+  border-radius: 3px;
+}
+
 .monitor-budget__legend {
   display: flex;
   justify-content: space-between;

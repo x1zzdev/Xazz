@@ -665,6 +665,12 @@ function formatCell(value) {
   return String(value)
 }
 
+function fmtEpsilon(value) {
+  const v = Number(value)
+  if (!Number.isFinite(v)) return '—'
+  return String(parseFloat(v.toPrecision(6)))
+}
+
 function DeltaPanel({ runResult }) {
   const real = Array.isArray(runResult?.rows)
   if (real) {
@@ -920,6 +926,7 @@ function Receipt({ hash, runState, runResult, execError }) {
   const isSuccess = runState === 'success'
   const realRows = Array.isArray(runResult?.rows) ? runResult.rows.length : null
   const training = runResult?.training
+  const dpReport = runResult?.dp
 
   if (!isError && !isSuccess) {
     const isRunning = runState === 'running'
@@ -1047,7 +1054,11 @@ function Receipt({ hash, runState, runResult, execError }) {
         </div>
         <div>
           <dt>Policy / DP</dt>
-          <dd>Not available in this version · Research</dd>
+          <dd>
+            {dpReport
+              ? `${dpReport.mechanism} · ε ${fmtEpsilon(dpReport.epsilon)} · ${fmtEpsilon(dpReport.budget_spent ?? dpReport.epsilon)}/${fmtEpsilon(dpReport.budget_total)} spent`
+              : 'No DP query this run'}
+          </dd>
         </div>
         <div>
           <dt>Artifact</dt>
@@ -1495,6 +1506,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
                 runState={runState}
                 training={runResult?.training}
                 model={runResult?.model}
+                dp={runResult?.dp}
               />
             ) : view === 'edit' ? (
               <DagEditor onCodeChange={setDagCode} />

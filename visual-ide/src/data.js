@@ -197,6 +197,7 @@ export const codeLines = [
   'v result = safe |> select([observed_at, district, pm25, temperature_c])',
   'v trained = result |> train(AirPredictor, target: "pm25", epochs: 3, lr: 0.01)',
   'v predicted = result |> predict(trained, as: "pm25_pred") |> take(5)',
+  'v dp_summary = result |> groupBy("district") |> mean("pm25") |> withDp(epsilon: 1.0, mechanism: laplace, seed: 42)',
 ]
 
 export const runnableCode = codeLines.join('\n')

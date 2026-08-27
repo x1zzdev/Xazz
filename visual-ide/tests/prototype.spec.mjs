@@ -331,16 +331,21 @@ test('monitor view separates a measured contract from a proposed one', async ({
   await expect(burn.getByText('209').first()).toBeVisible()
   await expect(burn.getByText('0.0417').first()).toBeVisible()
 
-  // The unimplemented panels carry a permanent maturity badge and synthetic scope,
-  // and must never present a number as measured.
-  await expect(privacy.getByLabel('Maturity: Research')).toBeVisible()
+  // The privacy capability is implemented: with no withDp(...) query this run
+  // it stays Beta and empty, and never presents a number as measured.
+  await expect(privacy.getByLabel('Maturity: Beta')).toBeVisible()
+  await expect(
+    privacy.getByText('No withDp(...) query ran in this Full Run'),
+  ).toBeVisible()
+  await expect(privacy.getByText('Not available in this version').first()).toBeVisible()
+
+  // The resource panel is not implemented: it keeps a permanent maturity badge,
+  // synthetic scope, and hollow bars.
   await expect(resource.getByLabel('Maturity: Planned')).toBeVisible()
-  for (const panel of [privacy, resource]) {
-    await expect(
-      panel.getByText('Synthetic structure · not measured · proposed contract'),
-    ).toBeVisible()
-    await expect(panel.getByText('Not available in this version').first()).toBeVisible()
-  }
+  await expect(
+    resource.getByText('Synthetic structure · not measured · proposed contract'),
+  ).toBeVisible()
+  await expect(resource.getByText('Not available in this version').first()).toBeVisible()
 
   // A proposed bar is hollow: it has no filled background.
   const proposedBar = resource.locator('.monitor-bars__fill--proposed').first()

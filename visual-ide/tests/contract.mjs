@@ -166,8 +166,11 @@ assert.match(
   'compile node evidence must cite the parameter count the fixture reports',
 )
 
-// Research/Planned panels stay Research/Planned, and never borrow a success colour.
-assert.match(monitor, /maturity="Research"/)
+// Implemented panels keep an honest "not yet measured" state; unimplemented
+// panels stay proposed and hollow. No panel borrows a success colour.
+assert.match(monitor, /contract="implemented"/)
+assert.match(monitor, /contract="measured"/)
+assert.match(monitor, /maturity="Real"/)
 assert.match(monitor, /maturity="Planned"/)
 assert.match(monitor, /contract="proposed"/)
 assert.match(monitor, /Synthetic structure · not measured · proposed contract/)

@@ -47,7 +47,7 @@ export const DAG_DEFAULT_PARAMS = {
   train: { modelName: 'Predictor', modelVar: 'predictor_model', target: '', epochs: 10, lr: 0.01 },
   predict: { modelVar: 'predictor_model', as: 'pred' },
   guardrail: { policy: 'PII', action: 'block' },
-  dp: { mechanism: 'laplace', epsilon: 1.0 },
+  dp: { mechanism: 'laplace', epsilon: 1.0, sensitivity: 1.0 },
 }
 
 /**
@@ -111,6 +111,7 @@ export const NODE_PARAM_FIELDS = {
   dp: [
     { key: 'mechanism', label: '메커니즘', type: 'select', options: ['laplace', 'gaussian'] },
     { key: 'epsilon', label: 'Privacy Budget (ε)', type: 'number', step: '0.1' },
+    { key: 'sensitivity', label: '민감도 (Δf)', type: 'number', step: '0.1' },
   ],
 }
 

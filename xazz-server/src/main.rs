@@ -45,6 +45,10 @@ struct ExecuteResponse {
     stdout: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     training: Option<Value>,
+    /// `[xazz:dp]` 마커에서 파싱한 차등 프라이버시 감사 리포트 (v0.6).
+    /// withDp(...) 미사용 시 None — 프론트엔드는 이를 "예산 미소모"로 표시한다.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dp: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     diagnostics: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -130,8 +134,8 @@ async fn handle_execute(
 
     let success = output.status.success();
 
-    // 4. stdout 파싱: [xazz:result], [xazz:chart], [xazz:train] 마커 추출
-    let (rows, schema, logs, training, diagnostics) = parse_stdout_markers(&stdout, &stderr);
+    // 4. stdout 파싱: [xazz:result], [xazz:chart], [xazz:train], [xazz:dp] 마커 추출
+    let (rows, schema, logs, training, dp, diagnostics) = parse_stdout_markers(&stdout, &stderr);
 
     // 5. 실행 이력 자동 감사 기록 (신뢰성 인프라 — 모든 연산 이력 영구 보존)
     //    실패해도 실행은 반환하되, 감사 기록 실패만 로그에 경고로 남긴다.
@@ -156,6 +160,7 @@ async fn handle_execute(
             logs,
             stdout,
             training,
+            dp,
             diagnostics,
             error: None,
         }))
@@ -168,25 +173,36 @@ async fn handle_execute(
             logs,
             stdout,
             training,
+            dp,
             diagnostics,
             error: Some(err_msg),
         }))
     }
 }
 
-/// stdout 에서 [xazz:result], [xazz:chart], [xazz:train], [xazz:diagnostics] 마커를 파싱한다.
+/// stdout 에서 [xazz:result], [xazz:chart], [xazz:train], [xazz:diagnostics], [xazz:dp] 마커를 파싱한다.
 fn parse_stdout_markers(
     stdout: &str,
     stderr: &str,
-) -> (Value, Value, Vec<String>, Option<Value>, Option<Value>) {
+) -> (
+    Value,
+    Value,
+    Vec<String>,
+    Option<Value>,
+    Option<Value>,
+    Option<Value>,
+) {
     let mut rows = json!([]);
     let mut schema = json!([]);
     let mut training: Option<Value> = None;
+    let mut dp: Option<Value> = None;
     let mut diagnostics: Option<Value> = None;
     let logs: Vec<String> = stderr.lines().map(|l| l.to_string()).collect();
 
-    for line in stdout.lines() {
-        let trimmed = line.trim();
+    let lines: Vec<&str> = stdout.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let trimmed = lines[i].trim();
         if let Some(json_part) = trimmed.strip_prefix("[xazz:result] ") {
             if let Ok(parsed) = serde_json::from_str::<Value>(json_part) {
                 if let Some(r) = parsed.get("rows") {
@@ -197,10 +213,18 @@ fn parse_stdout_markers(
                 }
             }
         }
-        // Burn 딥러닝 학습 결과 마커
+        // Burn 딥러닝 학습 결과 마커 (같은 줄에 JSON)
         if let Some(json_part) = trimmed.strip_prefix("[xazz:train] ") {
             if let Ok(parsed) = serde_json::from_str::<Value>(json_part) {
                 training = Some(parsed);
+            }
+        }
+        // 차등 프라이버시 감사 마커 — 두 줄: "[xazz:dp]" 다음 줄에 JSON 리포트.
+        if trimmed == "[xazz:dp]" {
+            let next = lines.get(i + 1).map(|l| l.trim()).unwrap_or("");
+            if let Ok(parsed) = serde_json::from_str::<Value>(next) {
+                dp = Some(parsed);
+                i += 1; // JSON 줄은 소비
             }
         }
         // 정적 의미 분석(Type Checker) 진단 마커
@@ -209,9 +233,10 @@ fn parse_stdout_markers(
                 diagnostics = Some(parsed);
             }
         }
+        i += 1;
     }
 
-    (rows, schema, logs, training, diagnostics)
+    (rows, schema, logs, training, dp, diagnostics)
 }
 
 // ── POST /schema ──────────────────────────────────────────────────────────────
@@ -526,6 +551,7 @@ fn internal_err(msg: String) -> (StatusCode, Json<ExecuteResponse>) {
             logs: vec![],
             stdout: String::new(),
             training: None,
+            dp: None,
             diagnostics: None,
             error: Some(msg),
         }),

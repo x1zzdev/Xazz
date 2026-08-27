@@ -3,6 +3,7 @@ import {
   Boxes,
   Cpu,
   FlaskConical,
+  ShieldCheck,
   ShieldQuestion,
 } from 'lucide-react'
 import { StatusBadge } from './Common'
@@ -10,7 +11,6 @@ import executeResponse from '../mock/execute-response.json'
 import proposedTelemetry from '../mock/telemetry-proposed.json'
 
 const fallbackFixture = executeResponse
-const budget = proposedTelemetry.privacy_budget
 const resources = proposedTelemetry.resource_efficiency
 
 const NOT_AVAILABLE = 'Not available in this version'
@@ -207,72 +207,136 @@ function BurnPanel({ runState, training, model }) {
   )
 }
 
-function PrivacyBudgetPanel() {
-  const spentPercent = (budget.spent / budget.total) * 100
-  const summary = `Illustrative only: this chart shows a proposed epsilon ledger structure, not a measurement. No differential-privacy accountant exists in the current implementation.`
+function fmtNum(value) {
+  const v = Number(value)
+  if (!Number.isFinite(v)) return '—'
+  return String(parseFloat(v.toPrecision(6)))
+}
+
+/**
+ * Differential privacy budget. Two honest states, never blended:
+ *   - measured  : a real [xazz:dp] report came back from the Full Run. A solid
+ *                 fill and "Real" maturity show a quantity was consumed.
+ *   - implemented/empty : no withDp(...) query ran this run, so nothing was
+ *                 measured. The track stays empty so it never reads as one.
+ */
+function PrivacyBudgetPanel({ dp }) {
+  const isMeasured = Boolean(
+    dp && Number.isFinite(Number(dp.epsilon)) && Number(dp.budget_total) > 0,
+  )
+
+  if (!isMeasured) {
+    return (
+      <MonitorPanel
+        contract="implemented"
+        icon={ShieldQuestion}
+        title="Differential privacy budget"
+        unit="epsilon · none consumed"
+        maturity="Beta"
+        scope="Panel is implemented — no withDp(...) query ran this Full Run, so nothing is shown as measured."
+      >
+        <p className="monitor-gap">
+          <FlaskConical size={13} aria-hidden="true" />
+          No withDp(...) query ran in this Full Run, so nothing consumed the
+          privacy budget. Add a DP aggregation step (e.g.{' '}
+          <code>|&gt; groupBy("district") |&gt; mean("pm25") |&gt; withDp(epsilon: 1.0)</code>)
+          to measure it.
+        </p>
+
+        <div className="monitor-chart">
+          <div className="monitor-chart__heading">
+            <strong>No epsilon spent this run</strong>
+            <span>budget stays open until a withDp query runs</span>
+          </div>
+          <div
+            className="monitor-budget"
+            role="img"
+            aria-label="No differential privacy budget consumed: the track is empty."
+          >
+            <div className="monitor-budget__track" />
+            <div className="monitor-budget__legend">
+              <span>Nothing spent · track is empty</span>
+              <span>{NOT_AVAILABLE}</span>
+            </div>
+          </div>
+        </div>
+        <p className="monitor-caveat">
+          The backend emits a <code>[xazz:dp]</code> report for every{' '}
+          <code>withDp(...)</code> query. Without one there is no measured
+          quantity to show, so the panel stays empty instead of inventing a fill.
+        </p>
+      </MonitorPanel>
+    )
+  }
+
+  const spent = Number(dp.budget_spent ?? dp.epsilon)
+  const total = Number(dp.budget_total ?? dp.epsilon)
+  const pct = Math.min(100, Math.max(0, (spent / (total || 1)) * 100))
+  const noiseLabel = dp.mechanism === 'gaussian' ? 'σ' : 'scale b'
+  const noised = Array.isArray(dp.noised_columns) ? dp.noised_columns : []
 
   return (
     <MonitorPanel
-      contract="proposed"
-      icon={ShieldQuestion}
+      contract="measured"
+      icon={ShieldCheck}
       title="Differential privacy budget"
-      unit="epsilon · proposed unit"
-      maturity="Research"
-      scope={PROPOSED_SCOPE}
+      unit="epsilon · consumed this run"
+      maturity="Real"
+      scope={`Measured from a real Full Run · ${dp.mechanism} · ε ${fmtNum(dp.epsilon)}`}
     >
-      <p className="monitor-gap">
-        <FlaskConical size={13} aria-hidden="true" />
-        {budget.blocking_gap}
-      </p>
+      <dl className="monitor-facts">
+        <div>
+          <dt>Mechanism</dt>
+          <dd>{dp.mechanism}</dd>
+        </div>
+        <div>
+          <dt>Epsilon (this query)</dt>
+          <dd>{fmtNum(dp.epsilon)}</dd>
+        </div>
+        <div>
+          <dt>Sensitivity Δf</dt>
+          <dd>{fmtNum(dp.sensitivity)}</dd>
+        </div>
+        <div>
+          <dt>Noise parameter</dt>
+          <dd>
+            {noiseLabel} {fmtNum(dp.noise_param)}
+          </dd>
+        </div>
+        <div>
+          <dt>Noised columns</dt>
+          <dd>{noised.length ? noised.join(', ') : '—'}</dd>
+        </div>
+      </dl>
 
       <div className="monitor-chart">
         <div className="monitor-chart__heading">
-          <strong>Proposed epsilon consumption</strong>
+          <strong>Epsilon consumed this session</strong>
           <span>
-            {budget.mechanism} mechanism · delta {budget.delta}
+            {dp.mechanism} mechanism · applied to the aggregated output
           </span>
         </div>
-        <div className="monitor-budget" role="img" aria-label={summary}>
+        <div
+          className="monitor-budget monitor-budget--measured"
+          role="img"
+          aria-label={`Privacy budget ${fmtNum(spent)} of ${fmtNum(total)} epsilon consumed by this run.`}
+        >
           <div className="monitor-budget__track">
-            <i style={{ '--bar-width': `${spentPercent}%` }} />
+            <i style={{ '--bar-width': `${pct}%` }} />
           </div>
           <div className="monitor-budget__legend">
             <span>
-              Structure shows {budget.spent} of {budget.total} epsilon
+              {fmtNum(spent)} of {fmtNum(total)} ε spent
             </span>
-            <span>{NOT_AVAILABLE}</span>
+            <span>{pct.toFixed(1)}% of total budget</span>
           </div>
         </div>
-        <p className="monitor-caveat">{summary}</p>
-        <details>
-          <summary>Table alternative · proposed per-operation ledger</summary>
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Operation</th>
-                <th scope="col">Proposed epsilon</th>
-                <th scope="col">Measured</th>
-              </tr>
-            </thead>
-            <tbody>
-              {budget.ledger.map((entry) => (
-                <tr key={entry.op}>
-                  <td>
-                    <code>{entry.op}</code>
-                    {entry.note && <span> · {entry.note}</span>}
-                  </td>
-                  <td>{entry.epsilon.toFixed(2)}</td>
-                  <td>{NOT_AVAILABLE}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </details>
+        <p className="monitor-caveat">
+          The budget is per execution session — each Full Run starts a fresh one.
+          Repeated queries spend epsilon cumulatively, and a query that would push
+          total over budget is refused to block noise-averaging reconstruction.
+        </p>
       </div>
-
-      <p className="monitor-endpoint">
-        Proposed endpoint <code>{budget.proposed_endpoint}</code>
-      </p>
     </MonitorPanel>
   )
 }
@@ -347,14 +411,14 @@ function ResourcePanel() {
   )
 }
 
-export function MonitorView({ runState, training, model }) {
+export function MonitorView({ runState, training, model, dp }) {
   return (
     <div className="monitor-view" aria-label="Run monitoring">
       <div className="monitor-view__rail" aria-hidden="true" />
       <div className="monitor-view__panels">
         <BurnPanel runState={runState} training={training} model={model} />
         <div className="monitor-view__pair">
-          <PrivacyBudgetPanel />
+          <PrivacyBudgetPanel dp={dp} />
           <ResourcePanel />
         </div>
       </div>
