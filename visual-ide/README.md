@@ -8,8 +8,11 @@ React workspace connecting the approved landing-to-tool experience to the real
 - Rust toolchain with `cc` (for building `xazz`, `xazz-runner`, `xazz-exec`,
   `xazz-server`).
 - Built binaries available on PATH or under `target/release/`.
-- `xazz-server` reachable at `http://127.0.0.1:8005` (override with
-  `VITE_API_BASE_URL`).
+- `xazz-server` reachable at `http://127.0.0.1:8005`.
+- Dev mode: since the Vite dev server runs on a different port, point the API at
+  the backend with `VITE_API_BASE_URL=http://127.0.0.1:8005`.
+  When served *by* `xazz-server` (production), the IDE uses same-origin relative
+  paths and needs no override.
 
 ## Run
 

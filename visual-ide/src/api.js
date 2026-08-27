@@ -1,5 +1,7 @@
+// 같은 origin에서 서빙될 때는 빈 문자열('')로 두어 상대 경로(/execute 등)를 사용한다.
+// dev(별도 vite 서버)에서는 VITE_API_BASE_URL 로 오버라이드한다.
 const API_BASE_URL = (
-  (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8005'
+  (import.meta.env && import.meta.env.VITE_API_BASE_URL) || ''
 ).replace(/\/+$/, '')
 
 /**

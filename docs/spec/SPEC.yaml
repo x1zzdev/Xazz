@@ -27,7 +27,8 @@ stack:
   auth:
     value: none
   deployment:
-    value: local-preview-only
+    value: bundled-release
+    note: "Built Visual IDE is served same-origin by xazz-server; local-first, no data leaves the machine"
   i18n:
     primary: English
     validation_locale: Korean

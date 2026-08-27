@@ -72,6 +72,22 @@ jobs:
       - name: Build xazz-exec
         run: cargo build --release -p xazz-exec --target ${{ matrix.platform.target }}
 
+      - name: Build xazz-server
+        run: cargo build --release -p xazz-server --target ${{ matrix.platform.target }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: visual-ide/package-lock.json
+
+      - name: Build Visual IDE (frontend)
+        shell: bash
+        run: |
+          npm ci
+          npm run build
+
       - name: Stage and package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -99,6 +115,7 @@ jobs:
 
           if (Test-Path "examples") { Copy-Item -Recurse "examples" "$dist\examples" }
           if (Test-Path "config")   { Copy-Item -Recurse "config"   "$dist\config"   }
+          if (Test-Path "visual-ide\dist") { Copy-Item -Recurse "visual-ide\dist" "$dist\web" }
 
           Compress-Archive -Path "dist\xazz" -DestinationPath $out
           "ARCHIVE=${out}" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -130,6 +147,7 @@ jobs:
 
           [ -d examples ] && cp -r examples "${DIST}/examples"
           [ -d config   ] && cp -r config   "${DIST}/config"
+          [ -d visual-ide/dist ] && cp -r visual-ide/dist "${DIST}/web"
 
           tar -czf "${OUT}" -C dist xazz
           echo "ARCHIVE=${OUT}" >> "$GITHUB_ENV"
@@ -231,11 +249,19 @@ jobs:
             echo "| \`xazz\` | CLI entry point |"
             echo "| \`xazz-runner\` | IPC bridge |"
             echo "| \`xazz-exec\` | Polars-powered runtime engine |"
+            echo "| \`xazz-server\` | API + bundled Visual IDE server |"
+            echo ""
+            echo "## Visual IDE (bundled)"
+            echo ""
+            echo "A prebuilt Visual IDE ships in \`web/\`. Start the server and open"
+            echo "\`http://127.0.0.1:8005\` in your browser:"
+            echo ""
+            echo "    ./xazz-server"
             echo ""
             echo "## Installation"
             echo ""
             echo "1. Download the archive for your platform"
-            echo "2. Extract — all binaries land in \`xazz/\`"
+            echo "2. Extract — all binaries and the IDE land in \`xazz/\`"
             echo "3. Add \`xazz/\` to your \`PATH\`"
             echo "4. Run \`xazz --help\`"
             echo ""

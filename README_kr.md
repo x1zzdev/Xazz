@@ -185,6 +185,15 @@ xazz run main.xzz      # 컴파일 + 파이프라인 실행
 `.xzz` 파이프라인을 위한 그래픽 편집 및 실행 환경.  
 → [Xazz Visual IDE 저장소](https://github.com/xazzdev/Xazz-visual-ide)
 
+빌드된 IDE는 모든 릴리스 번들(`web/`)에 함께 포함되며 `xazz-server`가 같은
+origin에서 서빙합니다. `http://127.0.0.1:8005`를 열면 됩니다 — 파이프라인
+데이터는 기기 밖으로 나가지 않습니다.
+
+```powershell
+./xazz-server
+# 그 다음 http://127.0.0.1:8005 열기
+```
+
 ---
 
 ## 기능
@@ -203,7 +212,7 @@ xazz run main.xzz      # 컴파일 + 파이프라인 실행
 | `Option<T>` 타입 시스템 | null-safe 컬럼 선언, `fillNull` 연산자 | Stable |
 | `fillNull(strategy:)` | 평균/중앙값/0 채우기 전략 (`strategy: "mean"`) | Stable |
 | EUC-KR CSV 지원 | CP949 인코딩 한글 CSV 자동 감지 및 디코딩 | Stable |
-| Visual IDE | 그래픽 파이프라인 편집기 (별도 저장소) | Stable |
+| Visual IDE | 그래픽 파이프라인 편집기, `xazz-server`와 함께 번들 제공 | Stable |
 
 ---
 
@@ -291,7 +300,9 @@ cargo build --release -p xazz-runner
 
 ## 라이선스
 
-Apache-2.0 — 자세한 내용은 [LICENSE](LICENSE) 참고.
+Apache-2.0 — 자세한 내용은 [LICENSE](LICENSE) 참고.  
+상용 사용권(제품 코드키)은 계약의 증거 표식이며 법적으로 강제됩니다 —
+[docs/design/licensing.md](docs/design/licensing.md) 참고.
 
 ---
 

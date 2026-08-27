@@ -187,6 +187,15 @@ After running a pipeline with a `chart {}` block, Xazz renders the result as an 
 A graphical editing and execution environment for `.xzz` pipelines.  
 → [Xazz Visual IDE repository](https://github.com/xazzdev/Xazz-visual-ide)
 
+The prebuilt IDE ships inside every release archive (`web/`) and is served
+same-origin by `xazz-server`. Start the server and open
+`http://127.0.0.1:8005` — your pipeline data never leaves the machine.
+
+```powershell
+./xazz-server
+# then open http://127.0.0.1:8005
+```
+
 ---
 
 ## Features
@@ -205,7 +214,7 @@ A graphical editing and execution environment for `.xzz` pipelines.
 | `Option<T>` type system | Null-safe column declarations, `fillNull` operator | Stable |
 | `fillNull(strategy:)` | Mean / median / zero fill strategies (`strategy: "mean"`) | Stable |
 | EUC-KR CSV support | Auto-detect and decode CP949-encoded Korean CSV files | Stable |
-| Visual IDE | Graphical pipeline editor (separate repository) | Stable |
+| Visual IDE | Graphical pipeline editor, bundled & served by `xazz-server` | Stable |
 
 ---
 
@@ -293,7 +302,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for local build instructions and contribu
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE) for details.
+Apache-2.0 — see [LICENSE](LICENSE) for details.  
+Commercial entitlement (product keys) is a *contract marker*, enforced
+legally — see [docs/design/licensing.md](docs/design/licensing.md).
 
 ---
 
