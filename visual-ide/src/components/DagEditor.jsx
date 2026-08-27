@@ -75,7 +75,27 @@ function DagNode({ id, data, selected }) {
   )
 }
 
-const nodeTypes = { dag: DagNode }
+// `node.type` is the tool id: React Flow picks the renderer with it and the
+// transpiler looks up NODE_MAPPINGS with it. Registering every tool id here keeps
+// both readings of the same field in agreement. 'dag' stays registered so a DAG
+// already saved under the old scheme still renders while it is migrated on load.
+const nodeTypes = {
+  ...Object.fromEntries(DAG_TOOLS.map((tool) => [tool.id, DagNode])),
+  dag: DagNode,
+}
+
+// Legacy saved DAGs stored every node as type 'dag', which NODE_MAPPINGS cannot
+// resolve, so those nodes were silently dropped from the generated code. The tool
+// id is recoverable from the label the palette wrote alongside it.
+const TOOL_ID_BY_NAME = new Map(DAG_TOOLS.map((tool) => [tool.name, tool.id]))
+
+function migrateLegacyNodes(nodes) {
+  return nodes.map((node) => {
+    if (node.type !== 'dag') return node
+    const recovered = TOOL_ID_BY_NAME.get(node.data?.label)
+    return recovered ? { ...node, type: recovered } : node
+  })
+}
 
 const CATEGORY_LABEL = { inout: 'Data', prep: 'Preprocess', transform: 'Transform', ml: 'ML · Burn', security: 'Security' }
 
@@ -85,7 +105,9 @@ function DagCanvasInner({ onCodeChange }) {
       const saved = localStorage.getItem('xazz_dag')
       if (saved) {
         const parsed = JSON.parse(saved)
-        if (parsed?.nodes?.length) return { nodes: parsed.nodes, edges: parsed.edges || [] }
+        if (parsed?.nodes?.length) {
+          return { nodes: migrateLegacyNodes(parsed.nodes), edges: parsed.edges || [] }
+        }
       }
     } catch (_) {}
     return seedFromStaticPipeline()
@@ -146,7 +168,7 @@ function DagCanvasInner({ onCodeChange }) {
       const id = `${type}-${Date.now().toString(36)}`
       const newNode = {
         id,
-        type: 'dag',
+        type,
         position: pos,
         data: { label: tool?.name || type, category: tool?.category, icon: tool?.icon, source: type === 'fileInput', parameters: params },
       }

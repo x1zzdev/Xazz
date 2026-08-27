@@ -5,8 +5,20 @@ function observeRuntime(page) {
   const consoleErrors = []
   const externalRequests = []
 
+  // The workspace probes xazz-server on load and renders an explicit
+  // "xazz-server offline" state when it is absent. The browser still logs the
+  // failed request itself, which no try/catch can suppress, so an offline probe
+  // is not a defect. Real script errors and any other failed resource still fail.
+  const API_ORIGIN = 'http://127.0.0.1:8005'
+  const isOfflineProbe = (message) => {
+    if (!/ERR_CONNECTION_REFUSED|Failed to load resource/.test(message.text())) return false
+    return (message.location()?.url || '').startsWith(API_ORIGIN)
+  }
+
   page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text())
+    if (message.type() !== 'error') return
+    if (isOfflineProbe(message)) return
+    consoleErrors.push(`${message.text()} @ ${message.location()?.url || 'unknown'}`)
   })
   page.on('pageerror', (error) => consoleErrors.push(error.message))
   page.on('request', (request) => {
@@ -71,7 +83,11 @@ test('landing communicates outcome and preserves the sample-first route', async 
   await page.getByRole('button', { name: /Run the air-quality sample/ }).click()
   await expect(page).toHaveURL(/\?screen=workspace/)
   await expect(page.getByText('Compiler Canvas').first()).toBeVisible()
-  await expect(page.getByText('100 synthetic rows')).toBeVisible()
+  // The canvas no longer claims a synthetic row count: evidence now comes from the
+  // Full Run response, and the scope line says so.
+  await expect(
+    page.getByText('Structural pipeline canvas · evidence comes from the Full Run response'),
+  ).toBeVisible()
   assertRuntime()
 })
 
@@ -221,6 +237,9 @@ test('an errored run keeps process and pipeline verdicts separate', async ({ pag
   await page.goto('/?screen=workspace&state=error')
 
   const results = page.getByRole('region', { name: 'Pipeline results' })
+  // An errored run opens on Logs, so the receipt has to be opened before its axes
+  // can be read.
+  await results.getByRole('tab', { name: 'Receipt' }).click()
   await expect(results.getByLabel('Process: Exited / blocked')).toBeVisible()
   await expect(results.getByLabel('Pipeline: Partial')).toBeVisible()
   await expect(page.getByLabel('Pipeline: Succeeded')).toHaveCount(0)
@@ -229,7 +248,7 @@ test('an errored run keeps process and pipeline verdicts separate', async ({ pag
     'Last Full Run · errored',
   )
   await results.getByRole('tab', { name: 'Preview' }).click()
-  await expect(page.getByRole('note')).toContainText('Last Full Run errored')
+  await expect(results.getByRole('note').first()).toContainText('Last Full Run errored')
   assertRuntime()
 })
 
@@ -320,16 +339,23 @@ test('monitor view separates a measured contract from a proposed one', async ({
 
   await page.getByRole('button', { name: 'Monitor' }).click()
 
-  const burn = page.getByLabel('Burn compile and training')
-  const privacy = page.getByLabel('Differential privacy budget')
-  const resource = page.getByLabel('Resource efficiency')
+  // Scope by role: each panel's chart carries an aria-label that also contains the
+  // panel name, so a bare getByLabel matches both the section and the chart.
+  const burn = page.getByRole('region', { name: 'Burn compile and training' })
+  const privacy = page.getByRole('region', { name: 'Differential privacy budget' })
+  const resource = page.getByRole('region', { name: 'Resource efficiency' })
   await expect(burn).toBeVisible()
   await expect(privacy).toBeVisible()
   await expect(resource).toBeVisible()
 
-  // The measured panel may show TrainReport fields.
+  // The Burn panel now reads the real run response. A URL-simulated success state
+  // has no training report behind it, so the panel must show the structural
+  // fixture fields and still refuse to render a loss it never received.
   await expect(burn.getByText('209').first()).toBeVisible()
-  await expect(burn.getByText('0.0417').first()).toBeVisible()
+  await expect(
+    burn.getByText('No Full Run has produced a training report yet.'),
+  ).toBeVisible()
+  await expect(burn.getByText('0.0417')).toHaveCount(0)
 
   // The privacy capability is implemented: with no withDp(...) query this run
   // it stays Beta and empty, and never presents a number as measured.
@@ -364,7 +390,7 @@ test('monitor view tells the truth before a run and after a failed run', async (
 
   await page.goto('/?screen=workspace')
   await page.getByRole('button', { name: 'Monitor' }).click()
-  const burn = page.getByLabel('Burn compile and training')
+  const burn = page.getByRole('region', { name: 'Burn compile and training' })
   await expect(
     burn.getByText('No Full Run has produced a training report yet.'),
   ).toBeVisible()
@@ -374,7 +400,7 @@ test('monitor view tells the truth before a run and after a failed run', async (
   await page.getByRole('button', { name: 'Monitor' }).click()
   await expect(
     page
-      .getByLabel('Burn compile and training')
+      .getByRole('region', { name: 'Burn compile and training' })
       .getByText('The run failed before a training report was emitted.'),
   ).toBeVisible()
 
@@ -403,6 +429,145 @@ test('switching to monitor keeps run context and never scrolls the page sideways
     )
     expect(overflow, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(0)
   }
+
+  assertRuntime()
+})
+
+test('edit view gives the DAG canvas the whole region, not a sliver', async ({
+  page,
+}) => {
+  const assertRuntime = observeRuntime(page)
+  await page.goto('/?screen=workspace')
+  await page.getByRole('button', { name: 'Edit' }).click()
+
+  // The editor owns the full canvas region. When `.compiler-split--edit` was
+  // missing it fell back to the two-column split and the canvas collapsed to
+  // roughly 20px between the palette and the inspector.
+  const measured = await page.evaluate(() => {
+    const rect = (selector) => {
+      const node = document.querySelector(selector)
+      return node ? node.getBoundingClientRect().width : 0
+    }
+    return {
+      editor: rect('.dag-editor'),
+      canvas: rect('.dag-canvas'),
+      area: rect('.compiler-area'),
+    }
+  })
+  expect(measured.editor).toBeGreaterThan(measured.area - 2)
+  expect(measured.canvas).toBeGreaterThan(300)
+
+  assertRuntime()
+})
+
+test('every DAG node uses the custom renderer and stays inside the canvas', async ({
+  page,
+}) => {
+  const assertRuntime = observeRuntime(page)
+  await page.goto('/?screen=workspace')
+  await page.getByRole('button', { name: 'Edit' }).click()
+
+  // A node whose type is not registered in nodeTypes silently falls back to React
+  // Flow's default white box, which is unreadable on this dark canvas.
+  const fallbacks = await page.evaluate(
+    () => document.querySelectorAll('.react-flow__node-default').length,
+  )
+  expect(fallbacks).toBe(0)
+  expect(await page.locator('.dag-node').count()).toBeGreaterThan(0)
+
+  // The seeded layout must fit the canvas at first open rather than being clipped.
+  const clipped = await page.evaluate(() => {
+    const canvas = document.querySelector('.dag-canvas').getBoundingClientRect()
+    return Array.from(document.querySelectorAll('.react-flow__node')).filter((node) => {
+      const box = node.getBoundingClientRect()
+      return (
+        box.x < canvas.x - 1 ||
+        box.y < canvas.y - 1 ||
+        box.x + box.width > canvas.x + canvas.width + 1 ||
+        box.y + box.height > canvas.y + canvas.height + 1
+      )
+    }).length
+  })
+  expect(clipped).toBe(0)
+
+  assertRuntime()
+})
+
+test('a node added from the palette reaches the generated code', async ({ page }) => {
+  const assertRuntime = observeRuntime(page)
+  await page.addInitScript(() => {
+    try {
+      localStorage.removeItem('xazz_dag')
+    } catch (error) {
+      /* private mode */
+    }
+  })
+  await page.goto('/?screen=workspace')
+  await page.getByRole('button', { name: 'Edit' }).click()
+
+  const code = page.locator('.dag-code')
+  await expect(code).not.toContainText('dropNull')
+
+  // The transpiler resolves operations through NODE_MAPPINGS[node.type]. When the
+  // palette wrote a literal 'dag' type instead of the tool id, the node appeared
+  // on the canvas and was dropped from the code with no error.
+  await page.locator('.dag-palette__tool', { hasText: 'Drop Null' }).click()
+  await expect(code).toContainText('dropNull')
+
+  assertRuntime()
+})
+
+test('the edit canvas hint stays inside the canvas and clear of its controls', async ({
+  page,
+}) => {
+  const assertRuntime = observeRuntime(page)
+  await page.goto('/?screen=workspace')
+  await page.getByRole('button', { name: 'Edit' }).click()
+
+  const collisions = await page.evaluate(() => {
+    const rect = (selector) => {
+      const node = document.querySelector(selector)
+      return node ? node.getBoundingClientRect() : null
+    }
+    const overlaps = (a, b) =>
+      !!a &&
+      !!b &&
+      a.x < b.x + b.width &&
+      b.x < a.x + a.width &&
+      a.y < b.y + b.height &&
+      b.y < a.y + a.height
+    const canvas = rect('.dag-canvas')
+    const hint = rect('.dag-canvas__hint')
+    return {
+      escapesCanvas:
+        hint.x < canvas.x - 1 || hint.x + hint.width > canvas.x + canvas.width + 1,
+      hitsMinimap: overlaps(hint, rect('.react-flow__minimap')),
+      hitsControls: overlaps(hint, rect('.react-flow__controls')),
+    }
+  })
+  expect(collisions.escapesCanvas).toBe(false)
+  expect(collisions.hitsMinimap).toBe(false)
+  expect(collisions.hitsControls).toBe(false)
+
+  assertRuntime()
+})
+
+test('opening the run gate does not crash the workspace', async ({ page }) => {
+  const assertRuntime = observeRuntime(page)
+  await page.goto('/?screen=workspace&state=preflight')
+
+  // A typo in the acknowledge handler threw a ReferenceError during render and
+  // unmounted the entire workspace, so Full Run blanked the screen.
+  await expect(page.locator('.workspace-page')).toBeVisible()
+  const dialog = page.getByRole('dialog', {
+    name: /Review what will execute on xazz-server/,
+  })
+  await expect(dialog).toBeVisible()
+
+  const startRun = dialog.getByRole('button', { name: 'Start full run' })
+  await expect(startRun).toBeDisabled()
+  await dialog.getByRole('checkbox').click()
+  await expect(startRun).toBeEnabled()
 
   assertRuntime()
 })

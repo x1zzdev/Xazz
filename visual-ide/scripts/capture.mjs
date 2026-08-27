@@ -7,7 +7,9 @@ import { preview as startPreview } from 'vite'
 
 const prototypeRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repositoryRoot = resolve(prototypeRoot, '..')
-const designRoot = resolve(repositoryRoot, 'design')
+// Screenshots live under docs/ since the repository restructure (4a6bbc2);
+// this still pointed at the removed top-level design/ and wrote outside the repo.
+const designRoot = resolve(repositoryRoot, 'docs', 'design')
 const outputRoot = resolve(designRoot, 'screenshots')
 const temporaryRoot = resolve(designRoot, `.screenshots-tmp-${process.pid}`)
 const backupRoot = resolve(designRoot, `.screenshots-backup-${process.pid}`)
@@ -59,6 +61,21 @@ const frames = [
     960,
     false,
     (page) => page.getByRole('button', { name: 'Monitor' }).click(),
+  ],
+  [
+    'dag-editor',
+    '/?screen=workspace',
+    1440,
+    960,
+    false,
+    (page) => page.getByRole('button', { name: 'Edit' }).click(),
+  ],
+  [
+    'run-preflight-gate',
+    '/?screen=workspace&state=preflight',
+    1440,
+    960,
+    false,
   ],
   [
     'ml-compile-band',

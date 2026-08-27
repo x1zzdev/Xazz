@@ -1665,8 +1665,13 @@ summary:focus-visible,
   min-height: 0;
 }
 
+/* Every single-surface view spans the whole canvas region. Without `--edit` here
+   the DAG editor fell back to the two-column split, which left its own
+   palette/canvas/inspector grid about 540px wide: 200px palette + 320px inspector
+   left roughly 20px of canvas, while the unused second column sat empty. */
 .compiler-split--graph,
-.compiler-split--code {
+.compiler-split--code,
+.compiler-split--edit {
   grid-template-columns: 1fr;
 }
 
@@ -4042,18 +4047,43 @@ summary:focus-visible,
   min-width: 0;
 }
 
+/* The canvas floor already belongs to the zoom controls (bottom-left) and the
+   minimap (bottom-right), so the hint sits at the top instead of fighting them.
+   It also wraps: `nowrap` made this string wider than the canvas and it spilled
+   over both neighbours. */
 .dag-canvas__hint {
   position: absolute;
-  bottom: 12px;
+  top: 10px;
   left: 50%;
   transform: translateX(-50%);
+  max-width: calc(100% - 24px);
   font-size: 0.68rem;
+  line-height: 1.5;
+  text-align: center;
   color: var(--text-muted, #7c8a96);
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--bg-elevated, #1c2733);
+  border: 1px solid var(--border-color, #2d3b35);
   padding: 4px 10px;
-  border-radius: 20px;
-  white-space: nowrap;
+  border-radius: 8px;
   z-index: 5;
+}
+
+/* React Flow ships a light minimap; unstyled it renders as an opaque white block
+   on this dark canvas. */
+.dag-canvas .react-flow__minimap {
+  width: 150px;
+  height: 100px;
+  margin: 12px;
+  background: var(--bg-elevated, #1c2733);
+  border: 1px solid var(--border-color, #2d3b35);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.dag-canvas .react-flow__minimap-mask {
+  fill: rgba(13, 18, 16, 0.6);
+  stroke: var(--border-color, #2d3b35);
+  stroke-width: 1;
 }
 
 /* 노드 */

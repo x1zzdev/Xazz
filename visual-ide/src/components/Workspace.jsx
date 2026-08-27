@@ -1540,7 +1540,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
       {runState === 'preflight' && (
         <PreflightDialog
           acknowledged={acknowledged}
-          onAcknowledge={setAcknowledge}
+          onAcknowledge={setAcknowledged}
           onClose={closePreflight}
           onRun={executeFullRun}
         />
