@@ -195,7 +195,9 @@ assert.doesNotMatch(
 )
 
 const workspaceMonitor = workspace
-assert.match(workspaceMonitor, /\['monitor', Activity, 'Monitor'\]/)
+// The label moved into src/i18n.jsx when the view gained Korean; the view id and
+// its icon are what this guards.
+assert.match(workspaceMonitor, /\['monitor', Activity\]/)
 assert.match(workspaceMonitor, /view === 'monitor'/)
 
 console.log(
