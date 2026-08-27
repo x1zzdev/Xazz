@@ -127,13 +127,16 @@ export const SEED_SCHEMA = [
  * 정적 data.js pipeline (원본 시연 노드) → transpiler용 노드/엣지로 변환.
  * 원본 캔버스를 기본 편집 DAG로 시드하는 데 사용.
  */
+// Laid out as two rows (preprocess, then ML) rather than one 1490px line: the
+// edit canvas is roughly 390px wide, and fitView is floored by minZoom 0.3, so a
+// single row left the right-hand nodes clipped out of view on first open.
 export function seedFromStaticPipeline() {
   return {
     nodes: [
       {
         id: 'load',
         type: 'fileInput',
-        position: { x: 20, y: 60 },
+        position: { x: 20, y: 40 },
         data: {
           label: 'File Input',
           category: 'inout',
@@ -148,7 +151,7 @@ export function seedFromStaticPipeline() {
       {
         id: 'schema',
         type: 'select',
-        position: { x: 250, y: 60 },
+        position: { x: 250, y: 40 },
         data: {
           label: 'Select',
           category: 'prep',
@@ -159,7 +162,7 @@ export function seedFromStaticPipeline() {
       {
         id: 'fill',
         type: 'fillNull',
-        position: { x: 480, y: 60 },
+        position: { x: 480, y: 40 },
         data: {
           label: 'Fill Null',
           category: 'prep',
@@ -170,7 +173,7 @@ export function seedFromStaticPipeline() {
       {
         id: 'filter',
         type: 'filter',
-        position: { x: 770, y: 60 },
+        position: { x: 710, y: 40 },
         data: {
           label: 'Filter',
           category: 'prep',
@@ -181,7 +184,7 @@ export function seedFromStaticPipeline() {
       {
         id: 'model',
         type: 'model',
-        position: { x: 480, y: 220 },
+        position: { x: 20, y: 260 },
         data: {
           label: 'Model',
           category: 'ml',
@@ -192,7 +195,7 @@ export function seedFromStaticPipeline() {
       {
         id: 'train',
         type: 'train',
-        position: { x: 1060, y: 120 },
+        position: { x: 250, y: 260 },
         data: {
           label: 'Train',
           category: 'ml',
@@ -203,7 +206,7 @@ export function seedFromStaticPipeline() {
       {
         id: 'predict',
         type: 'predict',
-        position: { x: 1060, y: 40 },
+        position: { x: 480, y: 260 },
         data: {
           label: 'Predict',
           category: 'ml',
@@ -214,7 +217,7 @@ export function seedFromStaticPipeline() {
       {
         id: 'take',
         type: 'take',
-        position: { x: 1350, y: 40 },
+        position: { x: 710, y: 260 },
         data: {
           label: 'Take',
           category: 'prep',
