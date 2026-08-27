@@ -98,13 +98,18 @@ export const NODE_MAPPINGS = {
     return { type: 'pipeline', lines: [`|> filter(col("${column}") ${operator} ${value})`] };
   },
 
-  // ── select ────────────────────────────────────────────────────────────────
+// ── select ────────────────────────────────────────────────────────────────
   // |> select([a, b])   ← Xazz: bare ident (따옴표 없음)
+  // columns 는 배열([{name,keep}] 또는 [string]) 또는 "a, b" 문자열을 허용한다.
   select: (node) => {
     const params = node.data?.parameters || {};
-    const columns = params.columns || [];
+    let columns = params.columns || [];
+    // 사용자가 문자열("a, b")로 입력한 경우 → 배열로 분리
+    if (typeof columns === 'string') {
+      columns = columns.split(',').map((s) => s.trim()).filter(Boolean);
+    }
     const colNames = columns
-      .map(c => {
+      .map((c) => {
         const name = typeof c === 'string' ? c : (c.keep !== false ? c.name : null);
         if (!name) return null;
         return resolveColumn(node, name);
@@ -117,8 +122,8 @@ export const NODE_MAPPINGS = {
   },
 
   // ── groupBy ───────────────────────────────────────────────────────────────
-  // |> groupBy("col") |> count     (agg=count)
-  // |> groupBy("col") |> mean("col")
+  // |> groupBy("group_col") |> count            (agg=count)
+  // |> groupBy("group_col") |> mean("agg_col")  (agg=sum/mean/min/max)
   groupBy: (node) => {
     const params = node.data?.parameters || {};
     const column = resolveColumn(node, params.column || '_col');
@@ -126,7 +131,18 @@ export const NODE_MAPPINGS = {
     if (agg === 'count') {
       return { type: 'pipeline', lines: [`|> groupBy("${column}") |> count`] };
     }
-    return { type: 'pipeline', lines: [`|> groupBy("${column}") |> ${agg}("${column}")`] };
+    // 집계 대상 컬럼: aggColumn 지정 시 사용, 없으면 경고 주석과 함께 그룹 키 사용 회피
+    const aggCol = params.aggColumn ? resolveColumn(node, params.aggColumn) : null;
+    if (!aggCol) {
+      return {
+        type: 'pipeline',
+        lines: [
+          `|> groupBy("${column}") |> ${agg}("${column}")`,
+          `// ⚠️ ${agg}() 대상 컬럼(aggColumn)을 지정하세요 — 그룹 키가 아니라 수치 컬럼에 집계를 적용해야 합니다`,
+        ],
+      };
+    }
+    return { type: 'pipeline', lines: [`|> groupBy("${column}") |> ${agg}("${aggCol}")`] };
   },
 
   // ── count ─────────────────────────────────────────────────────────────────

@@ -40,7 +40,7 @@ export const DAG_DEFAULT_PARAMS = {
   dropNull: { column: '' },
   sort: { column: '', descending: false },
   take: { n: 100 },
-  groupBy: { column: '', agg: 'count' },
+  groupBy: { column: '', agg: 'mean', aggColumn: '' },
   count: {},
   chart: { chartType: 'bar', x: '', y: '', title: '' },
   model: { name: 'Predictor', layers: 'Dense(32) -> ReLU() -> Dense(1)' },
@@ -80,6 +80,7 @@ export const NODE_PARAM_FIELDS = {
   groupBy: [
     { key: 'column', label: '그룹 컬럼', type: 'text', placeholder: 'district' },
     { key: 'agg', label: '집계', type: 'select', options: ['count', 'sum', 'mean', 'min', 'max'] },
+    { key: 'aggColumn', label: '집계 대상 컬럼', type: 'text', placeholder: 'pm25 (count면 비워도 됨)' },
   ],
   count: [],
   chart: [
@@ -136,6 +137,7 @@ export function seedFromStaticPipeline() {
           label: 'File Input',
           category: 'inout',
           icon: 'Database',
+          source: true,
           parameters: {
             filePath: 'visual-ide/data/seoul_air_quality.csv',
             detectedSchema: JSON.parse(JSON.stringify(SEED_SCHEMA)),
