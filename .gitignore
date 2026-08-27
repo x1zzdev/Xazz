@@ -1,5 +1,8 @@
 /target
 
+# IDE
+.idea/
+
 # Xazz — Rule files (security: keep out of version control)
 .roorules
 .clinerules

@@ -44,8 +44,8 @@
 ///   - withColumn() 연산자 파싱
 ///   - 산술 표현식 우선순위: * / > + - > 비교 연산자
 use crate::ast::{
-    BinOpKind, ChartConfig, ChartType, Expr, FillNullValue, JoinHow, LayerKind, PipelineOp,
-    PipelineSource, Program, Stmt, StructField, TrainConfig,
+    BinOpKind, ChartConfig, ChartType, DpArgs, DpMechanism, Expr, FillNullValue, JoinHow,
+    LayerKind, PipelineOp, PipelineSource, Program, Stmt, StructField, TrainConfig,
 };
 use crate::error::{CompileError, CompileResult, ErrorKind};
 use crate::token::{Span, Token, TokenKind};
@@ -336,6 +336,110 @@ impl Parser {
         }
 
         Ok(config)
+    }
+
+    // ── withDp 인수 파싱 (v0.6) ───────────────────────────────────────────────
+    // name ":" value ("," name ":" value)* — epsilon 은 필수, 나머지는 선택.
+    fn parse_with_dp_args(&mut self) -> CompileResult<DpArgs> {
+        let mut args = DpArgs::default();
+        let mut epsilon_given = false;
+        let mut first = true;
+
+        while !matches!(self.current_kind(), TokenKind::RParen) {
+            if !first {
+                self.expect(&TokenKind::Comma)?;
+            }
+            first = false;
+
+            let arg_name = match self.current_kind() {
+                // "seed" 는 v0.22 에서 키워드로 등록되어 Ident 로 오지 않는다
+                TokenKind::Seed => {
+                    self.advance();
+                    "seed".to_string()
+                }
+                TokenKind::Ident(name) => {
+                    let n = name.clone();
+                    self.advance();
+                    n
+                }
+                other => {
+                    return Err(CompileError::new(
+                        ErrorKind::UnexpectedToken(format!("{:?}", other)),
+                        self.current_span(),
+                        format!("withDp() 인수 이름이 필요합니다. 실제: {:?}", other),
+                    ));
+                }
+            };
+            self.expect(&TokenKind::Colon)?;
+
+            match arg_name.as_str() {
+                "epsilon" => {
+                    args.epsilon = self.expect_float()?;
+                    if args.epsilon <= 0.0 {
+                        return Err(CompileError::new(
+                            ErrorKind::UnexpectedToken("epsilon <= 0".into()),
+                            self.current_span(),
+                            format!(
+                                "withDp() 의 epsilon 은 0보다 커야 합니다. 실제: {}",
+                                args.epsilon
+                            ),
+                        ));
+                    }
+                    epsilon_given = true;
+                }
+                "mechanism" => {
+                    let m = self.expect_ident_or_str()?;
+                    args.mechanism = DpMechanism::from_str(&m).ok_or_else(|| {
+                        CompileError::new(
+                            ErrorKind::UnexpectedToken(m.clone()),
+                            self.current_span(),
+                            format!(
+                                "withDp() 의 mechanism 은 laplace 또는 gaussian 이어야 합니다. 실제: '{m}'"
+                            ),
+                        )
+                    })?;
+                }
+                "sensitivity" => {
+                    args.sensitivity = self.expect_float()?;
+                    if args.sensitivity <= 0.0 {
+                        return Err(CompileError::new(
+                            ErrorKind::UnexpectedToken("sensitivity <= 0".into()),
+                            self.current_span(),
+                            format!(
+                                "withDp() 의 sensitivity 는 0보다 커야 합니다. 실제: {}",
+                                args.sensitivity
+                            ),
+                        ));
+                    }
+                }
+                "delta" => {
+                    args.delta = Some(self.expect_float()?);
+                }
+                "seed" => {
+                    args.seed = Some(self.expect_number()?);
+                }
+                other => {
+                    return Err(CompileError::new(
+                        ErrorKind::UnexpectedToken(other.into()),
+                        self.current_span(),
+                        format!(
+                            "알 수 없는 withDp() 인수: '{}'. 지원: epsilon, mechanism, sensitivity, delta, seed",
+                            other
+                        ),
+                    ));
+                }
+            }
+        }
+
+        if !epsilon_given {
+            return Err(CompileError::new(
+                ErrorKind::ExpectedToken("epsilon".into()),
+                self.current_span(),
+                "withDp() 에는 epsilon 인수가 필수입니다. 예: withDp(epsilon: 1.0)".to_string(),
+            ));
+        }
+
+        Ok(args)
     }
 
     /// 현재 Ident 토큰 뒤에 |> (Pipeline) 토큰이 오는지 확인
@@ -1063,6 +1167,20 @@ impl Parser {
                 Ok(PipelineOp::Train { model_name, config })
             }
 
+            // ── v0.6 withDp(epsilon: 1.0, ...) — 차등 프라이버시 노이즈 주입 ──
+            // withDp "(" "epsilon" ":" FLOAT
+            //         ("," "mechanism"   ":" ("laplace" | "gaussian"))?
+            //         ("," "sensitivity" ":" FLOAT)?
+            //         ("," "delta"       ":" FLOAT)?
+            //         ("," "seed"        ":" INT)? ")"
+            TokenKind::Ident(name) if name == "withDp" => {
+                self.advance();
+                self.expect(&TokenKind::LParen)?;
+                let args = self.parse_with_dp_args()?;
+                self.expect(&TokenKind::RParen)?;
+                Ok(PipelineOp::WithDp(args))
+            }
+
             // ── v0.5 predict(model_var, as: "col") — 학습 모델 예측 연산자 ───
             TokenKind::Ident(name) if name == "predict" => {
                 self.advance();
@@ -1089,7 +1207,7 @@ impl Parser {
                 ErrorKind::UnexpectedToken(format!("{:?}", other)),
                 self.current_span(),
                 format!(
-                    "|> 뒤에는 filter/select/count/groupBy/sum/mean/min/max/orderBy/take/dropNull/fillNull/join/withColumn/chart/cast/rename/replace/sample/median/variance/std/train/predict 중 하나가 와야 합니다. 실제: {:?}",
+                    "|> 뒤에는 filter/select/count/groupBy/sum/mean/min/max/orderBy/take/dropNull/fillNull/join/withColumn/chart/cast/rename/replace/sample/median/variance/std/train/predict/withDp 중 하나가 와야 합니다. 실제: {:?}",
                     other
                 ),
             )),
@@ -2164,5 +2282,73 @@ type AirQuality = {
             }
             other => panic!("VarDecl 예상: {:?}", other),
         }
+    }
+
+    // ── 테스트 31 (v0.6): withDp(epsilon: 1.0) 최소 형태 파싱 ────────────────
+    #[test]
+    fn test_with_dp_minimal_parse() {
+        use crate::ast::{DpArgs, DpMechanism};
+        let src = r#"v result = data |> count("id") |> withDp(epsilon: 1.0);"#;
+        let program = parse_src(src).expect("withDp 파싱 실패");
+        match &program.stmts[0] {
+            Stmt::VarDecl { ops, .. } => {
+                assert_eq!(
+                    ops[1],
+                    PipelineOp::WithDp(DpArgs {
+                        epsilon: 1.0,
+                        mechanism: DpMechanism::Laplace,
+                        sensitivity: 1.0,
+                        delta: None,
+                        seed: None,
+                    })
+                );
+            }
+            other => panic!("VarDecl 예상: {:?}", other),
+        }
+    }
+
+    // ── 테스트 32 (v0.6): withDp 전체 인수 파싱 ──────────────────────────────
+    #[test]
+    fn test_with_dp_full_args_parse() {
+        use crate::ast::{DpArgs, DpMechanism};
+        let src = r#"v result = data |> mean("cost") |> withDp(epsilon: 0.5, mechanism: gaussian, sensitivity: 2.0, delta: 0.00001, seed: 42);"#;
+        let program = parse_src(src).expect("withDp 전체 인수 파싱 실패");
+        match &program.stmts[0] {
+            Stmt::VarDecl { ops, .. } => {
+                assert_eq!(
+                    ops[1],
+                    PipelineOp::WithDp(DpArgs {
+                        epsilon: 0.5,
+                        mechanism: DpMechanism::Gaussian,
+                        sensitivity: 2.0,
+                        delta: Some(0.00001),
+                        seed: Some(42),
+                    })
+                );
+            }
+            other => panic!("VarDecl 예상: {:?}", other),
+        }
+    }
+
+    // ── 테스트 33 (v0.6): withDp epsilon 누락/비양수는 에러 ──────────────────
+    #[test]
+    fn test_with_dp_requires_positive_epsilon() {
+        assert!(
+            parse_src(r#"v r = data |> withDp(seed: 1);"#).is_err(),
+            "epsilon 누락은 에러여야 함"
+        );
+        assert!(
+            parse_src(r#"v r = data |> withDp(epsilon: 0.0);"#).is_err(),
+            "epsilon 0 은 에러여야 함"
+        );
+    }
+
+    // ── 테스트 34 (v0.6): withDp 알 수 없는 mechanism 은 에러 ────────────────
+    #[test]
+    fn test_with_dp_unknown_mechanism_error() {
+        assert!(
+            parse_src(r#"v r = data |> withDp(epsilon: 1.0, mechanism: exponential);"#).is_err(),
+            "미지원 mechanism 은 에러여야 함"
+        );
     }
 }

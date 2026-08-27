@@ -520,6 +520,14 @@ fn generate_rust_src(
                             model_var, as_str
                         ));
                     }
+                    // ── v0.6 withDp — emit rust 에서는 런타임 DP 주입으로 안내 ──
+                    PipelineOp::WithDp(args) => {
+                        out.push_str(&format!(
+                            "        // |> withDp(epsilon: {}, mechanism: {})  → xazz 실행 시 DP 노이즈 주입\n",
+                            args.epsilon,
+                            args.mechanism.as_str()
+                        ));
+                    }
                 }
             }
 
@@ -967,6 +975,9 @@ fn validate_op_columns(
         // v0.5 딥러닝 연산자: 모델 변수는 런타임에서 검증 (검증 생략)
         PipelineOp::Train { .. } => {}
         PipelineOp::Predict { .. } => {}
+
+        // v0.6 withDp: 컬럼 인수 없음 — 인수 범위는 파서에서 검증 (검증 생략)
+        PipelineOp::WithDp(_) => {}
     }
     Ok(())
 }

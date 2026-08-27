@@ -209,6 +209,63 @@ pub enum PipelineOp {
         model_var: String,
         as_col: Option<String>,
     },
+    /// withDp(epsilon: 1.0, mechanism: laplace, ...) — 차등 프라이버시 노이즈 주입 (v0.6)
+    WithDp(DpArgs),
+}
+
+/// 차등 프라이버시 노이즈 메커니즘 종류 (v0.6)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DpMechanism {
+    /// Laplace Mechanism — ε-DP. scale b = sensitivity / ε
+    Laplace,
+    /// Gaussian Mechanism — (ε, δ)-DP. σ = sensitivity·√(2·ln(1.25/δ)) / ε
+    Gaussian,
+}
+
+impl DpMechanism {
+    /// 식별자/문자열에서 파싱
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "laplace" => Some(DpMechanism::Laplace),
+            "gaussian" => Some(DpMechanism::Gaussian),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DpMechanism::Laplace => "laplace",
+            DpMechanism::Gaussian => "gaussian",
+        }
+    }
+}
+
+/// withDp(...) 연산자 인수 (v0.6)
+///
+/// - `epsilon`     : 프라이버시 예산 ε (필수, > 0). 작을수록 강한 보호·큰 노이즈.
+/// - `mechanism`   : laplace(기본) | gaussian
+/// - `sensitivity` : 쿼리 민감도 Δf (기본 1.0)
+/// - `delta`       : gaussian 전용 δ (기본 1e-5)
+/// - `seed`        : 노이즈 재현용 시드 (감사/테스트용. 미지정 시 비결정적)
+#[derive(Debug, Clone, PartialEq)]
+pub struct DpArgs {
+    pub epsilon: f64,
+    pub mechanism: DpMechanism,
+    pub sensitivity: f64,
+    pub delta: Option<f64>,
+    pub seed: Option<i64>,
+}
+
+impl Default for DpArgs {
+    fn default() -> Self {
+        DpArgs {
+            epsilon: 1.0,
+            mechanism: DpMechanism::Laplace,
+            sensitivity: 1.0,
+            delta: None,
+            seed: None,
+        }
+    }
 }
 
 /// 파이프라인의 소스 (데이터 원천)

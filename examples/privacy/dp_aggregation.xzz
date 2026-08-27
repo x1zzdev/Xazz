@@ -1,0 +1,35 @@
+// Xazz v0.6 — 차등 프라이버시(DP) 노이즈 주입 예제
+//
+// withDp(epsilon: ...) 는 집계 *결과*의 숫자형 컬럼에 보정된 노이즈를 더해,
+// 결과 통계의 유용성은 유지하되 특정 개인의 포함 여부 역추적을 수학적으로 차단한다.
+//
+//   - epsilon(ε)  : 프라이버시 예산. 작을수록 강한 보호·큰 노이즈 (필수)
+//   - mechanism   : laplace(기본, ε-DP) | gaussian((ε,δ)-DP)
+//   - sensitivity : 쿼리 민감도 Δf (기본 1.0 — count 쿼리 기준)
+//   - seed        : 노이즈 재현용 시드 (감사·테스트 전용)
+//
+// 세션 ε-budget: 실행 세션의 누적 ε이 총 예산(XAZZ_DP_BUDGET, 기본 10.0)을
+// 초과하면 해당 파이프라인은 거부된다 — 반복 질의 노이즈 평균화 공격 방어.
+
+// ── 스키마 정의 ───────────────────────────────────────────────────────────────
+type AirQuality = {
+  date: string,
+  station: string,
+  pm10: Option<float>,
+  pm25: Option<float>,
+};
+
+// ── 파이프라인 1: 관측소별 측정 건수 + Laplace DP ────────────────────────────
+// count 쿼리는 민감도 1 → 기본 sensitivity 그대로 사용
+v station_counts = load("examples/data/seoul_air_2026.csv") :: AirQuality
+  |> groupBy("station")
+  |> count("pm10")
+  |> withDp(epsilon: 1.0, seed: 42);
+
+// ── 파이프라인 2: 관측소별 평균 PM10 + Gaussian DP ───────────────────────────
+// 평균 쿼리 — gaussian 메커니즘, 더 엄격한 ε
+v station_means = load("examples/data/seoul_air_2026.csv") :: AirQuality
+  |> dropNull("pm10")
+  |> groupBy("station")
+  |> mean("pm10")
+  |> withDp(epsilon: 0.5, mechanism: gaussian, sensitivity: 2.0, delta: 0.00001, seed: 42);
