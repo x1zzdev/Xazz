@@ -64,12 +64,21 @@ const getIcon = (name) => ICONS[name] || Plus
 function DagNode({ id, data, selected }) {
   const Icon = getIcon(data?.icon)
   const isSource = data?.source === true
+  const guardrail = data?.guardrailStatus
   return (
     <div className={`dag-node ${data?.category || 'prep'} ${selected ? 'is-selected' : ''}`}>
       {!isSource && <Handle type="target" position={Position.Left} id="in" className="dag-handle dag-handle--in" />}
       <div className="dag-node__body">
         <span className="dag-node__icon"><Icon size={14} aria-hidden="true" /></span>
         <span className="dag-node__label">{data?.label || id}</span>
+        {data?.category === 'security' && guardrail && (
+          <span
+            className={`dag-node__guardrail dag-node__guardrail--${guardrail}`}
+            title={`Guardrail: ${guardrail}`}
+          >
+            {guardrail === 'blocked' ? '!' : guardrail === 'passed' ? '✓' : '·'}
+          </span>
+        )}
       </div>
       <Handle type="source" position={Position.Right} id="out" className="dag-handle dag-handle--out" />
     </div>
@@ -99,7 +108,7 @@ function migrateLegacyNodes(nodes) {
 }
 
 
-function DagCanvasInner({ onCodeChange }) {
+function DagCanvasInner({ onCodeChange, guardrailStatus }) {
   const { t } = useLanguage()
   const seed = useMemo(() => {
     try {
@@ -119,6 +128,18 @@ function DagCanvasInner({ onCodeChange }) {
   const [selectedId, setSelectedId] = useState(null)
   const [copied, setCopied] = useState(false)
   const { screenToFlowPosition } = useReactFlow()
+
+  // 마지막 가드레일 검사 결과(통과/차단/미검사)를 security 카테고리 노드에
+  // 배지로 새긴다. 순수 display 데이터라 transpile 결과에는 영향이 없다.
+  React.useEffect(() => {
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.data?.category === 'security'
+          ? { ...n, data: { ...n.data, guardrailStatus } }
+          : n,
+      ),
+    )
+  }, [guardrailStatus, setNodes])
 
   const generatedCode = useMemo(() => {
     try {

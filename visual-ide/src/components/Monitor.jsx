@@ -1,8 +1,10 @@
 import React from 'react'
 import {
+  AlertTriangle,
   Boxes,
   Cpu,
   FlaskConical,
+  ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
 } from 'lucide-react'
@@ -411,7 +413,221 @@ function ResourcePanel() {
   )
 }
 
-export function MonitorView({ runState, training, model, dp }) {
+/**
+ * Policy-as-Code guardrail. Two honest states, never blended:
+ *   - measured : a real /security/policy/check or blocked /execute came back
+ *                with a PolicyReport. Pass/blocked/warnings are shown as facts.
+ *   - implemented/empty : no check has run this session, so nothing is shown
+ *                as measured. The panel stays hollow so it never reads as one.
+ *
+ * This is a *measured* capability (issue #2 / #8 shipped the backend), so unlike
+ * the proposed panels it may render success and warning tones — but only when a
+ * real report is present.
+ */
+function GuardrailCard({ v }) {
+  const tone =
+    v.severity === 'block' ? 'guardrail-card--block' : v.severity === 'warn' ? 'guardrail-card--warn' : 'guardrail-card--info'
+  return (
+    <div className={`guardrail-card ${tone}`}>
+      <div className="guardrail-card__head">
+        <code>{v.rule_id}</code>
+        <strong>{v.rule_name}</strong>
+        <span>{v.severity}</span>
+      </div>
+      <p className="guardrail-card__message">{v.message}</p>
+      {Array.isArray(v.columns) && v.columns.length > 0 && (
+        <p className="guardrail-card__cols">
+          Columns: <code>{v.columns.join(', ')}</code>
+        </p>
+      )}
+      {v.remediation_hint && (
+        <p className="guardrail-card__hint">Fix: {v.remediation_hint}</p>
+      )}
+      {v.source_ref && (
+        <p className="guardrail-card__ref">
+          Basis: <code>{v.source_ref}</code>
+        </p>
+      )}
+    </div>
+  )
+}
+
+function RemediationDiff({ originalCode, remediation }) {
+  const original = (originalCode || '').split('\n')
+  const fixed = (remediation?.code || '').split('\n')
+  const length = Math.max(original.length, fixed.length)
+  const verified = remediation?.verified !== false
+  const residual = Array.isArray(remediation?.residual) ? remediation.residual : []
+
+  return (
+    <div className="guardrail-remediation">
+      <div className="guardrail-remediation__head">
+        <div>
+          <strong>Automatic remediation</strong>
+          <span>
+            strategy: <code>{remediation?.strategy}</code>
+          </span>
+        </div>
+        <StatusBadge
+          axis="Verified"
+          tone={verified ? 'success' : 'warning'}
+          compact
+        >
+          {verified ? 'Policy verified' : 'Manual review required'}
+        </StatusBadge>
+      </div>
+
+      {!verified && (
+        <p className="guardrail-remediation__residual">
+          <AlertTriangle size={14} aria-hidden="true" />
+          This fix is <strong>not safe on its own</strong> — {residual.length} residual
+          violation(s) need human handling before the code may run.
+        </p>
+      )}
+
+      <div className="guardrail-diff">
+        <div className="guardrail-diff__col">
+          <span className="guardrail-diff__label">Original</span>
+          <div className="guardrail-diff__body">
+            {Array.from({ length }, (_, i) => (
+              <pre
+                key={`o-${i}`}
+                className={original[i] !== fixed[i] ? 'is-changed' : ''}
+              >
+                {original[i] ?? ' '}
+              </pre>
+            ))}
+          </div>
+        </div>
+        <div className="guardrail-diff__col">
+          <span className="guardrail-diff__label">Remediated</span>
+          <div className="guardrail-diff__body">
+            {Array.from({ length }, (_, i) => (
+              <pre
+                key={`f-${i}`}
+                className={original[i] !== fixed[i] ? 'is-changed' : ''}
+              >
+                {fixed[i] ?? ' '}
+              </pre>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {Array.isArray(remediation?.applied) && remediation.applied.length > 0 && (
+        <ul className="guardrail-applied">
+          {remediation.applied.map((fix, index) => (
+            <li key={index}>
+              <code>{fix.rule_id}</code>
+              {fix.description}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {residual.length > 0 && (
+        <div className="guardrail-residual">
+          <strong>Residual · human handling</strong>
+          {residual.map((v, index) => (
+            <GuardrailCard key={index} v={v} />
+          ))}
+        </div>
+      )}
+
+      {Array.isArray(remediation?.notes) && remediation.notes.length > 0 && (
+        <ul className="guardrail-notes">
+          {remediation.notes.map((note, index) => (
+            <li key={index}>{note}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function GuardrailPanel({ policy, remediation, originalCode }) {
+  const isMeasured = Boolean(policy)
+
+  if (!isMeasured) {
+    return (
+      <MonitorPanel
+        contract="implemented"
+        icon={ShieldQuestion}
+        title="Policy-as-Code guardrail"
+        unit="static check · none run"
+        maturity="Beta"
+        scope="Panel is implemented — no policy check has run this session, so nothing is shown as measured."
+      >
+        <p className="monitor-gap">
+          <FlaskConical size={13} aria-hidden="true" />
+          Run a policy check (or a Full Run) to inspect violations and warnings
+          before anything executes. The backend performs the static check via{' '}
+          <code>/security/policy/check</code>.
+        </p>
+      </MonitorPanel>
+    )
+  }
+
+  const blocked = !policy.safe_to_execute
+  const violations = Array.isArray(policy.violations) ? policy.violations : []
+  const warnings = Array.isArray(policy.warnings) ? policy.warnings : []
+  const parseError = policy.parse_error
+
+  return (
+    <MonitorPanel
+      contract="measured"
+      icon={blocked ? ShieldAlert : ShieldCheck}
+      title="Policy-as-Code guardrail"
+      unit={`${policy.policy_id} v${policy.policy_version}`}
+      maturity="Real"
+      scope={`${policy.domain} · risk ${policy.risk_level} · ${policy.scanned_statements} statement(s) scanned`}
+    >
+      {blocked ? (
+        <p className="guardrail-result guardrail-result--blocked">
+          <ShieldAlert size={15} aria-hidden="true" />
+          Policy check blocked execution · {violations.length} violation(s)
+        </p>
+      ) : (
+        <p className="guardrail-result guardrail-result--pass">
+          <ShieldCheck size={15} aria-hidden="true" />
+          Guardrail check passed
+          {warnings.length > 0 ? ` · ${warnings.length} warning(s)` : ' · no warnings'}
+        </p>
+      )}
+
+      {parseError && (
+        <p className="guardrail-parse-error">
+          <AlertTriangle size={14} aria-hidden="true" />
+          Parse error — failing closed: {parseError}
+        </p>
+      )}
+
+      {violations.length > 0 && (
+        <div className="guardrail-section">
+          <strong>Violations</strong>
+          {violations.map((v, index) => (
+            <GuardrailCard key={index} v={v} />
+          ))}
+        </div>
+      )}
+
+      {warnings.length > 0 && (
+        <div className="guardrail-section guardrail-section--warnings">
+          <strong>Warnings</strong>
+          {warnings.map((w, index) => (
+            <GuardrailCard key={index} v={w} />
+          ))}
+        </div>
+      )}
+
+      {remediation && (
+        <RemediationDiff originalCode={originalCode} remediation={remediation} />
+      )}
+    </MonitorPanel>
+  )
+}
+
+export function MonitorView({ runState, training, model, dp, policy, remediation, originalCode }) {
   return (
     <div className="monitor-view" aria-label="Run monitoring">
       <div className="monitor-view__rail" aria-hidden="true" />
@@ -421,6 +637,11 @@ export function MonitorView({ runState, training, model, dp }) {
           <PrivacyBudgetPanel dp={dp} />
           <ResourcePanel />
         </div>
+        <GuardrailPanel
+          policy={policy}
+          remediation={remediation}
+          originalCode={originalCode}
+        />
       </div>
     </div>
   )

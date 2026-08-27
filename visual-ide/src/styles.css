@@ -3961,6 +3961,281 @@ summary:focus-visible,
   font-size: 10px;
 }
 
+/* Guardrail panel — real measured Policy-as-Code capability (issue #9/#17). */
+.monitor-view-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--dark-canvas);
+}
+
+.guardrail-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--dark-border);
+  background: var(--dark-surface-2);
+}
+
+.guardrail-toolbar > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  color: var(--dark-text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.guardrail-result {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.guardrail-result--pass {
+  color: var(--success-dark);
+  background: color-mix(in srgb, var(--success) 22%, var(--dark-surface));
+  border: 1px solid var(--success);
+}
+
+.guardrail-result--blocked {
+  color: var(--danger-dark);
+  background: color-mix(in srgb, var(--danger) 22%, var(--dark-surface));
+  border: 1px solid var(--danger);
+}
+
+.guardrail-parse-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  color: var(--danger-dark);
+  font-size: 11px;
+  line-height: 1.5;
+  background: color-mix(in srgb, var(--danger) 14%, var(--dark-surface));
+  border-radius: 6px;
+}
+
+.guardrail-section {
+  margin-top: 14px;
+}
+
+.guardrail-section > strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--dark-text);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.guardrail-section--warnings > strong {
+  color: var(--warning-dark);
+}
+
+.guardrail-card {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--dark-border);
+  border-left: 3px solid var(--dark-border);
+  border-radius: 6px;
+  background: var(--dark-surface-2);
+}
+
+.guardrail-card--block {
+  border-left-color: var(--danger);
+}
+
+.guardrail-card--warn {
+  border-left-color: var(--warning);
+}
+
+.guardrail-card--info {
+  border-left-color: var(--success);
+}
+
+.guardrail-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guardrail-card__head code {
+  color: var(--dark-text);
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+
+.guardrail-card__head strong {
+  color: var(--dark-text);
+  font-size: 12px;
+}
+
+.guardrail-card__head span {
+  margin-left: auto;
+  color: var(--dark-text-3);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.guardrail-card__message {
+  margin: 6px 0 0;
+  color: var(--dark-text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.guardrail-card__cols,
+.guardrail-card__hint,
+.guardrail-card__ref {
+  margin: 5px 0 0;
+  color: var(--dark-text-3);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.guardrail-card code {
+  color: var(--dark-text);
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+
+.guardrail-remediation {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--dark-border);
+}
+
+.guardrail-remediation__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.guardrail-remediation__head strong {
+  display: block;
+  color: var(--dark-text);
+  font-size: 12px;
+}
+
+.guardrail-remediation__head span {
+  display: block;
+  margin-top: 2px;
+  color: var(--dark-text-3);
+  font-size: 10px;
+}
+
+.guardrail-remediation__residual {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  color: var(--warning-dark);
+  font-size: 11px;
+  line-height: 1.5;
+  background: color-mix(in srgb, var(--warning) 16%, var(--dark-surface));
+  border-radius: 6px;
+}
+
+.guardrail-diff {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.guardrail-diff__col {
+  min-width: 0;
+}
+
+.guardrail-diff__label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--dark-text-3);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.guardrail-diff__body {
+  overflow-x: auto;
+  border: 1px solid var(--dark-border);
+  border-radius: 6px;
+  background: var(--dark-canvas);
+}
+
+.guardrail-diff__body pre {
+  margin: 0;
+  padding: 2px 8px;
+  color: var(--dark-text-2);
+  font-family: var(--font-code);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.guardrail-diff__body pre.is-changed {
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
+  color: var(--dark-text);
+}
+
+.guardrail-applied,
+.guardrail-notes {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guardrail-applied li {
+  margin-bottom: 4px;
+  color: var(--dark-text-2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.guardrail-applied li code {
+  display: inline-block;
+  min-width: 64px;
+  margin-right: 8px;
+  color: var(--success-dark);
+  font-family: var(--font-code);
+  font-size: 10px;
+}
+
+.guardrail-residual {
+  margin-top: 12px;
+}
+
+.guardrail-residual > strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--danger-dark);
+  font-size: 11px;
+}
+
+.guardrail-notes li {
+  margin-bottom: 4px;
+  color: var(--dark-text-3);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.guardrail-notes li::before {
+  content: '↳ ';
+  color: var(--dark-text-3);
+}
+
 /* All three panels must be reachable without scrolling at the 1440x960 reference
    frame: the measured panel takes the left column, the two proposed panels stack
    in the right one. */
@@ -4129,6 +4404,34 @@ summary:focus-visible,
 .dag-node.inout .dag-node__icon { color: #22c55e; background: rgba(34, 197, 94, 0.12); }
 .dag-node.transform .dag-node__icon { color: #f97316; background: rgba(249, 115, 22, 0.12); }
 .dag-node__label { font-weight: 600; white-space: nowrap; }
+
+.dag-node__guardrail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.dag-node__guardrail--blocked {
+  color: #fff;
+  background: var(--danger, #a32929);
+}
+
+.dag-node__guardrail--passed {
+  color: #0b2418;
+  background: var(--success-dark, #64d6aa);
+}
+
+.dag-node__guardrail--pending {
+  color: var(--dark-text-2, #b8c5be);
+  background: var(--dark-border, #394a42);
+}
 
 /* 핸들: 연결 지점을 명확히 */
 .dag-handle {

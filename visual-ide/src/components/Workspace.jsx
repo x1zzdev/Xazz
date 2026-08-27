@@ -45,7 +45,7 @@ import { Brand, StatusBadge } from './Common'
 import { MonitorView } from './Monitor'
 import { LocaleSwitch, localizeStep, useLanguage } from '../i18n'
 import DagEditor from './DagEditor'
-import { executeCode, checkHealth, API_BASE_URL } from '../api'
+import { checkPolicy, executeCode, checkHealth, remediateCode, API_BASE_URL } from '../api'
 import {
   chartData,
   codeLines,
@@ -170,6 +170,7 @@ function WorkspaceTopbar({
   fullRunRef,
   isInert,
   backendReachable,
+  runBlocked,
 }) {
   const { t } = useLanguage()
   const processTone =
@@ -240,7 +241,8 @@ function WorkspaceTopbar({
           className="button button--tool-primary"
           type="button"
           onClick={onFullRun}
-          disabled={runState === 'running'}
+          disabled={runState === 'running' || runBlocked}
+          title={runBlocked ? 'Full Run is blocked by a policy violation' : undefined}
         >
           <Play size={16} fill="currentColor" aria-hidden="true" />
           {t('topbar.fullRun')}
@@ -1386,9 +1388,14 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
   const [runResult, setRunResult] = useState(null)
   const [execError, setExecError] = useState(null)
   const [executing, setExecuting] = useState(false)
+  const [policyReport, setPolicyReport] = useState(null)
+  const [remediation, setRemediation] = useState(null)
+  const [guardrailSource, setGuardrailSource] = useState(null)
+  const [guardrailChecking, setGuardrailChecking] = useState(false)
   const fullRunRef = useRef(null)
   const hash = useCodeHash()
   const selectedNode = pipeline.find((node) => node.id === selectedId) ?? pipeline[0]
+  const guardrailBlocked = Boolean(policyReport && !policyReport.safe_to_execute)
 
   useEffect(() => {
     let active = true
@@ -1441,7 +1448,15 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
         setLiveMessage(`Full Run succeeded · ${rows} result rows`)
         changeState('success')
       } else {
-        setLiveMessage('Full Run exited · pipeline error in xazz-exec')
+        // A blocked /execute (Policy-as-Code gate) returns 422 with a `policy`
+        // report in the body — surface it in the guardrail panel.
+        if (result.policy) {
+          setPolicyReport(result.policy)
+          setGuardrailSource(dagCode)
+          setLiveMessage('Full Run blocked by policy guardrail')
+        } else {
+          setLiveMessage('Full Run exited · pipeline error in xazz-exec')
+        }
         changeState('error')
       }
     } catch (err) {
@@ -1472,6 +1487,44 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
           : `xazz-server unreachable · check ${API_BASE_URL}`,
       )
     })
+  }
+
+  const runPolicyCheck = async () => {
+    setGuardrailChecking(true)
+    setGuardrailSource(dagCode)
+    try {
+      const report = await checkPolicy(dagCode)
+      if (report && report.policy) {
+        setPolicyReport(report.policy)
+        setLiveMessage(
+          report.policy.safe_to_execute
+            ? `Guardrail check passed · ${report.policy.violations?.length ?? 0} violation(s)`
+            : `Guardrail blocked · ${report.policy.violations?.length ?? 0} violation(s)`,
+        )
+      } else {
+        setLiveMessage('Guardrail check unavailable · server offline?')
+      }
+    } finally {
+      setGuardrailChecking(false)
+    }
+  }
+
+  const runRemediate = async () => {
+    setGuardrailSource(dagCode)
+    try {
+      const response = await remediateCode(dagCode)
+      if (response && response.remediation) {
+        setRemediation(response.remediation)
+        if (response.policy) setPolicyReport(response.policy)
+        setLiveMessage(
+          response.remediation.verified
+            ? 'Remediation generated · verified safe'
+            : 'Remediation generated · manual review still required',
+        )
+      }
+    } catch {
+      setLiveMessage('Remediation unavailable · server offline?')
+    }
   }
 
   const openPreflight = () => {
@@ -1506,6 +1559,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
         }
         fullRunRef={fullRunRef}
         backendReachable={backendReachable}
+        runBlocked={guardrailBlocked}
         isInert={runState === 'preflight'}
       />
       <div
@@ -1521,14 +1575,56 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
             data-testid="compiler-split"
           >
             {view === 'monitor' ? (
-              <MonitorView
-                runState={runState}
-                training={runResult?.training}
-                model={runResult?.model}
-                dp={runResult?.dp}
-              />
+              <div className="monitor-view-wrap">
+                <div className="guardrail-toolbar" aria-label="Guardrail actions">
+                  <span>
+                    <ShieldCheck size={14} aria-hidden="true" />
+                    Policy-as-Code guardrail
+                  </span>
+                  <button
+                    className="button button--tool-secondary"
+                    type="button"
+                    onClick={runPolicyCheck}
+                    disabled={guardrailChecking || runState === 'running'}
+                  >
+                    {guardrailChecking ? (
+                      <LoaderCircle size={15} aria-hidden="true" />
+                    ) : (
+                      <Search size={15} aria-hidden="true" />
+                    )}
+                    Check policy
+                  </button>
+                  <button
+                    className="button button--tool-secondary"
+                    type="button"
+                    onClick={runRemediate}
+                    disabled={guardrailChecking || runState === 'running'}
+                  >
+                    <Sparkles size={15} aria-hidden="true" />
+                    Remediate
+                  </button>
+                </div>
+                <MonitorView
+                  runState={runState}
+                  training={runResult?.training}
+                  model={runResult?.model}
+                  dp={runResult?.dp}
+                  policy={policyReport}
+                  remediation={remediation}
+                  originalCode={guardrailSource}
+                />
+              </div>
             ) : view === 'edit' ? (
-              <DagEditor onCodeChange={setDagCode} />
+              <DagEditor
+                onCodeChange={setDagCode}
+                guardrailStatus={
+                  guardrailBlocked
+                    ? 'blocked'
+                    : policyReport
+                      ? 'passed'
+                      : undefined
+                }
+              />
             ) : (
               <>
                 {view !== 'code' && (
