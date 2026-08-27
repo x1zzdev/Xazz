@@ -122,14 +122,22 @@ export const NODE_MAPPINGS = {
   },
 
   // ── groupBy ───────────────────────────────────────────────────────────────
-  // |> groupBy("group_col") |> count            (agg=count)
-  // |> groupBy("group_col") |> mean("agg_col")  (agg=sum/mean/min/max)
+  // |> groupBy("group_col") |> count("group_col")  (agg=count)
+  // |> groupBy("group_col") |> mean("agg_col")      (agg=sum/mean/min/max)
   groupBy: (node) => {
     const params = node.data?.parameters || {};
     const column = resolveColumn(node, params.column || '_col');
     const agg = params.agg || 'count';
     if (agg === 'count') {
-      return { type: 'pipeline', lines: [`|> groupBy("${column}") |> count`] };
+      // Xazz 컴파일러는 groupBy 뒤 count 를 집계로 인정하지 않아 정적 분석 경고가 남는다.
+      // 실행은 성공하지만, DIAGNOSTIC 경고를 피하려면 sum/mean 등 다른 집계를 쓰는 게 좋다.
+      return {
+        type: 'pipeline',
+        lines: [
+          `|> groupBy("${column}") |> count`,
+          `// ⚠️ Xazz 는 groupBy 뒤 count 를 집계로 인식하지 못합니다. 정적 분석 경고가 남으면 sum/mean 등 다른 집계를 사용하세요.`,
+        ],
+      };
     }
     // 집계 대상 컬럼: aggColumn 지정 시 사용, 없으면 경고 주석과 함께 그룹 키 사용 회피
     const aggCol = params.aggColumn ? resolveColumn(node, params.aggColumn) : null;

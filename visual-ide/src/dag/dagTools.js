@@ -233,3 +233,42 @@ export function seedFromStaticPipeline() {
     ],
   }
 }
+/**
+ * CSV 텍스트에서 컬럼명/타입을 자동 감지한다. (브라우저 파일 선택용)
+ * @param {string} text
+ * @returns {{name:string, type:string}[]}
+ */
+export function detectCsvSchema(text) {
+  const cleaned = text.replace(/^\uFEFF/, '')
+  const lines = cleaned.split(/\r?\n/).filter((l) => l.trim() !== '')
+  if (lines.length === 0) return []
+  const parseRow = (line) => {
+    const result = []
+    let inQuotes = false
+    let cur = ''
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i]
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') { cur += '"'; i++ }
+        else inQuotes = !inQuotes
+      } else if (ch === ',' && !inQuotes) { result.push(cur); cur = '' }
+      else cur += ch
+    }
+    result.push(cur)
+    return result.map((v) => v.trim())
+  }
+  const headers = parseRow(lines[0])
+  const sample = lines.slice(1, 21).map(parseRow)
+  const inferType = (vals) => {
+    const nz = vals.filter((v) => v !== '' && v !== null && v !== undefined)
+    if (nz.length === 0) return 'string'
+    if (nz.every((v) => /^-?\d+$/.test(v))) return 'int'
+    if (nz.every((v) => /^-?\d+(\.\d+)?$/.test(v))) return 'float'
+    if (nz.every((v) => ['true', 'false', '1', '0'].includes(v.toLowerCase()))) return 'bool'
+    return 'string'
+  }
+  return headers.map((name, i) => ({
+    name: name || `col_${i}`,
+    type: inferType(sample.map((r) => r[i] || '')),
+  }))
+}
