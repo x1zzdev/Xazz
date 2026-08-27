@@ -51,3 +51,8 @@ demo/*.mp4
 demo/*.wav
 demo/*.srt
 demo/narration.txt
+
+# 다만 제출용 최종본 한 벌은 커밋한다 — 툴체인 없이도 바로 볼 수 있도록.
+# 다시 렌더할 때마다 커밋하지 말 것 (1MB 바이너리가 이력에 계속 쌓인다).
+!demo/xazz_demo.mp4
+!demo/xazz_demo.srt
