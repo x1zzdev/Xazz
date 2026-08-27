@@ -131,7 +131,7 @@ let currentPipelineVar = null;
     // 누적된 파이프라인 스텝을 하나의 v statement 로 flush
     const flushPipeline = () => {
       if (pipelineLines.length > 0 && currentPipelineVar) {
-        currentResultVar = `result_${chainVarName}`;
+        currentResultVar = uniqueName(`result_${chainVarName}`, usedNames);
         lines.push(`v ${currentResultVar} = ${currentPipelineVar}`);
         pipelineLines.forEach(pl => lines.push(pl));
         lines.push('');
