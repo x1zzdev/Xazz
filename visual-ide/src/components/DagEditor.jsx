@@ -37,6 +37,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { transpileToX1zz } from '../transpiler/x1zzTranspiler'
+import { useLanguage } from '../i18n'
 import { DAG_DEFAULT_PARAMS, DAG_TOOLS, NODE_PARAM_FIELDS, SEED_SCHEMA, detectCsvSchema, seedFromStaticPipeline } from '../dag/dagTools'
 
 // ── 아이콘 레지스트리 (문자열 → 컴포넌트) ───────────────────────────────────
@@ -97,9 +98,9 @@ function migrateLegacyNodes(nodes) {
   })
 }
 
-const CATEGORY_LABEL = { inout: 'Data', prep: 'Preprocess', transform: 'Transform', ml: 'ML · Burn', security: 'Security' }
 
 function DagCanvasInner({ onCodeChange }) {
+  const { t } = useLanguage()
   const seed = useMemo(() => {
     try {
       const saved = localStorage.getItem('xazz_dag')
@@ -215,8 +216,8 @@ function DagCanvasInner({ onCodeChange }) {
       {/* 좌측 도구 팔레트 (드래그 가능) */}
       <aside className="dag-palette">
         <div className="dag-palette__title">
-          <span className="eyebrow">Tool Palette</span>
-          <p className="dag-palette__help">노드를 캔버스로 드래그하거나 클릭하여 추가</p>
+          <span className="eyebrow">{t('dag.palette')}</span>
+          <p className="dag-palette__help">{t('dag.paletteHelp')}</p>
         </div>
         {Object.entries(
           DAG_TOOLS.reduce((acc, t) => {
@@ -225,7 +226,7 @@ function DagCanvasInner({ onCodeChange }) {
           }, {}),
         ).map(([cat, tools]) => (
           <div key={cat} className="dag-palette__group">
-            <span className={`dag-palette__cat dag-palette__cat--${cat}`}>{CATEGORY_LABEL[cat] || cat}</span>
+            <span className={`dag-palette__cat dag-palette__cat--${cat}`}>{t(`dag.categories.${cat}`)}</span>
             {tools.map((tool) => {
               const Icon = getIcon(tool.icon)
               return (
@@ -273,7 +274,7 @@ function DagCanvasInner({ onCodeChange }) {
           <MiniMap pannable zoomable nodeColor={(n) => (n.data?.category === 'ml' ? '#34d399' : n.data?.category === 'security' ? '#f59e0b' : '#3b82f6')} maskColor="rgba(15,20,26,0.7)" />
         </ReactFlow>
         <div className="dag-canvas__hint">
-          <b>연결 방법:</b> 노드 우측 ○ 를 다른 노드 좌측 ○ 로 드래그 · 노드 클릭 후 <code>Delete</code> 로 삭제
+          {t('dag.hint')}
         </div>
       </div>
 
@@ -281,9 +282,10 @@ function DagCanvasInner({ onCodeChange }) {
       <aside className="dag-side">
         <div className="dag-side__section">
           <div className="dag-side__head">
-            <span className="eyebrow">Generated Xazz</span>
-            <button type="button" className="dag-mini-btn" onClick={copyCode} title="코드 복사">
-              {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? 'Copied' : 'Copy'}
+            <span className="eyebrow">{t('dag.generated')}</span>
+            <button type="button" className="dag-mini-btn" onClick={copyCode} title={t('dag.copy')}>
+              {copied ? <Check size={12} /> : <Copy size={12} />}{' '}
+              {copied ? t('dag.copied') : t('dag.copy')}
             </button>
           </div>
           <pre className="dag-code">{generatedCode}</pre>
@@ -291,9 +293,9 @@ function DagCanvasInner({ onCodeChange }) {
 
         <div className="dag-side__section dag-side__section--params">
           <div className="dag-side__head">
-            <span className="eyebrow">Node Params</span>
+            <span className="eyebrow">{t('dag.params')}</span>
             {selectedId && (
-              <button type="button" className="dag-mini-btn dag-mini-btn--danger" onClick={removeSelected}>
+              <button type="button" className="dag-mini-btn dag-mini-btn--danger" onClick={removeSelected} title={t('dag.delete')}>
                 <Trash2 size={12} /> Delete
               </button>
             )}
@@ -301,16 +303,16 @@ function DagCanvasInner({ onCodeChange }) {
           {selectedId ? (
             <NodeParamsEditor nodeId={selectedId} nodes={nodes} setNodes={setNodes} />
           ) : (
-            <p className="dag-side__empty">캔버스에서 노드를 선택해 파라미터를 편집하세요.</p>
+            <p className="dag-side__empty">{t('dag.paramsEmpty')}</p>
           )}
         </div>
 
         <div className="dag-side__actions">
           <button type="button" className="dag-btn dag-btn--run" onClick={saveDag}>
-            <Play size={14} /> Save DAG
+            <Play size={14} /> {t('dag.save')}
           </button>
           <button type="button" className="dag-btn dag-btn--ghost" onClick={resetDag}>
-            <RotateCcw size={13} /> Reset
+            <RotateCcw size={13} /> {t('dag.reset')}
           </button>
         </div>
       </aside>
@@ -320,6 +322,7 @@ function DagCanvasInner({ onCodeChange }) {
 
 // ── 선택 노드 파라미터 편집 (NODE_PARAM_FIELDS 기반 직관적 폼) ──────────────
 function NodeParamsEditor({ nodeId, nodes, setNodes }) {
+  const { t } = useLanguage()
   const node = nodes.find((n) => n.id === nodeId)
   if (!node) return null
   const type = node.type
@@ -354,14 +357,14 @@ function NodeParamsEditor({ nodeId, nodes, setNodes }) {
     )
   }
 
-  if (!fields.length) return <span className="dag-p__empty">이 노드는 파라미터가 없습니다.</span>
+  if (!fields.length) return <span className="dag-p__empty">{t('dag.noParams')}</span>
 
   // fileInput: 파일 선택 → CSV 컬럼/타입 자동감지로 스키마 설정 (실패 위험 제거)
   if (type === 'fileInput') {
     return (
       <div className="dag-params">
         <label className="dag-field">
-          <span className="dag-field__label">파일 선택 (스키마 자동 감지)</span>
+          <span className="dag-field__label">{t('dag.filePick')}</span>
           <input
             className="dag-field__input"
             type="file"
@@ -373,9 +376,11 @@ function NodeParamsEditor({ nodeId, nodes, setNodes }) {
                 const text = await file.text()
                 const schema = detectCsvSchema(text)
                 update({ filePath: file.name, detectedSchema: schema })
-                window.alert(`✅ ${schema.length}개 컬럼 감지: ${schema.map((c) => `${c.name}:${c.type}`).join(', ')}`)
+                window.alert(
+                  `${t('dag.detected').replace('{n}', schema.length)}: ${schema.map((c) => `${c.name}:${c.type}`).join(', ')}`,
+                )
               } catch (err) {
-                window.alert(`파일 읽기 실패: ${err.message}`)
+                window.alert(`${t('dag.readFailed')}: ${err.message}`)
               }
               e.target.value = ''
             }}
@@ -389,7 +394,7 @@ function NodeParamsEditor({ nodeId, nodes, setNodes }) {
         ))}
         {Array.isArray(p.detectedSchema) && p.detectedSchema.length > 0 && (
           <div className="dag-field">
-            <span className="dag-field__label">감지된 스키마</span>
+            <span className="dag-field__label">{t('dag.detectedSchema')}</span>
             <div className="dag-schema-tags">
               {p.detectedSchema.map((c, i) => (
                 <span key={i} className="dag-schema-tag">{c.name}<i>{c.type}</i></span>

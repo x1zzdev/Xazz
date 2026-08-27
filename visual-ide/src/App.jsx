@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Landing, ProjectStart } from './components/Landing'
 import { Workspace } from './components/Workspace'
+import { LanguageProvider, useLanguage } from './i18n'
 
 const validStates = new Set(['ready', 'preflight', 'running', 'success', 'error'])
 
@@ -8,11 +9,14 @@ function readRoute() {
   const params = new URLSearchParams(window.location.search)
   const screen = params.get('screen') ?? 'landing'
   const requestedState = params.get('state') ?? 'ready'
-  const requestedLanguage = params.get('lang') ?? 'en'
+  const requestedLanguage = params.get('lang')
   return {
     screen: ['landing', 'start', 'workspace'].includes(screen) ? screen : 'landing',
     state: validStates.has(requestedState) ? requestedState : 'ready',
     language: requestedLanguage === 'ko' ? 'ko' : 'en',
+    // Distinguishes "the URL asked for English" from "the URL said nothing",
+    // so a remembered choice is only overridden by an explicit request.
+    languageRequested: requestedLanguage !== null,
   }
 }
 
@@ -20,13 +24,16 @@ function writeRoute(screen, state = 'ready', replace = false, language = 'en') {
   const params = new URLSearchParams()
   if (screen !== 'landing') params.set('screen', screen)
   if (screen === 'workspace' && state !== 'ready') params.set('state', state)
-  if (screen === 'start' && language === 'ko') params.set('lang', 'ko')
+  if (language === 'ko') params.set('lang', 'ko')
   const url = `${window.location.pathname}${params.size ? `?${params}` : ''}`
   window.history[replace ? 'replaceState' : 'pushState']({}, '', url)
 }
 
-export function App() {
+function AppRoutes() {
   const [route, setRoute] = useState(readRoute)
+  // Language now lives in one place for every screen instead of being a prop the
+  // workspace route used to drop on the floor.
+  const { language, setLanguage } = useLanguage()
 
   useEffect(() => {
     const sync = () => setRoute(readRoute())
@@ -35,19 +42,22 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    const title =
+    document.title =
       route.screen === 'landing'
         ? 'Xazz · Landing'
         : route.screen === 'start'
-          ? `Xazz · Project Start${route.language === 'ko' ? ' · KO' : ''}`
+          ? `Xazz · Project Start${language === 'ko' ? ' · KO' : ''}`
           : `Xazz · Workspace · ${route.state}`
-    document.title = title
-    document.documentElement.lang = route.language
-  }, [route])
+  }, [route, language])
 
-  const navigate = (screen, state = 'ready', language = 'en') => {
+  // Keep ?lang= in step with the chosen language so a shared link opens the same way.
+  useEffect(() => {
+    writeRoute(route.screen, route.state, true, language)
+  }, [language, route.screen, route.state])
+
+  const navigate = (screen, state = 'ready') => {
     writeRoute(screen, state, false, language)
-    setRoute({ screen, state, language })
+    setRoute((current) => ({ ...current, screen, state }))
     window.scrollTo({ top: 0, behavior: 'instant' })
   }
 
@@ -56,11 +66,8 @@ export function App() {
       <ProjectStart
         onBack={() => navigate('landing')}
         onOpenWorkspace={() => navigate('workspace', 'ready')}
-        language={route.language}
-        onLanguageChange={(language) => {
-          writeRoute('start', 'ready', true, language)
-          setRoute({ screen: 'start', state: 'ready', language })
-        }}
+        language={language}
+        onLanguageChange={setLanguage}
       />
     )
   }
@@ -71,12 +78,24 @@ export function App() {
         initialState={route.state}
         onHome={() => navigate('landing')}
         onStateChange={(state) => {
-          writeRoute('workspace', state, true)
-          setRoute({ screen: 'workspace', state, language: 'en' })
+          writeRoute('workspace', state, true, language)
+          setRoute((current) => ({ ...current, screen: 'workspace', state }))
         }}
       />
     )
   }
 
   return <Landing onOpenSample={() => navigate('start')} />
+}
+
+export function App() {
+  const initial = readRoute()
+  return (
+    <LanguageProvider
+      initialLanguage={initial.language}
+      forceInitial={initial.languageRequested}
+    >
+      <AppRoutes />
+    </LanguageProvider>
+  )
 }

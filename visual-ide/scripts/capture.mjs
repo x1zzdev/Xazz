@@ -63,6 +63,21 @@ const frames = [
     (page) => page.getByRole('button', { name: 'Monitor' }).click(),
   ],
   [
+    'workspace-korean',
+    '/?screen=workspace&lang=ko',
+    1440,
+    960,
+    false,
+  ],
+  [
+    'dag-editor-korean',
+    '/?screen=workspace&lang=ko',
+    1440,
+    960,
+    false,
+    (page) => page.getByRole('button', { name: '편집' }).click(),
+  ],
+  [
     'dag-editor',
     '/?screen=workspace',
     1440,

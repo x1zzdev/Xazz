@@ -571,3 +571,94 @@ test('opening the run gate does not crash the workspace', async ({ page }) => {
 
   assertRuntime()
 })
+
+test('the language toggle translates the step explanations', async ({ page }) => {
+  const assertRuntime = observeRuntime(page)
+  await page.goto('/?screen=workspace')
+
+  const inspector = page.locator('.inspector')
+  await expect(inspector.locator('.eyebrow').first()).toHaveText('Selected operation')
+  await expect(page.locator('.operation-list h2')).toContainText('Pipeline operations')
+
+  const toggle = page.locator('.workspace-topbar .locale-switch')
+  await expect(toggle).toBeVisible()
+  await toggle.getByRole('button', { name: '한국어' }).click()
+
+  // The prose that explains a step is what a Korean reader needs translated.
+  await expect(inspector.locator('.eyebrow').first()).toHaveText('선택한 단계')
+  await expect(inspector.locator('h3').first()).toHaveText('이 단계가 하는 일')
+  await expect(page.locator('.operation-list h2')).toContainText('파이프라인 단계')
+  await expect(page.locator('.flow-node__band').first()).toHaveText('전처리')
+
+  // The choice is shareable and survives a reload.
+  await expect(page).toHaveURL(/lang=ko/)
+  await page.reload()
+  await expect(inspector.locator('.eyebrow').first()).toHaveText('선택한 단계')
+
+  assertRuntime()
+})
+
+test('ML terms, column names and generated code stay untranslated', async ({ page }) => {
+  const assertRuntime = observeRuntime(page)
+  await page.goto('/?screen=workspace&lang=ko')
+
+  // Translating these would put the screen at odds with the .xzz beside it.
+  const rail = page.locator('.operation-list')
+  await expect(rail).toContainText('40 epochs · loss 0.0417')
+  await expect(rail).toContainText('209 params')
+  await expect(rail).toContainText('pm25 · Float?')
+
+  // The status axes are the contract vocabulary from docs/design/state-contract.md
+  // and keep their exact English wording on every axis.
+  await expect(page.getByLabel('Maturity: Available')).toBeVisible()
+
+  await page.getByRole('button', { name: '코드' }).click()
+  await expect(page.locator('.code-pane')).toContainText('train(AirPredictor')
+
+  assertRuntime()
+})
+
+test('an explicit lang in the URL outranks the remembered choice', async ({ page }) => {
+  const assertRuntime = observeRuntime(page)
+
+  await page.goto('/?screen=workspace')
+  await page
+    .locator('.workspace-topbar .locale-switch')
+    .getByRole('button', { name: '한국어' })
+    .click()
+  await expect(page.locator('.inspector .eyebrow').first()).toHaveText('선택한 단계')
+
+  // Korean is now remembered, but a link that asks for English must open English.
+  await page.goto('/?screen=workspace&lang=en')
+  await expect(page.locator('.inspector .eyebrow').first()).toHaveText(
+    'Selected operation',
+  )
+
+  assertRuntime()
+})
+
+test('the DAG editor follows the toggle instead of being Korean-only', async ({
+  page,
+}) => {
+  const assertRuntime = observeRuntime(page)
+  await page.goto('/?screen=workspace&lang=en')
+  await page.getByRole('button', { name: 'Edit' }).click()
+
+  // The editor shipped with its copy hardcoded in Korean inside an English UI.
+  await expect(page.locator('.dag-palette__help')).toHaveText(
+    'Drag a node onto the canvas, or click to add it',
+  )
+  await expect(page.locator('.dag-side__empty')).toContainText(
+    'Select a node on the canvas',
+  )
+
+  await page
+    .locator('.workspace-topbar .locale-switch')
+    .getByRole('button', { name: '한국어' })
+    .click()
+  await expect(page.locator('.dag-palette__help')).toHaveText(
+    '노드를 캔버스로 끌어놓거나 클릭해 추가하세요',
+  )
+
+  assertRuntime()
+})

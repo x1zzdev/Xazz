@@ -43,6 +43,7 @@ import {
 } from 'lucide-react'
 import { Brand, StatusBadge } from './Common'
 import { MonitorView } from './Monitor'
+import { LocaleSwitch, localizeStep, useLanguage } from '../i18n'
 import DagEditor from './DagEditor'
 import { executeCode, checkHealth, API_BASE_URL } from '../api'
 import {
@@ -79,7 +80,7 @@ function PipelineNode({ data }) {
         </span>
         <i>{data.order}</i>
       </div>
-      <span className="flow-node__band">{data.band}</span>
+      <span className="flow-node__band">{data.bandLabel ?? data.band}</span>
       <strong>{data.label}</strong>
       <span className="flow-node__evidence">{data.evidence}</span>
       <span className="flow-node__state">
@@ -170,6 +171,7 @@ function WorkspaceTopbar({
   isInert,
   backendReachable,
 }) {
+  const { t } = useLanguage()
   const processTone =
     runState === 'running'
       ? 'info'
@@ -221,16 +223,17 @@ function WorkspaceTopbar({
         <span className="live-message" role="status" aria-live="polite">
           {liveMessage}
         </span>
+        <LocaleSwitch compact />
         <button
           className="button button--tool-secondary"
           type="button"
           onClick={onLiveCheck}
           disabled={runState === 'running'}
-          aria-label="Live Check, backend reachability check"
+          aria-label={`${t('topbar.liveCheck')}, backend reachability check`}
         >
           <Eye size={16} aria-hidden="true" />
-          Live Check
-          <span>Server health</span>
+          {t('topbar.liveCheck')}
+          <span>{t('topbar.liveCheckHint')}</span>
         </button>
         <button
           ref={fullRunRef}
@@ -240,7 +243,7 @@ function WorkspaceTopbar({
           disabled={runState === 'running'}
         >
           <Play size={16} fill="currentColor" aria-hidden="true" />
-          Full Run
+          {t('topbar.fullRun')}
         </button>
       </div>
     </header>
@@ -248,19 +251,20 @@ function WorkspaceTopbar({
 }
 
 function SourceRail({ selectedId, onSelect }) {
+  const { language, t } = useLanguage()
   const selectedIndex = pipeline.findIndex((node) => node.id === selectedId)
 
   return (
     <aside className="source-rail" aria-label="Project and operation navigation">
       <div className="source-rail__search">
         <Search size={15} aria-hidden="true" />
-        <span>Search project</span>
+        <span>{t('rail.search')}</span>
         <kbd>⌘ K</kbd>
       </div>
       <nav className="project-tree" aria-label="Project files">
         <h2>
           <FolderTree size={14} aria-hidden="true" />
-          Project
+          {t('rail.project')}
         </h2>
         <button type="button" className="tree-row tree-row--active">
           <FileCode2 size={15} aria-hidden="true" />
@@ -278,11 +282,13 @@ function SourceRail({ selectedId, onSelect }) {
       <div className="operation-list">
         <h2>
           <ListTree size={14} aria-hidden="true" />
-          Pipeline operations
+          {t('rail.operations')}
         </h2>
-        <p>Keyboard-selectable mirror of the canvas.</p>
+        <p>{t('rail.operationsHelp')}</p>
         <ol>
-          {pipeline.map((node, index) => (
+          {pipeline.map((rawNode, index) => {
+            const node = localizeStep(rawNode, language)
+            return (
             <li key={node.id}>
               <button
                 type="button"
@@ -307,43 +313,45 @@ function SourceRail({ selectedId, onSelect }) {
                   <small>{node.evidence}</small>
                   <small className="operation-relation">
                     {index === selectedIndex
-                      ? 'Selected'
+                      ? t('rail.selected')
                       : index < selectedIndex
-                        ? 'Upstream'
-                        : 'Downstream'}
+                        ? t('rail.upstream')
+                        : t('rail.downstream')}
                   </small>
                 </span>
               </button>
             </li>
-          ))}
+            )
+          })}
         </ol>
       </div>
       <div className="labs-entry">
         <StatusBadge axis="Maturity" tone="future" compact>
           Research
         </StatusBadge>
-        <strong>Models &amp; policy</strong>
-        <p>Separated from current Core.</p>
+        <strong>{t('rail.labsTitle')}</strong>
+        <p>{t('rail.labsBody')}</p>
       </div>
     </aside>
   )
 }
 
 function CanvasToolbar({ view, onView }) {
+  const { t } = useLanguage()
   return (
     <div className="canvas-toolbar">
       <div>
-        <span className="eyebrow">Compiler Canvas</span>
+        <span className="eyebrow">{t('canvas.title')}</span>
         <strong>air_quality_pipeline</strong>
       </div>
       <div className="segmented-control" aria-label="Canvas view">
         {[
-          ['edit', Pencil, 'Edit'],
-          ['graph', Workflow, 'Graph'],
-          ['split', PanelRight, 'Split'],
-          ['code', Code2, 'Code'],
-          ['monitor', Activity, 'Monitor'],
-        ].map(([id, Icon, label]) => (
+          ['edit', Pencil],
+          ['graph', Workflow],
+          ['split', PanelRight],
+          ['code', Code2],
+          ['monitor', Activity],
+        ].map(([id, Icon]) => (
           <button
             type="button"
             key={id}
@@ -352,7 +360,7 @@ function CanvasToolbar({ view, onView }) {
             onClick={() => onView(id)}
           >
             <Icon size={14} aria-hidden="true" />
-            {label}
+            {t(`canvas.views.${id}`)}
           </button>
         ))}
       </div>
@@ -361,23 +369,28 @@ function CanvasToolbar({ view, onView }) {
 }
 
 function PipelineCanvas({ selectedId, onSelect, runState }) {
+  const { language, t } = useLanguage()
   const selectedIndex = pipeline.findIndex((node) => node.id === selectedId)
   const nodes = useMemo(
     () =>
-      pipeline.map((node, index) => ({
+      pipeline.map((rawNode, index) => {
+        const node = localizeStep(rawNode, language)
+        return {
         id: node.id,
         type: 'pipeline',
         position: node.position,
         data: {
           ...node,
+          bandLabel: t(`canvas.bands.${rawNode.band}`),
           order: String(index + 1).padStart(2, '0'),
           visualState: getNodeVisualState(node.id, selectedId, runState),
           relation: getNodeRelation(node.id, selectedId),
         },
         selected: node.id === selectedId,
         draggable: false,
-      })),
-    [selectedId, runState],
+        }
+      }),
+    [selectedId, runState, language, t],
   )
 
   const edges = useMemo(
@@ -420,9 +433,7 @@ function PipelineCanvas({ selectedId, onSelect, runState }) {
       </ReactFlow>
       <div className={`canvas-scope ${runState === 'running' ? 'is-stale' : ''}`}>
         <Eye size={13} aria-hidden="true" />
-        {runState === 'running'
-          ? 'Last result · stale while Full Run is pending'
-          : 'Structural pipeline canvas · evidence comes from the Full Run response'}
+        {runState === 'running' ? t('canvas.staleScope') : t('canvas.scope')}
       </div>
     </div>
   )
@@ -490,14 +501,21 @@ function CodePane({ selectedNode, runState }) {
   )
 }
 
-function Inspector({ selectedNode, runState, runResult }) {
+function Inspector({ selectedNode: rawNode, runState, runResult }) {
+  const { language, t } = useLanguage()
+  const selectedNode = localizeStep(rawNode, language)
   const realRows = Array.isArray(runResult?.rows) ? runResult.rows.length : null
   const detail =
     realRows !== null
       ? {
           ...selectedNode.detail,
-          rows: realRows !== null ? `${realRows} rows returned` : selectedNode.detail.rows,
-          schema: Array.isArray(runResult.schema) ? `${runResult.schema.length} fields` : selectedNode.detail.schema,
+          rows:
+            realRows !== null
+              ? t('inspector.rowsReturned').replace('{n}', realRows)
+              : selectedNode.detail.rows,
+          schema: Array.isArray(runResult.schema)
+            ? t('inspector.fieldCount').replace('{n}', runResult.schema.length)
+            : selectedNode.detail.schema,
         }
       : selectedNode.detail
   const state =
@@ -511,7 +529,7 @@ function Inspector({ selectedNode, runState, runResult }) {
     <aside className="inspector" aria-label="Selected operation inspector">
       <div className="inspector__head">
         <div>
-          <span className="eyebrow">Selected operation</span>
+          <span className="eyebrow">{t('inspector.selected')}</span>
           <h2>{selectedNode.label}</h2>
         </div>
         <StatusBadge axis={state[0]} tone={state[2]} compact>
@@ -519,71 +537,69 @@ function Inspector({ selectedNode, runState, runResult }) {
         </StatusBadge>
       </div>
       <section>
-        <h3>Intent</h3>
+        <h3>{t('inspector.intent')}</h3>
         <p>{selectedNode.detail.intent}</p>
       </section>
       <section>
-        <h3>Impact</h3>
+        <h3>{t('inspector.impact')}</h3>
         <dl className="impact-grid">
           <div>
-            <dt>Rows</dt>
+            <dt>{t('inspector.rows')}</dt>
             <dd>{detail.rows}</dd>
           </div>
           <div>
-            <dt>Nulls</dt>
+            <dt>{t('inspector.nulls')}</dt>
             <dd>{detail.nulls}</dd>
           </div>
           <div>
-            <dt>Schema</dt>
+            <dt>{t('inspector.schema')}</dt>
             <dd>{detail.schema}</dd>
           </div>
           <div>
-            <dt>Duration</dt>
+            <dt>{t('inspector.duration')}</dt>
             <dd>{detail.duration}</dd>
           </div>
         </dl>
         <p className={`impact-source ${runState === 'running' ? 'is-stale' : ''}`}>
           {runState === 'running'
-            ? 'Last result · stale while Full Run is pending.'
+            ? t('inspector.stale')
             : realRows !== null
-              ? 'From the last real Full Run response.'
-              : 'Canvas is structural · per-node metrics come from the run response.'}
+              ? t('inspector.fromRun')
+              : t('inspector.structural')}
         </p>
       </section>
       <section>
-        <h3>Artifact</h3>
+        <h3>{t('inspector.artifact')}</h3>
         <div className="artifact-row">
           <FileText size={15} aria-hidden="true" />
           <span>{detail.artifact}</span>
         </div>
       </section>
       <section className="lineage-section">
-        <h3>Lineage</h3>
+        <h3>{t('inspector.lineage')}</h3>
         <div className="lineage-rail">
           <span>
-            {pipeline.findIndex((node) => node.id === selectedNode.id)} upstream
+            {pipeline.findIndex((node) => node.id === selectedNode.id)} {t('inspector.upstream')}
           </span>
           <i aria-hidden="true" />
           <span>
             {pipeline.length -
               pipeline.findIndex((node) => node.id === selectedNode.id) -
               1}{' '}
-            downstream
+            {t('inspector.downstream')}
           </span>
         </div>
       </section>
       <div className="inspector__truth">
         <Info size={15} aria-hidden="true" />
-        <p>
-          Metrics the current runtime does not emit remain labelled “Not emitted,”
-          rather than inferred.
-        </p>
+        <p>{t('inspector.note')}</p>
       </div>
     </aside>
   )
 }
 
 function PreviewTable({ runResult, backendReachable, execError }) {
+  const { t } = useLanguage()
   const hasResult = Array.isArray(runResult?.rows) && runResult.rows.length > 0
   const schema = Array.isArray(runResult?.schema) ? runResult.schema : []
   const columns = hasResult && schema.length > 0 ? schema : []
@@ -608,11 +624,8 @@ function PreviewTable({ runResult, backendReachable, execError }) {
       <div className="result-empty" role="note">
         <Info size={16} aria-hidden="true" />
         <p>
-          <strong>No real result yet</strong>
-          <span>
-            Run Full Run to execute example.xzz against xazz-server and preview the
-            returned rows.
-          </span>
+          <strong>{t('dock.emptyTitle')}</strong>
+          <span>{t('dock.emptyBody')}</span>
         </p>
       </div>
     )
@@ -1079,12 +1092,13 @@ function ResultDock({
   execError,
   backendReachable,
 }) {
+  const { t } = useLanguage()
   const tabs = [
-    ['preview', Table2, 'Preview'],
-    ['delta', Workflow, 'Delta'],
-    ['chart', PanelBottom, 'Chart'],
-    ['logs', TerminalSquare, 'Logs'],
-    ['receipt', ShieldCheck, 'Receipt'],
+    ['preview', Table2],
+    ['delta', Workflow],
+    ['chart', PanelBottom],
+    ['logs', TerminalSquare],
+    ['receipt', ShieldCheck],
   ]
 
   const content =
@@ -1109,7 +1123,7 @@ function ResultDock({
   return (
     <section className="result-dock" aria-label="Pipeline results">
       <div className="result-dock__tabs" role="tablist" aria-label="Result views">
-        {tabs.map(([id, Icon, label]) => (
+        {tabs.map(([id, Icon]) => (
           <button
             role="tab"
             type="button"
@@ -1119,7 +1133,7 @@ function ResultDock({
             onClick={() => onTab(id)}
           >
             <Icon size={14} aria-hidden="true" />
-            {label}
+            {t(`dock.tabs.${id}`)}
             {id === 'logs' && runState === 'error' && <span>1</span>}
           </button>
         ))}
@@ -1133,10 +1147,15 @@ function ResultDock({
                   ? 'Last Full Run · errored'
                   : Array.isArray(runResult?.rows)
                     ? 'Real Full Run evidence'
-                    : 'Not run yet'}
+                    : t('dock.notRun')}
           </span>
-          <span>Rows {Array.isArray(runResult?.rows) ? runResult.rows.length : '—'}</span>
-          <span>Columns {Array.isArray(runResult?.schema) ? runResult.schema.length : '—'}</span>
+          <span>
+            {t('dock.rows')} {Array.isArray(runResult?.rows) ? runResult.rows.length : '—'}
+          </span>
+          <span>
+            {t('dock.columns')}{' '}
+            {Array.isArray(runResult?.schema) ? runResult.schema.length : '—'}
+          </span>
         </div>
       </div>
       <div className="result-dock__body" role="tabpanel">
