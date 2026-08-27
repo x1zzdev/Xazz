@@ -50,6 +50,69 @@ export const DAG_DEFAULT_PARAMS = {
   dp: { mechanism: 'laplace', epsilon: 1.0 },
 }
 
+/**
+ * 노드별 파라미터 폼 정의 (직관적 UI용).
+ * 각 필드: { key, label, type: 'text'|'number'|'select'|'checkbox', options?, placeholder?, hint? }
+ * key 는 DAG_DEFAULT_PARAMS 와 대응한다.
+ */
+export const NODE_PARAM_FIELDS = {
+  fileInput: [
+    { key: 'filePath', label: '파일 경로', type: 'text', placeholder: 'visual-ide/data/...csv' },
+  ],
+  select: [
+    { key: 'columns', label: '선택할 컬럼 (쉼표 구분)', type: 'text', placeholder: 'pm25, temperature_c' },
+  ],
+  filter: [
+    { key: 'column', label: '컬럼', type: 'text', placeholder: 'pm25' },
+    { key: 'operator', label: '연산자', type: 'select', options: ['==', '!=', '>', '>=', '<', '<='] },
+    { key: 'value', label: '값', type: 'text', placeholder: '35' },
+  ],
+  fillNull: [
+    { key: 'column', label: '컬럼', type: 'text', placeholder: 'pm25' },
+    { key: 'value', label: '채울 값', type: 'text', placeholder: '31.0' },
+  ],
+  dropNull: [{ key: 'column', label: '컬럼', type: 'text', placeholder: 'pm25' }],
+  sort: [
+    { key: 'column', label: '정렬 컬럼', type: 'text', placeholder: 'pm25' },
+    { key: 'descending', label: '내림차순', type: 'checkbox' },
+  ],
+  take: [{ key: 'n', label: '행 수', type: 'number' }],
+  groupBy: [
+    { key: 'column', label: '그룹 컬럼', type: 'text', placeholder: 'district' },
+    { key: 'agg', label: '집계', type: 'select', options: ['count', 'sum', 'mean', 'min', 'max'] },
+  ],
+  count: [],
+  chart: [
+    { key: 'chartType', label: '차트 유형', type: 'select', options: ['bar', 'line', 'scatter', 'pie', 'area'] },
+    { key: 'x', label: 'X 축', type: 'text', placeholder: 'district' },
+    { key: 'y', label: 'Y 축', type: 'text', placeholder: 'pm25_pred' },
+    { key: 'title', label: '제목', type: 'text', placeholder: '차트 제목' },
+  ],
+  model: [
+    { key: 'name', label: '모델 이름', type: 'text', placeholder: 'AirPredictor' },
+    { key: 'layers', label: '레이어 (Burn)', type: 'text', placeholder: 'Dense(32) -> ReLU() -> Dense(1)' },
+  ],
+  train: [
+    { key: 'modelName', label: '모델 이름', type: 'text', placeholder: 'AirPredictor' },
+    { key: 'modelVar', label: '모델 변수', type: 'text', placeholder: 'predictor_model' },
+    { key: 'target', label: '목표 컬럼', type: 'text', placeholder: 'pm25' },
+    { key: 'epochs', label: '에폭', type: 'number' },
+    { key: 'lr', label: '학습률', type: 'number', step: '0.001' },
+  ],
+  predict: [
+    { key: 'modelVar', label: '모델 변수', type: 'text', placeholder: 'predictor_model' },
+    { key: 'as', label: '예측 컬럼명', type: 'text', placeholder: 'pred' },
+  ],
+  guardrail: [
+    { key: 'policy', label: '정책', type: 'select', options: ['PII', 'SQL', 'SECRET'] },
+    { key: 'action', label: '위반 동작', type: 'select', options: ['block', 'warn', 'mask'] },
+  ],
+  dp: [
+    { key: 'mechanism', label: '메커니즘', type: 'select', options: ['laplace', 'gaussian'] },
+    { key: 'epsilon', label: 'Privacy Budget (ε)', type: 'number', step: '0.1' },
+  ],
+}
+
 // 파일 입력 노드의 기본 스키마 (미리 선택된 샘플)
 export const SEED_SCHEMA = [
   { name: 'observed_at', type: 'string' },

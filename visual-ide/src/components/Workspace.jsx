@@ -1497,7 +1497,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
                 model={runResult?.model}
               />
             ) : view === 'edit' ? (
-              <DagEditor initialCode={runnableCode} onCodeChange={setDagCode} />
+              <DagEditor onCodeChange={setDagCode} />
             ) : (
               <>
                 {view !== 'code' && (

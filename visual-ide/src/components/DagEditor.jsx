@@ -10,13 +10,17 @@ import {
   ReactFlow,
   useEdgesState,
   useNodesState,
+  useReactFlow,
+  ReactFlowProvider,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
   ArrowUpDown,
   BarChart2,
   BrainCircuit,
+  Check,
   Columns,
+  Copy,
   Database,
   Filter,
   GraduationCap,
@@ -25,35 +29,57 @@ import {
   Lock,
   PenLine,
   Plus,
+  Play,
+  RotateCcw,
   Scissors,
   ShieldCheck,
   Sparkles,
   Trash2,
 } from 'lucide-react'
 import { transpileToX1zz } from '../transpiler/x1zzTranspiler'
-import { DAG_DEFAULT_PARAMS, DAG_TOOLS, SEED_SCHEMA, seedFromStaticPipeline } from '../dag/dagTools'
+import { DAG_DEFAULT_PARAMS, DAG_TOOLS, NODE_PARAM_FIELDS, SEED_SCHEMA, seedFromStaticPipeline } from '../dag/dagTools'
+
+// ── 아이콘 레지스트리 (문자열 → 컴포넌트) ───────────────────────────────────
+const ICONS = {
+  Database,
+  Columns,
+  Filter,
+  PenLine,
+  Trash2,
+  ArrowUpDown,
+  Scissors,
+  Group,
+  Hash,
+  BarChart2,
+  BrainCircuit,
+  GraduationCap,
+  Sparkles,
+  ShieldCheck,
+  Lock,
+}
+const getIcon = (name) => ICONS[name] || Plus
 
 // ── 커스텀 노드 ─────────────────────────────────────────────────────────────
 function DagNode({ id, data, selected }) {
-  const Icon = data.icon || Plus
+  const Icon = getIcon(data?.icon)
+  const isSource = data?.source === true
   return (
-    <div className={`dag-node ${data.category || 'prep'} ${selected ? 'is-selected' : ''}`}>
-      {data?.source !== false && <Handle type="target" position={Position.Left} id="in" />}
+    <div className={`dag-node ${data?.category || 'prep'} ${selected ? 'is-selected' : ''}`}>
+      {!isSource && <Handle type="target" position={Position.Left} id="in" className="dag-handle dag-handle--in" />}
       <div className="dag-node__body">
-        <Icon size={13} aria-hidden="true" />
-        <strong>{data?.label || id}</strong>
+        <span className="dag-node__icon"><Icon size={14} aria-hidden="true" /></span>
+        <span className="dag-node__label">{data?.label || id}</span>
       </div>
-      {data?.sink !== false && <Handle type="source" position={Position.Right} id="out" />}
+      <Handle type="source" position={Position.Right} id="out" className="dag-handle dag-handle--out" />
     </div>
   )
 }
 
 const nodeTypes = { dag: DagNode }
 
-// ── 노드 카테고리 색상 (CSS 변수와 연결) ────────────────────────────────────
 const CATEGORY_LABEL = { inout: 'Data', prep: 'Preprocess', transform: 'Transform', ml: 'ML · Burn', security: 'Security' }
 
-function DagEditor({ initialCode, onCodeChange }) {
+function DagCanvasInner({ onCodeChange }) {
   const seed = useMemo(() => {
     try {
       const saved = localStorage.getItem('xazz_dag')
@@ -68,7 +94,8 @@ function DagEditor({ initialCode, onCodeChange }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(seed.nodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(seed.edges)
   const [selectedId, setSelectedId] = useState(null)
-  const wrapper = useRef(null)
+  const [copied, setCopied] = useState(false)
+  const { screenToFlowPosition } = useReactFlow()
 
   const generatedCode = useMemo(() => {
     try {
@@ -78,7 +105,6 @@ function DagEditor({ initialCode, onCodeChange }) {
     }
   }, [nodes, edges])
 
-  // 부모(Workspace)로 코드 전달
   React.useEffect(() => {
     if (onCodeChange) onCodeChange(generatedCode)
   }, [generatedCode, onCodeChange])
@@ -88,26 +114,52 @@ function DagEditor({ initialCode, onCodeChange }) {
     [setEdges],
   )
 
-  const addNode = (type) => {
+  // ── 드래그&드롭으로 노드 추가 ────────────────────────────────────────────
+  const onDragOver = useCallback((event) => {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+  }, [])
+
+  const onDrop = useCallback(
+    (event) => {
+      event.preventDefault()
+      const type = event.dataTransfer.getData('application/xazz-tool')
+      if (!type) return
+      const position = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      addNode(type, position)
+    },
+    [screenToFlowPosition],
+  )
+
+  // 노드 추가 + 자동 배치 (선택 노드 오른쪽에 이어붙이기, 엣지 자동 연결)
+  const addNode = (type, position) => {
     const tool = DAG_TOOLS.find((t) => t.id === type)
-    const position = {
-      x: 120 + Math.random() * 320,
-      y: 80 + Math.random() * 200,
-    }
-    const id = `${type}-${Date.now().toString(36)}`
     const params = { ...(DAG_DEFAULT_PARAMS[type] || {}) }
-    // fileInput은 기본 스키마 자동 주입
     if (type === 'fileInput') params.detectedSchema = JSON.parse(JSON.stringify(SEED_SCHEMA))
-    setNodes((nds) => [
-      ...nds,
-      {
+
+    setNodes((nds) => {
+      let pos = position
+      if (!pos) {
+        const anchor = nds.find((n) => n.id === selectedId) || nds[nds.length - 1]
+        pos = anchor ? { x: anchor.position.x + 270, y: anchor.position.y } : { x: 60, y: 80 }
+      }
+      const id = `${type}-${Date.now().toString(36)}`
+      const newNode = {
         id,
         type: 'dag',
-        position,
-        data: { label: tool?.name || type, category: tool?.category, icon: tool?.icon, source: type === 'fileInput', sink: type === 'fileInput', parameters: params },
-      },
-    ])
-    setSelectedId(id)
+        position: pos,
+        data: { label: tool?.name || type, category: tool?.category, icon: tool?.icon, source: type === 'fileInput', parameters: params },
+      }
+      // 자동 연결: fileInput이 아니면 마지막 비-source 노드에 연결
+      if (type !== 'fileInput') {
+        const last = nds.filter((n) => !n.data?.source).slice(-1)[0]
+        if (last) {
+          setEdges((eds) => [...eds, { id: `e-${Date.now()}`, source: last.id, target: id }])
+        }
+      }
+      setSelectedId(id)
+      return [...nds, newNode]
+    })
   }
 
   const removeSelected = () => {
@@ -117,16 +169,32 @@ function DagEditor({ initialCode, onCodeChange }) {
     setSelectedId(null)
   }
 
+  const resetDag = () => {
+    localStorage.removeItem('xazz_dag')
+    const s = seedFromStaticPipeline()
+    setNodes(s.nodes)
+    setEdges(s.edges)
+    setSelectedId(null)
+  }
+
   const saveDag = () => {
     localStorage.setItem('xazz_dag', JSON.stringify({ nodes, edges }))
+    window.dispatchEvent(new CustomEvent('xazz-dag-saved'))
+  }
+
+  const copyCode = () => {
+    navigator.clipboard.writeText(generatedCode)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
   }
 
   return (
     <div className="dag-editor">
-      {/* 좌측 도구 팔레트 */}
+      {/* 좌측 도구 팔레트 (드래그 가능) */}
       <aside className="dag-palette">
         <div className="dag-palette__title">
           <span className="eyebrow">Tool Palette</span>
+          <p className="dag-palette__help">노드를 캔버스로 드래그하거나 클릭하여 추가</p>
         </div>
         {Object.entries(
           DAG_TOOLS.reduce((acc, t) => {
@@ -136,18 +204,32 @@ function DagEditor({ initialCode, onCodeChange }) {
         ).map(([cat, tools]) => (
           <div key={cat} className="dag-palette__group">
             <span className={`dag-palette__cat dag-palette__cat--${cat}`}>{CATEGORY_LABEL[cat] || cat}</span>
-            {tools.map((tool) => (
-              <button key={tool.id} type="button" className={`dag-palette__tool dag-palette__tool--${cat}`} onClick={() => addNode(tool.id)} title={tool.description}>
-                <ToolIcon id={tool.id} size={13} />
-                <span>{tool.name}</span>
-              </button>
-            ))}
+            {tools.map((tool) => {
+              const Icon = getIcon(tool.icon)
+              return (
+                <button
+                  key={tool.id}
+                  type="button"
+                  className={`dag-palette__tool dag-palette__tool--${cat}`}
+                  onClick={() => addNode(tool.id)}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('application/xazz-tool', tool.id)
+                    e.dataTransfer.effectAllowed = 'move'
+                  }}
+                  draggable
+                  title={tool.description}
+                >
+                  <Icon size={13} aria-hidden="true" />
+                  <span>{tool.name}</span>
+                </button>
+              )
+            })}
           </div>
         ))}
       </aside>
 
       {/* 중앙 캔버스 */}
-      <div className="dag-canvas" ref={wrapper}>
+      <div className="dag-canvas" onDragOver={onDragOver} onDrop={onDrop}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -158,31 +240,33 @@ function DagEditor({ initialCode, onCodeChange }) {
           onNodeClick={(_, n) => setSelectedId(n.id)}
           onPaneClick={() => setSelectedId(null)}
           fitView
-          fitViewOptions={{ padding: 0.2 }}
+          fitViewOptions={{ padding: 0.15 }}
           minZoom={0.3}
           maxZoom={1.5}
           proOptions={{ hideAttribution: true }}
+          defaultEdgeOptions={{ animated: true, style: { stroke: '#34d399', strokeWidth: 2 } }}
         >
-          <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="rgba(255,255,255,0.06)" />
+          <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="rgba(255,255,255,0.07)" />
           <Controls showInteractive={false} />
-          <MiniMap pannable zoomable nodeColor={() => '#3b82f6'} maskColor="rgba(28,39,51,0.7)" />
+          <MiniMap pannable zoomable nodeColor={(n) => (n.data?.category === 'ml' ? '#34d399' : n.data?.category === 'security' ? '#f59e0b' : '#3b82f6')} maskColor="rgba(15,20,26,0.7)" />
         </ReactFlow>
         <div className="dag-canvas__hint">
-          캔버스를 드래그해 이동 · 우측 핸들로 노드 연결 · 노드 클릭 후 Delete 로 삭제
+          <b>연결 방법:</b> 노드 우측 ○ 를 다른 노드 좌측 ○ 로 드래그 · 노드 클릭 후 <code>Delete</code> 로 삭제
         </div>
       </div>
 
-      {/* 우측 코드 + 선택 노드 파라미터 */}
+      {/* 우측 코드 + 파라미터 */}
       <aside className="dag-side">
         <div className="dag-side__section">
           <div className="dag-side__head">
             <span className="eyebrow">Generated Xazz</span>
-            <button type="button" className="dag-mini-btn" onClick={() => navigator.clipboard.writeText(generatedCode)}>
-              ⎘
+            <button type="button" className="dag-mini-btn" onClick={copyCode} title="코드 복사">
+              {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? 'Copied' : 'Copy'}
             </button>
           </div>
           <pre className="dag-code">{generatedCode}</pre>
         </div>
+
         <div className="dag-side__section dag-side__section--params">
           <div className="dag-side__head">
             <span className="eyebrow">Node Params</span>
@@ -195,12 +279,16 @@ function DagEditor({ initialCode, onCodeChange }) {
           {selectedId ? (
             <NodeParamsEditor nodeId={selectedId} nodes={nodes} setNodes={setNodes} />
           ) : (
-            <p className="dag-side__empty">노드를 선택해 파라미터를 편집하세요.</p>
+            <p className="dag-side__empty">캔버스에서 노드를 선택해 파라미터를 편집하세요.</p>
           )}
         </div>
+
         <div className="dag-side__actions">
-          <button type="button" className="dag-btn" onClick={saveDag}>
-            Save DAG
+          <button type="button" className="dag-btn dag-btn--run" onClick={saveDag}>
+            <Play size={14} /> Save DAG
+          </button>
+          <button type="button" className="dag-btn dag-btn--ghost" onClick={resetDag}>
+            <RotateCcw size={13} /> Reset
           </button>
         </div>
       </aside>
@@ -208,30 +296,60 @@ function DagEditor({ initialCode, onCodeChange }) {
   )
 }
 
-// ── 선택 노드 파라미터 편집 ────────────────────────────────────────────────
+// ── 선택 노드 파라미터 편집 (NODE_PARAM_FIELDS 기반 직관적 폼) ──────────────
 function NodeParamsEditor({ nodeId, nodes, setNodes }) {
   const node = nodes.find((n) => n.id === nodeId)
   if (!node) return null
+  const type = node.type
   const p = node.data?.parameters || {}
+  const fields = NODE_PARAM_FIELDS[type] || []
   const update = (patch) =>
     setNodes((nds) => nds.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, parameters: { ...p, ...patch } } } : n)))
 
-  const fields = Object.entries(p)
-    .filter(([k]) => k !== 'detectedSchema' && k !== 'columns' && k !== 'columnMapping')
-    .map(([k, v]) => (
-      <label key={k} className="dag-field">
-        <span>{k}</span>
-        <input type={typeof v === 'number' ? 'number' : 'text'} value={v ?? ''} onChange={(e) => update({ [k]: e.target.value })} />
-      </label>
-    ))
+  const renderField = (f) => {
+    const value = p[f.key]
+    if (f.type === 'select') {
+      return (
+        <select className="dag-field__input" value={value ?? ''} onChange={(e) => update({ [f.key]: e.target.value })}>
+          {f.options.map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+      )
+    }
+    if (f.type === 'checkbox') {
+      return <input type="checkbox" checked={!!value} onChange={(e) => update({ [f.key]: e.target.checked })} />
+    }
+    return (
+      <input
+        className="dag-field__input"
+        type={f.type === 'number' ? 'number' : 'text'}
+        step={f.step}
+        value={value ?? ''}
+        placeholder={f.placeholder}
+        onChange={(e) => update({ [f.key]: f.type === 'number' ? Number(e.target.value) : e.target.value })}
+      />
+    )
+  }
 
-  return <div className="dag-params">{fields.length ? fields : <span className="dag-p__empty">편집할 파라미터가 없습니다.</span>}</div>
+  if (!fields.length) return <span className="dag-p__empty">이 노드는 파라미터가 없습니다.</span>
+
+  return (
+    <div className="dag-params">
+      {fields.map((f) => (
+        <label key={f.key} className="dag-field">
+          <span className="dag-field__label">{f.label}{f.hint ? <i> · {f.hint}</i> : null}</span>
+          {renderField(f)}
+        </label>
+      ))}
+    </div>
+  )
 }
 
-function ToolIcon({ id, size = 13 }) {
-  const icons = { Database, Columns, Filter, PenLine, Trash2, Sort, Group, Hash, BarChart2, BrainCircuit, GraduationCap, Sparkles, ShieldCheck, Lock, Scissors }
-  const I = icons[id] || Plus
-  return <I size={size} aria-hidden="true" />
+export default function DagEditor(props) {
+  return (
+    <ReactFlowProvider>
+      <DagCanvasInner {...props} />
+    </ReactFlowProvider>
+  )
 }
-
-export default DagEditor
