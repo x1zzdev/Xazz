@@ -67,6 +67,31 @@ pub enum Commands {
         json: bool,
     },
 
+    /// .xzz 코드를 Policy-as-Code 보안 가드레일로 검사합니다 (issue #2)
+    ///
+    /// 개인정보 직접 노출·재식별 위험·하드코딩된 비밀키를 실행 전에 탐지하고,
+    /// --fix 를 주면 안전한 대체 코드까지 함께 제안합니다.
+    ///
+    /// 예: xazz policy examples/security/patient_unsafe.xzz
+    /// 예: xazz policy examples/security/patient_unsafe.xzz --fix
+    /// 예: xazz policy pipeline.xzz --fix --out safe.xzz --json
+    Policy {
+        /// 검사할 .xzz 소스 파일 경로
+        file: PathBuf,
+
+        /// 구조화된 JSON 리포트를 출력합니다 (기계 판독용)
+        #[arg(long)]
+        json: bool,
+
+        /// 위반을 자동 보정한 안전한 대체 코드를 함께 제안합니다
+        #[arg(long)]
+        fix: bool,
+
+        /// 보정된 코드를 저장할 경로 (--fix 와 함께 사용)
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+
     /// .xzz 스크립트를 다른 언어/형식으로 변환 출력합니다
     ///
     /// 예: xazz emit rust examples/poc_script.xzz --out output.rs

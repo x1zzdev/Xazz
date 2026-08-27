@@ -8,6 +8,7 @@
 ///   - parser  → Parser (Token 배열 → Program AST)
 ///   - codegen → Codegen (AST → Polars 흐름 매핑 문자열)
 ///   - checker → 정적 의미 분석기 (Type Checker)
+///   - policy  → Policy-as-Code 정적 보안 가드레일 (issue #2)
 ///   - emitter → emit_rust (AST → 독립 Rust 소스 파일 생성)
 ///
 /// ⚠️  런타임 실행 엔진 (run_pipeline / Polars LazyFrame)은
@@ -20,6 +21,7 @@ pub mod emitter;
 pub mod error; // xazz-core::error 재노출
 pub mod lexer;
 pub mod parser;
+pub mod policy;
 pub mod token; // xazz-core::token 재노출
 
 // ── token 상위 노출 ──────────────────────────────────────────────────────────
@@ -39,3 +41,8 @@ pub use checker::{CheckResult, ColType, check_program, check_source};
 pub use codegen::Codegen;
 pub use lexer::Lexer;
 pub use parser::Parser;
+pub use policy::{
+    ActivePolicy, Policy, PolicyError, PolicyReport, Remediation, Severity, Violation,
+    analyze as check_policy, analyze_parsed as check_policy_parsed, load_active_policy,
+    policy_load_failure_report, remediate,
+};

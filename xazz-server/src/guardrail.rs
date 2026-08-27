@@ -1,0 +1,269 @@
+// xazz-server/src/guardrail.rs — Policy-as-Code 실행 게이트 & 보정 API (issue #2)
+//
+// 이 모듈이 하는 일은 세 가지다.
+//
+//   1. `POST /execute` 앞단에서 정책을 강제한다. 위반이면 422 로 거부하며,
+//      xazz 실행기는 **스폰조차 되지 않는다**.
+//   2. 정책 로딩 실패를 실행 허용이 아니라 실행 거부로 바꾼다 (fail-closed).
+//   3. 결정적 보정과 sLM 보정을 묶어 검증된 안전 코드만 반환한다.
+//
+// 게이트를 서버에만 두지 않는 이유
+//   서버는 `xazz run` 을 스폰하고, 그 뒤에 xazz-exec 가 있다. 세 진입점 모두에
+//   같은 게이트가 걸려 있어야 `/execute` 를 우회해도 정책이 유지된다.
+//   서버 게이트의 존재 이유는 "차단"보다 "프런트엔드에 구조화된 사유를 즉시
+//   돌려주는 것"에 가깝다.
+
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use serde::{Deserialize, Serialize};
+use xazz_compiler::policy;
+use xazz_compiler::{Policy, PolicyReport, Remediation};
+
+use crate::slm::{self, SlmConfig};
+
+// ── 실행기 호출 카운터 ───────────────────────────────────────────────────────
+//
+// "차단된 요청에서 실행기가 정말 호출되지 않았는가"는 말이 아니라 관측으로
+// 증명되어야 한다. 실행 경로가 이 카운터를 올리고, 테스트가 그 값을 확인한다.
+
+static RUNNER_INVOCATIONS: AtomicU64 = AtomicU64::new(0);
+
+/// 실행기를 스폰하기 직전에 호출한다.
+pub fn note_runner_invocation() {
+    RUNNER_INVOCATIONS.fetch_add(1, Ordering::SeqCst);
+}
+
+/// 지금까지 실행기가 스폰된 횟수.
+///
+/// 테스트가 "차단된 요청에서 실행기가 호출되지 않았다"를 증명할 때 쓴다.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn runner_invocations() -> u64 {
+    RUNNER_INVOCATIONS.load(Ordering::SeqCst)
+}
+
+// ── 게이트 ───────────────────────────────────────────────────────────────────
+
+/// 게이트 판정 결과.
+#[derive(Debug)]
+pub enum Decision {
+    /// 실행을 허용한다. 리포트에는 경고가 담겨 있을 수 있다.
+    Allow { report: PolicyReport },
+    /// 실행을 거부한다.
+    Reject { report: PolicyReport },
+}
+
+/// 활성 정책을 불러온다. 실패는 항상 거부다 (fail-closed).
+pub fn load_policy() -> Result<(Policy, String), Box<PolicyReport>> {
+    match policy::load_active_policy() {
+        Ok(active) => Ok((active.policy, active.origin)),
+        Err(e) => Err(Box::new(policy::policy_load_failure_report(&e))),
+    }
+}
+
+/// 코드를 정책에 비추어 판정한다.
+pub fn gate(code: &str) -> Decision {
+    let (policy, origin) = match load_policy() {
+        Ok(v) => v,
+        Err(report) => {
+            eprintln!("[xazz] ⛔ 정책 로딩 실패 — 모든 실행을 거부합니다.");
+            return Decision::Reject { report: *report };
+        }
+    };
+
+    let report = policy::analyze(code, &policy);
+    if report.safe_to_execute {
+        if !report.warnings.is_empty() {
+            eprintln!(
+                "[xazz] ⚠️ 정책 경고 {}건 (정책 {} / {})",
+                report.warnings.len(),
+                policy.id,
+                origin
+            );
+        }
+        Decision::Allow { report }
+    } else {
+        eprintln!(
+            "[xazz] ⛔ 정책 위반으로 실행 거부 (정책 {} / {}): {}",
+            policy.id,
+            origin,
+            report.summary()
+        );
+        Decision::Reject { report }
+    }
+}
+
+// ── 보정 ─────────────────────────────────────────────────────────────────────
+
+/// 결정적 보정을 먼저 만들고, sLM 이 켜져 있으면 더 나은 제안을 시도한다.
+///
+/// sLM 제안은 **반드시 재검증**을 통과해야 채택된다. 통과하지 못하면 결정적
+/// 보정으로 되돌아가며, 그 사실이 `notes` 에 남는다.
+pub async fn remediate_with_slm(code: &str, policy: &Policy, cfg: &SlmConfig) -> Remediation {
+    let mut deterministic = policy::remediate(code, policy);
+
+    if !cfg.enabled {
+        return deterministic;
+    }
+
+    let report = policy::analyze(code, policy);
+    if report.safe_to_execute {
+        return deterministic;
+    }
+
+    let proposal = match slm::propose(code, &report, cfg).await {
+        Ok(text) => text,
+        Err(e) => {
+            deterministic.notes.push(format!(
+                "sLM 을 사용하지 못해 결정적 보정을 적용했습니다: {}",
+                e
+            ));
+            return deterministic;
+        }
+    };
+
+    // ── 재검증 — 여기서 통과하지 못한 코드는 절대 "안전"으로 나가지 않는다 ──
+    let verified = policy::analyze(&proposal, policy);
+    if verified.safe_to_execute {
+        let mut applied = deterministic.applied.clone();
+        applied.push(xazz_compiler::policy::AppliedFix {
+            rule_id: "SLM".to_string(),
+            description: format!(
+                "온프레미스 sLM({})이 제안한 코드가 정책 재검증을 통과해 채택되었습니다.",
+                cfg.model
+            ),
+            statement_index: None,
+            variable: None,
+        });
+        Remediation {
+            strategy: "slm".to_string(),
+            code: proposal,
+            applied,
+            residual: deterministic.residual.clone(),
+            notes: vec![format!(
+                "sLM 제안은 생성 직후 동일한 정책 엔진으로 재파싱·재검증되었습니다 (모델: {}).",
+                cfg.model
+            )],
+            verified: deterministic.residual.is_empty(),
+            report_after: verified,
+        }
+    } else {
+        deterministic.notes.push(format!(
+            "sLM({}) 제안이 정책 재검증에 실패해 폐기하고 결정적 보정을 적용했습니다: {}",
+            cfg.model,
+            verified.summary()
+        ));
+        deterministic.strategy = "deterministic (slm-rejected)".to_string();
+        deterministic
+    }
+}
+
+// ── HTTP 요청 / 응답 타입 ────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct CodeRequest {
+    pub code: String,
+}
+
+#[derive(Serialize)]
+pub struct PolicyCheckResponse {
+    pub safe_to_execute: bool,
+    pub policy_origin: String,
+    pub policy: PolicyReport,
+}
+
+#[derive(Serialize)]
+pub struct RemediateResponse {
+    pub safe_to_execute: bool,
+    pub policy_origin: String,
+    pub policy: PolicyReport,
+    pub remediation: Remediation,
+    pub slm: SlmStatus,
+}
+
+#[derive(Serialize)]
+pub struct SlmStatus {
+    pub enabled: bool,
+    pub model: String,
+    pub endpoint: String,
+}
+
+impl SlmStatus {
+    pub fn from_config(cfg: &SlmConfig) -> Self {
+        SlmStatus {
+            enabled: cfg.enabled,
+            model: cfg.model.clone(),
+            endpoint: cfg.endpoint.clone(),
+        }
+    }
+}
+
+// ── 유닛 테스트 ──────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const UNSAFE: &str = "type Patient = { patient_id: string, name: string, age_band: string };
+v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id]);";
+
+    const SAFE: &str = "type Patient = { patient_id: string, name: string, age_band: string };
+v out = load(\"data/p.csv\") :: Patient |> groupBy(\"age_band\") |> count(\"patient_id\");";
+
+    /// 위반 코드는 거부된다.
+    #[test]
+    fn rejects_violating_code() {
+        assert!(matches!(gate(UNSAFE), Decision::Reject { .. }));
+    }
+
+    /// 안전한 코드는 허용된다.
+    #[test]
+    fn allows_safe_code() {
+        match gate(SAFE) {
+            Decision::Allow { report, .. } => assert!(report.safe_to_execute),
+            Decision::Reject { report } => panic!("안전한 코드가 거부됨: {}", report.render()),
+        }
+    }
+
+    /// 파싱 불가 코드는 fail-closed 로 거부된다.
+    #[test]
+    fn rejects_unparseable_code() {
+        assert!(matches!(gate("v x = |> |> ???"), Decision::Reject { .. }));
+    }
+
+    /// sLM 이 꺼져 있으면 결정적 보정이 그대로 쓰인다.
+    #[tokio::test]
+    async fn falls_back_to_deterministic_when_slm_disabled() {
+        let policy = Policy::builtin();
+        let cfg = SlmConfig::default();
+        let rem = remediate_with_slm(UNSAFE, &policy, &cfg).await;
+        assert_eq!(rem.strategy, "deterministic");
+    }
+
+    /// sLM 이 켜져 있어도 서버가 없으면 결정적 보정으로 안전하게 되돌아간다.
+    #[tokio::test]
+    async fn falls_back_when_slm_unreachable() {
+        let policy = Policy::builtin();
+        let cfg = SlmConfig {
+            enabled: true,
+            // 아무것도 듣고 있지 않은 포트
+            endpoint: "http://127.0.0.1:1".to_string(),
+            model: "unreachable".to_string(),
+            timeout_ms: 1_500,
+        };
+        let rem = remediate_with_slm(UNSAFE, &policy, &cfg).await;
+        assert_eq!(rem.strategy, "deterministic");
+        assert!(
+            rem.notes.iter().any(|n| n.contains("sLM")),
+            "sLM 실패 사실이 기록되지 않음: {:?}",
+            rem.notes
+        );
+    }
+
+    /// 카운터는 단조 증가한다 — 실행 호출 여부 검증의 토대.
+    #[test]
+    fn runner_counter_is_monotonic() {
+        let before = runner_invocations();
+        note_runner_invocation();
+        assert_eq!(runner_invocations(), before + 1);
+    }
+}

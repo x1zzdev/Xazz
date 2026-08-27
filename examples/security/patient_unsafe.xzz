@@ -1,0 +1,45 @@
+// Xazz 보안 가드레일 데모 — 정책 위반 예제 (issue #2)
+//
+// 이 스크립트는 **차단되도록 만들어졌다.** 실행하면 Policy-as-Code 가드레일이
+// Polars 엔진에 닿기 전에 막는다.
+//
+//   xazz policy examples/security/patient_unsafe.xzz          # 위반 리포트
+//   xazz policy examples/security/patient_unsafe.xzz --fix    # 안전한 대체 코드
+//   xazz run    examples/security/patient_unsafe.xzz          # 차단 확인 (exit 1)
+//
+// 데이터는 합성 데이터다:
+//   python3 examples/security/generate_patients.py
+
+type Patient = {
+    patient_id: string,
+    name: string,
+    phone: string,
+    age: int,
+    gender: string,
+    zip_code: string,
+    disease: string,
+    age_band: string,
+    visit_count: int,
+};
+
+// ── 위반 1: XZP001 직접 식별자 노출 ─────────────────────────────────────────
+// 환자 이름·환자번호·연락처가 결과로 그대로 나간다.
+v roster = load("examples/security/data/patients.csv") :: Patient
+    |> select([patient_id, name, phone, age_band]);
+
+// ── 위반 2: XZP002 민감 속성 행 단위 노출 ───────────────────────────────────
+// 집계 없이 개인별 진단명이 그대로 나간다.
+v diagnoses = load("examples/security/data/patients.csv") :: Patient
+    |> filter(age > 40)
+    |> select([age, disease]);
+
+// ── 위반 3: XZP003 준식별자 결합 재식별 위험 ────────────────────────────────
+// 나이 + 성별 + 우편번호 조합만으로 개인이 특정될 수 있다.
+v demographics = load("examples/security/data/patients.csv") :: Patient
+    |> select([age, gender, zip_code, visit_count]);
+
+// ── 위반 4: XZP004 민감 속성 집계에 DP 미적용 ───────────────────────────────
+// 질병별 집계는 통계지만, 소집단에서는 집계값만으로 개인이 역추적된다.
+v disease_counts = load("examples/security/data/patients.csv") :: Patient
+    |> groupBy("disease")
+    |> count("patient_id");

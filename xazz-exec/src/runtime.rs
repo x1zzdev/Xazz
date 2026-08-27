@@ -211,6 +211,44 @@ pub fn run_pipeline(
         );
     }
 
+    // ── STEP 3.6: Policy-as-Code 정적 가드레일 — 실행 전 보안 차단 (issue #2) ─
+    //
+    // 이 게이트가 최종 관문이다. CLI(`xazz run`)와 API 서버(`POST /execute`)도
+    // 각자 앞단에서 같은 검사를 하지만, 실제로 Polars 를 돌리는 곳은 여기뿐이므로
+    // 어떤 경로로 들어오든 이 지점을 지나야 한다.
+    //
+    // 정책을 불러오지 못하면 실행을 **거부**한다 (fail-closed).
+    let active = xazz_compiler::load_active_policy().map_err(|e| {
+        let report = xazz_compiler::policy_load_failure_report(&e);
+        emit_policy_marker(&report);
+        format!("[xazz POLICY ERROR] {}", e)
+    })?;
+
+    let policy_report = xazz_compiler::check_policy_parsed(&program, &source, &active.policy);
+    emit_policy_marker(&policy_report);
+
+    eprintln!(
+        "[xazz] 정적 가드레일: 정책 {} ({}) — {}",
+        active.policy.id,
+        active.origin,
+        policy_report.summary()
+    );
+    for warn in &policy_report.warnings {
+        eprintln!("  [xazz POLICY WARN]  {} {}", warn.rule_id, warn.message);
+    }
+
+    if !policy_report.safe_to_execute {
+        for v in &policy_report.violations {
+            eprintln!("  [xazz POLICY BLOCK] {} {}", v.rule_id, v.message);
+            eprintln!("                      보정: {}", v.remediation_hint);
+        }
+        return Err(format!(
+            "[xazz POLICY ERROR] {}\n실행이 차단되었습니다. `xazz policy <file> --fix` 로 안전한 대체 코드를 확인하세요.",
+            policy_report.summary()
+        )
+        .into());
+    }
+
     if verbose {
         println!();
         println!("⚡ STEP 2. Abstract Syntax Tree (Parser)");
@@ -1350,4 +1388,16 @@ fn write_chart_html(spec: &ChartSpec, output_path: &str) -> Result<(), Box<dyn s
 
     std::fs::write(output_path, html)?;
     Ok(())
+}
+
+/// `[xazz:policy]` 마커로 정책 리포트를 stdout 에 내보낸다.
+///
+/// 서버/IDE 는 이 마커를 파싱해 차단 사유와 보정 힌트를 그대로 보여 준다.
+/// 차단·통과 여부와 무관하게 항상 내보내므로, 프런트엔드는 "검사를 했다"는
+/// 사실 자체를 신뢰할 수 있다.
+fn emit_policy_marker(report: &xazz_compiler::PolicyReport) {
+    match serde_json::to_string(report) {
+        Ok(json) => println!("[xazz:policy] {}", json),
+        Err(e) => eprintln!("[xazz] ⚠️ 정책 리포트 직렬화 실패: {}", e),
+    }
 }

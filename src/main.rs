@@ -1,4 +1,5 @@
 mod cli;
+mod policy_cli;
 mod predict;
 mod project;
 mod schema;
@@ -47,6 +48,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 std::process::exit(1);
             }
+
+            // ── 보안 가드레일 (issue #2) ──────────────────────────────────
+            // 서브프로세스를 띄우기 전에 Policy-as-Code 정적 검사를 통과해야 한다.
+            // 위반이 있으면 여기서 종료한다. (실행 엔진에도 동일한 게이트가 있다)
+            policy_cli::gate_before_run(&source_path, json);
 
             // ── --predict 분기: NQP 시맨틱 예측 모드 ───────────────────────
             // predict는 Polars를 사용하지 않으므로 CLI에서 직접 처리한다.
@@ -147,6 +153,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if !status.success() {
                 std::process::exit(status.code().unwrap_or(1));
+            }
+        }
+
+        // ── policy: Policy-as-Code 보안 가드레일 검사 (issue #2) ────────────
+        // 정적 분석만 사용하므로 Polars 없이 CLI에서 직접 처리한다.
+        Commands::Policy {
+            file,
+            json,
+            fix,
+            out,
+        } => {
+            if !file.exists() {
+                eprintln!(
+                    "[xazz IO 에러]\n\
+                     ─────────────────────────────────────────────\n\
+                     Cause   : 소스 파일을 찾을 수 없습니다.\n\
+                     Detail  : '{}' 경로에 파일이 존재하지 않습니다.",
+                    file.display()
+                );
+                std::process::exit(1);
+            }
+            let code = policy_cli::run_policy_command(&file, json, fix, out.as_deref());
+            if code != 0 {
+                std::process::exit(code);
             }
         }
 

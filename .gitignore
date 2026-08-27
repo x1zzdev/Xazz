@@ -32,3 +32,6 @@ dist/
 audit_log/
 checkpoints/
 *_chart.html
+
+# 보안 데모용 합성 데이터 (생성기로 재생성 — examples/security/generate_patients.py)
+examples/security/data/

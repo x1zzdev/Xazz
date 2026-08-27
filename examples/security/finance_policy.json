@@ -1,0 +1,74 @@
+{
+  "id": "xazz-finance-strict",
+  "version": "1.0.0",
+  "description": "금융 데이터 파이프라인용 정책 팩 — 신용정보법·전자금융거래법 맥락의 고객·거래 정보 처리 기준. 계좌·카드 번호와 신용정보는 행 단위 반출을 금지하고, 집계에도 차등 프라이버시를 요구한다.",
+  "domain": "finance",
+  "risk_level": "high",
+
+  "direct_identifiers": [
+    "customer_id", "고객번호", "고객id",
+    "name", "full_name", "성명", "이름",
+    "ssn", "rrn", "주민등록번호", "주민번호",
+    "account_no", "account_number", "bank_account", "계좌번호",
+    "card_no", "card_number", "credit_card", "카드번호",
+    "phone", "phone_number", "전화번호", "연락처",
+    "email", "이메일",
+    "address", "주소",
+    "business_no", "사업자등록번호",
+    "device_id", "ip_address"
+  ],
+
+  "sensitive_attributes": [
+    "credit_score", "신용점수", "신용등급",
+    "credit_rating", "내부신용등급",
+    "delinquency", "연체정보", "연체일수",
+    "loan_balance", "대출잔액", "대출금액",
+    "transaction_amount", "거래금액",
+    "transaction_detail", "거래내역",
+    "income", "annual_income", "소득", "연소득",
+    "asset", "자산", "보유자산",
+    "insolvency", "채무불이행",
+    "guarantee", "보증정보"
+  ],
+
+  "quasi_identifiers": [
+    "age", "나이", "연령",
+    "birth_date", "date_of_birth", "생년월일",
+    "gender", "sex", "성별",
+    "zip_code", "postal_code", "우편번호",
+    "occupation", "직업",
+    "branch_code", "지점코드",
+    "open_date", "개설일",
+    "nationality", "국적"
+  ],
+
+  "quasi_identifier_threshold": 2,
+  "require_dp_for_sensitive_aggregate": true,
+  "max_epsilon": 1.0,
+  "remediation_epsilon": 0.5,
+
+  "allowed_output_columns": ["age_band", "amount_band", "product_code"],
+
+  "denied_path_fragments": [
+    "/etc/passwd",
+    "/etc/shadow",
+    "/proc/self/environ",
+    "/.ssh/",
+    "id_rsa",
+    ".aws/credentials",
+    ".kube/config"
+  ],
+
+  "rule_severity": {
+    "XZP013": "block",
+    "XZP014": "block"
+  },
+
+  "rule_source_refs": {
+    "XZP001": "신용정보의 이용 및 보호에 관한 법률 제32조(개인신용정보의 제공·활용에 대한 동의) · 개인정보 보호법 제24조",
+    "XZP002": "신용정보법 제33조(개인신용정보의 이용) — 개인신용정보의 목적 외 이용 제한",
+    "XZP003": "신용정보법 제40조의2(가명처리·익명처리에 관한 행위규칙) — 재식별 금지",
+    "XZP004": "신용정보법 제40조의2 · 개인정보보호위원회 「가명정보 처리 가이드라인」 — 통계 공개 시 재식별 위험 완화",
+    "XZP011": "전자금융거래법 제21조(안전성 확보의무) · 「전자금융감독규정」 접근매체 관리"
+  }
+}

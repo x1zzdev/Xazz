@@ -10,6 +10,24 @@ Versioning: [Semantic Versioning](https://semver.org/)
 ## [Unreleased]
 
 ### Added
+- **Policy-as-Code 정적 보안 가드레일** (`xazz-compiler/src/policy/`, issue #2): `.xzz` 파이프라인이 실행되기 전에 개인정보 유출·보안 컴플라이언스 위반을 정적으로 탐지·차단
+  - 규칙 12종: 직접 식별자 노출(`XZP001`), 민감 속성 행 단위 노출(`XZP002`), 준식별자 결합 재식별(`XZP003`), 민감 집계 DP 미적용(`XZP004`), ε 상한 초과(`XZP005`), PII/비밀키 하드코딩(`XZP010`·`XZP011`), 민감 경로 접근(`XZP012`), 경로 탈출(`XZP013`), 스키마 미해석(`XZP014`), 파싱 실패(`XZP000`), 정책 로딩 실패(`XZP999`)
+  - **출력 컬럼 추론**(`PipelineShape`): 집계 결과 컬럼을 식별자와 구분해 정상 통계 쿼리의 오탐을 제거 (`groupBy("region") |> count("patient_id")` 는 통과)
+  - **리터럴 스캐너**: 주민등록번호 체크섬·신용카드 Luhn+IIN·API 키 접두사·PEM 개인키 검증. 정규식 크레이트 없이 구현해 CLI 경량성 유지, 탐지값은 항상 마스킹해 보고. 임의의 긴 숫자열이 약 1/10 확률로 Luhn 을 통과하므로, 구분자 없는 숫자열에는 IIN 선두 자리와 식별자 문맥 배제를 추가로 요구해 타임스탬프·일련번호 오탐을 차단
+  - **fail-closed**: 정책 로딩 실패·파싱 실패는 실행 허용이 아니라 실행 거부
+  - **Policy-as-Code JSON**: `XAZZ_POLICY_PATH` 또는 `xazz.policy.json` 으로 컬럼 분류·임계치·ε 상한·규칙별 심각도를 교체
+  - **Domain Policy Pack 3종**: 의료(`healthcare_policy.json`) · 금융(`finance_policy.json`) · 공공(`public_sector_policy.json`). 공통 기준은 내장 정책이 담당하고 도메인별 규제는 팩으로 확장한다
+  - **감사 증빙(Compliance Evidence)**: 모든 위반이 `rule_id` · `source_ref`(규제 근거) · `policy_version` · `domain` · `risk_level`(저·중·고위험)을 함께 기록해, 사후 감사에서 차단 근거를 따라갈 수 있다
+- **3중 실행 게이트**: CLI(`xazz run`) · 실행 엔진(`xazz-exec` STEP 3.6) · API 서버(`POST /execute`). 실제 Polars 실행 직전인 `xazz-exec` 가 최종 관문이므로 어느 경로로 들어와도 정책이 적용된다
+- **자동 보정 (결정적)** (`policy/remediate.rs`): AST 를 직접 고쳐 안전한 대체 코드를 생성하고 **재검증**까지 수행. 자동으로 고칠 수 없는 위반(하드코딩된 비밀값)은 `residual` 로 남겨 사람이 처리하도록 명시
+- **AST → `.xzz` 프린터** (`policy/printer.rs`): 보정 코드를 문자열 치환이 아니라 AST 재출력으로 생성. `parse(print(parse(src))) == parse(src)` 왕복 성질을 테스트로 보장
+- **온프레미스 sLM 보정 어댑터** (`xazz-server/src/slm.rs`): 파인튜닝된 Qwen2.5-Coder-1.5B 를 Ollama 로 로컬 서빙. **sLM 제안은 같은 정책 엔진으로 재검증을 통과할 때만 채택**되며, 실패·미연결 시 결정적 보정으로 자동 폴백
+- 신규 CLI: `xazz policy <file> [--json] [--fix] [--out <path>]`
+- 신규 API: `GET /security/policy`, `POST /security/policy/check`, `POST /security/remediate`. `POST /execute` 는 위반 시 **HTTP 422** + 위반 리포트 반환, 차단도 감사 로그에 `outcome: "blocked"` 로 기록
+- `[xazz:policy]` stdout 마커: 차단·통과와 무관하게 항상 출력되어 프런트엔드가 검사 수행 사실을 신뢰할 수 있음
+- **sLM 학습·평가 스캐폴드** (`experiments/slm_guardrail/`): 가드레일 엔진에서 (위반 → 검증된 안전 코드) 학습 쌍을 뽑는 생성기, Unsloth+QLoRA 학습 스크립트, GGUF/Ollama Modelfile, 정책 준수율·과잉 수정률·의도 보존율 평가 하네스, 시드 데이터셋 72쌍
+- 보안 예제 (`examples/security/`): 위반·비밀키 유출·안전 파이프라인 3종 + 강화 의료 정책 + 합성 데이터 생성기
+- 문서: [`docs/SECURITY_GUARDRAIL.md`](docs/SECURITY_GUARDRAIL.md) — 규칙 카탈로그, 게이트 구조, 정책 스키마, API, 알려진 한계(PATH 셰도잉)
 - **Burn 딥러닝 실행 엔진** (`xazz-exec/src/dl.rs`): `model {}` 선언 → `train()` 학습 (Adam + MSE), 특성 표준화, train/validation 분할, in-sample 예측, `checkpoints/<model>.json` 체크포인트 저장
 - **train/predict 파이프라인 연산자 전환**: `train(Model, ...)` / `predict(model, as: "col")`을 파이프라인 연산자로 추가
   - 학습 결과를 `TrainedModel`(모델 + 표준화 통계)에 바인딩해 예측·시각화로 연결

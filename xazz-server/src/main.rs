@@ -9,6 +9,9 @@
 //!   GET  /security/audit/log                               → 전체 감사 로그 조회 (JSONL 해시 체인)
 //!   GET  /security/audit/log/:hash                         → 코드 해시로 감사 레코드 조회
 //!   GET  /security/audit/chain                             → 해시 체인 무결성 검증
+//!   GET  /security/policy                                  → 활성 Policy-as-Code 정책 조회
+//!   POST /security/policy/check { "code": "<xzz DSL>" }    → 정적 가드레일 검사 리포트
+//!   POST /security/remediate    { "code": "<xzz DSL>" }    → 안전 코드 자동 보정 (결정적 + sLM)
 //!
 //! 포트: 8005 (frontend/.env: VITE_API_BASE_URL=http://127.0.0.1:8005)
 
@@ -28,6 +31,8 @@ use serde_json::{json, Value};
 use tower_http::cors::{Any, CorsLayer};
 
 mod audit_log;
+mod guardrail;
+mod slm;
 
 // ── 요청 / 응답 타입 ────────────────────────────────────────────────────────
 
@@ -51,6 +56,10 @@ struct ExecuteResponse {
     dp: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     diagnostics: Option<Value>,
+    /// Policy-as-Code 정적 가드레일 리포트 (v0.7 — issue #2).
+    /// 차단된 요청에서는 차단 사유가, 통과한 요청에서는 경고가 담긴다.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    policy: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -90,6 +99,9 @@ async fn main() {
         .route("/security/audit/log", get(handle_audit_log))
         .route("/security/audit/log/{hash}", get(handle_audit_lookup))
         .route("/security/audit/chain", get(handle_audit_chain))
+        .route("/security/policy", get(handle_policy_info))
+        .route("/security/policy/check", post(handle_policy_check))
+        .route("/security/remediate", post(handle_remediate))
         .layer(cors);
 
     let addr = "127.0.0.1:8005";
@@ -104,6 +116,40 @@ async fn main() {
 async fn handle_execute(
     Json(payload): Json<ExecuteRequest>,
 ) -> Result<Json<ExecuteResponse>, (StatusCode, Json<ExecuteResponse>)> {
+    // 0. Policy-as-Code 정적 가드레일 (issue #2)
+    //
+    //    위반이면 여기서 끝난다 — 임시 파일도 만들지 않고 xazz 실행기도 스폰하지 않는다.
+    //    정책을 불러오지 못한 경우에도 마찬가지로 거부한다 (fail-closed).
+    let policy_report = match guardrail::gate(&payload.code) {
+        guardrail::Decision::Reject { report } => {
+            // 차단 역시 감사 대상이다 — 무엇이 왜 막혔는지 영구 기록에 남긴다.
+            if let Err(e) = audit_log::append_with_outcome(&payload.code, Some("blocked")) {
+                eprintln!("[xazz] ⚠️ 차단 감사 기록 실패: {}", e);
+            }
+            let logs = report
+                .violations
+                .iter()
+                .map(|v| format!("{} {}: {}", v.rule_id, v.rule_name, v.message))
+                .collect::<Vec<_>>();
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ExecuteResponse {
+                    success: false,
+                    rows: json!([]),
+                    schema: json!([]),
+                    logs,
+                    stdout: String::new(),
+                    training: None,
+                    dp: None,
+                    diagnostics: None,
+                    policy: serde_json::to_value(&report).ok(),
+                    error: Some(report.summary()),
+                }),
+            ));
+        }
+        guardrail::Decision::Allow { report, .. } => report,
+    };
+
     // 1. DSL 코드를 임시 .xzz 파일에 저장
     let tmp = tempfile::Builder::new()
         .suffix(".xzz")
@@ -122,6 +168,8 @@ async fn handle_execute(
     let exe_path = find_xazz_exe();
 
     // 3. xazz run <tmp.xzz> 실행
+    //    게이트를 통과한 요청만 이 지점에 도달한다 — 테스트가 카운터로 검증한다.
+    guardrail::note_runner_invocation();
     let output = tokio::task::spawn_blocking(move || {
         Command::new(&exe_path).arg("run").arg(&tmp_path).output()
     })
@@ -162,6 +210,7 @@ async fn handle_execute(
             training,
             dp,
             diagnostics,
+            policy: serde_json::to_value(&policy_report).ok(),
             error: None,
         }))
     } else {
@@ -175,6 +224,7 @@ async fn handle_execute(
             training,
             dp,
             diagnostics,
+            policy: serde_json::to_value(&policy_report).ok(),
             error: Some(err_msg),
         }))
     }
@@ -225,6 +275,14 @@ fn parse_stdout_markers(
             if let Ok(parsed) = serde_json::from_str::<Value>(next) {
                 dp = Some(parsed);
                 i += 1; // JSON 줄은 소비
+            }
+        }
+        // Policy-as-Code 가드레일 마커 — 실행 엔진이 내보낸 정책 리포트.
+        // 서버는 앞단에서 이미 같은 검사를 했지만, 실행 엔진의 판정을 그대로
+        // 신뢰할 수 있도록 마커도 로그로 남긴다.
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:policy] ") {
+            if serde_json::from_str::<Value>(json_part).is_err() {
+                eprintln!("[xazz] ⚠️ [xazz:policy] 마커 파싱 실패");
             }
         }
         // 정적 의미 분석(Type Checker) 진단 마커
@@ -510,6 +568,85 @@ async fn handle_audit_chain() -> Result<Json<Value>, (StatusCode, String)> {
     Ok(Json(json!({ "intact": valid, "records": count })))
 }
 
+// ── GET /security/policy ─────────────────────────────────────────────────────
+
+/// 현재 적용 중인 Policy-as-Code 정책을 그대로 돌려준다.
+///
+/// 프런트엔드는 이 응답으로 "어떤 컬럼이 왜 막히는지"를 사용자에게 미리
+/// 보여줄 수 있다. 정책 로딩에 실패하면 500 과 함께 사유를 돌려준다.
+async fn handle_policy_info() -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    match guardrail::load_policy() {
+        Ok((policy, origin)) => Ok(Json(json!({
+            "origin": origin,
+            "policy": policy,
+            "slm": guardrail::SlmStatus::from_config(&slm::SlmConfig::from_env()),
+        }))),
+        Err(report) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": report.summary(), "policy": report })),
+        )),
+    }
+}
+
+// ── POST /security/policy/check ──────────────────────────────────────────────
+
+/// 코드를 실행하지 않고 정적 가드레일 검사만 수행한다.
+///
+/// Visual IDE 는 편집 중에 이 엔드포인트를 호출해 실행 버튼을 누르기 전에
+/// 위반을 표시한다. 위반이 있어도 HTTP 200 이다 — 검사 자체는 성공했으며,
+/// 판정은 본문의 `safe_to_execute` 에 담긴다.
+async fn handle_policy_check(
+    Json(payload): Json<guardrail::CodeRequest>,
+) -> Result<Json<guardrail::PolicyCheckResponse>, (StatusCode, Json<Value>)> {
+    let (policy, origin) = guardrail::load_policy().map_err(|report| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": report.summary(), "policy": report })),
+        )
+    })?;
+
+    let report = xazz_compiler::check_policy(&payload.code, &policy);
+    Ok(Json(guardrail::PolicyCheckResponse {
+        safe_to_execute: report.safe_to_execute,
+        policy_origin: origin,
+        policy: report,
+    }))
+}
+
+// ── POST /security/remediate ─────────────────────────────────────────────────
+
+/// 차단된 코드를 안전한 대체 코드로 보정하고 위반 리포트를 함께 반환한다.
+///
+/// 보정 전략은 두 단계다.
+///   1. 결정적 보정 — AST 를 직접 고쳐 항상 동작하는 안전 코드를 만든다.
+///   2. 온프레미스 sLM(Qwen2.5-Coder) — 켜져 있으면 더 자연스러운 재작성을
+///      제안하되, **같은 정책 엔진으로 재검증**을 통과할 때만 채택된다.
+///
+/// 응답의 `remediation.verified` 가 false 면 사람이 처리해야 할 위반이
+/// 남아 있다는 뜻이다. 이 경우 보정 코드를 "안전하다"고 표시하면 안 된다.
+async fn handle_remediate(
+    Json(payload): Json<guardrail::CodeRequest>,
+) -> Result<Json<guardrail::RemediateResponse>, (StatusCode, Json<Value>)> {
+    let (policy, origin) = guardrail::load_policy().map_err(|report| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": report.summary(), "policy": report })),
+        )
+    })?;
+
+    let cfg = slm::SlmConfig::from_env();
+    let report = xazz_compiler::check_policy(&payload.code, &policy);
+    let remediation = guardrail::remediate_with_slm(&payload.code, &policy, &cfg).await;
+
+    Ok(Json(guardrail::RemediateResponse {
+        safe_to_execute: report.safe_to_execute,
+        policy_origin: origin,
+        policy: report,
+        remediation,
+        slm: guardrail::SlmStatus::from_config(&cfg),
+    }))
+}
+
 // ── 유틸리티 ──────────────────────────────────────────────────────────────────
 
 fn find_xazz_exe() -> PathBuf {
@@ -553,7 +690,154 @@ fn internal_err(msg: String) -> (StatusCode, Json<ExecuteResponse>) {
             training: None,
             dp: None,
             diagnostics: None,
+            policy: None,
             error: Some(msg),
         }),
     )
+}
+
+// ── 통합 테스트 — 실행 게이트 (issue #2) ─────────────────────────────────────
+//
+// 여기서 증명하려는 것은 "위반 코드가 거부된다"가 아니라
+// **"위반 코드에서는 실행기가 아예 호출되지 않는다"** 이다.
+// 앞의 것은 분석 결과일 뿐이고, 뒤의 것이 실제 보안 속성이다.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const UNSAFE_CODE: &str =
+        "type Patient = { patient_id: string, name: string, age_band: string };
+v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);";
+
+    /// 위반 코드는 422 로 거부되고, 리포트가 본문에 실린다.
+    #[tokio::test]
+    async fn violating_code_is_rejected_with_422() {
+        let result = handle_execute(Json(ExecuteRequest {
+            code: UNSAFE_CODE.to_string(),
+        }))
+        .await;
+
+        let (status, body) = result.err().expect("위반 코드가 거부되지 않았다");
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(!body.0.success);
+        let policy = body.0.policy.as_ref().expect("정책 리포트가 없다");
+        assert_eq!(policy["safe_to_execute"], serde_json::Value::Bool(false));
+        assert!(
+            policy["violations"]
+                .as_array()
+                .map(|v| !v.is_empty())
+                .unwrap_or(false),
+            "위반 목록이 비어 있다: {:?}",
+            policy
+        );
+    }
+
+    /// 거부된 요청에서는 xazz 실행기가 단 한 번도 스폰되지 않는다.
+    #[tokio::test]
+    async fn rejected_request_never_invokes_runner() {
+        let before = guardrail::runner_invocations();
+
+        let _ = handle_execute(Json(ExecuteRequest {
+            code: UNSAFE_CODE.to_string(),
+        }))
+        .await;
+
+        assert_eq!(
+            guardrail::runner_invocations(),
+            before,
+            "차단된 요청인데 실행기가 호출되었다"
+        );
+    }
+
+    /// 파싱조차 되지 않는 코드도 fail-closed 로 거부되며 실행기를 부르지 않는다.
+    #[tokio::test]
+    async fn unparseable_code_is_rejected_without_running() {
+        let before = guardrail::runner_invocations();
+
+        let result = handle_execute(Json(ExecuteRequest {
+            code: "v x = |> |> ???".to_string(),
+        }))
+        .await;
+
+        let (status, _) = result.err().expect("파싱 불가 코드가 거부되지 않았다");
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(guardrail::runner_invocations(), before);
+    }
+
+    /// 하드코딩된 비밀키가 있으면 거부된다.
+    #[tokio::test]
+    async fn hardcoded_secret_is_rejected() {
+        let code = "// AKIAIOSFODNN7EXAMPLE\n\
+                    type P = { age_band: string };\n\
+                    v x = load(\"d.csv\") :: P |> select([age_band]);";
+        let result = handle_execute(Json(ExecuteRequest {
+            code: code.to_string(),
+        }))
+        .await;
+        let (status, body) = result.err().expect("비밀키가 있는데 통과했다");
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        // 리포트에 원본 키가 실려서는 안 된다.
+        let serialized = serde_json::to_string(&body.0.policy).unwrap_or_default();
+        assert!(
+            !serialized.contains("AKIAIOSFODNN7EXAMPLE"),
+            "리포트에 원본 비밀키가 노출되었다"
+        );
+    }
+
+    /// /security/policy/check 는 위반이 있어도 200 이며 판정은 본문에 담긴다.
+    #[tokio::test]
+    async fn policy_check_returns_report_without_executing() {
+        let before = guardrail::runner_invocations();
+
+        let response = handle_policy_check(Json(guardrail::CodeRequest {
+            code: UNSAFE_CODE.to_string(),
+        }))
+        .await
+        .expect("정책 검사 실패");
+
+        assert!(!response.0.safe_to_execute);
+        assert!(!response.0.policy.violations.is_empty());
+        assert_eq!(guardrail::runner_invocations(), before);
+    }
+
+    /// /security/remediate 는 검증된 안전 코드와 리포트를 함께 돌려준다.
+    #[tokio::test]
+    async fn remediate_returns_verified_safe_code() {
+        let response = handle_remediate(Json(guardrail::CodeRequest {
+            code: UNSAFE_CODE.to_string(),
+        }))
+        .await
+        .expect("보정 실패");
+
+        assert!(!response.0.safe_to_execute, "원본은 위반이어야 한다");
+        let rem = &response.0.remediation;
+        // 이 코드는 남길 컬럼이 age_band 하나 있으므로 보정이 가능하다.
+        assert!(
+            rem.verified,
+            "보정 코드가 검증되지 않았다: {}",
+            rem.report_after.render()
+        );
+        // 보정된 코드는 실제로 정책을 통과해야 한다 — 말이 아니라 재검증으로.
+        let policy = xazz_compiler::Policy::builtin();
+        let recheck = xazz_compiler::check_policy(&rem.code, &policy);
+        assert!(
+            recheck.safe_to_execute,
+            "보정 코드가 여전히 위반이다: {}",
+            recheck.render()
+        );
+    }
+
+    /// 안전한 코드는 게이트를 통과한다 (오탐 회귀 방지).
+    #[test]
+    fn safe_code_passes_the_gate() {
+        let safe = "type AQ = { station: string, pm10: Option<float> };
+v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
+    |> groupBy(\"station\")
+    |> mean(\"pm10\");";
+        assert!(matches!(
+            guardrail::gate(safe),
+            guardrail::Decision::Allow { .. }
+        ));
+    }
 }
