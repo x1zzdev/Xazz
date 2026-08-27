@@ -37,7 +37,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { transpileToX1zz } from '../transpiler/x1zzTranspiler'
-import { DAG_DEFAULT_PARAMS, DAG_TOOLS, NODE_PARAM_FIELDS, SEED_SCHEMA, seedFromStaticPipeline } from '../dag/dagTools'
+import { DAG_DEFAULT_PARAMS, DAG_TOOLS, NODE_PARAM_FIELDS, SEED_SCHEMA, detectCsvSchema, seedFromStaticPipeline } from '../dag/dagTools'
 
 // ── 아이콘 레지스트리 (문자열 → 컴포넌트) ───────────────────────────────────
 const ICONS = {
@@ -333,6 +333,51 @@ function NodeParamsEditor({ nodeId, nodes, setNodes }) {
   }
 
   if (!fields.length) return <span className="dag-p__empty">이 노드는 파라미터가 없습니다.</span>
+
+  // fileInput: 파일 선택 → CSV 컬럼/타입 자동감지로 스키마 설정 (실패 위험 제거)
+  if (type === 'fileInput') {
+    return (
+      <div className="dag-params">
+        <label className="dag-field">
+          <span className="dag-field__label">파일 선택 (스키마 자동 감지)</span>
+          <input
+            className="dag-field__input"
+            type="file"
+            accept=".csv,.txt"
+            onChange={async (e) => {
+              const file = e.target.files?.[0]
+              if (!file) return
+              try {
+                const text = await file.text()
+                const schema = detectCsvSchema(text)
+                update({ filePath: file.name, detectedSchema: schema })
+                window.alert(`✅ ${schema.length}개 컬럼 감지: ${schema.map((c) => `${c.name}:${c.type}`).join(', ')}`)
+              } catch (err) {
+                window.alert(`파일 읽기 실패: ${err.message}`)
+              }
+              e.target.value = ''
+            }}
+          />
+        </label>
+        {fields.map((f) => (
+          <label key={f.key} className="dag-field">
+            <span className="dag-field__label">{f.label}{f.hint ? <i> · {f.hint}</i> : null}</span>
+            {renderField(f)}
+          </label>
+        ))}
+        {Array.isArray(p.detectedSchema) && p.detectedSchema.length > 0 && (
+          <div className="dag-field">
+            <span className="dag-field__label">감지된 스키마</span>
+            <div className="dag-schema-tags">
+              {p.detectedSchema.map((c, i) => (
+                <span key={i} className="dag-schema-tag">{c.name}<i>{c.type}</i></span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="dag-params">
