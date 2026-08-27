@@ -13,7 +13,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - **Policy-as-Code 정적 보안 가드레일** (`xazz-compiler/src/policy/`, issue #2): `.xzz` 파이프라인이 실행되기 전에 개인정보 유출·보안 컴플라이언스 위반을 정적으로 탐지·차단
   - 규칙 12종: 직접 식별자 노출(`XZP001`), 민감 속성 행 단위 노출(`XZP002`), 준식별자 결합 재식별(`XZP003`), 민감 집계 DP 미적용(`XZP004`), ε 상한 초과(`XZP005`), PII/비밀키 하드코딩(`XZP010`·`XZP011`), 민감 경로 접근(`XZP012`), 경로 탈출(`XZP013`), 스키마 미해석(`XZP014`), 파싱 실패(`XZP000`), 정책 로딩 실패(`XZP999`)
   - **출력 컬럼 추론**(`PipelineShape`): 집계 결과 컬럼을 식별자와 구분해 정상 통계 쿼리의 오탐을 제거 (`groupBy("region") |> count("patient_id")` 는 통과)
-  - **리터럴 스캐너**: 주민등록번호 체크섬·신용카드 Luhn·API 키 접두사·PEM 개인키 검증. 정규식 크레이트 없이 구현해 CLI 경량성 유지, 탐지값은 항상 마스킹해 보고
+  - **리터럴 스캐너**: 주민등록번호 체크섬·신용카드 Luhn+IIN·API 키 접두사·PEM 개인키 검증. 정규식 크레이트 없이 구현해 CLI 경량성 유지, 탐지값은 항상 마스킹해 보고. 임의의 긴 숫자열이 약 1/10 확률로 Luhn 을 통과하므로, 구분자 없는 숫자열에는 IIN 선두 자리와 식별자 문맥 배제를 추가로 요구해 타임스탬프·일련번호 오탐을 차단
   - **fail-closed**: 정책 로딩 실패·파싱 실패는 실행 허용이 아니라 실행 거부
   - **Policy-as-Code JSON**: `XAZZ_POLICY_PATH` 또는 `xazz.policy.json` 으로 컬럼 분류·임계치·ε 상한·규칙별 심각도를 교체
   - **Domain Policy Pack 3종**: 의료(`healthcare_policy.json`) · 금융(`finance_policy.json`) · 공공(`public_sector_policy.json`). 공통 기준은 내장 정책이 담당하고 도메인별 규제는 팩으로 확장한다

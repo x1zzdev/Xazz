@@ -283,6 +283,18 @@ fn scan_email(source: &str, bytes: &[u8], out: &mut Vec<LiteralFinding>) {
 // ── 신용카드 ─────────────────────────────────────────────────────────────────
 
 /// 13~19자리 숫자열(구분자 `-`/공백 허용)을 Luhn 검증으로 확인한다.
+///
+/// Luhn 만으로는 부족하다. 임의의 긴 숫자열은 약 1/10 확률로 Luhn 을 통과한다.
+/// 실제로 나노초 타임스탬프 `1787805001967327111` (19자리)이 Luhn 을 통과해,
+/// 임시 경로에 섞인 것만으로 카드번호로 오탐된 사례가 있었다. 그래서 두 조건을 더 건다.
+///
+/// 1. 구분자 없는 숫자열은 **발급사 식별번호(IIN) 선두 자리**가 그럴듯해야 한다.
+///  타임스탬프·일련번호가 흔히 갖는 0·1·7·8 선두는 카드가 아니다.
+/// 2. 식별자 문맥(`_` 나 영문자에 붙어 있는 숫자열)은 카드번호가 아니다.
+///  `xazz_test_4150_1787805001967327111` 같은 경로·변수명을 배제한다.
+///
+/// 구분자가 있는 형태(`4111-1111-1111-1111`)는 표기 자체가 강한 신호이므로
+/// IIN 검사를 요구하지 않는다.
 fn scan_credit_card(source: &str, bytes: &[u8], out: &mut Vec<LiteralFinding>) {
     let n = bytes.len();
     let mut i = 0usize;
@@ -293,9 +305,12 @@ fn scan_credit_card(source: &str, bytes: &[u8], out: &mut Vec<LiteralFinding>) {
         }
         let mut j = i;
         let mut digits: Vec<u32> = Vec::new();
+        let mut has_separator = false;
         while j < n && (is_digit(bytes[j]) || bytes[j] == b'-' || bytes[j] == b' ') {
             if is_digit(bytes[j]) {
                 digits.push((bytes[j] - b'0') as u32);
+            } else {
+                has_separator = true;
             }
             j += 1;
             if digits.len() >= 19 {
@@ -307,12 +322,50 @@ fn scan_credit_card(source: &str, bytes: &[u8], out: &mut Vec<LiteralFinding>) {
         while end > i && !is_digit(bytes[end - 1]) {
             end -= 1;
         }
-        if (13..=19).contains(&digits.len()) && luhn(&digits) && digit_boundary(bytes, i, end) {
+        let structurally_plausible = has_separator || plausible_iin(&digits);
+        if (13..=19).contains(&digits.len())
+            && structurally_plausible
+            && identifier_boundary(bytes, i, end)
+            && luhn(&digits)
+            && digit_boundary(bytes, i, end)
+        {
             push(out, source, i, SecretKind::CreditCard, &source[i..end]);
             i = end;
             continue;
         }
         i += 1;
+    }
+}
+
+/// 숫자열 앞뒤가 식별자 문맥(`_` 또는 영문자)이 아닌지 확인한다.
+///
+/// `xazz_test_4150_1787805001967327111` 처럼 변수명·경로 조각에 붙어 있는
+/// 숫자열은 카드번호가 아니다.
+fn identifier_boundary(bytes: &[u8], start: usize, end: usize) -> bool {
+    let ident = |b: u8| b == b'_' || b.is_ascii_alphabetic();
+    let before_ok = start == 0 || !ident(bytes[start - 1]);
+    let after_ok = end >= bytes.len() || !ident(bytes[end]);
+    before_ok && after_ok
+}
+
+/// 발급사 식별번호(IIN)의 선두 자리가 실재하는 카드 대역인지 확인한다.
+///
+/// 국제 브랜드 대역만 인정한다 — 3: Amex(34·37)·JCB·Diners, 4: Visa,
+/// 5: Mastercard, 6: Discover·UnionPay, 2: Mastercard 2-시리즈(2221~2720).
+///
+/// 0·1·7·8·9 로 시작하는 숫자열은 카드번호가 아니다 — 타임스탬프와
+/// 일련번호가 대부분 이 대역에 들어간다.
+fn plausible_iin(digits: &[u32]) -> bool {
+    match digits.first() {
+        Some(3) | Some(4) | Some(5) | Some(6) => true,
+        Some(2) => {
+            if digits.len() < 4 {
+                return false;
+            }
+            let prefix = digits[0] * 1000 + digits[1] * 100 + digits[2] * 10 + digits[3];
+            (2221..=2720).contains(&prefix)
+        }
+        _ => false,
     }
 }
 
@@ -519,6 +572,53 @@ mod tests {
         // 4111-1111-1111-1111 은 Luhn 을 통과하는 표준 테스트 번호다.
         assert!(kinds("v x = \"4111-1111-1111-1111\"").contains(&SecretKind::CreditCard));
         assert!(!kinds("v x = \"4111-1111-1111-1112\"").contains(&SecretKind::CreditCard));
+    }
+
+    /// 구분자 없는 카드번호도 IIN 이 그럴듯하면 탐지한다.
+    #[test]
+    fn detects_bare_credit_card_with_valid_iin() {
+        assert!(kinds("v x = \"4111111111111111\"").contains(&SecretKind::CreditCard));
+        // Mastercard 2-시리즈 (2221~2720)
+        assert!(kinds("v x = \"2221000000000009\"").contains(&SecretKind::CreditCard));
+    }
+
+    /// 나노초 타임스탬프를 카드번호로 오탐하지 않는다.
+    ///
+    /// 회귀 방지: `1787805001967327111` (19자리)은 실제로 Luhn 을 통과한다.
+    /// 임의의 긴 숫자열은 약 1/10 확률로 Luhn 을 통과하므로, Luhn 만으로
+    /// 판정하면 타임스탬프·일련번호가 전부 카드번호로 잡힌다.
+    #[test]
+    fn does_not_flag_luhn_passing_timestamp() {
+        for path in [
+            "/tmp/xazz_test_4150_1787805001967327111/pipeline.xzz",
+            "/tmp/xazz_test_4150_1787805001967335759/data.csv",
+        ] {
+            let src = format!("type S = {{ a: int }};\nv p = load(\"{}\") :: S;", path);
+            let found = kinds(&src);
+            assert!(
+                !found.contains(&SecretKind::CreditCard),
+                "타임스탬프를 카드번호로 오탐: {}\n탐지 결과: {:?}",
+                path,
+                scan_source(&src)
+            );
+        }
+    }
+
+    /// 카드 대역이 아닌 선두 자리는 구분자가 없으면 인정하지 않는다.
+    #[test]
+    fn bare_digits_need_a_plausible_card_prefix() {
+        // 선두가 1 — Luhn 을 통과해도 카드 대역이 아니다.
+        assert!(!kinds("v x = \"1787805001967327111\"").contains(&SecretKind::CreditCard));
+        // 선두가 9 — 마찬가지.
+        assert!(!kinds("v x = \"9000000000000009\"").contains(&SecretKind::CreditCard));
+    }
+
+    /// 식별자·경로에 붙어 있는 숫자열은 카드번호로 보지 않는다.
+    #[test]
+    fn digits_glued_to_identifiers_are_not_cards() {
+        // 4111111111111111 은 유효한 카드번호지만 변수명에 붙어 있으면 아니다.
+        assert!(!kinds("v order_4111111111111111 = a;").contains(&SecretKind::CreditCard));
+        assert!(!kinds("v x = \"run4111111111111111\";").contains(&SecretKind::CreditCard));
     }
 
     /// AWS 액세스 키 접두사 탐지.
