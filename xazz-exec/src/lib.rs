@@ -9,6 +9,8 @@
 ///   xazz (CLI)   → xazz-compiler (NO Polars) ✓
 ///   xazz-runner  → xazz-exec → Polars        ✓ (분리된 바이너리)
 pub mod dl;
+pub mod dp;
 pub mod runtime;
+pub mod tensor_bridge;
 
 pub use runtime::run_pipeline;

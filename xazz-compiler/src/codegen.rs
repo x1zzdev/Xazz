@@ -441,6 +441,15 @@ impl Codegen {
                     .unwrap_or_default();
                 format!("  // |> predict({}{})  → 예측 컬럼 추가", model_var, as_str)
             }
+
+            // ── v0.6 withDp — 차등 프라이버시 노이즈 주입 ───────────────────
+            PipelineOp::WithDp(args) => format!(
+                "  .collect()?  → dp::apply_dp(ε={}, {}, Δf={})  // |> withDp(epsilon: {})",
+                args.epsilon,
+                args.mechanism.as_str(),
+                args.sensitivity,
+                args.epsilon
+            ),
         }
     }
 
