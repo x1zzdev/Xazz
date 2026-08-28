@@ -1,0 +1,31 @@
+// Xazz benchmark pipeline — identical 4-stage workload on both engines.
+// Stages: P2 clean+filter → P3 group-sum → P4 top-10 mean → P7 fill+count
+type AirQuality = {
+    date:    string,
+    station: string,
+    pm10:    Option<float>,
+    pm25:    Option<float>,
+}
+
+v p2 = load("SCALE_CSV") :: AirQuality
+    |> dropNull("pm10")
+    |> filter(pm10 < 120)
+    |> filter(pm25 > 10)
+
+v p3 = p2
+    |> groupBy("station")
+    |> sum("pm10")
+
+v p4 = p2
+    |> groupBy("station")
+    |> mean("pm10")
+    |> orderBy("pm10", desc: true)
+    |> take(10)
+
+v p7 = load("SCALE_CSV") :: AirQuality
+    |> fillNull("pm25", 0)
+    |> filter(pm10 > 50)
+    |> groupBy("station")
+    |> count("pm25")
+    |> orderBy("pm25", desc: true)
+    |> take(5)
