@@ -1,13 +1,12 @@
-// Xazz 시연 3 — 차등 프라이버시(Laplace) 노이즈 + 예산 리포트
+// Xazz 데모 3 — 차등 프라이버시(DP) 노이즈 주입
 type Air = {
-    observed_at: string,
-    district: string,
-    pm25: Option<float>,
-    temperature_c: Option<float>,
-};
-
-v dp_stats = load("visual-ide/data/seoul_air_quality.csv") :: Air
-    |> fillNull("pm25", strategy: "mean")
+    observed_at:   string,
+    district:      string,
+    pm25:          Option<float>,
+    temperature_c: float,
+}
+v x = load("visual-ide/data/seoul_air_quality.csv") :: Air
+v means = x
     |> groupBy("district")
     |> mean("pm25")
-    |> withDp(epsilon: 1.0, mechanism: laplace, sensitivity: 1.0, seed: 42);
+    |> withDp(epsilon: 1.0, mechanism: laplace, seed: 42)

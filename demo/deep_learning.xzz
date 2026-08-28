@@ -1,18 +1,18 @@
-// Xazz 시연 2 — Burn 딥러닝 선언 + 학습
+// Xazz 데모 2 — Burn 딥러닝 학습 컴파일
 type Air = {
-    observed_at: string,
-    district: string,
-    pm25: Option<float>,
-    temperature_c: Option<float>,
-};
-
-v dataset = load("visual-ide/data/seoul_air_quality.csv") :: Air
-    |> fillNull("pm25", strategy: "mean")
-    |> fillNull("temperature_c", strategy: "mean");
-
-model AirPredictor {
-    Dense(16) -> ReLU() -> Dense(8) -> ReLU() -> Dense(1)
+    observed_at:   string,
+    district:      string,
+    pm25:          Option<float>,
+    temperature_c: float,
 }
-
+v raw = load("visual-ide/data/seoul_air_quality.csv") :: Air
+v dataset = raw
+    |> cast("pm25", "float")
+    |> cast("temperature_c", "float")
+    |> fillNull("pm25", strategy: "mean")
+    |> select([temperature_c, pm25])
+model AirPredictor {
+    Dense(16) -> ReLU() -> Dense(1)
+}
 run dataset
-    |> train(AirPredictor, target: "pm25", epochs: 5, lr: 0.01);
+    |> train(AirPredictor, target: "pm25", epochs: 5, lr: 0.01)
