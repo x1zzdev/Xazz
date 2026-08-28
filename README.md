@@ -19,7 +19,7 @@
 [![Language: .xzz](https://img.shields.io/badge/Language-.xzz-orange.svg)]()
 [![Backend: Polars](https://img.shields.io/badge/Backend-Polars-red.svg)]()
 [![DL Engine: Burn](https://img.shields.io/badge/DL%20Engine-Burn-purple.svg)]()
-[![Version: v0.2.8](https://img.shields.io/badge/Version-v0.2.8-green.svg)](https://github.com/xazzdev/Xazz/releases)
+[![Version: v0.3.0](https://img.shields.io/badge/Version-v0.3.0-green.svg)](https://github.com/xazzdev/Xazz/releases)
 [![CI](https://github.com/xazzdev/Xazz/actions/workflows/ci.yml/badge.svg)](https://github.com/xazzdev/Xazz/actions/workflows/ci.yml)
 
 [한국어 README](README_kr.md)
@@ -39,13 +39,13 @@ Python owns AI prototyping — but at pipeline scale three structural costs keep
 | The Python problem | What it costs you | Xazz's answer |
 | :--- | :--- | :--- |
 | Type errors and NaN crash **at runtime** — often mid-training | Wasted GPU cycles, re-queued clusters, 2 a.m. debugging | **Compile-time null & type safety** (`Option<T>`) — errors surface as `line:col` diagnostics before execution |
-| Data crosses **language walls** (pandas → NumPy → PyTorch) | Repeated memory copies at every boundary | **Zero-copy tensors** — one Rust process hands Apache Arrow buffers straight to Burn |
+| Data crosses **language walls** (pandas → NumPy → PyTorch) | Repeated memory copies at every boundary | **Direct-buffer tensors** — one Rust process reads Arrow buffers directly, with the remaining copies (f64→f32, columnar→row-major, host→device) made explicit in the memory model |
 | No security or privacy layer anywhere in the pipeline | PII leaks, no audit trail, no regulatory story | **Policy-as-Code guardrails, differential privacy, SHA-256 audit log** — built into the language runtime |
 
-Xazz is not a wrapper around existing libraries. The parser, AST, static type checker, sandboxed runtime, and DL compilation engine are all designed and implemented from scratch in Rust — so a single `.xzz` script controls the whole path from CSV to trained model.
+Xazz is not a wrapper around existing libraries. The parser, AST, static type checker, typed IR, lowering, and DL compilation engine are all designed and implemented from scratch in Rust — so a single `.xzz` script controls the whole path from CSV to trained model. `.xzz` compiles to a **typed IR** once, and the runtime consumes that IR once (instead of re-parsing the source and interpreting the raw AST directly against Polars/Burn).
 
 <div align="center">
-<img src="docs/figures/pipeline-flow.svg" alt="Xazz end-to-end pipeline: compile phase (lexer, parser, type check, guardrail, codegen, sandbox) and execute phase (Polars, DP noise, zero-copy tensor, training, results, audit log)" width="94%">
+<img src="docs/figures/pipeline-flow.svg" alt="Xazz end-to-end pipeline: compile phase (lexer, parser, type check, guardrail, typed IR, process isolation) and execute phase (Polars, DP noise, tensor bridge, training, results, audit log)" width="94%">
 </div>
 
 ---
@@ -64,7 +64,7 @@ Xazz is not a wrapper around existing libraries. The parser, AST, static type ch
 
 2. Extract it and add the directory to your `PATH`.
 
-   > **Important:** keep `xazz` and `xazz-runner` together — `xazz run` spawns `xazz-runner` as a sandboxed subprocess.
+   > **Important:** keep `xazz` and `xazz-runner` together — `xazz run` spawns `xazz-runner` as a process-isolated subprocess (with an execution timeout; this is isolation, not an OS sandbox).
 
 3. Verify:
 
@@ -98,7 +98,7 @@ That's the whole loop. `xazz import` reads your CSV (EUC-KR/CP949 auto-detected)
 
 ## The Language in 30 Lines
 
-**Scenario:** load air-quality CSV, clean it with null-safe Polars preprocessing, train a deep-learning model with zero-copy tensor conversion.
+**Scenario:** load air-quality CSV, clean it with null-safe Polars preprocessing, train a deep-learning model with direct-buffer tensor conversion.
 
 ### Python (pandas + PyTorch)
 
@@ -163,7 +163,7 @@ v prediction = dataset
 | | Python (pandas + PyTorch) | Xazz (.xzz) |
 |---|---|---|
 | Pipeline scope | Fragmented — pandas and PyTorch glued by hand | Unified end-to-end DSL (preprocessing → DL) |
-| Tensor conversion | Memory copy overhead at every boundary | Zero-copy Arrow → Burn tensor handoff |
+| Tensor conversion | Memory copy overhead at every boundary | Direct Arrow buffer handoff — remaining copies explicitly modeled |
 | Type & null safety | Runtime exceptions (NaN / TypeError) | Compile-time static guard (`Option<T>`) |
 | Model boilerplate | Manual tensor layout & dimension wiring | Auto-inferred feature dims & loss function |
 
@@ -208,10 +208,10 @@ Xazz is a modularized Rust workspace. The CLI stays a 2–5 MB binary; heavyweig
 | Crate | Role |
 | :--- | :--- |
 | **`xazz`** | CLI entry point (`run`, `check`, `import`, `emit`, `policy`, `sde`, `new`) |
-| **`xazz-core`** | AST, static type checker, shared types, tensor definitions |
-| **`xazz-compiler`** | Lexer → Parser → AST → Type check → Rust/Polars/Burn codegen |
-| **`xazz-exec`** | Polars LazyFrame preprocessing and Burn tensor execution engine |
-| **`xazz-runner`** | Data-flow-tracked sandbox; subprocess-isolated runtime (IPC bridge) |
+| **`xazz-core`** | AST, tokens, errors, **Typed IR** (ir), shared types |
+| **`xazz-compiler`** | Lexer → Parser → AST → **static analysis → Typed IR** → optimizer → emit |
+| **`xazz-exec`** | Runtime that consumes the Typed IR: `lower` (DataOp→Polars), `dl` (Burn), `dp`, `chart` |
+| **`xazz-runner`** | Process-isolated subprocess bridge (IPC) with execution timeout |
 | **`xazz-server`** | Axum REST API, SHA-256 audit log, sLM correction hook, IDE serving |
 
 Deep details live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/WORKSPACE.md](docs/WORKSPACE.md).
@@ -220,7 +220,7 @@ Deep details live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/WORK
 
 ## Performance
 
-Same 4-stage pipeline (drop nulls → dual filter → group-by aggregates → fill + count), executed by pandas 3.0.5 and Xazz v0.2.8 on real Seoul air-quality data (8 source files, 2008–2026). Median of 3 runs after warmup, wall-clock timing.
+Same 4-stage pipeline (drop nulls → dual filter → group-by aggregates → fill + count), executed by pandas 3.0.5 and Xazz on real Seoul air-quality data (8 source files, 2008–2026). Median of 3 runs after warmup, wall-clock timing.
 
 <div align="center">
 <img src="docs/assets/benchmark_chart.png" alt="Benchmark: latency scaling across 228K/912K/4.09M rows and speedup bars — 2.62x, 2.55x, 1.93x vs pandas" width="94%">
@@ -239,7 +239,7 @@ python benches/render_benchmark_chart.py   # regenerate the chart above
 ### Where the speed comes from
 
 <div align="center">
-<img src="docs/figures/zero-copy.svg" alt="Zero-copy: pandas→PyTorch copies 3 times across 2 language walls; Xazz shares the Arrow buffer directly with Burn" width="94%">
+<img src="docs/figures/zero-copy.svg" alt="Direct-buffer tensor handoff: pandas→PyTorch copies 3 times across 2 language walls; Xazz reads shared Arrow buffers directly and models the remaining copy boundaries explicitly" width="94%">
 </div>
 
 <div align="center">
@@ -252,14 +252,14 @@ python benches/render_benchmark_chart.py   # regenerate the chart above
 
 **Policy-as-Code guardrails** scan the pipeline *before* execution — PII patterns (RRN, phone, card numbers with Luhn validation), secrets, and custom rules. Violations are blocked with structured JSON reports; the sLM hook (Qwen2.5-Coder-1.5B fine-tuned, served on-premise via Ollama/llama.cpp) proposes verified safe corrections without your code ever leaving the machine. See [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md).
 
-**Differential privacy** — Laplace/Gaussian mechanisms with an explicit epsilon budget per session. Budget consumption is visible in the IDE monitor, and queries that would exceed the budget are refused (blocking noise-averaging reconstruction).
+**Differential privacy** — Laplace/Gaussian mechanisms with per-session ε **and δ** composition accounting. Each query records `(εᵢ, δᵢ)`; `PrivacyBudget` accumulates `Σεᵢ`, `Σδᵢ` and refuses queries that would exceed either budget (blocking noise-averaging reconstruction). Budget state is visible in the IDE monitor. See [docs/design/dp-spec.md](docs/design/dp-spec.md).
 
 **SHA-256 append-only audit log** — every operation is hashed and chained; tampering is verifiable via the `xazz-server` API (`/security/audit`, `/security/verify`).
 
 | Layer | Mechanism | Status |
 |---|---|---|
 | Static guardrails | PII/secret detection, execution blocking, `--fix` proposals | Stable |
-| Differential privacy | Laplace / Gaussian, per-session ε budget, IDE monitor | Stable |
+| Differential privacy | Laplace / Gaussian, per-session ε·δ composition accounting, IDE monitor | Stable |
 | Audit infrastructure | SHA-256 hash chain, append-only, API verification | Stable |
 | sLM auto-fix | Qwen2.5-Coder-1.5B (Unsloth + QLoRA → GGUF), on-premise | Preview |
 
@@ -269,7 +269,7 @@ python benches/render_benchmark_chart.py   # regenerate the chart above
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| `xazz run` | Compile and execute `.xzz` pipelines (`--json` for machine-readable results) | Stable |
+| `xazz run` | Compile and execute `.xzz` pipelines (`--json` for machine-readable results, `--opt` enables the IR optimizer) | Stable |
 | `xazz check` | Static semantic analysis — undeclared variables/columns, duplicate declarations, invalid casts, with did-you-mean hints and `line:col` spans | Stable |
 | `xazz import` | Auto-infer CSV schema → generate type block (EUC-KR/CP949 auto-detected) | Stable |
 | `xazz new` | Scaffold project with sample CSV and runnable example | Stable |
@@ -292,8 +292,9 @@ python benches/render_benchmark_chart.py   # regenerate the chart above
 | Phase 1 — Core Language | DSL syntax, type system, compiler pipeline | ✅ Complete |
 | Phase 2 — Execution Layer | Polars integration, CLI tooling, chart output | ✅ Complete |
 | Phase 3 — IDE Integration | Visual IDE, graphical pipeline editor | ✅ Complete |
-| Phase 4 — Expanded Language | More operators, join improvements, schema evolution | 🚧 In progress |
-| Phase 5 — AI Expansion | GPU backends (burn-tch / burn-wgpu), distributed training, NQP | 🔭 Planned |
+| Phase 4 — Typed IR & Optimizer | Single typed intermediate representation, double-parse removal, IR optimizer (`--opt`) | ✅ Complete (v0.3.0) |
+| Phase 5 — Expanded Language | More operators, join improvements, schema evolution | 🚧 In progress |
+| Phase 6 — AI Expansion | GPU backends (burn-tch / burn-wgpu), distributed training, NQP | 🔭 Planned |
 
 ---
 

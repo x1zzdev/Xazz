@@ -19,7 +19,7 @@
 [![Language: .xzz](https://img.shields.io/badge/Language-.xzz-orange.svg)]()
 [![Backend: Polars](https://img.shields.io/badge/Backend-Polars-red.svg)]()
 [![DL Engine: Burn](https://img.shields.io/badge/DL%20Engine-Burn-purple.svg)]()
-[![Version: v0.2.8](https://img.shields.io/badge/Version-v0.2.8-green.svg)](https://github.com/xazzdev/Xazz/releases)
+[![Version: v0.3.0](https://img.shields.io/badge/Version-v0.3.0-green.svg)](https://github.com/xazzdev/Xazz/releases)
 [![CI](https://github.com/xazzdev/Xazz/actions/workflows/ci.yml/badge.svg)](https://github.com/xazzdev/Xazz/actions/workflows/ci.yml)
 
 [English README](README.md)
@@ -39,13 +39,13 @@
 | 파이썬의 문제 | 대가 | Xazz의 해답 |
 | :--- | :--- | :--- |
 | 타입 오류와 NaN이 **런타임에** 크래시 — 흔히 학습 도중에 | 낭비된 GPU 사이클, 재배정되는 클러스터, 새벽 디버깅 | **컴파일 타임 널·타입 안전성** (`Option<T>`) — 실행 전에 행:열 단위 진단으로 오류 표면화 |
-| 데이터가 **언어 경계**를 넘을 때마다 (pandas → NumPy → PyTorch) | 경계마다 반복되는 메모리 복사 | **제로카피 텐서** — 하나의 Rust 프로세스가 Apache Arrow 버퍼를 Burn에 직접 전달 |
+| 데이터가 **언어 경계**를 넘을 때마다 (pandas → NumPy → PyTorch) | 경계마다 반복되는 메모리 복사 | **직접 버퍼 텐서** — 하나의 Rust 프로세스가 Arrow 버퍼를 직접 읽고, 남는 복사(f64→f32, columnar→row-major, host→device)는 메모리 모델로 명시 |
 | 파이프라인 어디에도 보안·프라이버시 계층이 없음 | 개인정보 유출, 감사 증적 부재, 규제 대응 불가 | **Policy-as-Code 가드레일, 차등 프라이버시, SHA-256 감사 로그** — 언어 런타임에 내장 |
 
-Xazz는 기존 라이브러리의 래퍼가 아닙니다. 파서, AST, 정적 타입 검사기, 샌드박스 런타임, 딥러닝 컴파일 엔진을 모두 Rust로 직접 설계·구현했기 때문에, 단일 `.xzz` 스크립트만으로 CSV에서 학습된 모델까지 전 경로를 제어합니다.
+Xazz는 기존 라이브러리의 래퍼가 아닙니다. 파서, AST, 정적 타입 검사기, **Typed IR**, lowering, 딥러닝 컴파일 엔진을 모두 Rust로 직접 설계·구현했기 때문에, 단일 `.xzz` 스크립트만으로 CSV에서 학습된 모델까지 전 경로를 제어합니다. `.xzz`는 **Typed IR을 한 번** 컴파일하고, 런타임은 그 IR을 **한 번** 소비합니다 (소스를 다시 파싱해 raw AST를 Polars/Burn에 직접 해석하던 이중 해석 제거).
 
 <div align="center">
-<img src="docs/figures/pipeline-flow-kr.svg" alt="Xazz 엔드투엔드 파이프라인: 컴파일 단계(렉서, 파서, 타입 검사, 가드레일, 코드 생성, 샌드박스)와 실행 단계(Polars, DP 노이즈, 제로카피 텐서, 학습, 결과, 감사 로그)" width="94%">
+<img src="docs/figures/pipeline-flow-kr.svg" alt="Xazz 엔드투엔드 파이프라인: 컴파일 단계(렉서, 파서, 타입 검사, 가드레일, Typed IR, 프로세스 격리)와 실행 단계(Polars, DP 노이즈, 텐서 브리지, 학습, 결과, 감사 로그)" width="94%">
 </div>
 
 ---
@@ -64,7 +64,7 @@ Xazz는 기존 라이브러리의 래퍼가 아닙니다. 파서, AST, 정적 �
 
 2. 압축을 풀고 디렉토리를 `PATH`에 추가합니다.
 
-   > **주의:** `xazz`와 `xazz-runner`는 반드시 같은 디렉토리에 있어야 합니다 — `xazz run`은 `xazz-runner`를 샌드박스 서브프로세스로 스폰합니다.
+   > **주의:** `xazz`와 `xazz-runner`는 반드시 같은 디렉토리에 있어야 합니다 — `xazz run`은 `xazz-runner`를 프로세스 격리 서브프로세스로 스폰합니다 (실행 타임아웃 포함. 이는 격리이지 OS 샌드박스가 아닙니다).
 
 3. 확인:
 
@@ -98,7 +98,7 @@ xazz run main.xzz      # 컴파일 + 실행
 
 ## 30줄로 보는 언어
 
-**시나리오:** 공기질 CSV를 로드하고, 널 안전한 Polars 전처리로 정리한 뒤, 제로카피 텐서 변환으로 딥러닝 모델을 학습합니다.
+**시나리오:** 공기질 CSV를 로드하고, 널 안전한 Polars 전처리로 정리한 뒤, 직접 버퍼 텐서 변환으로 딥러닝 모델을 학습합니다.
 
 ### Python (pandas + PyTorch)
 
@@ -163,7 +163,7 @@ v prediction = dataset
 | | Python (pandas + PyTorch) | Xazz (.xzz) |
 |---|---|---|
 | 파이프라인 범위 | 분리됨 — pandas와 PyTorch를 수작업으로 연결 | 통합 엔드투엔드 DSL (전처리 → 딥러닝) |
-| 텐서 변환 | 경계마다 메모리 복사 오버헤드 | 제로카피 Arrow → Burn 텐서 전달 |
+| 텐서 변환 | 경계마다 메모리 복사 오버헤드 | 직접 Arrow 버퍼 전달 — 남는 복사는 메모리 모델로 명시 |
 | 타입 & 널 안전 | 런타임 예외 (NaN / TypeError) | 컴파일 타임 정적 가드 (`Option<T>`) |
 | 모델 보일러플레이트 | 수동 텐서 레이아웃 & 차원 배선 | 특성 차원 & 손실 함수 자동 추론 |
 
@@ -208,10 +208,10 @@ Xazz는 모듈화된 Rust 워크스페이스입니다. CLI는 2–5 MB 경량 �
 | 크레이트 | 역할 |
 | :--- | :--- |
 | **`xazz`** | CLI 진입점 (`run`, `check`, `import`, `emit`, `policy`, `sde`, `new`) |
-| **`xazz-core`** | AST, 정적 타입 검사기, 공통 타입, 텐서 정의 |
-| **`xazz-compiler`** | 렉서 → 파서 → AST → 타입 검사 → Rust/Polars/Burn 코드 생성 |
-| **`xazz-exec`** | Polars LazyFrame 전처리 및 Burn 텐서 실행 엔진 |
-| **`xazz-runner`** | 데이터 흐름 추적 샌드박스, 서브프로세스 격리 런타임 (IPC 브리지) |
+| **`xazz-core`** | AST, 토큰, 에러, **Typed IR** (`ir`), 공통 타입 |
+| **`xazz-compiler`** | 렉서 → 파서 → AST → **정적 분석 → Typed IR** → 최적화 → emit |
+| **`xazz-exec`** | Typed IR 소비 런타임: `lower`(DataOp→Polars), `dl`(Burn), `dp`, `chart` |
+| **`xazz-runner`** | 프로세스 격리 서브프로세스 브리지 (IPC) + 실행 타임아웃 |
 | **`xazz-server`** | Axum REST API, SHA-256 감사 로그, sLM 보정 연동, IDE 서빙 |
 
 심층 내용은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)와 [docs/WORKSPACE.md](docs/WORKSPACE.md)에 정리되어 있습니다.
@@ -220,7 +220,7 @@ Xazz는 모듈화된 Rust 워크스페이스입니다. CLI는 2–5 MB 경량 �
 
 ## 성능
 
-동일한 4단계 파이프라인(널 제거 → 이중 필터 → 그룹 집계 → fill + count)을 실제 서울시 공기질 데이터(2008–2026, 원본 8개 파일)에 대해 pandas 3.0.5와 Xazz v0.2.8로 실행했습니다. 워밍업 1회 후 3회 측정의 중앙값, wall-clock 기준입니다.
+동일한 4단계 파이프라인(널 제거 → 이중 필터 → 그룹 집계 → fill + count)을 실제 서울시 공기질 데이터(2008–2026, 원본 8개 파일)에 대해 pandas 3.0.5와 Xazz로 실행했습니다. 워밍업 1회 후 3회 측정의 중앙값, wall-clock 기준입니다.
 
 <div align="center">
 <img src="docs/assets/benchmark_chart.png" alt="벤치마크: 228K/912K/409만 행에서의 지연 시간 스케일링과 속도 향상 — pandas 대비 2.62배, 2.55배, 1.93배" width="94%">
@@ -239,7 +239,7 @@ python benches/render_benchmark_chart.py   # 위 차트 재생성
 ### 속도의 근원
 
 <div align="center">
-<img src="docs/figures/zero-copy-kr.svg" alt="제로카피: pandas→PyTorch는 언어 경계 2개를 넘으며 3회 복사, Xazz는 Arrow 버퍼를 Burn과 직접 공유" width="94%">
+<img src="docs/figures/zero-copy-kr.svg" alt="직접 버퍼 텐서 전달: pandas→PyTorch는 언어 경계 2개를 넘으며 3회 복사, Xazz는 공유 Arrow 버퍼를 직접 읽고 남는 복사 경계를 명시" width="94%">
 </div>
 
 <div align="center">
@@ -252,14 +252,14 @@ python benches/render_benchmark_chart.py   # 위 차트 재생성
 
 **Policy-as-Code 가드레일**은 실행 *이전에* 파이프라인을 검사합니다 — 개인정보 패턴(주민번호, 전화번호, Luhn 검증 카드번호), 시크릿, 커스텀 규칙. 위반은 구조화된 JSON 리포트와 함께 차단되며, sLM 훅(파인튜닝된 Qwen2.5-Coder-1.5B, Ollama/llama.cpp로 온프레미스 서빙)이 검증된 안전 코드 수정을 제안합니다 — 코드가 기기를 떠나지 않습니다. 자세한 내용은 [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md).
 
-**차등 프라이버시** — 세션별 명시적 엡실론 예산을 갖는 라플라스/가우시안 메커니즘. 예산 소모는 IDE 모니터에서 확인할 수 있고, 예산을 초과할 쿼리는 거부됩니다(노이즈 평균화 재구성 공격 차단).
+**차등 프라이버시** — 라플라스/가우시안 메커니즘, 세션별 ε **및 δ** 조성 회계(composition accounting). 각 쿼리는 `(εᵢ, δᵢ)`를 기록하고 `PrivacyBudget`이 `Σεᵢ`·`Σδᵢ` 를 누적하며, 어느 쪽 예산을 초과할 쿼리는 거부됩니다. 예산 소모는 IDE 모니터에서 확인할 수 있습니다. 상세: [docs/design/dp-spec.md](docs/design/dp-spec.md).
 
 **SHA-256 append-only 감사 로그** — 모든 연산이 해시되어 체인으로 연결됩니다. `xazz-server` API(`/security/audit`, `/security/verify`)로 변조 여부를 검증할 수 있습니다.
 
 | 계층 | 메커니즘 | 상태 |
 |---|---|---|
 | 정적 가드레일 | 개인정보/시크릿 탐지, 실행 차단, `--fix` 제안 | Stable |
-| 차등 프라이버시 | 라플라스 / 가우시안, 세션별 ε 예산, IDE 모니터 | Stable |
+| 차등 프라이버시 | 라플라스 / 가우시안, 세션별 ε·δ 조성 회계, IDE 모니터 | Stable |
 | 감사 인프라 | SHA-256 해시 체인, append-only, API 검증 | Stable |
 | sLM 자동 보정 | Qwen2.5-Coder-1.5B (Unsloth + QLoRA → GGUF), 온프레미스 | Preview |
 
@@ -269,7 +269,7 @@ python benches/render_benchmark_chart.py   # 위 차트 재생성
 
 | 기능 | 설명 | 상태 |
 |---------|-------------|--------|
-| `xazz run` | `.xzz` 파이프라인 컴파일·실행 (`--json` 기계 판독 결과) | Stable |
+| `xazz run` | `.xzz` 파이프라인 컴파일·실행 (`--json` 기계 판독 결과, `--opt` IR 최적화) | Stable |
 | `xazz check` | 정적 의미 분석 — 미선언 변수/컬럼, 중복 선언, 잘못된 cast, did-you-mean 제안, 행:열 단위 진단 | Stable |
 | `xazz import` | CSV 스키마 자동 추론 → 타입 블록 생성 (EUC-KR/CP949 자동 감지) | Stable |
 | `xazz new` | 샘플 CSV + 실행 가능한 예제가 포함된 프로젝트 생성 | Stable |
@@ -292,8 +292,9 @@ python benches/render_benchmark_chart.py   # 위 차트 재생성
 | Phase 1 — 코어 언어 | DSL 문법, 타입 시스템, 컴파일러 파이프라인 | ✅ 완료 |
 | Phase 2 — 실행 계층 | Polars 연동, CLI 도구, 차트 출력 | ✅ 완료 |
 | Phase 3 — IDE 통합 | Visual IDE, 그래픽 파이프라인 편집기 | ✅ 완료 |
-| Phase 4 — 언어 확장 | 연산자 확장, join 개선, 스키마 진화 | 🚧 진행 중 |
-| Phase 5 — AI 확장 | GPU 백엔드(burn-tch / burn-wgpu), 분산 학습, NQP | 🔭 계획 |
+| Phase 4 — Typed IR & 최적화 | 단일 Typed IR, 이중 해석 제거, IR 최적화(`--opt`) | ✅ 완료 (v0.3.0) |
+| Phase 5 — 언어 확장 | 연산자 확장, join 개선, 스키마 진화 | 🚧 진행 중 |
+| Phase 6 — AI 확장 | GPU 백엔드(burn-tch / burn-wgpu), 분산 학습, NQP | 🔭 계획 |
 
 ---
 

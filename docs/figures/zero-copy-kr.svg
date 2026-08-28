@@ -6,7 +6,7 @@
   </defs>
   <rect width="1280" height="440" fill="#ffffff"/>
   <rect x="0" y="0" width="1280" height="6" fill="#1e3a5f"/>
-  <text x="36" y="46" font-size="26" font-weight="800" fill="#0f172a">제로카피 텐서 전달</text>
+  <text x="36" y="46" font-size="26" font-weight="800" fill="#0f172a">직접 버퍼 텐서 전달</text>
   <text x="36" y="70" font-size="13.5" fill="#64748b">Arrow 버퍼가 Burn 텐서로 곧장 흐릅니다 — 전처리와 학습 사이에 직렬화 벽이 없습니다.</text>
 
   <!-- Python 경로 -->
@@ -38,7 +38,7 @@
   <text x="176" y="328" font-size="14" font-weight="800" fill="#0f172a" text-anchor="middle">Polars DataFrame</text>
   <text x="176" y="346" font-size="11" fill="#94a3b8" text-anchor="middle">Apache Arrow 컬럼형 버퍼</text>
   <line x1="296" y1="332" x2="652" y2="332" stroke="#166534" stroke-width="2.5" marker-end="url(#zck)"/>
-  <text x="474" y="318" font-size="11.5" font-weight="700" fill="#166534" text-anchor="middle">같은 메모리 — Arrow 레이아웃 공유 (복사 0회)</text>
+  <text x="474" y="318" font-size="11.5" font-weight="700" fill="#166534" text-anchor="middle">Arrow 버퍼 공유 — 복사 경계 명시</text>
   <rect x="656" y="304" width="240" height="56" rx="10" fill="#ffffff" stroke="#86efac"/>
   <text x="776" y="328" font-size="14" font-weight="800" fill="#0f172a" text-anchor="middle">Burn Tensor</text>
   <text x="776" y="346" font-size="11" fill="#94a3b8" text-anchor="middle">TensorData::from_bytes</text>

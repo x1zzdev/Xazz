@@ -5,7 +5,7 @@
 > 묻는다면, 가드레일은 "이 코드를 돌려도 되는가"를 묻는다.
 
 관련: [ARCHITECTURE.md](ARCHITECTURE.md) · [WORKSPACE.md](WORKSPACE.md) ·
-[experiments/slm_guardrail](../experiments/slm_guardrail/README.md)
+[design/security-model.md](design/security-model.md) · [experiments/slm_guardrail](../experiments/slm_guardrail/README.md)
 
 ---
 

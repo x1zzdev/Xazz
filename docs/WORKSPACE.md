@@ -11,20 +11,21 @@ Rust 바이너리는 정적 링크됩니다.
 
 ```
 Xazz/
-├── Cargo.toml              ← workspace + xazz CLI (루트 패키지)
+├── Cargo.toml              ← workspace + xazz CLI (루트 패키지, version 0.3.0 단일 소스)
 ├── src/                    ← xazz CLI (경량 — Polars/Tokio 없음)
 │   ├── main.rs             ← run 명령어 → xazz-runner 서브프로세스 스폰
 │   ├── cli.rs
+│   ├── policy_cli.rs
 │   ├── predict.rs
 │   ├── project.rs
 │   ├── schema.rs
-│   ├── ux.rs
 │   └── whoami.rs
 │
 ├── xazz-core/              ← 공유 핵심 타입 (ZERO 무거운 의존성)
 │   └── src/
 │       ├── lib.rs
 │       ├── ast.rs          ← AST 노드 (Expr, Stmt, PipelineOp, ...)
+│       ├── ir.rs           ← Typed IR (ColType/Schema/TypedExpr/DataOp/MLOp/SideOp/Step)
 │       ├── token.rs        ← Token, Span
 │       └── error.rs        ← CompileError, ErrorKind
 │
@@ -32,24 +33,33 @@ Xazz/
 │   └── src/
 │       ├── lib.rs
 │       ├── ast.rs          ← xazz-core::ast 재노출
+│       ├── ir.rs           ← xazz-core::ir 재노출
 │       ├── token.rs        ← xazz-core::token 재노출
 │       ├── error.rs        ← xazz-core::error 재노출
 │       ├── lexer.rs
 │       ├── parser.rs
-│       ├── codegen.rs
-│       ├── emitter.rs
+│       ├── checker.rs      ← 정적 분석 + Typed IR 생성 (analyze_program/compile_ir)
+│       ├── opt.rs          ← IR 최적화 (상수 폴딩/Select 병합/조건 푸시다운)
+│       ├── codegen.rs      ← 예전 문자열 codegen (emit 경로에서만 참고)
+│       ├── emitter.rs      ← emit rust 트랜스파일러
+│       ├── policy/         ← Policy-as-Code 가드레일 (rules/remediate/printer/patterns)
 │       └── main.rs         ← 컴파일 전용 (파싱+AST 출력)
 │
 ├── xazz-exec/              ← 실행 엔진 (Polars + Burn 격리 크레이트)
 │   └── src/
 │       ├── lib.rs
-│       └── runtime.rs      ← run_pipeline() — Polars LazyFrame / Burn 텐서 엔진
+│       ├── runtime.rs      ← run_pipeline() 오케스트레이션 — Typed IR 1회 소비
+│       ├── lower.rs        ← DataOp → Polars LazyFrame lowering
+│       ├── dl.rs           ← MLOp → Burn 학습/예측
+│       ├── dp.rs           ← withDp + (ε, δ) 조성 회계
+│       ├── chart.rs        ← DataFrame → JSON spec → Chart.js HTML
+│       └── tensor_bridge.rs← Polars → Burn 텐서 변환 (연속 버퍼 직접 읽기)
 │
 ├── xazz-runner/            ← 실행 바이너리 (CLI가 서브프로세스로 스폰)
 │   └── src/
-│       └── main.rs         ← xazz-runner <file.xzz> [--verbose] [--output]
+│       └── main.rs         ← xazz-runner <file.xzz> [--verbose] [--output] + 타임아웃 하드닝
 │
-├── xazz-server/            ← REST API 서버 (독립 — CLI와 무관)
+├── xazz-server/            ← REST API 서버 (독립 — CLI와 무관, workspace 버전 공유)
 └── ...
 ```
 
@@ -67,30 +77,32 @@ Xazz/
                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                  xazz-compiler                                  │
-│  Lexer + Parser + Codegen + Emitter                             │
+│  Lexer + Parser + Checker(Typed IR) + Opt + Emitter + Policy    │
 │  ✅ NO Polars  ✅ NO Tokio                                       │
 └────────────────┬────────────────────────────────────────────────┘
                  │ depends on
                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    xazz-core                                    │
-│  AST + Token + Error  (serde 외 zero heavy deps)                │
+│  AST + Token + Error + Typed IR  (serde 외 zero heavy deps)     │
 └─────────────────────────────────────────────────────────────────┘
 
-         [run 명령어: std::process::Command 서브프로세스 스폰]
+         [run 명령어: std::process::Command 서브프로세스 스폰 + 타임아웃]
 xazz CLI ──spawn──► xazz-runner ──link──► xazz-exec ──link──► Polars
 (통신: CLI args만)
 
 ┌─────────────────────────────────────────────────────────────────┐
 │                  xazz-runner (binary)                           │
-│  xazz-runner <file.xzz> [--verbose] [--output path.csv]        │
+│  xazz-runner <file.xzz> [--verbose] [--output path.csv]         │
+│  실행 타임아웃(XAZZ_EXEC_TIMEOUT_SECS) 하드닝 — 프로세스 격리     │
 └────────────────┬────────────────────────────────────────────────┘
                  │ depends on
                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    xazz-exec                                    │
-│  run_pipeline() — Polars LazyFrame 런타임                       │
-│  ⚠️ Polars + encoding_rs (무거운 의존성 격리)                   │
+│  runtime(lowering 오케스트레이션) + lower + dl + dp + chart      │
+│  Typed IR 1회 소비 — raw AST 재해석 없음                          │
+│  ⚠️ Polars + encoding_rs + Burn (무거운 의존성 격리)             │
 └───────┬────────────────────┬───────────────────────────────────┘
         │                    │
         ▼                    ▼
@@ -99,7 +111,6 @@ xazz CLI ──spawn──► xazz-runner ──link──► xazz-exec ──li
 
 [독립 크레이트 — CLI 의존성 그래프 외부]
 
-xazz-sde:    polars + rayon + xazz-compiler (독립 바이너리)
 xazz-server: axum + tokio + xazz-compiler (독립 바이너리 — Polars 는 링크하지 않음)
              └ Policy-as-Code 가드레일을 /execute 앞단에서 강제하기 위해
                xazz-compiler(경량, Polars 없음)를 사용한다 (issue #2)
@@ -112,11 +123,11 @@ xazz-server: axum + tokio + xazz-compiler (독립 바이너리 — Polars 는 �
 | Crate | 역할 | 무거운 의존성 | CLI 링크 |
 |---|---|---|---|
 | `xazz` (CLI) | 인자 파싱, emit, import, check | 없음 | ✅ CLI 자신 |
-| `xazz-core` | AST/Token/Error 공유 타입 + DL 타입 (v0.3) | 없음 (serde만) | ✅ 간접 |
-| `xazz-compiler` | Lexer/Parser/Codegen/Emitter + DL 파싱 + Policy-as-Code 가드레일 (v0.7) | 없음 | ✅ emit · policy 명령어 |
-| `xazz-exec` | Polars 실행 엔진 + Burn 플레이스홀더 (v0.3) | **Polars, encoding_rs** | ❌ 없음 |
-| `xazz-runner` | 실행 바이너리 | xazz-exec 통해 간접 | ❌ 없음 |
-| `xazz-server` | REST API + 보안/감사/가드레일 엔드포인트 (v0.7) | axum, tokio, sha2, xazz-compiler | ❌ 없음 |
+| `xazz-core` | AST/Token/Error 공유 타입 + **Typed IR** (`ir.rs`) | 없음 (serde만) | ✅ 간접 |
+| `xazz-compiler` | Lexer/Parser/**Checker→Typed IR**/**Opt**/Emitter + Policy-as-Code 가드레일 | 없음 | ✅ emit · policy · check |
+| `xazz-exec` | `lower`(DataOp→Polars) + `dl`(Burn) + `dp` + `chart` + runtime: Typed IR 1회 소비 | **Polars, encoding_rs, Burn** | ❌ 없음 |
+| `xazz-runner` | 실행 바이너리 + 타임아웃 하드닝 | xazz-exec 통해 간접 | ❌ 없음 |
+| `xazz-server` | REST API + 보안/감사/가드레일 엔드포인트 | axum, tokio, sha2, xazz-compiler | ❌ 없음 |
 
 ---
 

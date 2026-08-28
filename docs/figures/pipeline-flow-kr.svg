@@ -37,13 +37,13 @@
   <line x1="724" y1="181" x2="752" y2="181" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ark)"/>
 
   <rect x="756" y="152" width="150" height="58" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
-  <text x="831" y="178" font-size="14" font-weight="800" fill="#1e3a5f" text-anchor="middle">코드 생성</text>
-  <text x="831" y="196" font-size="11" fill="#60a5fa" text-anchor="middle">Polars + Burn IR</text>
+  <text x="831" y="178" font-size="14" font-weight="800" fill="#1e3a5f" text-anchor="middle">Typed IR</text>
+  <text x="831" y="196" font-size="11" fill="#60a5fa" text-anchor="middle">Data / ML / Side IR</text>
   <line x1="906" y1="181" x2="934" y2="181" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ark)"/>
 
   <rect x="938" y="152" width="118" height="58" rx="10" fill="#f0fdf4" stroke="#86efac"/>
-  <text x="997" y="178" font-size="14" font-weight="800" fill="#166534" text-anchor="middle">샌드박스</text>
-  <text x="997" y="196" font-size="11" fill="#4ade80" text-anchor="middle">xazz-runner 격리</text>
+  <text x="997" y="178" font-size="14" font-weight="800" fill="#166534" text-anchor="middle">프로세스 격리</text>
+  <text x="997" y="196" font-size="11" fill="#4ade80" text-anchor="middle">타임아웃 하드닝</text>
 
   <!-- 위반 분기 -->
   <line x1="649" y1="210" x2="649" y2="242" stroke="#b91c1c" stroke-width="2"/>
@@ -55,7 +55,7 @@
 
   <!-- ════ PHASE 2 · EXECUTE ════ -->
   <rect x="32" y="308" width="1216" height="190" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
-  <text x="52" y="338" font-size="14" font-weight="700" fill="#1e3a5f">② 실행 — 지연 그래프·제로카피·감사</text>
+  <text x="52" y="338" font-size="14" font-weight="700" fill="#1e3a5f">② 실행 — Typed IR·지연 그래프·감사</text>
 
   <rect x="52" y="362" width="170" height="58" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
   <text x="137" y="388" font-size="14" font-weight="800" fill="#0f172a" text-anchor="middle">Polars LazyFrame</text>
@@ -68,7 +68,7 @@
   <line x1="404" y1="391" x2="432" y2="391" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ark)"/>
 
   <rect x="436" y="362" width="170" height="58" rx="10" fill="#fdf4ff" stroke="#d8b4fe"/>
-  <text x="521" y="388" font-size="14" font-weight="800" fill="#6b21a8" text-anchor="middle">제로카피 텐서</text>
+  <text x="521" y="388" font-size="14" font-weight="800" fill="#6b21a8" text-anchor="middle">텐서 브리지</text>
   <text x="521" y="406" font-size="11" fill="#c084fc" text-anchor="middle">Arrow → Burn</text>
   <line x1="606" y1="391" x2="634" y2="391" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ark)"/>
 
@@ -89,8 +89,8 @@
   <!-- 범례 -->
   <text x="36" y="546" font-size="12.5" fill="#475569">오류는 ① 단계에서 행:열 단위 진단으로 표시됩니다 — 학습 시작 이전에. 프라이버시·텐서 전송·증거는 ② 단계에 위치합니다.</text>
   <rect x="36" y="560" width="16" height="16" rx="4" fill="#fef2f2" stroke="#fca5a5"/><text x="60" y="573" font-size="12" fill="#475569">가드레일 → sLM 보정</text>
-  <rect x="200" y="560" width="16" height="16" rx="4" fill="#fdf4ff" stroke="#d8b4fe"/><text x="224" y="573" font-size="12" fill="#475569">프라이버시 · 제로카피</text>
-  <rect x="366" y="560" width="16" height="16" rx="4" fill="#f0fdf4" stroke="#86efac"/><text x="390" y="573" font-size="12" fill="#475569">DL 엔진 · 샌드박스</text>
+  <rect x="200" y="560" width="16" height="16" rx="4" fill="#fdf4ff" stroke="#d8b4fe"/><text x="224" y="573" font-size="12" fill="#475569">프라이버시 · DP 노이즈</text>
+  <rect x="366" y="560" width="16" height="16" rx="4" fill="#f0fdf4" stroke="#86efac"/><text x="390" y="573" font-size="12" fill="#475569">DL 엔진 · Burn</text>
   <rect x="532" y="560" width="16" height="16" rx="4" fill="#fff7ed" stroke="#fdba74"/><text x="556" y="573" font-size="12" fill="#475569">신뢰 · 컴플라이언스</text>
   <rect x="706" y="560" width="16" height="16" rx="4" fill="#eff6ff" stroke="#93c5fd"/><text x="730" y="573" font-size="12" fill="#475569">Rust 코드 생성</text>
 </svg>
