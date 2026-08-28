@@ -26,7 +26,7 @@ fn main() {
     }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "[xazz-exec] 사용법: xazz-exec <file.xzz|file.csv> [--verbose] [--output <path.csv>]"
+            "[xazz-exec] 사용법: xazz-exec <file.xzz|file.csv> [--verbose] [--output <path.csv>] [--opt]"
         );
         println!("[xazz-exec] 도우미: --version | --help");
         return;
@@ -34,13 +34,14 @@ fn main() {
 
     if args.len() < 2 {
         eprintln!(
-            "[xazz-exec] 사용법: xazz-exec <file.xzz|file.csv> [--verbose] [--output <path.csv>]"
+            "[xazz-exec] 사용법: xazz-exec <file.xzz|file.csv> [--verbose] [--output <path.csv>] [--opt]"
         );
         std::process::exit(1);
     }
 
     let input_path = &args[1];
     let verbose = args.iter().any(|a| a == "--verbose" || a == "-v");
+    let optimize = args.iter().any(|a| a == "--opt" || a == "--optimize");
 
     // --output <path> 파싱
     let output_csv: Option<String> = args
@@ -55,7 +56,7 @@ fn main() {
     }
 
     // ── .xzz 파일 실행 ──────────────────────────────────────────────────────
-    if let Err(e) = xazz_exec::run_pipeline(input_path, verbose, output_csv.as_deref()) {
+    if let Err(e) = xazz_exec::run_pipeline(input_path, verbose, output_csv.as_deref(), optimize) {
         eprintln!("{}", e);
         std::process::exit(1);
     }
@@ -144,7 +145,7 @@ v filled = raw
     }
     let _guard = TempFileGuard(tmp_xzz_path.clone());
 
-    let result = xazz_exec::run_pipeline(&tmp_xzz_path.to_str().unwrap_or(""), verbose, None);
+    let result = xazz_exec::run_pipeline(&tmp_xzz_path.to_str().unwrap_or(""), verbose, None, false);
     // 가드가 drop 되며 임시 파일이 정리된다.
 
     if let Err(e) = result {

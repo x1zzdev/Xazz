@@ -148,6 +148,7 @@ pub fn run_pipeline(
     source_path: &str,
     verbose: bool,
     output_csv: Option<&str>,
+    optimize: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // ── STEP 1: 소스 파일 읽기 ───────────────────────────────────────────────
     let source = fs::read_to_string(source_path)
@@ -186,7 +187,7 @@ pub fn run_pipeline(
 
     // ── STEP 3.5: 정적 의미 분석 (Type Checker) + Typed IR 생성 — 실행 전 결함 검출 ─
     // analyze_program 은 진단과 IR 을 **단일 순회**로 만들어 이중 추론을 제거한다.
-    let (check, ir) = xazz_compiler::analyze_program(&program);
+    let (check, mut ir) = xazz_compiler::analyze_program(&program);
     if !check.errors.is_empty() || !check.warnings.is_empty() {
         eprintln!(
             "[xazz] 정적 분석: 오류 {}건 / 경고 {}건",
@@ -274,6 +275,19 @@ pub fn run_pipeline(
     //
     // (Typed IR 도입으로 문자열 codegen 은 더 이상 실행 경로에서 사용하지 않는다.
     //  raw AST 해석 대신 IR 을 lowering 한다. `xazz emit` 경로만 별도로 유지.)
+
+    // ── STEP 4.5: IR 최적화 (선택) — 상수 폴딩 / Select 병합 / 조건 푸시다운 ──
+    if optimize {
+        let before = ir.pipelines.iter().map(|p| p.steps.len()).sum::<usize>();
+        ir = xazz_compiler::optimize_program(&ir);
+        let after = ir.pipelines.iter().map(|p| p.steps.len()).sum::<usize>();
+        eprintln!(
+            "[xazz] IR 최적화 적용 — 단계 {} → {} ({}개 축소)",
+            before,
+            after,
+            before.saturating_sub(after)
+        );
+    }
 
     // ── STEP 5: 런타임 엔진 (Typed IR 소비) ─────────────────────────────────
 

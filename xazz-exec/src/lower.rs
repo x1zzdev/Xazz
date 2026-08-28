@@ -284,4 +284,70 @@ mod tests {
         let col_a = out.column("a").unwrap();
         assert_eq!(col_a.null_count(), 0);
     }
+
+    // ── 최적화 전/후 결과 동치 검증 (IR 최적화 계층의 정당성 증명) ─────────────
+
+    fn gt_col(name: &str, n: i64) -> DataOp {
+        DataOp::Filter(TypedExpr::new(
+            TypedExprKind::BinOp {
+                op: BinOpKind::Gt,
+                lhs: Box::new(TypedExpr::new(
+                    TypedExprKind::Column(name.to_string()),
+                    xazz_compiler::ir::ColType::Int,
+                )),
+                rhs: Box::new(TypedExpr::new(
+                    TypedExprKind::Int(n),
+                    xazz_compiler::ir::ColType::Int,
+                )),
+            },
+            xazz_compiler::ir::ColType::Bool,
+        ))
+    }
+
+    fn only_data_ops(steps: &[xazz_compiler::ir::Step]) -> Vec<DataOp> {
+        steps
+            .iter()
+            .map(|s| match s {
+                xazz_compiler::ir::Step::Data(op) => op.clone(),
+                other => panic!("데이터 연산만 기대: {:?}", other),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn optimizer_preserves_filter_select_reorder_semantics() {
+        use xazz_compiler::ir::{PipelineNode, Source, Step as IrStep, TypedProgram};
+
+        let frame = df!("a" => [1i64, 2, 3, 4], "b" => [10i64, 20, 30, 40]).unwrap();
+
+        let steps = vec![
+            IrStep::Data(gt_col("a", 1)),
+            IrStep::Data(DataOp::Select(vec!["a".into(), "b".into()])),
+            IrStep::Data(gt_col("b", 20)),
+        ];
+
+        let program = TypedProgram {
+            types: vec![],
+            models: vec![],
+            pipelines: vec![PipelineNode {
+                id: 0,
+                name: None,
+                source: Source::Ref {
+                    var: String::new(),
+                },
+                input_schema: None,
+                output_schema: xazz_compiler::ir::Schema::default(),
+                steps: steps.clone(),
+                yields_model: false,
+            }],
+        };
+        let opt = xazz_compiler::opt::optimize_program(&program);
+        let opt_steps = opt.pipelines[0].steps.clone();
+
+        let orig = collect_pipeline(frame.clone(), &only_data_ops(&steps)).unwrap();
+        let optimized = collect_pipeline(frame, &only_data_ops(&opt_steps)).unwrap();
+
+        // filter |> select |> filter  를  filter |> filter |> select 로 바꿔도 결과 동일
+        assert_eq!(orig, optimized);
+    }
 }

@@ -21,6 +21,7 @@ pub mod emitter;
 pub mod error; // xazz-core::error 재노출
 pub mod ir; // xazz-core::ir 재노출
 pub mod lexer;
+pub mod opt;
 pub mod parser;
 pub mod policy;
 pub mod token; // xazz-core::token 재노출
@@ -41,6 +42,7 @@ pub use error::{CompileError, CompileResult, ErrorKind};
 pub use checker::{CheckResult, ColType, analyze_program, check_program, check_source, compile_ir};
 pub use codegen::Codegen;
 pub use lexer::Lexer;
+pub use opt::optimize_program;
 pub use parser::Parser;
 pub use policy::{
     ActivePolicy, Policy, PolicyError, PolicyReport, Remediation, Severity, Violation,
