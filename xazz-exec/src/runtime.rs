@@ -1197,6 +1197,19 @@ fn write_chart_html(spec: &ChartSpec, output_path: &str) -> Result<(), Box<dyn s
     let title = &spec.title;
     let chart_type_str = &spec.chart_type;
 
+    // JS 문자열/키로 안전하게 삽입하기 위해 JSON 인코딩한다. (Stored XSS 방지)
+    let js = |s: &str| serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string());
+    // HTML 컨텍스트(제목)용 이스케이프
+    let html_esc = |s: &str| {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    };
+
+    let title_json = js(title);
+    let title_html = html_esc(title);
+
     let chartjs_type = match chart_type_str.as_str() {
         "bar" => "bar",
         "line" => "line",
@@ -1204,19 +1217,22 @@ fn write_chart_html(spec: &ChartSpec, output_path: &str) -> Result<(), Box<dyn s
         "scatter" => "scatter",
         other => other,
     };
+    let chartjs_type_json = js(chartjs_type);
 
     let dataset_js = match chart_type_str.as_str() {
         "pie" => {
             let label_field = spec.label.as_deref().unwrap_or("label");
             let value_field = spec.value.as_deref().unwrap_or("value");
+            let label_field_json = js(label_field);
+            let value_field_json = js(value_field);
             format!(
                 r#"{{
-            type: '{chartjs_type}',
+            type: {chartjs_type_json},
             data: {{
-                labels: data.map(d => d['{label_field}']),
+                labels: data.map(d => d[{label_field_json}]),
                 datasets: [{{
-                    label: '{title}',
-                    data: data.map(d => d['{value_field}']),
+                    label: {title_json},
+                    data: data.map(d => d[{value_field_json}]),
                     backgroundColor: [
                         'rgba(255, 99, 132, 0.7)',
                         'rgba(54, 162, 235, 0.7)',
@@ -1240,22 +1256,24 @@ fn write_chart_html(spec: &ChartSpec, output_path: &str) -> Result<(), Box<dyn s
                 }}
             }}
         }}"#,
-                chartjs_type = chartjs_type,
-                label_field = label_field,
-                value_field = value_field,
-                title = title,
+                chartjs_type_json = chartjs_type_json,
+                label_field_json = label_field_json,
+                value_field_json = value_field_json,
+                title_json = title_json,
             )
         }
         "scatter" => {
             let x_field = spec.x.as_deref().unwrap_or("x");
             let y_field = spec.y.as_deref().unwrap_or("y");
+            let x_field_json = js(x_field);
+            let y_field_json = js(y_field);
             format!(
                 r#"{{
-            type: '{chartjs_type}',
+            type: {chartjs_type_json},
             data: {{
                 datasets: [{{
-                    label: '{title}',
-                    data: data.map(d => ({{ x: d['{x_field}'], y: d['{y_field}'] }})),
+                    label: {title_json},
+                    data: data.map(d => ({{ x: d[{x_field_json}], y: d[{y_field_json}] }})),
                     backgroundColor: 'rgba(54, 162, 235, 0.5)',
                     borderColor: 'rgba(54, 162, 235, 1)',
                     pointRadius: 5
@@ -1265,20 +1283,22 @@ fn write_chart_html(spec: &ChartSpec, output_path: &str) -> Result<(), Box<dyn s
                 responsive: true,
                 plugins: {{ legend: {{ display: true }} }},
                 scales: {{
-                    x: {{ title: {{ display: true, text: '{x_field}' }} }},
-                    y: {{ title: {{ display: true, text: '{y_field}' }}, beginAtZero: false }}
+                    x: {{ title: {{ display: true, text: {x_field_json} }} }},
+                    y: {{ title: {{ display: true, text: {y_field_json} }}, beginAtZero: false }}
                 }}
             }}
         }}"#,
-                chartjs_type = chartjs_type,
-                title = title,
-                x_field = x_field,
-                y_field = y_field,
+                chartjs_type_json = chartjs_type_json,
+                title_json = title_json,
+                x_field_json = x_field_json,
+                y_field_json = y_field_json,
             )
         }
         _ => {
             let x_field = spec.x.as_deref().unwrap_or("x");
             let y_field = spec.y.as_deref().unwrap_or("y");
+            let x_field_json = js(x_field);
+            let y_field_json = js(y_field);
             let bg_color = if chart_type_str == "line" {
                 "rgba(54, 162, 235, 0.1)"
             } else {
@@ -1291,12 +1311,12 @@ fn write_chart_html(spec: &ChartSpec, output_path: &str) -> Result<(), Box<dyn s
             };
             format!(
                 r#"{{
-            type: '{chartjs_type}',
+            type: {chartjs_type_json},
             data: {{
-                labels: data.map(d => d['{x_field}']),
+                labels: data.map(d => d[{x_field_json}]),
                 datasets: [{{
-                    label: '{title}',
-                    data: data.map(d => d['{y_field}']),
+                    label: {title_json},
+                    data: data.map(d => d[{y_field_json}]),
                     backgroundColor: '{bg_color}',
                     borderColor: 'rgba(54, 162, 235, 1)',
                     borderWidth: 2,
@@ -1307,15 +1327,15 @@ fn write_chart_html(spec: &ChartSpec, output_path: &str) -> Result<(), Box<dyn s
                 responsive: true,
                 plugins: {{ legend: {{ display: true }} }},
                 scales: {{
-                    x: {{ title: {{ display: true, text: '{x_field}' }} }},
-                    y: {{ beginAtZero: true, title: {{ display: true, text: '{y_field}' }} }}
+                    x: {{ title: {{ display: true, text: {x_field_json} }} }},
+                    y: {{ beginAtZero: true, title: {{ display: true, text: {y_field_json} }} }}
                 }}
             }}
         }}"#,
-                chartjs_type = chartjs_type,
-                x_field = x_field,
-                y_field = y_field,
-                title = title,
+                chartjs_type_json = chartjs_type_json,
+                x_field_json = x_field_json,
+                y_field_json = y_field_json,
+                title_json = title_json,
                 bg_color = bg_color,
                 border_fill = border_fill,
             )
@@ -1328,7 +1348,7 @@ fn write_chart_html(spec: &ChartSpec, output_path: &str) -> Result<(), Box<dyn s
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{title}</title>
+  <title>{title_html}</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -1365,7 +1385,7 @@ fn write_chart_html(spec: &ChartSpec, output_path: &str) -> Result<(), Box<dyn s
 </head>
 <body>
   <div class="chart-container">
-    <h1>{title}</h1>
+    <h1>{title_html}</h1>
     <canvas id="xazz-chart"></canvas>
     <p class="meta">Generated by xazz-lang 📊</p>
   </div>
@@ -1376,7 +1396,7 @@ fn write_chart_html(spec: &ChartSpec, output_path: &str) -> Result<(), Box<dyn s
 </body>
 </html>
 "#,
-        title = title,
+        title_html = title_html,
         data_json = data_json,
         dataset_js = dataset_js,
     );
