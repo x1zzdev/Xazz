@@ -138,11 +138,19 @@ function useCodeHash(dagCode) {
 }
 
 function DownloadDemoCsv({ rows }) {
+  // CSV 셀 공식 주입(Formula Injection) 방지를 위해 모든 셀을 쿼팅하고
+  // '='/'+'/'-'/'@'/탭/CR 로 시작하는 셀은 단일 인용부호로 중화한다.
+  const escCell = (value) => {
+    const s = String(value ?? '')
+    const guarded = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s
+    return `"${guarded.replace(/"/g, '""')}"`
+  }
+
   const download = () => {
     const data = rows ?? resultRows
     const columns = data.length > 0 ? Object.keys(data[0]) : []
-    const header = columns.join(',')
-    const lines = data.map((row) => columns.map((col) => row[col]).join(','))
+    const header = columns.map(escCell).join(',')
+    const lines = data.map((row) => columns.map((col) => escCell(row[col])).join(','))
     const blob = new Blob([[header, ...lines].join('\n')], {
       type: 'text/csv;charset=utf-8',
     })
