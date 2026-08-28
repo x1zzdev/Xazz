@@ -1,0 +1,119 @@
+{
+  "small": {
+    "pandas": {
+      "latency_ms": 726.1,
+      "peak_mb": 104.9,
+      "runs": [
+        {
+          "latency_ms": 701.3,
+          "peak_mb": 104.7
+        },
+        {
+          "latency_ms": 726.1,
+          "peak_mb": 104.9
+        },
+        {
+          "latency_ms": 728.4,
+          "peak_mb": 105.3
+        }
+      ]
+    },
+    "xazz": {
+      "latency_ms": 277.4,
+      "peak_mb": 85.6,
+      "runs": [
+        {
+          "latency_ms": 257.1,
+          "peak_mb": 86.8
+        },
+        {
+          "latency_ms": 277.4,
+          "peak_mb": 85.3
+        },
+        {
+          "latency_ms": 278.4,
+          "peak_mb": 85.6
+        }
+      ]
+    },
+    "rows": 227760
+  },
+  "medium": {
+    "pandas": {
+      "latency_ms": 1355.1,
+      "peak_mb": 203.8,
+      "runs": [
+        {
+          "latency_ms": 1367.5,
+          "peak_mb": 203.8
+        },
+        {
+          "latency_ms": 1355.1,
+          "peak_mb": 203.0
+        },
+        {
+          "latency_ms": 1255.0,
+          "peak_mb": 203.8
+        }
+      ]
+    },
+    "xazz": {
+      "latency_ms": 532.4,
+      "peak_mb": 233.9,
+      "runs": [
+        {
+          "latency_ms": 528.7,
+          "peak_mb": 233.9
+        },
+        {
+          "latency_ms": 532.4,
+          "peak_mb": 232.9
+        },
+        {
+          "latency_ms": 618.3,
+          "peak_mb": 236.4
+        }
+      ]
+    },
+    "rows": 911662
+  },
+  "large": {
+    "pandas": {
+      "latency_ms": 4489.4,
+      "peak_mb": 660.9,
+      "runs": [
+        {
+          "latency_ms": 5005.5,
+          "peak_mb": 660.9
+        },
+        {
+          "latency_ms": 4489.4,
+          "peak_mb": 660.5
+        },
+        {
+          "latency_ms": 4180.2,
+          "peak_mb": 661.0
+        }
+      ]
+    },
+    "xazz": {
+      "latency_ms": 2323.7,
+      "peak_mb": 865.1,
+      "runs": [
+        {
+          "latency_ms": 2323.7,
+          "peak_mb": 866.1
+        },
+        {
+          "latency_ms": 1949.8,
+          "peak_mb": 865.1
+        },
+        {
+          "latency_ms": 2339.0,
+          "peak_mb": 859.3
+        }
+      ]
+    },
+    "rows": 4089216
+  }
+}
