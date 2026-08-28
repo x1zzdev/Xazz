@@ -711,8 +711,9 @@ fn execute_node(
                 lf = snapshot.lazy();
             }
             IrStep::Side(SideOp::WithDp(args)) => {
-                // 1) 세션 ε-budget 차감 — 초과 시 파이프라인 전체 거부 (재구성 공격 방어)
-                dp_budget.spend(args.epsilon)?;
+                // 1) 세션 (ε, δ)-budget 차감 (조성 회계) — 초과 시 파이프라인 전체 거부
+                let delta = args.delta.unwrap_or(crate::dp::DEFAULT_DELTA);
+                dp_budget.spend(args.mechanism, args.epsilon, delta)?;
 
                 // 2) 현재까지의 파이프라인을 collect 후 출력 섭동(output perturbation)
                 let snapshot = lf.clone().collect()?;
@@ -724,17 +725,35 @@ fn execute_node(
                 if let Some(obj) = dp_json.as_object_mut() {
                     obj.insert("budget_spent".into(), serde_json::json!(dp_budget.spent()));
                     obj.insert("budget_total".into(), serde_json::json!(dp_budget.total()));
+                    obj.insert(
+                        "budget_spent_delta".into(),
+                        serde_json::json!(dp_budget.spent_delta()),
+                    );
+                    obj.insert(
+                        "budget_total_delta".into(),
+                        serde_json::json!(dp_budget.total_delta()),
+                    );
+                    obj.insert(
+                        "query_count".into(),
+                        serde_json::json!(dp_budget.query_count()),
+                    );
                 }
                 println!("{}", dp_json);
                 eprintln!(
-                    "[xazz] DP 적용: {} (ε={}, Δf={}, 노이즈 파라미터={:.4}) — 컬럼 {:?} | 예산 {:.2}/{:.2} 사용",
+                    "[xazz] DP 적용: {} (ε={}, δ={}, Δf={}, 노이즈 파라미터={:.4}) — 컬럼 {:?} | 예산 ε {:.2}/{:.2} · δ {:.2e}/{:.2e} 사용",
                     report.mechanism,
                     report.epsilon,
+                    report
+                        .delta
+                        .map(|d| format!("{d:.2e}"))
+                        .unwrap_or_else(|| "0".to_string()),
                     report.sensitivity,
                     report.noise_param,
                     report.noised_columns,
                     dp_budget.spent(),
                     dp_budget.total(),
+                    dp_budget.spent_delta(),
+                    dp_budget.total_delta(),
                 );
 
                 lf = noised.lazy();

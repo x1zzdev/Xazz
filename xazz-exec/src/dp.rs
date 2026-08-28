@@ -24,65 +24,158 @@ pub const DEFAULT_DELTA: f64 = 1e-5;
 /// 세션 총 프라이버시 예산 기본값 (환경변수 XAZZ_DP_BUDGET 로 재정의 가능)
 pub const DEFAULT_TOTAL_BUDGET: f64 = 10.0;
 
+/// 세션 총 δ 예산 기본값 (환경변수 XAZZ_DP_DELTA_BUDGET 로 재정의 가능)
+pub const DEFAULT_TOTAL_DELTA_BUDGET: f64 = 1e-4;
+
 // ─────────────────────────────────────────────────────────────────────────────
-// 세션 프라이버시 예산 (ε-budget)
+// 세션 프라이버시 예산 (ε/δ 조성 회계)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 실행 세션 동안 누적 ε 소모량을 추적하는 예산 관리자.
+/// 단일 쿼리의 소비 기록 (조성 회계의 입력 단위).
+#[derive(Debug, Clone, Copy)]
+pub struct CompositionRecord {
+    pub mechanism: DpMechanism,
+    pub epsilon: f64,
+    pub delta: f64,
+}
+
+/// 실행 세션 동안 누적 (ε, δ) 소모량을 추적하는 예산 관리자.
 ///
-/// `withDp` 호출마다 ε을 차감하고, 총 예산을 넘는 순간 에러를 반환하여
-/// 반복 질의를 통한 노이즈 평균화(재구성 공격)를 구조적으로 차단한다.
+/// 조성 회계 규칙 (Dwork & Roth, 기본 순차 조성 — 정확):
+///   - k 개의 (εᵢ, δᵢ)-DP 메커니즘은 (Σεᵢ, Σδᵢ)-DP 로 합성된다.
+///   - Laplace 는 순수 ε-DP 이므로 δ 기여는 0 이다.
+///   - Gaussian 은 (ε, δ)-DP 이므로 ε 과 δ 를 모두 누적한다.
+///
+/// `withDp` 호출마다 (ε, δ) 를 차감하고, 총 ε 또는 총 δ 를 넘는 순간 에러를
+/// 반환하여 반복 질의를 통한 노이즈 평균화(재구성 공격)를 구조적으로 차단한다.
 #[derive(Debug, Clone)]
 pub struct PrivacyBudget {
-    total: f64,
-    spent: f64,
+    total_eps: f64,
+    total_delta: f64,
+    spent_eps: f64,
+    spent_delta: f64,
+    queries: Vec<CompositionRecord>,
 }
 
 impl PrivacyBudget {
-    pub fn new(total: f64) -> Self {
-        PrivacyBudget { total, spent: 0.0 }
+    pub fn new(total_eps: f64) -> Self {
+        PrivacyBudget {
+            total_eps,
+            total_delta: DEFAULT_TOTAL_DELTA_BUDGET,
+            spent_eps: 0.0,
+            spent_delta: 0.0,
+            queries: Vec::new(),
+        }
     }
 
-    /// 환경변수 `XAZZ_DP_BUDGET` 에서 총 예산을 읽는다 (기본 10.0).
+    /// ε/δ 총 예산을 모두 지정해 생성한다.
+    pub fn new_with_delta(total_eps: f64, total_delta: f64) -> Self {
+        PrivacyBudget {
+            total_eps,
+            total_delta,
+            spent_eps: 0.0,
+            spent_delta: 0.0,
+            queries: Vec::new(),
+        }
+    }
+
+    /// 환경변수에서 총 예산을 읽는다 (기본 ε=10.0, δ=1e-4).
     pub fn from_env() -> Self {
-        let total = std::env::var("XAZZ_DP_BUDGET")
+        let total_eps = std::env::var("XAZZ_DP_BUDGET")
             .ok()
             .and_then(|v| v.parse::<f64>().ok())
             .filter(|v| *v > 0.0)
             .unwrap_or(DEFAULT_TOTAL_BUDGET);
-        PrivacyBudget::new(total)
+        let total_delta = std::env::var("XAZZ_DP_DELTA_BUDGET")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .filter(|v| (0.0..1.0).contains(v))
+            .unwrap_or(DEFAULT_TOTAL_DELTA_BUDGET);
+        PrivacyBudget::new_with_delta(total_eps, total_delta)
     }
 
-    /// ε 만큼 예산을 소모한다. 초과 시 Err (실행 거부).
-    pub fn spend(&mut self, epsilon: f64) -> Result<(), String> {
+    /// (ε, δ) 만큼 예산을 소모한다. 초과 시 Err (실행 거부).
+    ///
+    /// Laplace 는 순수 ε-DP 이므로 δ 는 0 으로 처리된다.
+    /// 실패 시 예산은 소모되지 않는다 (원자적).
+    pub fn spend(
+        &mut self,
+        mechanism: DpMechanism,
+        epsilon: f64,
+        delta: f64,
+    ) -> Result<(), String> {
         if epsilon <= 0.0 {
             return Err(format!(
                 "DP 에러: epsilon 은 0보다 커야 합니다. 실제: {epsilon}"
             ));
         }
-        if self.spent + epsilon > self.total {
+        let delta = match mechanism {
+            DpMechanism::Laplace => 0.0,
+            DpMechanism::Gaussian => {
+                if !(0.0 < delta && delta < 1.0) {
+                    return Err(format!(
+                        "DP 에러: gaussian 의 delta 는 (0, 1) 범위여야 합니다. 실제: {delta}"
+                    ));
+                }
+                delta
+            }
+        };
+
+        // 조성 회계: (Σεᵢ, Σδᵢ)
+        let new_eps = self.spent_eps + epsilon;
+        let new_delta = self.spent_delta + delta;
+
+        const EPS_TOL: f64 = 1e-9;
+        if new_eps > self.total_eps + EPS_TOL {
             return Err(format!(
-                "DP 예산 초과: 이번 요청 ε={epsilon:.4} 를 더하면 누적 {:.4} > 총 예산 {:.4}. \
+                "DP 예산 초과(ε): 이번 요청 ε={epsilon:.4} 를 더하면 누적 {new_eps:.4} > 총 예산 {:.4}. \
                  반복 질의를 통한 노이즈 평균화(재구성 공격) 방지를 위해 실행을 거부합니다. \
                  (총 예산은 XAZZ_DP_BUDGET 환경변수로 조정 가능)",
-                self.spent + epsilon,
-                self.total
+                self.total_eps
             ));
         }
-        self.spent += epsilon;
+        if new_delta > self.total_delta + EPS_TOL {
+            return Err(format!(
+                "DP 예산 초과(δ): 이번 요청 δ={delta:.4e} 를 더하면 누적 {new_delta:.4e} > 총 δ 예산 {:.4e}. \
+                 gaussian 메커니즘의 조성 회계를 위해 실행을 거부합니다. \
+                 (총 δ 예산은 XAZZ_DP_DELTA_BUDGET 환경변수로 조정 가능)",
+                self.total_delta
+            ));
+        }
+
+        self.spent_eps = new_eps;
+        self.spent_delta = new_delta;
+        self.queries.push(CompositionRecord {
+            mechanism,
+            epsilon,
+            delta,
+        });
         Ok(())
     }
 
     pub fn spent(&self) -> f64 {
-        self.spent
+        self.spent_eps
     }
 
     pub fn total(&self) -> f64 {
-        self.total
+        self.total_eps
+    }
+
+    pub fn spent_delta(&self) -> f64 {
+        self.spent_delta
+    }
+
+    pub fn total_delta(&self) -> f64 {
+        self.total_delta
+    }
+
+    /// 지금까지 합성된 쿼리 수 (조성 회계에 반영된 메커니즘 개수).
+    pub fn query_count(&self) -> usize {
+        self.queries.len()
     }
 
     pub fn remaining(&self) -> f64 {
-        (self.total - self.spent).max(0.0)
+        (self.total_eps - self.spent_eps).max(0.0)
     }
 }
 
@@ -405,11 +498,11 @@ mod tests {
     #[test]
     fn budget_blocks_over_spend() {
         let mut budget = PrivacyBudget::new(2.0);
-        assert!(budget.spend(1.0).is_ok());
-        assert!(budget.spend(0.5).is_ok());
+        assert!(budget.spend(DpMechanism::Laplace, 1.0, 0.0).is_ok());
+        assert!(budget.spend(DpMechanism::Laplace, 0.5, 0.0).is_ok());
         assert!((budget.remaining() - 0.5).abs() < 1e-12);
         // 잔여 0.5 인데 1.0 요청 → 거부
-        let err = budget.spend(1.0).unwrap_err();
+        let err = budget.spend(DpMechanism::Laplace, 1.0, 0.0).unwrap_err();
         assert!(err.contains("예산 초과"), "예산 초과 메시지 아님: {err}");
         // 거부된 요청은 예산을 소모하지 않는다
         assert!((budget.spent() - 1.5).abs() < 1e-12);
@@ -418,7 +511,43 @@ mod tests {
     #[test]
     fn budget_rejects_non_positive_epsilon() {
         let mut budget = PrivacyBudget::new(1.0);
-        assert!(budget.spend(0.0).is_err());
-        assert!(budget.spend(-0.1).is_err());
+        assert!(budget.spend(DpMechanism::Laplace, 0.0, 0.0).is_err());
+        assert!(budget.spend(DpMechanism::Laplace, -0.1, 0.0).is_err());
+    }
+
+    #[test]
+    fn gaussian_composition_accumulates_delta() {
+        // gaussian 은 (ε, δ)-DP → δ 도 조성 회계에 누적된다
+        let mut budget = PrivacyBudget::new_with_delta(10.0, 1e-4);
+        assert!(budget
+            .spend(DpMechanism::Gaussian, 1.0, 1e-5)
+            .is_ok());
+        assert!(budget
+            .spend(DpMechanism::Gaussian, 1.0, 1e-5)
+            .is_ok());
+        assert!((budget.spent_delta() - 2e-5).abs() < 1e-12);
+        assert_eq!(budget.query_count(), 2);
+    }
+
+    #[test]
+    fn gaussian_delta_over_budget_is_blocked() {
+        let mut budget = PrivacyBudget::new_with_delta(10.0, 1e-5);
+        // 첫 쿼리 δ=1e-5 로 총 δ 예산 소진 → 두 번째 gaussian 은 δ 초과로 거부
+        assert!(budget
+            .spend(DpMechanism::Gaussian, 1.0, 1e-5)
+            .is_ok());
+        let err = budget.spend(DpMechanism::Gaussian, 1.0, 1e-5).unwrap_err();
+        assert!(err.contains("δ"), "δ 초과 메시지 아님: {err}");
+        // 거부된 요청은 ε/δ 를 소모하지 않는다
+        assert!((budget.spent() - 1.0).abs() < 1e-12);
+        assert!((budget.spent_delta() - 1e-5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn laplace_does_not_accumulate_delta() {
+        let mut budget = PrivacyBudget::new_with_delta(10.0, 1e-4);
+        assert!(budget.spend(DpMechanism::Laplace, 1.0, 0.0).is_ok());
+        assert!(budget.spend(DpMechanism::Laplace, 2.0, 0.0).is_ok());
+        assert_eq!(budget.spent_delta(), 0.0, "laplace 는 순수 ε-DP (δ=0)");
     }
 }
