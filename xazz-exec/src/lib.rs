@@ -10,6 +10,7 @@
 ///   xazz-runner  → xazz-exec → Polars        ✓ (분리된 바이너리)
 pub mod dl;
 pub mod dp;
+pub mod lower;
 pub mod runtime;
 pub mod tensor_bridge;
 
