@@ -64,7 +64,7 @@ fn run_valid_preprocessing_pipeline() {
         ),
     );
 
-    let result = run_pipeline(xzz.to_str().unwrap(), false, None);
+    let result = run_pipeline(xzz.to_str().unwrap(), false, None, false);
     assert!(result.is_ok(), "유효한 파이프라인 실행 실패: {:?}", result);
 }
 
@@ -80,7 +80,7 @@ fn run_empty_pipeline_collects_rows() {
              v p = load(\"{abs}\") :: S;"
         ),
     );
-    let result = run_pipeline(xzz.to_str().unwrap(), false, None);
+    let result = run_pipeline(xzz.to_str().unwrap(), false, None, false);
     assert!(result.is_ok(), "빈 파이프라인 실행 실패: {:?}", result);
 }
 
@@ -98,6 +98,6 @@ fn run_join_between_two_pipelines() {
              v joined = left |> join(right, left_on: [\"id\"], right_on: [\"id\"], how: \"inner\");"
         ),
     );
-    let result = run_pipeline(xzz.to_str().unwrap(), false, None);
+    let result = run_pipeline(xzz.to_str().unwrap(), false, None, false);
     assert!(result.is_ok(), "join 파이프라인 실행 실패: {:?}", result);
 }
