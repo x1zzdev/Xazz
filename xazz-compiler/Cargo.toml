@@ -15,7 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 # 공유 핵심 타입 (AST, Token, Error) — 무거운 의존성 없음
-xazz-core = { version = "0.2.1", path = "../xazz-core" }
+xazz-core = { path = "../xazz-core" }
 
 serde     = { version = "1", features = ["derive"] }
 serde_json = "1"

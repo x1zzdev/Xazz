@@ -1,11 +1,11 @@
 [package]
 name = "xazz-server"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
 # 정적 보안 가드레일 (Policy-as-Code) — Polars/Tokio 를 링크하지 않는 경량 크레이트
-xazz-compiler = { version = "0.2.1", path = "../xazz-compiler" }
+xazz-compiler = { path = "../xazz-compiler" }
 
 axum = { version = "0.8", features = ["json", "multipart"] }
 tokio = { version = "1", features = ["full"] }

@@ -519,12 +519,8 @@ mod tests {
     fn gaussian_composition_accumulates_delta() {
         // gaussian 은 (ε, δ)-DP → δ 도 조성 회계에 누적된다
         let mut budget = PrivacyBudget::new_with_delta(10.0, 1e-4);
-        assert!(budget
-            .spend(DpMechanism::Gaussian, 1.0, 1e-5)
-            .is_ok());
-        assert!(budget
-            .spend(DpMechanism::Gaussian, 1.0, 1e-5)
-            .is_ok());
+        assert!(budget.spend(DpMechanism::Gaussian, 1.0, 1e-5).is_ok());
+        assert!(budget.spend(DpMechanism::Gaussian, 1.0, 1e-5).is_ok());
         assert!((budget.spent_delta() - 2e-5).abs() < 1e-12);
         assert_eq!(budget.query_count(), 2);
     }
@@ -533,9 +529,7 @@ mod tests {
     fn gaussian_delta_over_budget_is_blocked() {
         let mut budget = PrivacyBudget::new_with_delta(10.0, 1e-5);
         // 첫 쿼리 δ=1e-5 로 총 δ 예산 소진 → 두 번째 gaussian 은 δ 초과로 거부
-        assert!(budget
-            .spend(DpMechanism::Gaussian, 1.0, 1e-5)
-            .is_ok());
+        assert!(budget.spend(DpMechanism::Gaussian, 1.0, 1e-5).is_ok());
         let err = budget.spend(DpMechanism::Gaussian, 1.0, 1e-5).unwrap_err();
         assert!(err.contains("δ"), "δ 초과 메시지 아님: {err}");
         // 거부된 요청은 ε/δ 를 소모하지 않는다

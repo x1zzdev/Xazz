@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="700" viewBox="0 0 1280 700" font-family="Inter, 'Noto Sans KR', system-ui, sans-serif">
+  <defs>
+    <marker id="c2k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+  <rect width="1280" height="700" fill="#ffffff"/>
+  <rect x="0" y="0" width="1280" height="6" fill="#1e3a5f"/>
+  <text x="36" y="44" font-size="27" font-weight="800" fill="#0f172a">Xazz 아키텍처</text>
+  <text x="36" y="68" font-size="13" fill="#64748b">사용자가 작성하는 DSL부터 하단 엔진까지 네 개의 레이어</text>
+
+  <!-- ════ Layer 4 — UI ════ -->
+  <rect x="200" y="92" width="880" height="84" rx="12" fill="#eff6ff" stroke="#93c5fd"/>
+  <text x="640" y="130" font-size="19" font-weight="800" fill="#1e3a5f" text-anchor="middle">비주얼 IDE · UI</text>
+  <text x="640" y="156" font-size="13" fill="#64748b" text-anchor="middle">React · 노드그래프 에디터 · i18n</text>
+  <line x1="640" y1="176" x2="640" y2="204" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#c2k)"/>
+
+  <!-- ════ Layer 3 — Compiler ════ -->
+  <rect x="200" y="208" width="880" height="96" rx="12" fill="#fdf4ff" stroke="#d8b4fe"/>
+  <text x="640" y="248" font-size="19" font-weight="800" fill="#6b21a8" text-anchor="middle">컴파일러 · xazz-compiler</text>
+  <text x="640" y="274" font-size="13" fill="#64748b" text-anchor="middle">파서 · 타입·널 · 가드레일 · Rust 코드 생성</text>
+  <line x1="640" y1="304" x2="640" y2="332" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#c2k)"/>
+
+  <!-- ════ Layer 2 — Runtime ════ -->
+  <rect x="200" y="336" width="880" height="96" rx="12" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="640" y="376" font-size="19" font-weight="800" fill="#166534" text-anchor="middle">실행 · exec / runner / server</text>
+  <text x="640" y="402" font-size="13" fill="#64748b" text-anchor="middle">Polars LazyFrame · Burn DL · REST + 감사로그</text>
+  <line x1="640" y1="432" x2="640" y2="460" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#c2k)"/>
+
+  <!-- ════ Layer 1 — DSL ════ -->
+  <rect x="200" y="464" width="880" height="84" rx="12" fill="#fff7ed" stroke="#fdba74"/>
+  <text x="640" y="502" font-size="19" font-weight="800" fill="#9a3412" text-anchor="middle">AI-Native DSL</text>
+  <text x="640" y="528" font-size="13" fill="#64748b" text-anchor="middle">import · 전처리 · DP · model{} · 학습 · chart{}</text>
+  <line x1="640" y1="548" x2="640" y2="578" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#c2k)"/>
+
+  <!-- ════ Infra ════ -->
+  <rect x="200" y="582" width="880" height="84" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="640" y="606" font-size="14" font-weight="700" fill="#334155" text-anchor="middle">인프라</text>
+  <rect x="228" y="620" width="170" height="34" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="313" y="643" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle">Polars</text>
+  <rect x="426" y="620" width="170" height="34" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="511" y="643" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle">Burn</text>
+  <rect x="624" y="620" width="200" height="34" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="724" y="643" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle">sLM / Ollama</text>
+  <rect x="852" y="620" width="190" height="34" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="947" y="643" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle">Axum API</text>
+</svg>

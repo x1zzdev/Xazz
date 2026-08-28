@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" font-family="Inter, 'Noto Sans KR', system-ui, sans-serif">
+  <defs>
+    <marker id="c1ka" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+    </marker>
+    <marker id="c1kr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+    </marker>
+  </defs>
+  <rect width="1280" height="760" fill="#ffffff"/>
+  <rect x="0" y="0" width="1280" height="6" fill="#1e3a5f"/>
+  <text x="36" y="44" font-size="27" font-weight="800" fill="#0f172a">Xazz 엔드투엔드 파이프라인</text>
+  <text x="36" y="68" font-size="13" fill="#64748b">하나의 .xzz 스크립트에서 컴파일·보안·실행까지 이어지는 전체 흐름</text>
+
+  <!-- ════ 1단계 · 컴파일 ════ -->
+  <rect x="32" y="92" width="1216" height="248" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="52" y="120" font-size="15" font-weight="700" fill="#334155">① 컴파일 — GPU를 건드리기 전에 정적으로 검증</text>
+
+  <rect x="56" y="146" width="140" height="60" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="126" y="184" font-size="17" font-weight="800" fill="#0f172a" text-anchor="middle">.xzz</text>
+  <line x1="196" y1="176" x2="228" y2="176" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#c1ka)"/>
+
+  <rect x="232" y="146" width="150" height="60" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="307" y="184" font-size="16" font-weight="800" fill="#0f172a" text-anchor="middle">파서 / AST</text>
+  <line x1="382" y1="176" x2="414" y2="176" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#c1ka)"/>
+
+  <rect x="418" y="146" width="170" height="60" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="503" y="184" font-size="16" font-weight="800" fill="#0f172a" text-anchor="middle">타입 · 널 검사</text>
+  <line x1="588" y1="176" x2="620" y2="176" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#c1ka)"/>
+
+  <rect x="624" y="146" width="170" height="60" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="709" y="184" font-size="16" font-weight="800" fill="#0f172a" text-anchor="middle">보안 가드레일</text>
+  <line x1="794" y1="176" x2="826" y2="176" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#c1ka)"/>
+
+  <rect x="830" y="146" width="170" height="60" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
+  <text x="915" y="184" font-size="16" font-weight="800" fill="#1e3a5f" text-anchor="middle">Rust 코드 생성</text>
+  <line x1="1000" y1="176" x2="1032" y2="176" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#c1ka)"/>
+
+  <rect x="1036" y="146" width="140" height="60" rx="10" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="1106" y="184" font-size="16" font-weight="800" fill="#166534" text-anchor="middle">런타임</text>
+
+  <line x1="709" y1="206" x2="709" y2="238" stroke="#b91c1c" stroke-width="2.5"/>
+  <line x1="709" y1="238" x2="1010" y2="238" stroke="#b91c1c" stroke-width="2.5" marker-end="url(#c1kr)"/>
+  <text x="722" y="230" font-size="13" font-weight="700" fill="#b91c1c">위반</text>
+  <rect x="1010" y="212" width="190" height="56" rx="10" fill="#fef2f2" stroke="#fca5a5"/>
+  <text x="1105" y="247" font-size="16" font-weight="800" fill="#b91c1c" text-anchor="middle">sLM 보정 + 리포트</text>
+
+  <line x1="1106" y1="206" x2="1106" y2="250" stroke="#94a3b8" stroke-width="2.5"/>
+  <line x1="1106" y1="250" x2="1106" y2="372" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#c1ka)"/>
+
+  <!-- ════ 2단계 · 실행 ════ -->
+  <rect x="32" y="376" width="1216" height="248" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="52" y="404" font-size="15" font-weight="700" fill="#334155">② 실행 — Lazy 그래프, 제로카피</text>
+
+  <rect x="56" y="430" width="150" height="60" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="131" y="468" font-size="16" font-weight="800" fill="#0f172a" text-anchor="middle">Polars 그래프</text>
+  <line x1="206" y1="460" x2="238" y2="460" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#c1ka)"/>
+
+  <rect x="242" y="430" width="150" height="60" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="317" y="468" font-size="16" font-weight="800" fill="#0f172a" text-anchor="middle">DP 노이즈</text>
+  <line x1="392" y1="460" x2="424" y2="460" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#c1ka)"/>
+
+  <rect x="428" y="430" width="190" height="60" rx="10" fill="#fdf4ff" stroke="#d8b4fe"/>
+  <text x="523" y="468" font-size="16" font-weight="800" fill="#6b21a8" text-anchor="middle">제로카피 텐서</text>
+  <line x1="618" y1="460" x2="650" y2="460" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#c1ka)"/>
+
+  <rect x="654" y="430" width="150" height="60" rx="10" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="729" y="468" font-size="16" font-weight="800" fill="#166534" text-anchor="middle">학습 · 예측</text>
+  <line x1="804" y1="460" x2="836" y2="460" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#c1ka)"/>
+
+  <rect x="840" y="430" width="140" height="60" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
+  <text x="910" y="468" font-size="16" font-weight="800" fill="#1e3a5f" text-anchor="middle">결과</text>
+  <line x1="980" y1="460" x2="1012" y2="460" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#c1ka)"/>
+
+  <rect x="1016" y="430" width="180" height="60" rx="10" fill="#fff7ed" stroke="#fdba74"/>
+  <text x="1106" y="468" font-size="16" font-weight="800" fill="#9a3412" text-anchor="middle">감사로그 · SHA-256</text>
+
+  <text x="52" y="660" font-size="14" fill="#475569">가드레일(이슈 #2)과 DP·제로카피 바인딩(이슈 #3)이 이 흐름 하나로 연결된다.</text>
+  <rect x="52" y="684" width="1144" height="48" rx="10" fill="#f8fafc" stroke="#e2e8f0"/>
+  <rect x="72" y="699" width="16" height="16" rx="4" fill="#fef2f2" stroke="#fca5a5"/><text x="96" y="712" font-size="13" fill="#475569">가드레일 → sLM</text>
+  <rect x="270" y="699" width="16" height="16" rx="4" fill="#fdf4ff" stroke="#d8b4fe"/><text x="294" y="712" font-size="13" fill="#475569">제로카피</text>
+  <rect x="410" y="699" width="16" height="16" rx="4" fill="#f0fdf4" stroke="#86efac"/><text x="434" y="712" font-size="13" fill="#475569">DL 엔진</text>
+  <rect x="550" y="699" width="16" height="16" rx="4" fill="#fff7ed" stroke="#fdba74"/><text x="574" y="712" font-size="13" fill="#475569">신뢰 · 컴플라이언스</text>
+  <rect x="780" y="699" width="16" height="16" rx="4" fill="#eff6ff" stroke="#93c5fd"/><text x="804" y="712" font-size="13" fill="#475569">Rust 코드 생성</text>
+</svg>

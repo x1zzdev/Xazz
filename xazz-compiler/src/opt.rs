@@ -150,9 +150,7 @@ fn fold_binop(op: BinOpKind, a: &Lit, b: &Lit) -> Option<TypedExpr> {
                 Some(bool_expr(if op == Eq { x == y } else { x != y }))
             }
             (Lit::Str(x), Lit::Str(y)) => Some(bool_expr(if op == Eq { x == y } else { x != y })),
-            (Lit::Bool(x), Lit::Bool(y)) => {
-                Some(bool_expr(if op == Eq { x == y } else { x != y }))
-            }
+            (Lit::Bool(x), Lit::Bool(y)) => Some(bool_expr(if op == Eq { x == y } else { x != y })),
             _ => {
                 let x = num(a)?;
                 let y = num(b)?;
@@ -256,8 +254,8 @@ fn pushdown_filters(steps: &mut Vec<Step>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::{DataOp, Step, TypedProgram};
     use crate::{Lexer, Parser};
-    use crate::ir::{TypedProgram, Step, DataOp};
 
     fn analyze(src: &str) -> TypedProgram {
         let tokens = Lexer::new(src).tokenize().unwrap();
@@ -305,7 +303,13 @@ mod tests {
         let opt2 = optimize_program(&ir2);
         match &data_steps(&opt2, 0)[0] {
             Step::Data(DataOp::WithColumn { expr, .. }) => {
-                assert!(matches!(expr.kind, TypedExprKind::BinOp { op: BinOpKind::Div, .. }));
+                assert!(matches!(
+                    expr.kind,
+                    TypedExprKind::BinOp {
+                        op: BinOpKind::Div,
+                        ..
+                    }
+                ));
             }
             other => panic!("withColumn 아님: {:?}", other),
         }

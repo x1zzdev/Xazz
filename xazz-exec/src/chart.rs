@@ -129,9 +129,11 @@ pub fn df_to_json_array(
     Ok(serde_json::Value::Array(rows))
 }
 
-
 // ── write_chart_html — ChartSpec → Chart.js 기반 HTML 파일 생성 ───────────────
-pub fn write_chart_html(spec: &ChartSpec, output_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn write_chart_html(
+    spec: &ChartSpec,
+    output_path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let data_json = serde_json::to_string(&spec.data)?;
     let title = &spec.title;
     let chart_type_str = &spec.chart_type;

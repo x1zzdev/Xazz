@@ -145,7 +145,8 @@ v filled = raw
     }
     let _guard = TempFileGuard(tmp_xzz_path.clone());
 
-    let result = xazz_exec::run_pipeline(&tmp_xzz_path.to_str().unwrap_or(""), verbose, None, false);
+    let result =
+        xazz_exec::run_pipeline(&tmp_xzz_path.to_str().unwrap_or(""), verbose, None, false);
     // 가드가 drop 되며 임시 파일이 정리된다.
 
     if let Err(e) = result {

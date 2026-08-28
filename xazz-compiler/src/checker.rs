@@ -23,7 +23,7 @@ use crate::ast::{
     Stmt, StructField, TrainConfig,
 };
 use crate::error::{CompileError, ErrorKind};
-use crate::ir as ir;
+use crate::ir;
 
 /// 컬럼 타입 정보 (canonical name + nullable 여부)
 #[derive(Debug, Clone, PartialEq)]
@@ -358,7 +358,10 @@ impl Analyzer {
         }
 
         // TrainStmt 는 `run <var> |> train(...)` — 바인딩 없는 모델 학습 노드로 IR 에 기록한다.
-        let input_schema = self.vars.get(source_var).map(|v| ir_schema_from_map(&v.columns));
+        let input_schema = self
+            .vars
+            .get(source_var)
+            .map(|v| ir_schema_from_map(&v.columns));
         self.ir.pipelines.push(ir::PipelineNode {
             id: self.ir.pipelines.len(),
             name: None,
@@ -449,10 +452,7 @@ impl Analyzer {
 
         for op in ops {
             match op {
-                PipelineOp::Train {
-                    model_name,
-                    config,
-                } => {
+                PipelineOp::Train { model_name, config } => {
                     if !self.models.contains_key(model_name) {
                         self.error(
                             ErrorKind::Other("미선언 모델".to_string()),
@@ -542,10 +542,7 @@ impl Analyzer {
                     steps.push(ir::Step::Data(ir::DataOp::Limit(*n)));
                 }
                 PipelineOp::Sample { n, seed } => {
-                    steps.push(ir::Step::Data(ir::DataOp::Sample {
-                        n: *n,
-                        seed: *seed,
-                    }));
+                    steps.push(ir::Step::Data(ir::DataOp::Sample { n: *n, seed: *seed }));
                 }
                 PipelineOp::DropNull(drop_col) => {
                     self.check_column(drop_col, "dropNull", &cols);
@@ -933,9 +930,7 @@ fn type_expr(expr: &Expr, cols: &HashMap<String, ColType>) -> ir::TypedExpr {
             ir::TypedExpr::new(ir::TypedExprKind::Column(c.clone()), ty)
         }
         Expr::IntLit(n) => ir::TypedExpr::new(ir::TypedExprKind::Int(*n), ir::ColType::Int),
-        Expr::FloatLit(f) => {
-            ir::TypedExpr::new(ir::TypedExprKind::Float(*f), ir::ColType::Float)
-        }
+        Expr::FloatLit(f) => ir::TypedExpr::new(ir::TypedExprKind::Float(*f), ir::ColType::Float),
         Expr::BoolLit(b) => ir::TypedExpr::new(ir::TypedExprKind::Bool(*b), ir::ColType::Bool),
         Expr::StringLit(s) => {
             ir::TypedExpr::new(ir::TypedExprKind::Str(s.clone()), ir::ColType::String)
@@ -1367,10 +1362,7 @@ mod tests {
         // 파이프라인 1: groupBy → sum (집계는 GroupBy + Aggregate 두 스텝으로 보존)
         let p1 = &ir.pipelines[1];
         assert!(matches!(p1.source, ir::Source::Ref { .. }));
-        assert_eq!(
-            p1.steps[0],
-            ir::Step::Data(ir::DataOp::GroupBy("a".into()))
-        );
+        assert_eq!(p1.steps[0], ir::Step::Data(ir::DataOp::GroupBy("a".into())));
         assert_eq!(
             p1.steps[1],
             ir::Step::Data(ir::DataOp::Aggregate {
@@ -1410,7 +1402,10 @@ mod tests {
         // TrainStmt: name None, ML(Train), yields_model=false
         let stmt = &ir.pipelines[3];
         assert_eq!(stmt.name, None);
-        assert!(matches!(stmt.steps[0], ir::Step::ML(ir::MLOp::Train { .. })));
+        assert!(matches!(
+            stmt.steps[0],
+            ir::Step::ML(ir::MLOp::Train { .. })
+        ));
         assert!(!stmt.yields_model);
     }
 

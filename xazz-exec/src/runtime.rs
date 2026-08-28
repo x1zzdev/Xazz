@@ -9,11 +9,10 @@
 use std::collections::HashMap;
 use std::fs;
 
+use crate::chart::{build_chart_spec, df_to_json_array, write_chart_html};
 use xazz_compiler::ast::LayerKind;
 use xazz_compiler::ir::{ColType, MLOp, PipelineNode, Schema, SideOp, Source, Step as IrStep};
-use crate::chart::{build_chart_spec, df_to_json_array, write_chart_html};
 use xazz_compiler::{Lexer, Parser};
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ── 최상위 공개 진입점 ─────────────────────────────────────────────────────────
@@ -189,8 +188,13 @@ pub fn run_pipeline(
         pipeline_count += 1;
         let name = node.name.as_deref().unwrap_or("<expr>");
 
-        match execute_node(node, &symbol_table, &model_registry, &mut model_table, &mut dp_budget)
-        {
+        match execute_node(
+            node,
+            &symbol_table,
+            &model_registry,
+            &mut model_table,
+            &mut dp_budget,
+        ) {
             Ok(Some(df)) => {
                 if let Some(vname) = &node.name {
                     eprintln!(
@@ -310,7 +314,10 @@ fn save_df_as_csv(
 }
 
 // ── Schema-Based Type Cast ────────────────────────────────────────────────────
-fn apply_schema_cast(lf: polars::prelude::LazyFrame, schema: &Schema) -> polars::prelude::LazyFrame {
+fn apply_schema_cast(
+    lf: polars::prelude::LazyFrame,
+    schema: &Schema,
+) -> polars::prelude::LazyFrame {
     use polars::prelude::col;
 
     let cast_exprs: Vec<polars::prelude::Expr> = schema
@@ -679,7 +686,6 @@ fn handle_model_decl(name: &str, layers: &[LayerKind]) {
     );
 }
 
-
 /// 학습된 모델(TrainedModel)의 리포트를 콘솔에 출력한다.
 fn print_train_report(trained: &crate::dl::TrainedModel) {
     let report = &trained.report;
@@ -705,7 +711,6 @@ fn print_train_report(trained: &crate::dl::TrainedModel) {
     println!("  체크포인트 : {}", report.checkpoint_path);
     println!();
 }
-
 
 /// `[xazz:policy]` 마커로 정책 리포트를 stdout 에 내보낸다.
 ///

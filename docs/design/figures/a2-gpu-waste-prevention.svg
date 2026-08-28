@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="620" viewBox="0 0 1280 620" font-family="Inter, system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+  <rect width="1280" height="620" fill="#ffffff"/>
+  <rect x="0" y="0" width="1280" height="6" fill="#1e3a5f"/>
+  <text x="36" y="44" font-size="27" font-weight="800" fill="#0f172a">GPU Resource Waste Prevention</text>
+  <text x="36" y="68" font-size="13" fill="#64748b">finding errors at compile time means the GPU never runs a doomed job</text>
+
+  <!-- ════ LEFT — Python ════ -->
+  <rect x="40" y="92" width="560" height="466" rx="14" fill="#fef2f2" stroke="#fecaca"/>
+  <text x="320" y="124" font-size="19" font-weight="800" fill="#b91c1c" text-anchor="middle">Python — runtime failure</text>
+
+  <rect x="66" y="150" width="508" height="62" rx="10" fill="#ffffff" stroke="#fca5a5"/>
+  <text x="86" y="190" font-size="17" font-weight="700" fill="#111827">Allocate GPU · start training</text>
+  <line x1="320" y1="212" x2="320" y2="238" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#a2)"/>
+
+  <rect x="66" y="242" width="508" height="62" rx="10" fill="#ffffff" stroke="#fca5a5"/>
+  <text x="86" y="282" font-size="17" font-weight="700" fill="#111827">Crash mid-epoch · GPU cycle lost</text>
+  <line x1="320" y1="304" x2="320" y2="330" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#a2)"/>
+
+  <rect x="66" y="334" width="508" height="62" rx="10" fill="#ffffff" stroke="#fca5a5"/>
+  <text x="86" y="374" font-size="17" font-weight="700" fill="#111827">Re-allocate · re-run · repeat</text>
+
+  <path d="M 574 366 q 32 0 32 -120 q 0 -30 -30 -30 h -26" fill="none" stroke="#ef4444" stroke-width="2.5" marker-end="url(#a2)"/>
+  <text x="592" y="270" font-size="13" font-weight="800" fill="#b91c1c">loop</text>
+
+  <text x="320" y="450" font-size="15" font-weight="800" fill="#b91c1c" text-anchor="middle">GPU wasted on repeated failed runs</text>
+  <text x="320" y="474" font-size="12.5" fill="#64748b" text-anchor="middle">type / NaN errors appear only during execution</text>
+
+  <!-- ════ RIGHT — Xazz ════ -->
+  <rect x="680" y="92" width="560" height="466" rx="14" fill="#f0fdf4" stroke="#bbf7d0"/>
+  <text x="960" y="124" font-size="19" font-weight="800" fill="#166534" text-anchor="middle">Xazz — compile-time guard</text>
+
+  <rect x="706" y="150" width="508" height="62" rx="10" fill="#ffffff" stroke="#86efac"/>
+  <text x="726" y="190" font-size="17" font-weight="700" fill="#111827">Static type + Option&lt;T&gt; check</text>
+  <line x1="960" y1="212" x2="960" y2="238" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#a2)"/>
+
+  <rect x="706" y="242" width="508" height="62" rx="10" fill="#ffffff" stroke="#86efac"/>
+  <text x="726" y="282" font-size="17" font-weight="700" fill="#111827">Blocked — zero GPU touched</text>
+  <line x1="960" y1="304" x2="960" y2="330" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#a2)"/>
+
+  <rect x="706" y="334" width="508" height="62" rx="10" fill="#ffffff" stroke="#86efac"/>
+  <text x="726" y="374" font-size="17" font-weight="700" fill="#111827">One clean run · no re-runs</text>
+
+  <text x="960" y="450" font-size="15" font-weight="800" fill="#166534" text-anchor="middle">waste removed at the source</text>
+  <text x="960" y="474" font-size="12.5" fill="#64748b" text-anchor="middle">errors caught before any GPU cost</text>
+
+  <line x1="640" y1="92" x2="640" y2="558" stroke="#cbd5e1" stroke-width="2.5" stroke-dasharray="6 6"/>
+</svg>

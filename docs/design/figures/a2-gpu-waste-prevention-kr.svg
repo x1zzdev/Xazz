@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="620" viewBox="0 0 1280 620" font-family="Inter, 'Noto Sans KR', system-ui, sans-serif">
+  <defs>
+    <marker id="a2k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+  <rect width="1280" height="620" fill="#ffffff"/>
+  <rect x="0" y="0" width="1280" height="6" fill="#1e3a5f"/>
+  <text x="36" y="44" font-size="27" font-weight="800" fill="#0f172a">GPU 자원 낭비 방지</text>
+  <text x="36" y="68" font-size="13" fill="#64748b">컴파일 시점에 오류를 찾으면 GPU는 실패할 작업을 아예 시작하지 않는다</text>
+
+  <!-- ════ LEFT — Python ════ -->
+  <rect x="40" y="92" width="560" height="466" rx="14" fill="#fef2f2" stroke="#fecaca"/>
+  <text x="320" y="124" font-size="19" font-weight="800" fill="#b91c1c" text-anchor="middle">파이썬 — 런타임 실패</text>
+
+  <rect x="66" y="150" width="508" height="62" rx="10" fill="#ffffff" stroke="#fca5a5"/>
+  <text x="86" y="190" font-size="17" font-weight="700" fill="#111827">GPU 할당 · 학습 시작</text>
+  <line x1="320" y1="212" x2="320" y2="238" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#a2k)"/>
+
+  <rect x="66" y="242" width="508" height="62" rx="10" fill="#ffffff" stroke="#fca5a5"/>
+  <text x="86" y="282" font-size="17" font-weight="700" fill="#111827">학습 중단 · GPU 사이클 손실</text>
+  <line x1="320" y1="304" x2="320" y2="330" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#a2k)"/>
+
+  <rect x="66" y="334" width="508" height="62" rx="10" fill="#ffffff" stroke="#fca5a5"/>
+  <text x="86" y="374" font-size="17" font-weight="700" fill="#111827">재할당 · 재실행 · 반복</text>
+
+  <path d="M 574 366 q 32 0 32 -120 q 0 -30 -30 -30 h -26" fill="none" stroke="#ef4444" stroke-width="2.5" marker-end="url(#a2k)"/>
+  <text x="592" y="270" font-size="13" font-weight="800" fill="#b91c1c">반복</text>
+
+  <text x="320" y="450" font-size="15" font-weight="800" fill="#b91c1c" text-anchor="middle">실패 반복으로 GPU 낭비</text>
+  <text x="320" y="474" font-size="12.5" fill="#64748b" text-anchor="middle">타입·NaN 오류는 실행 중에만 발견</text>
+
+  <!-- ════ RIGHT — Xazz ════ -->
+  <rect x="680" y="92" width="560" height="466" rx="14" fill="#f0fdf4" stroke="#bbf7d0"/>
+  <text x="960" y="124" font-size="19" font-weight="800" fill="#166534" text-anchor="middle">Xazz — 컴파일 시점 차단</text>
+
+  <rect x="706" y="150" width="508" height="62" rx="10" fill="#ffffff" stroke="#86efac"/>
+  <text x="726" y="190" font-size="17" font-weight="700" fill="#111827">정적 타입 · Option&lt;T&gt; 검사</text>
+  <line x1="960" y1="212" x2="960" y2="238" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#a2k)"/>
+
+  <rect x="706" y="242" width="508" height="62" rx="10" fill="#ffffff" stroke="#86efac"/>
+  <text x="726" y="282" font-size="17" font-weight="700" fill="#111827">즉시 차단 — GPU 사용 0</text>
+  <line x1="960" y1="304" x2="960" y2="330" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#a2k)"/>
+
+  <rect x="706" y="334" width="508" height="62" rx="10" fill="#ffffff" stroke="#86efac"/>
+  <text x="726" y="374" font-size="17" font-weight="700" fill="#111827">단일 실행 · 재실행 없음</text>
+
+  <text x="960" y="450" font-size="15" font-weight="800" fill="#166534" text-anchor="middle">근원에서 낭비 제거</text>
+  <text x="960" y="474" font-size="12.5" fill="#64748b" text-anchor="middle">GPU 비용 발생 전에 오류 차단</text>
+
+  <line x1="640" y1="92" x2="640" y2="558" stroke="#cbd5e1" stroke-width="2.5" stroke-dasharray="6 6"/>
+</svg>

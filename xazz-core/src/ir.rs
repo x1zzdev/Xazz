@@ -171,22 +171,47 @@ pub enum DataOp {
     Select(Vec<String>),
     GroupBy(String),
     /// 집계 (선행 GroupBy 가 있으면 그룹 집계, 없으면 전역 집계).
-    Aggregate { kind: AggKind, col: String },
-    Sort { col: String, desc: bool },
+    Aggregate {
+        kind: AggKind,
+        col: String,
+    },
+    Sort {
+        col: String,
+        desc: bool,
+    },
     Limit(i64),
-    Sample { n: i64, seed: Option<i64> },
+    Sample {
+        n: i64,
+        seed: Option<i64>,
+    },
     DropNull(String),
-    FillNull { col: String, value: FillValue },
+    FillNull {
+        col: String,
+        value: FillValue,
+    },
     Join {
         other: String,
         left_on: Vec<String>,
         right_on: Vec<String>,
         how: JoinHow,
     },
-    WithColumn { name: String, expr: TypedExpr },
-    Cast { col: String, to: String },
-    Rename { old: String, new: String },
-    Replace { col: String, from: String, to: String },
+    WithColumn {
+        name: String,
+        expr: TypedExpr,
+    },
+    Cast {
+        col: String,
+        to: String,
+    },
+    Rename {
+        old: String,
+        new: String,
+    },
+    Replace {
+        col: String,
+        from: String,
+        to: String,
+    },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -195,8 +220,14 @@ pub enum DataOp {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MLOp {
-    Train { model: String, config: TrainConfig },
-    Predict { model: String, as_col: Option<String> },
+    Train {
+        model: String,
+        config: TrainConfig,
+    },
+    Predict {
+        model: String,
+        as_col: Option<String>,
+    },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

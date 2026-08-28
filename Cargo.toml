@@ -12,7 +12,7 @@ resolver = "2"
 
 
 [workspace.package]
-version = "0.2.8"
+version = "0.3.0"
 edition = "2024"
 authors = ["Jangseowoo <ax1s.xazz.com>"]
 license = "Apache-2.0"
@@ -56,7 +56,7 @@ codegen-units = 1
 [dependencies]
 # 컴파일러 (Lexer/Parser/Codegen/Emitter) — Polars 없음
 # `emit` 명령어에서 emit_rust() 호출에 필요
-xazz-compiler = { version = "0.2.1", path = "xazz-compiler" }
+xazz-compiler = { path = "xazz-compiler" }
 
 # CLI 인자 파싱
 clap = { version = "4.4", features = ["derive", "cargo"] }

@@ -75,8 +75,7 @@ pub fn lower_data(
             *lf = lf.clone().filter(typed_expr_to_polars(expr));
         }
         DataOp::Select(cols) => {
-            let exprs: Vec<polars::prelude::Expr> =
-                cols.iter().map(|c| col(c.as_str())).collect();
+            let exprs: Vec<polars::prelude::Expr> = cols.iter().map(|c| col(c.as_str())).collect();
             *lf = lf.clone().select(exprs);
         }
         DataOp::GroupBy(group_col) => {
@@ -102,7 +101,10 @@ pub fn lower_data(
                 *lf = lf.clone().select([agg_expr]);
             }
         }
-        DataOp::Sort { col: sort_col, desc } => {
+        DataOp::Sort {
+            col: sort_col,
+            desc,
+        } => {
             let opts = SortMultipleOptions::default().with_order_descending(*desc);
             *lf = lf.clone().sort([sort_col.as_str()], opts);
         }
@@ -188,12 +190,10 @@ pub fn lower_data(
             *lf = lf.clone().rename(old, new, false);
         }
         DataOp::Replace { col: c, from, to } => {
-            *lf = lf.clone().with_columns(
-                [col(c.as_str())
-                    .str()
-                    .replace_all(lit(from.as_str()), lit(to.as_str()), true)
-                    .alias(c.as_str())],
-            );
+            *lf = lf.clone().with_columns([col(c.as_str())
+                .str()
+                .replace_all(lit(from.as_str()), lit(to.as_str()), true)
+                .alias(c.as_str())]);
         }
     }
     Ok(())
@@ -332,9 +332,7 @@ mod tests {
             pipelines: vec![PipelineNode {
                 id: 0,
                 name: None,
-                source: Source::Ref {
-                    var: String::new(),
-                },
+                source: Source::Ref { var: String::new() },
                 input_schema: None,
                 output_schema: xazz_compiler::ir::Schema::default(),
                 steps: steps.clone(),
