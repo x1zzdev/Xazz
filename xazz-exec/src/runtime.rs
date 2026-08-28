@@ -211,6 +211,18 @@ pub fn run_pipeline(
         );
     }
 
+    // ── STEP 3.55: 타입체커 오류는 실행을 차단한다 (fail-closed) ─────────────
+    // 어드바이저리로만 흘려보내면 잘못된 데이터로 Polars 가 더 불명확한 panic 을
+    // 일으키므로, 의미 오류가 있으면 실행을 중단한다. (경고는 비차단 유지)
+    if !check.errors.is_empty() {
+        return Err(format!(
+            "[xazz TYPECHECK ERROR] 정적 분석 오류 {}건 — 실행을 중단합니다. 첫 번째 오류: {}",
+            check.errors.len(),
+            check.errors[0].message
+        )
+        .into());
+    }
+
     // ── STEP 3.6: Policy-as-Code 정적 가드레일 — 실행 전 보안 차단 (issue #2) ─
     //
     // 이 게이트가 최종 관문이다. CLI(`xazz run`)와 API 서버(`POST /execute`)도
