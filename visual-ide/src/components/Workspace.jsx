@@ -114,13 +114,14 @@ function getNodeVisualState(id, selectedId, runState) {
   return 'ready'
 }
 
-function useCodeHash() {
+function useCodeHash(dagCode) {
   const [hash, setHash] = useState('Computing…')
 
   useEffect(() => {
     let active = true
     const compute = async () => {
-      const bytes = new TextEncoder().encode(codeLines.join('\n'))
+      // 실제 실행되는 코드(dagCode)의 무결성 해시를 계산한다.
+      const bytes = new TextEncoder().encode(dagCode ?? '')
       const digest = await crypto.subtle.digest('SHA-256', bytes)
       const value = Array.from(new Uint8Array(digest))
         .map((byte) => byte.toString(16).padStart(2, '0'))
@@ -131,7 +132,7 @@ function useCodeHash() {
     return () => {
       active = false
     }
-  }, [])
+  }, [dagCode])
 
   return hash
 }
@@ -1393,7 +1394,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
   const [guardrailSource, setGuardrailSource] = useState(null)
   const [guardrailChecking, setGuardrailChecking] = useState(false)
   const fullRunRef = useRef(null)
-  const hash = useCodeHash()
+  const hash = useCodeHash(dagCode)
   const selectedNode = pipeline.find((node) => node.id === selectedId) ?? pipeline[0]
   const guardrailBlocked = Boolean(policyReport && !policyReport.safe_to_execute)
 
