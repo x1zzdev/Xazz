@@ -19,8 +19,13 @@
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// 실행 엔진(xazz-exec)의 기본 최대 실행 시간(초).
+/// `XAZZ_EXEC_TIMEOUT_SECS` 환경변수로 재정의 가능 (0 이하 무시).
+const DEFAULT_EXEC_TIMEOUT_SECS: u64 = 300;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -63,12 +68,14 @@ fn main() {
 
     // ── xazz-exec 서브프로세스 스폰 ───────────────────────────────────────
     // stdin/stdout/stderr 상속 → 투명한 IPC relay
-    let status = Command::new(&exec_path)
+    // 실행 시간 제한(타임아웃)은 DoS 방지용 경량 하드닝이다.
+    // (참고: 이는 프로세스 격리이지 OS 샌드박스가 아니다 — seccomp/landlock 은 별도 마일스톤)
+    let mut child = Command::new(&exec_path)
         .args(&args)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .status()
+        .spawn()
         .unwrap_or_else(|e| {
             eprintln!(
                 "[xazz-runner] ERROR: xazz-exec 실행 엔진을 시작할 수 없습니다."
@@ -81,8 +88,37 @@ fn main() {
             std::process::exit(1);
         });
 
+    let timeout_secs = std::env::var("XAZZ_EXEC_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(DEFAULT_EXEC_TIMEOUT_SECS);
+
+    let started = Instant::now();
+    let code = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status.code().unwrap_or(1),
+            Ok(None) => {
+                if started.elapsed().as_secs() >= timeout_secs {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    eprintln!(
+                        "[xazz-runner] ERROR: 실행 시간이 {timeout_secs}초를 초과해 실행 엔진을 종료했습니다. \
+                         (XAZZ_EXEC_TIMEOUT_SECS 환경변수로 조정 가능)"
+                    );
+                    std::process::exit(1);
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => {
+                eprintln!("[xazz-runner] ERROR: 실행 엔진 상태 확인 실패: {e}");
+                std::process::exit(1);
+            }
+        }
+    };
+
     // xazz-exec 종료 코드를 그대로 전파
-    std::process::exit(status.code().unwrap_or(1));
+    std::process::exit(code);
 }
 
 fn print_usage() {
