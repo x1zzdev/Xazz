@@ -46,6 +46,9 @@ import { MonitorView } from './Monitor'
 import { LocaleSwitch, localizeStep, useLanguage } from '../i18n'
 import DagEditor from './DagEditor'
 import { checkPolicy, executeCode, checkHealth, remediateCode, API_BASE_URL } from '../api'
+
+// executeCode 기본 타임아웃(ms) — api.js 와 동일한 기본값 (ML 훈련 고려 5분)
+const EXEC_TIMEOUT_MS = 5 * 60 * 1000
 import {
   chartData,
   codeLines,
@@ -1469,9 +1472,19 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
         changeState('error')
       }
     } catch (err) {
-      setBackendReachable(false)
-      setExecError(err instanceof Error ? err.message : String(err))
-      setLiveMessage(`xazz-server unreachable · ${API_BASE_URL}`)
+      const aborted =
+        (typeof err === 'object' && err !== null && err.name === 'AbortError') ||
+        (err instanceof DOMException && err.name === 'AbortError')
+      if (aborted) {
+        // 요청이 타임아웃됨 — 서버는 응답했을 수도 있으나 오래 걸림
+        setBackendReachable(true)
+        setExecError('Execution timed out. The server may still be processing (e.g. long training).')
+        setLiveMessage(`Execution timed out after ${EXEC_TIMEOUT_MS / 1000}s`)
+      } else {
+        setBackendReachable(false)
+        setExecError(err instanceof Error ? err.message : String(err))
+        setLiveMessage(`xazz-server unreachable · ${API_BASE_URL}`)
+      }
       setExecuting(false)
       setRunState('error')
       setSelectedId('fill')

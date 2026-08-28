@@ -26,12 +26,15 @@ export async function checkHealth() {
  * 경우이며, 본문에는 통상적인 ExecuteResponse 형태로 차단 사유(`policy`)와
  * 위반 목록(`logs`)이 담겨 온다. 이를 throw 로 바꾸면 사용자에게는
  * "Server responded 422" 만 남고 정작 필요한 차단 사유가 사라진다.
+ *
+ * 기본 5분 타임아웃(ML 훈련 고려). 무한 대기로 UI 가 'running' 에 갇히는 것을 방지한다.
  */
-export async function executeCode(code) {
+export async function executeCode(code, { timeoutMs = 5 * 60 * 1000 } = {}) {
   const res = await fetch(`${API_BASE_URL}/execute`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code }),
+    signal: AbortSignal.timeout(timeoutMs),
   })
   if (!res.ok && res.status !== 422) {
     throw new Error(`Server responded ${res.status}`)
