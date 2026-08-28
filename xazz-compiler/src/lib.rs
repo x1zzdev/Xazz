@@ -19,6 +19,7 @@ pub mod checker;
 pub mod codegen;
 pub mod emitter;
 pub mod error; // xazz-core::error 재노출
+pub mod ir; // xazz-core::ir 재노출
 pub mod lexer;
 pub mod parser;
 pub mod policy;
@@ -37,7 +38,7 @@ pub use ast::{
 pub use error::{CompileError, CompileResult, ErrorKind};
 
 // ── 핵심 컴포넌트 상위 노출 ──────────────────────────────────────────────────
-pub use checker::{CheckResult, ColType, check_program, check_source};
+pub use checker::{CheckResult, ColType, analyze_program, check_program, check_source, compile_ir};
 pub use codegen::Codegen;
 pub use lexer::Lexer;
 pub use parser::Parser;
