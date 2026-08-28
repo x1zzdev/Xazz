@@ -84,6 +84,7 @@ jobs:
 
       - name: Build Visual IDE (frontend)
         shell: bash
+        working-directory: visual-ide
         run: |
           npm ci
           npm run build
