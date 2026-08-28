@@ -41,3 +41,18 @@ checkpoints/
 
 # 보안 데모용 합성 데이터 (생성기로 재생성 — examples/security/generate_patients.py)
 examples/security/data/
+
+# 시연 영상 생성물 (demo/capture.sh + demo/make_video.py 로 재생성)
+demo/_capture/
+demo/_build/
+demo/_shots/
+demo/_voice/
+demo/*.mp4
+demo/*.wav
+demo/*.srt
+demo/narration.txt
+
+# 다만 제출용 최종본 한 벌은 커밋한다 — 툴체인 없이도 바로 볼 수 있도록.
+# 다시 렌더할 때마다 커밋하지 말 것 (1MB 바이너리가 이력에 계속 쌓인다).
+!demo/xazz_demo.mp4
+!demo/xazz_demo.srt
