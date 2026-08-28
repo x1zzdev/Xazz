@@ -248,7 +248,10 @@ impl Codegen {
                 )
             }
             PipelineOp::Select(cols) => {
-                let polars: Vec<String> = cols.iter().map(|c| format!("col(\"{}\")", esc(c))).collect();
+                let polars: Vec<String> = cols
+                    .iter()
+                    .map(|c| format!("col(\"{}\")", esc(c)))
+                    .collect();
                 let xzz = cols.join(", ");
                 format!(
                     "  .select([{}])  // |> select([{}])",
@@ -260,7 +263,8 @@ impl Codegen {
             PipelineOp::Count(Some(col)) => {
                 format!(
                     "  .agg([col(\"{}\").count()])  // |> count(\"{}\")",
-                    esc(col), esc(col)
+                    esc(col),
+                    esc(col)
                 )
             }
 
@@ -268,31 +272,36 @@ impl Codegen {
             PipelineOp::GroupBy(group_col) => {
                 format!(
                     "  .group_by([col(\"{}\")])  // |> groupBy(\"{}\")",
-                    esc(group_col), esc(group_col)
+                    esc(group_col),
+                    esc(group_col)
                 )
             }
             PipelineOp::Sum(agg_col) => {
                 format!(
                     "  .agg([col(\"{}\").sum()])  // |> sum(\"{}\")",
-                    esc(agg_col), esc(agg_col)
+                    esc(agg_col),
+                    esc(agg_col)
                 )
             }
             PipelineOp::Mean(agg_col) => {
                 format!(
                     "  .agg([col(\"{}\").mean()])  // |> mean(\"{}\")",
-                    esc(agg_col), esc(agg_col)
+                    esc(agg_col),
+                    esc(agg_col)
                 )
             }
             PipelineOp::Min(agg_col) => {
                 format!(
                     "  .agg([col(\"{}\").min()])  // |> min(\"{}\")",
-                    esc(agg_col), esc(agg_col)
+                    esc(agg_col),
+                    esc(agg_col)
                 )
             }
             PipelineOp::Max(agg_col) => {
                 format!(
                     "  .agg([col(\"{}\").max()])  // |> max(\"{}\")",
-                    esc(agg_col), esc(agg_col)
+                    esc(agg_col),
+                    esc(agg_col)
                 )
             }
 
@@ -300,7 +309,10 @@ impl Codegen {
             PipelineOp::OrderBy { col, desc } => {
                 format!(
                     "  .sort([\"{}\"], SortMultipleOptions::default().with_order_descending({}))  // |> orderBy(\"{}\", desc: {})",
-                    esc(col), desc, esc(col), desc
+                    esc(col),
+                    desc,
+                    esc(col),
+                    desc
                 )
             }
             PipelineOp::Take(n) => {
@@ -311,7 +323,8 @@ impl Codegen {
             PipelineOp::DropNull(drop_col) => {
                 format!(
                     "  .drop_nulls(Some(vec![col(\"{}\")]))  // |> dropNull(\"{}\")",
-                    esc(drop_col), esc(drop_col)
+                    esc(drop_col),
+                    esc(drop_col)
                 )
             }
             PipelineOp::FillNull { col, value } => {
@@ -325,7 +338,9 @@ impl Codegen {
                 };
                 format!(
                     "  .with_columns([col(\"{}\").fill_null({})])  // |> fillNull(\"{}\", ...)",
-                    esc(col), lit_str, esc(col)
+                    esc(col),
+                    lit_str,
+                    esc(col)
                 )
             }
 
@@ -336,10 +351,14 @@ impl Codegen {
                 right_on,
                 how,
             } => {
-                let left_cols: Vec<String> =
-                    left_on.iter().map(|k| format!("col(\"{}\")", esc(k))).collect();
-                let right_cols: Vec<String> =
-                    right_on.iter().map(|k| format!("col(\"{}\")", esc(k))).collect();
+                let left_cols: Vec<String> = left_on
+                    .iter()
+                    .map(|k| format!("col(\"{}\")", esc(k)))
+                    .collect();
+                let right_cols: Vec<String> = right_on
+                    .iter()
+                    .map(|k| format!("col(\"{}\")", esc(k)))
+                    .collect();
                 let left_str = left_cols.join(", ");
                 let right_str = right_cols.join(", ");
                 format!(
@@ -385,7 +404,10 @@ impl Codegen {
                 };
                 format!(
                     "  .with_columns([col(\"{}\").cast({})])  // |> cast(\"{}\", \"{}\")",
-                    esc(col), polars_type, esc(col), esc(to_type)
+                    esc(col),
+                    polars_type,
+                    esc(col),
+                    esc(to_type)
                 )
             }
 
@@ -393,7 +415,10 @@ impl Codegen {
             PipelineOp::Rename { old_name, new_name } => {
                 format!(
                     "  .rename([\"{}\"], [\"{}\"], false)  // |> rename(\"{}\", \"{}\")",
-                    esc(old_name), esc(new_name), esc(old_name), esc(new_name)
+                    esc(old_name),
+                    esc(new_name),
+                    esc(old_name),
+                    esc(new_name)
                 )
             }
 
@@ -401,7 +426,13 @@ impl Codegen {
             PipelineOp::Replace { col, from, to } => {
                 format!(
                     "  .with_columns([col(\"{}\").str().replace(lit(\"{}\"), lit(\"{}\"), false).alias(\"{}\")])  // |> replace(\"{}\", \"{}\", \"{}\")",
-                    esc(col), esc(from), esc(to), esc(col), esc(col), esc(from), esc(to)
+                    esc(col),
+                    esc(from),
+                    esc(to),
+                    esc(col),
+                    esc(col),
+                    esc(from),
+                    esc(to)
                 )
             }
 

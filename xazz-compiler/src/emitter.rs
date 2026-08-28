@@ -18,11 +18,11 @@
 use std::collections::HashMap;
 use std::fs;
 
-use crate::policy::printer::escape;
 use crate::ast::{
     BinOpKind, Expr, FillNullValue, LayerKind, PipelineOp, PipelineSource, Program, Stmt,
     TrainConfig,
 };
+use crate::policy::printer::escape;
 use crate::{Codegen, Lexer, Parser, StructField};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -208,11 +208,15 @@ fn generate_rust_src(
                 } => {
                     out.push_str(&format!(
                         "    // load(\"{}\") :: {}\n",
-                        escape(file_path), schema_name
+                        escape(file_path),
+                        schema_name
                     ));
                     out.push_str(&format!(
                         "    let {}{} = load_csv(\"{}\")? // :: {}\n",
-                        mut_kw, var_name, escape(file_path), schema_name
+                        mut_kw,
+                        var_name,
+                        escape(file_path),
+                        schema_name
                     ));
                     out.push_str("        .lazy()\n");
                 }

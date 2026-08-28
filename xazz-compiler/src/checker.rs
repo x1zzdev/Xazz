@@ -614,7 +614,8 @@ impl Analyzer {
         match expr {
             Expr::BinOp { lhs, op, rhs } => {
                 if *op == BinOpKind::Div && is_zero_literal(rhs.as_ref()) {
-                    let message = "0으로 나누기 감지 — DivisionByZero. 필터/치환으로 분모 0 을 처리하세요.";
+                    let message =
+                        "0으로 나누기 감지 — DivisionByZero. 필터/치환으로 분모 0 을 처리하세요.";
                     let span = self.resolve_span(message);
                     self.warnings.push(CompileError::new(
                         ErrorKind::DivisionByZero {

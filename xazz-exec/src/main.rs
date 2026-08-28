@@ -16,7 +16,6 @@
 //   - 에러:  stderr
 //   - 종료 코드: 0 = 성공, 1 = 실패
 
-
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
@@ -69,7 +68,11 @@ fn run_csv_benchmark(csv_path: &str, verbose: bool) {
     let stem_sanitized: String = std::path::Path::new(csv_path)
         .file_stem()
         .and_then(|s| s.to_str())
-        .map(|s| s.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect())
+        .map(|s| {
+            s.chars()
+                .map(|c| if c.is_alphanumeric() { c } else { '_' })
+                .collect()
+        })
         .unwrap_or_else(|| "benchmark".to_string());
 
     let xzz_source = format!(

@@ -134,7 +134,7 @@ impl<'src> Lexer<'src> {
             }
             let value = buf.parse::<f64>().map_err(|_| {
                 CompileError::new(
-                    ErrorKind::Other(format!("숫자 리터럴 파싱 실패: {}" , buf)),
+                    ErrorKind::Other(format!("숫자 리터럴 파싱 실패: {}", buf)),
                     span.clone(),
                     format!("숫자 리터럴 파싱 실패: '{}'", buf),
                 )
@@ -144,7 +144,7 @@ impl<'src> Lexer<'src> {
 
         let value = buf.parse::<i64>().map_err(|_| {
             CompileError::new(
-                ErrorKind::Other(format!("숫자 리터럴 파싱 실패: {}" , buf)),
+                ErrorKind::Other(format!("숫자 리터럴 파싱 실패: {}", buf)),
                 span.clone(),
                 format!("정수 리터럴이 i64 범위를 벗어났거나 파싱 실패: '{}'", buf),
             )
@@ -307,7 +307,9 @@ impl<'src> Lexer<'src> {
                         // -i64::MIN 은 오버플로되므로 명시적으로 거부
                         if n == i64::MIN {
                             return Err(CompileError::new(
-                                ErrorKind::Other("숫자 리터럴 파싱 실패: -9223372036854775808".to_string()),
+                                ErrorKind::Other(
+                                    "숫자 리터럴 파싱 실패: -9223372036854775808".to_string(),
+                                ),
                                 span,
                                 "리터럴이 i64 범위를 벗어났습니다: -9223372036854775808",
                             ));
