@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="600" viewBox="0 0 1280 600" font-family="'Noto Sans KR', Inter, -apple-system, 'Segoe UI', sans-serif">
+  <defs>
+    <marker id="ark" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+    </marker>
+    <marker id="arrk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+    </marker>
+  </defs>
+  <rect width="1280" height="600" fill="#ffffff"/>
+  <rect x="0" y="0" width="1280" height="6" fill="#1e3a5f"/>
+  <text x="36" y="46" font-size="26" font-weight="800" fill="#0f172a">.xzz 스크립트 하나 — 컴파일하고, 검증하고, 실행한다</text>
+  <text x="36" y="70" font-size="13.5" fill="#64748b">GPU 사이클이 소모되기 전에 모든 오류는 아래 ① 단계에서 차단됩니다.</text>
+
+  <!-- ════ PHASE 1 · COMPILE ════ -->
+  <rect x="32" y="98" width="1216" height="190" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="52" y="128" font-size="14" font-weight="700" fill="#1e3a5f">① 컴파일 — 정적·결정적·오프라인</text>
+
+  <rect x="52" y="152" width="118" height="58" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="111" y="178" font-size="15" font-weight="800" fill="#0f172a" text-anchor="middle">.xzz</text>
+  <text x="111" y="196" font-size="11" fill="#94a3b8" text-anchor="middle">소스 코드</text>
+  <line x1="170" y1="181" x2="198" y2="181" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ark)"/>
+
+  <rect x="202" y="152" width="140" height="58" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="272" y="178" font-size="14" font-weight="800" fill="#0f172a" text-anchor="middle">Lexer · Parser</text>
+  <text x="272" y="196" font-size="11" fill="#94a3b8" text-anchor="middle">AST 생성</text>
+  <line x1="342" y1="181" x2="370" y2="181" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ark)"/>
+
+  <rect x="374" y="152" width="168" height="58" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="458" y="178" font-size="14" font-weight="800" fill="#0f172a" text-anchor="middle">타입 · 널 검사</text>
+  <text x="458" y="196" font-size="11" fill="#94a3b8" text-anchor="middle">Option&lt;T&gt; · 오타 제안</text>
+  <line x1="542" y1="181" x2="570" y2="181" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ark)"/>
+
+  <rect x="574" y="152" width="150" height="58" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="649" y="178" font-size="14" font-weight="800" fill="#0f172a" text-anchor="middle">정책 가드레일</text>
+  <text x="649" y="196" font-size="11" fill="#94a3b8" text-anchor="middle">개인정보 · 시크릿 · 규칙</text>
+  <line x1="724" y1="181" x2="752" y2="181" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ark)"/>
+
+  <rect x="756" y="152" width="150" height="58" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
+  <text x="831" y="178" font-size="14" font-weight="800" fill="#1e3a5f" text-anchor="middle">코드 생성</text>
+  <text x="831" y="196" font-size="11" fill="#60a5fa" text-anchor="middle">Polars + Burn IR</text>
+  <line x1="906" y1="181" x2="934" y2="181" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ark)"/>
+
+  <rect x="938" y="152" width="118" height="58" rx="10" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="997" y="178" font-size="14" font-weight="800" fill="#166534" text-anchor="middle">샌드박스</text>
+  <text x="997" y="196" font-size="11" fill="#4ade80" text-anchor="middle">xazz-runner 격리</text>
+
+  <!-- 위반 분기 -->
+  <line x1="649" y1="210" x2="649" y2="242" stroke="#b91c1c" stroke-width="2"/>
+  <line x1="649" y1="242" x2="1024" y2="242" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrk)"/>
+  <text x="662" y="236" font-size="12" font-weight="700" fill="#b91c1c">위반</text>
+  <rect x="1028" y="214" width="196" height="56" rx="10" fill="#fef2f2" stroke="#fca5a5"/>
+  <text x="1126" y="238" font-size="13.5" font-weight="800" fill="#b91c1c" text-anchor="middle">차단 + JSON 리포트</text>
+  <text x="1126" y="256" font-size="11" fill="#ef4444" text-anchor="middle">sLM 자동 보정 제안</text>
+
+  <!-- ════ PHASE 2 · EXECUTE ════ -->
+  <rect x="32" y="308" width="1216" height="190" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="52" y="338" font-size="14" font-weight="700" fill="#1e3a5f">② 실행 — 지연 그래프·제로카피·감사</text>
+
+  <rect x="52" y="362" width="170" height="58" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="137" y="388" font-size="14" font-weight="800" fill="#0f172a" text-anchor="middle">Polars LazyFrame</text>
+  <text x="137" y="406" font-size="11" fill="#94a3b8" text-anchor="middle">쿼리 최적화 · 조건 푸시다운</text>
+  <line x1="222" y1="391" x2="250" y2="391" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ark)"/>
+
+  <rect x="254" y="362" width="150" height="58" rx="10" fill="#fdf4ff" stroke="#d8b4fe"/>
+  <text x="329" y="388" font-size="14" font-weight="800" fill="#6b21a8" text-anchor="middle">DP 노이즈</text>
+  <text x="329" y="406" font-size="11" fill="#c084fc" text-anchor="middle">laplace · gaussian · ε 예산</text>
+  <line x1="404" y1="391" x2="432" y2="391" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ark)"/>
+
+  <rect x="436" y="362" width="170" height="58" rx="10" fill="#fdf4ff" stroke="#d8b4fe"/>
+  <text x="521" y="388" font-size="14" font-weight="800" fill="#6b21a8" text-anchor="middle">제로카피 텐서</text>
+  <text x="521" y="406" font-size="11" fill="#c084fc" text-anchor="middle">Arrow → Burn</text>
+  <line x1="606" y1="391" x2="634" y2="391" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ark)"/>
+
+  <rect x="638" y="362" width="150" height="58" rx="10" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="713" y="388" font-size="14" font-weight="800" fill="#166534" text-anchor="middle">학습 · 예측</text>
+  <text x="713" y="406" font-size="11" fill="#4ade80" text-anchor="middle">Adam + MSE · 체크포인트</text>
+  <line x1="788" y1="391" x2="816" y2="391" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ark)"/>
+
+  <rect x="820" y="362" width="140" height="58" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
+  <text x="890" y="388" font-size="14" font-weight="800" fill="#1e3a5f" text-anchor="middle">결과</text>
+  <text x="890" y="406" font-size="11" fill="#60a5fa" text-anchor="middle">CSV · HTML 차트</text>
+  <line x1="960" y1="391" x2="988" y2="391" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ark)"/>
+
+  <rect x="992" y="362" width="232" height="58" rx="10" fill="#fff7ed" stroke="#fdba74"/>
+  <text x="1108" y="388" font-size="14" font-weight="800" fill="#9a3412" text-anchor="middle">감사 로그 · SHA-256</text>
+  <text x="1108" y="406" font-size="11" fill="#fb923c" text-anchor="middle">append-only 해시 체인</text>
+
+  <!-- 범례 -->
+  <text x="36" y="546" font-size="12.5" fill="#475569">오류는 ① 단계에서 행:열 단위 진단으로 표시됩니다 — 학습 시작 이전에. 프라이버시·텐서 전송·증거는 ② 단계에 위치합니다.</text>
+  <rect x="36" y="560" width="16" height="16" rx="4" fill="#fef2f2" stroke="#fca5a5"/><text x="60" y="573" font-size="12" fill="#475569">가드레일 → sLM 보정</text>
+  <rect x="200" y="560" width="16" height="16" rx="4" fill="#fdf4ff" stroke="#d8b4fe"/><text x="224" y="573" font-size="12" fill="#475569">프라이버시 · 제로카피</text>
+  <rect x="366" y="560" width="16" height="16" rx="4" fill="#f0fdf4" stroke="#86efac"/><text x="390" y="573" font-size="12" fill="#475569">DL 엔진 · 샌드박스</text>
+  <rect x="532" y="560" width="16" height="16" rx="4" fill="#fff7ed" stroke="#fdba74"/><text x="556" y="573" font-size="12" fill="#475569">신뢰 · 컴플라이언스</text>
+  <rect x="706" y="560" width="16" height="16" rx="4" fill="#eff6ff" stroke="#93c5fd"/><text x="730" y="573" font-size="12" fill="#475569">Rust 코드 생성</text>
+</svg>
