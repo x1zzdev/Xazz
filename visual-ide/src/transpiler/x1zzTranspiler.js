@@ -135,6 +135,9 @@ let currentPipelineVar = null;
         lines.push(`v ${currentResultVar} = ${currentPipelineVar}`);
         pipelineLines.forEach(pl => lines.push(pl));
         lines.push('');
+        // 후속 파이프라인/플러시가 새 결과 변수에 체이닝되도록 갱신.
+        // 갱신하지 않으면 두 번째 flush 가 이전(스테일) 변수를 참조해 중복/잘못된 코드가 생성된다.
+        currentPipelineVar = currentResultVar;
       } else if (pipelineLines.length > 0) {
         lines.push(`// WARNING: Pipeline steps found without a source node`);
         pipelineLines.forEach(pl => lines.push(pl));
