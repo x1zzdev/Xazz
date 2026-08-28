@@ -6,6 +6,7 @@
 /// v0.3: 딥러닝 모델 선언(ModelDecl), 학습(TrainStmt), 레이어(LayerKind) 추가
 pub mod ast;
 pub mod error;
+pub mod ir;
 pub mod token;
 
 // ── 상위 노출 ────────────────────────────────────────────────────────────────
@@ -21,3 +22,9 @@ pub use ast::{
 
 // error
 pub use error::{CompileError, CompileResult, ErrorKind};
+
+// ir
+pub use ir::{
+    AggKind, ColType, DataOp, FillValue, MLOp, ModelGraph, PipelineNode, Schema, SchemaField,
+    SideOp, Source, Step, TypeDecl, TypedExpr, TypedExprKind, TypedProgram,
+};
