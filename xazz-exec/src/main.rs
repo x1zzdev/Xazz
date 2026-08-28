@@ -16,7 +16,6 @@
 //   - 에러:  stderr
 //   - 종료 코드: 0 = 성공, 1 = 실패
 
-use std::path::Path;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -67,6 +66,11 @@ fn main() {
 /// run_pipeline() 으로 실행하고 임시 파일을 정리한다.
 fn run_csv_benchmark(csv_path: &str, verbose: bool) {
     let posix_path = csv_path.replace('\\', "/");
+    let stem_sanitized: String = std::path::Path::new(csv_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect())
+        .unwrap_or_else(|| "benchmark".to_string());
 
     let xzz_source = format!(
         r#"// xazzLang Benchmark Pipeline — auto-generated from CSV input
@@ -106,29 +110,39 @@ v filled = raw
         posix_path = posix_path
     );
 
-    let tmp_xzz_path = if let Some(parent) = Path::new(csv_path).parent() {
-        let stem = Path::new(csv_path)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("benchmark");
-        parent
-            .join(format!("_{}_bench.xzz", stem))
-            .to_string_lossy()
-            .to_string()
-    } else {
-        format!("_{}_bench.xzz", csv_path)
-    };
+    // 시스템 임시 디렉터리에 프로세스 고유 이름으로 생성한다.
+    // (결정적 이름/입력 CSV 옆 배치로 인한 경쟁·누수·읽기전용 실패를 방지)
+    let unique = format!(
+        "xazz_bench_{}_{}_{}.xzz",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0),
+        stem_sanitized
+    );
+    let tmp_xzz_path = std::env::temp_dir().join(&unique);
+
+    // RAII 가드 — 성공/실패 여부와 무관하게 임시 파일을 반드시 정리한다.
+    struct TempFileGuard(std::path::PathBuf);
+    impl Drop for TempFileGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
 
     if let Err(e) = std::fs::write(&tmp_xzz_path, &xzz_source) {
         eprintln!(
             "[xazz-exec] ERROR: 임시 .xzz 파일 생성 실패: {} — {}",
-            tmp_xzz_path, e
+            tmp_xzz_path.display(),
+            e
         );
         std::process::exit(1);
     }
+    let _guard = TempFileGuard(tmp_xzz_path.clone());
 
-    let result = xazz_exec::run_pipeline(&tmp_xzz_path, verbose, None);
-    let _ = std::fs::remove_file(&tmp_xzz_path);
+    let result = xazz_exec::run_pipeline(&tmp_xzz_path.to_str().unwrap_or(""), verbose, None);
+    // 가드가 drop 되며 임시 파일이 정리된다.
 
     if let Err(e) = result {
         eprintln!("{}", e);
