@@ -11,11 +11,9 @@ use std::fs;
 
 use serde::Serialize;
 
-use xazz_compiler::ast::{
-    ChartConfig, ChartType, FillNullValue, JoinHow, LayerKind, PipelineOp, PipelineSource, Stmt,
-    TrainConfig,
-};
-use xazz_compiler::{BinOpKind, Codegen, Expr, Lexer, Parser, StructField};
+use xazz_compiler::ast::{ChartConfig, ChartType, LayerKind};
+use xazz_compiler::ir::{ColType, MLOp, PipelineNode, Schema, SideOp, Source, Step as IrStep};
+use xazz_compiler::{Lexer, Parser};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ── ChartSpec — 프론트엔드로 전달하는 시각화 명세 (v0.19) ─────────────────────
@@ -186,8 +184,9 @@ pub fn run_pipeline(
 
     eprintln!("[xazz] Parser 완료: {} AST 노드", program.stmts.len());
 
-    // ── STEP 3.5: 정적 의미 분석 (Type Checker) — 실행 전 결함 검출 ──────────
-    let check = xazz_compiler::check_program(&program);
+    // ── STEP 3.5: 정적 의미 분석 (Type Checker) + Typed IR 생성 — 실행 전 결함 검출 ─
+    // analyze_program 은 진단과 IR 을 **단일 순회**로 만들어 이중 추론을 제거한다.
+    let (check, ir) = xazz_compiler::analyze_program(&program);
     if !check.errors.is_empty() || !check.warnings.is_empty() {
         eprintln!(
             "[xazz] 정적 분석: 오류 {}건 / 경고 {}건",
@@ -272,28 +271,20 @@ pub fn run_pipeline(
     }
 
     // ── STEP 4: Codegen — Polars 흐름 매핑 문자열 생성 ──────────────────────
-    let _codegen_output = Codegen::generate(&program);
+    //
+    // (Typed IR 도입으로 문자열 codegen 은 더 이상 실행 경로에서 사용하지 않는다.
+    //  raw AST 해석 대신 IR 을 lowering 한다. `xazz emit` 경로만 별도로 유지.)
 
-    // ── STEP 5: 런타임 엔진 ─────────────────────────────────────────────────
+    // ── STEP 5: 런타임 엔진 (Typed IR 소비) ─────────────────────────────────
 
-    // 5-A: TypeRegistry 구축 — TypeDecl 수집
-    let mut type_registry: HashMap<String, Vec<StructField>> = HashMap::new();
-    for stmt in &program.stmts {
-        if let Stmt::TypeDecl { name, fields } = stmt {
-            type_registry.insert(name.clone(), fields.clone());
-        }
-    }
-
-    // 5-A': ModelRegistry 구축 — ModelDecl 수집 (선언 순서와 무관하게 사용 가능)
+    // 5-A: ModelRegistry 구축 — ModelDecl 수집 + 로깅 (선언 순서와 무관하게 사용 가능)
     let mut model_registry: HashMap<String, Vec<LayerKind>> = HashMap::new();
-    for stmt in &program.stmts {
-        if let Stmt::ModelDecl { name, layers } = stmt {
-            model_registry.insert(name.clone(), layers.clone());
-            handle_model_decl(name, layers);
-        }
+    for m in &ir.models {
+        model_registry.insert(m.name.clone(), m.layers.clone());
+        handle_model_decl(&m.name, &m.layers);
     }
 
-    // 5-B: VarDecl 순차 실행 + SymbolTable 관리
+    // 5-B: 파이프라인 순차 실행 + SymbolTable 관리
     let mut symbol_table: HashMap<String, polars::frame::DataFrame> = HashMap::new();
     let mut model_table: HashMap<String, crate::dl::TrainedModel> = HashMap::new();
     // 세션 프라이버시 예산 (ε-budget) — withDp 호출마다 차감, 초과 시 해당 파이프라인 거부
@@ -301,124 +292,58 @@ pub fn run_pipeline(
     let mut pipeline_count = 0usize;
     let mut last_var_name: Option<String> = None;
 
-    for stmt in &program.stmts {
-        match stmt {
-            Stmt::VarDecl {
-                var_name,
-                is_mut: _,
-                source,
-                ops,
-            } => {
-                pipeline_count += 1;
+    for node in &ir.pipelines {
+        pipeline_count += 1;
+        let name = node.name.as_deref().unwrap_or("<expr>");
 
-                match execute_var_decl(
-                    var_name,
-                    source,
-                    ops,
-                    &symbol_table,
-                    &type_registry,
-                    &model_registry,
-                    &mut model_table,
-                    &mut dp_budget,
-                ) {
-                    Ok(Some(df)) => {
-                        eprintln!(
-                            "[xazz] Pipeline #{} '{}' 완료: {} 행 × {} 열",
-                            pipeline_count,
-                            var_name,
-                            df.height(),
-                            df.width()
-                        );
-                        last_var_name = Some(var_name.clone());
-                        symbol_table.insert(var_name.clone(), df);
-                    }
-                    Ok(None) => {
-                        // 모델 변수 (train 파이프라인) — model_table 에 이미 등록됨
-                        eprintln!(
-                            "[xazz] Pipeline #{} '{}' 완료: 학습 모델 생성",
-                            pipeline_count, var_name
-                        );
-                        last_var_name = None;
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "[xazz RUNTIME ERROR] Pipeline #{} ('{}') 실패: {}",
-                            pipeline_count, var_name, e
-                        );
-                    }
+        match execute_node(node, &symbol_table, &model_registry, &mut model_table, &mut dp_budget)
+        {
+            Ok(Some(df)) => {
+                if let Some(vname) = &node.name {
+                    eprintln!(
+                        "[xazz] Pipeline #{} '{}' 완료: {} 행 × {} 열",
+                        pipeline_count,
+                        vname,
+                        df.height(),
+                        df.width()
+                    );
+                    last_var_name = Some(vname.clone());
+                    symbol_table.insert(vname.clone(), df);
+                } else {
+                    eprintln!(
+                        "[xazz] Pipeline #{} (ExprStmt) 완료: {} 행 × {} 열",
+                        pipeline_count,
+                        df.height(),
+                        df.width()
+                    );
                 }
             }
-
-            Stmt::ExprStmt { source, ops } => {
-                pipeline_count += 1;
-                let anon_name = match source {
-                    PipelineSource::VarRef(src) => src.clone(),
-                    _ => format!("chart_{}", pipeline_count),
-                };
-
-                match execute_var_decl(
-                    &anon_name,
-                    source,
-                    ops,
-                    &symbol_table,
-                    &type_registry,
-                    &model_registry,
-                    &mut model_table,
-                    &mut dp_budget,
-                ) {
-                    Ok(Some(df)) => {
-                        eprintln!(
-                            "[xazz] Pipeline #{} (ExprStmt) 완료: {} 행 × {} 열",
-                            pipeline_count,
-                            df.height(),
-                            df.width()
-                        );
-                    }
-                    Ok(None) => {
-                        eprintln!(
-                            "[xazz] Pipeline #{} (ExprStmt) 완료: 학습 모델 생성 (바인딩 없음)",
-                            pipeline_count
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "[xazz RUNTIME ERROR] Pipeline #{} (ExprStmt) 실패: {}",
-                            pipeline_count, e
-                        );
-                    }
-                }
-            }
-
-            Stmt::ModelDecl { name: _, .. } => {
-                // ModelDecl 은 5-A' 단계에서 이미 로깅·등록됨 — 실행은 없다.
-                pipeline_count += 1;
-            }
-
-            Stmt::TrainStmt {
-                source_var,
-                model_name,
-                config,
-            } => {
-                pipeline_count += 1;
+            Ok(None) if node.yields_model => {
                 eprintln!(
-                    "[xazz] Pipeline #{} TrainStmt '{}' → 모델 '{}'",
-                    pipeline_count, source_var, model_name
+                    "[xazz] Pipeline #{} '{}' 완료: 학습 모델 생성",
+                    pipeline_count, name
                 );
-                let layers = model_registry
-                    .get(model_name)
-                    .cloned()
-                    .unwrap_or_else(|| vec![LayerKind::Dense(1)]);
-                handle_train_stmt(source_var, model_name, &layers, config, &symbol_table);
+                last_var_name = None;
             }
-
-            _ => {}
+            Ok(None) => {
+                eprintln!(
+                    "[xazz] Pipeline #{} (TrainStmt) 완료: 학습 모델 생성 (바인딩 없음)",
+                    pipeline_count
+                );
+            }
+            Err(e) => {
+                eprintln!(
+                    "[xazz RUNTIME ERROR] Pipeline #{} ('{}') 실패: {}",
+                    pipeline_count, name, e
+                );
+            }
         }
     }
 
     eprintln!(
-        "[xazz] 완료 — AST {} 개 / 스키마 {} 개 / 파이프라인 {} 개",
+        "[xazz] 완료 — AST {} 개 / 타입 {} 개 / 파이프라인 {} 개",
         program.stmts.len(),
-        type_registry.len(),
+        ir.types.len(),
         pipeline_count
     );
 
@@ -491,72 +416,15 @@ fn save_df_as_csv(
     Ok(())
 }
 
-// ── AST Expr → Polars Expr 변환 ──────────────────────────────────────────────
-fn to_polars_expr(expr: &Expr) -> polars::prelude::Expr {
-    use polars::prelude::{col, lit};
-    match expr {
-        Expr::Ident(s) => col(s.as_str()),
-        Expr::IntLit(n) => lit(*n),
-        Expr::FloatLit(f) => lit(*f),
-        Expr::StringLit(s) => lit(s.clone()),
-        Expr::BoolLit(b) => lit(*b),
-        Expr::BinOp { lhs, op, rhs } => {
-            let l = to_polars_expr(lhs);
-            let r = to_polars_expr(rhs);
-            match op {
-                BinOpKind::Eq => l.eq(r),
-                BinOpKind::NotEq => l.neq(r),
-                BinOpKind::Lt => l.lt(r),
-                BinOpKind::Gt => l.gt(r),
-                BinOpKind::LtEq => l.lt_eq(r),
-                BinOpKind::GtEq => l.gt_eq(r),
-                BinOpKind::Add => l + r,
-                BinOpKind::Sub => l - r,
-                BinOpKind::Mul => l * r,
-                BinOpKind::Div => l / r,
-            }
-        }
-    }
-}
-
-// ── JoinHow → Polars JoinType 변환 ────────────────────────────────────────────
-fn to_polars_join_type(how: &JoinHow) -> polars::prelude::JoinType {
-    use polars::prelude::JoinType;
-    match how {
-        JoinHow::Inner => JoinType::Inner,
-        JoinHow::Left => JoinType::Left,
-        JoinHow::Outer => JoinType::Full,
-        JoinHow::Cross => JoinType::Cross,
-    }
-}
-
 // ── Schema-Based Type Cast ────────────────────────────────────────────────────
-fn apply_schema_cast(
-    lf: polars::prelude::LazyFrame,
-    schema_fields: &[StructField],
-) -> polars::prelude::LazyFrame {
-    use polars::prelude::{DataType, col};
+fn apply_schema_cast(lf: polars::prelude::LazyFrame, schema: &Schema) -> polars::prelude::LazyFrame {
+    use polars::prelude::col;
 
-    let cast_exprs: Vec<polars::prelude::Expr> = schema_fields
+    let cast_exprs: Vec<polars::prelude::Expr> = schema
+        .fields
         .iter()
         .filter_map(|field| {
-            let inner_type = if field.field_type.starts_with("Option<") {
-                field
-                    .field_type
-                    .trim_start_matches("Option<")
-                    .trim_end_matches('>')
-            } else {
-                field.field_type.as_str()
-            };
-
-            let dtype = match inner_type {
-                "string" | "str" => Some(DataType::String),
-                "int" => Some(DataType::Int64),
-                "float" => Some(DataType::Float64),
-                "bool" => Some(DataType::Boolean),
-                _ => None,
-            };
-
+            let dtype = ir_col_to_dtype(&field.ty);
             dtype.map(|dt| col(field.name.as_str()).cast(dt).alias(field.name.as_str()))
         })
         .collect();
@@ -568,19 +436,31 @@ fn apply_schema_cast(
     }
 }
 
+/// IR ColType → Polars DataType (컬럼 캐스팅용).
+fn ir_col_to_dtype(ty: &ColType) -> Option<polars::prelude::DataType> {
+    use polars::prelude::DataType;
+    match ty.inner() {
+        ColType::String => Some(DataType::String),
+        ColType::Int => Some(DataType::Int64),
+        ColType::Float => Some(DataType::Float64),
+        ColType::Bool => Some(DataType::Boolean),
+        _ => None,
+    }
+}
+
 // ── Dynamic Schema Bridge ─────────────────────────────────────────────────────
 fn apply_dynamic_bridge(
     lf: polars::prelude::LazyFrame,
     csv_headers: &[String],
-    schema_fields: &[StructField],
+    schema: &Schema,
 ) -> polars::prelude::LazyFrame {
-    let map_count = csv_headers.len().min(schema_fields.len());
+    let map_count = csv_headers.len().min(schema.fields.len());
 
     let old_names: Vec<&str> = csv_headers[..map_count]
         .iter()
         .map(String::as_str)
         .collect();
-    let new_names: Vec<&str> = schema_fields[..map_count]
+    let new_names: Vec<&str> = schema.fields[..map_count]
         .iter()
         .map(|f| f.name.as_str())
         .collect();
@@ -600,13 +480,9 @@ fn apply_dynamic_bridge(
 }
 
 // ── 타입 검증 / Null 처리 ─────────────────────────────────────────────────────
-fn validate_schema_types(
-    df: &polars::frame::DataFrame,
-    schema_name: &str,
-    schema_fields: &[StructField],
-) {
-    for field in schema_fields {
-        let is_optional = field.field_type.starts_with("Option<");
+fn validate_schema_types(df: &polars::frame::DataFrame, label: &str, schema: &Schema) {
+    for field in &schema.fields {
+        let is_optional = field.ty.is_option();
         match df.column(&field.name) {
             Ok(series) => {
                 let null_count = series.null_count();
@@ -614,7 +490,7 @@ fn validate_schema_types(
                 if null_count > 0 && !is_optional {
                     eprintln!(
                         "[xazz WARN] Null 위반 [{}]: 필수 필드 '{}' ({:?}) 에 null {} 개 발견",
-                        schema_name, field.name, dtype, null_count
+                        label, field.name, dtype, null_count
                     );
                 }
             }
@@ -663,314 +539,127 @@ fn load_csv_as_df(file_path: &str) -> Result<polars::frame::DataFrame, Box<dyn s
     Ok(df)
 }
 
-// ── 단일 파이프라인 실행 ──────────────────────────────────────────────────────
-fn execute_var_decl(
-    var_name: &str,
-    source: &PipelineSource,
-    ops: &[PipelineOp],
+// ── 단일 파이프라인 노드 실행 (Typed IR 소비) ────────────────────────────────
+//
+// raw AST 해석 대신 타입체커가 만든 PipelineNode 를 1회 소비하여
+// 데이터(lower::lower_data)/ML(dl::train/predict)/부수(chart/dp)로 분기한다.
+fn execute_node(
+    node: &PipelineNode,
     symbol_table: &HashMap<String, polars::frame::DataFrame>,
-    type_registry: &HashMap<String, Vec<StructField>>,
     model_registry: &HashMap<String, Vec<LayerKind>>,
     model_table: &mut HashMap<String, crate::dl::TrainedModel>,
     dp_budget: &mut crate::dp::PrivacyBudget,
 ) -> Result<Option<polars::frame::DataFrame>, Box<dyn std::error::Error>> {
-    use polars::prelude::{IntoLazy, JoinArgs, SortMultipleOptions, col, lit};
+    use polars::prelude::IntoLazy;
 
-    let (mut lf, schema_fields_opt): (polars::prelude::LazyFrame, Option<Vec<StructField>>) =
-        match source {
-            PipelineSource::Load {
-                file_path,
-                schema_name,
-            } => {
-                let df_raw = load_csv_as_df(file_path)?;
-                let csv_headers: Vec<String> = df_raw
-                    .get_column_names()
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect();
+    let (mut lf, _schema_opt): (polars::prelude::LazyFrame, Option<&Schema>) = match &node.source {
+        Source::Load { file_path, schema } => {
+            let df_raw = load_csv_as_df(file_path)?;
+            let csv_headers: Vec<String> = df_raw
+                .get_column_names()
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
 
-                let schema_fields = type_registry.get(schema_name.as_str()).cloned();
-                let lf_raw = df_raw.lazy();
+            let lf_raw = df_raw.lazy();
 
-                let lf_bridged = if let Some(ref fields) = schema_fields {
+            let lf_bridged = match schema {
+                Some(fields) => {
                     let lf_renamed = apply_dynamic_bridge(lf_raw, &csv_headers, fields);
                     apply_schema_cast(lf_renamed, fields)
-                } else {
-                    lf_raw
-                };
-
-                // 스키마 Null/타입 검증은 집계 등 파이프라인 연산 적용 전,
-                // load() 직후의 원본(브리지/캐스트된) 프레임을 대상으로 수행한다.
-                // 결과 프레임을 대상으로 하면 집계로 사라진 컬럼이 "찾을 수 없음" 오탐이 된다.
-                if let Some(ref fields) = schema_fields {
-                    let df_loaded = lf_bridged.clone().collect()?;
-                    validate_schema_types(&df_loaded, schema_name, fields);
                 }
+                None => lf_raw,
+            };
 
-                (lf_bridged, schema_fields)
+            // 스키마 Null/타입 검증은 집계 등 파이프라인 연산 적용 전,
+            // load() 직후의 원본(브리지/캐스트된) 프레임을 대상으로 수행한다.
+            if let Some(fields) = schema {
+                let df_loaded = lf_bridged.clone().collect()?;
+                validate_schema_types(&df_loaded, file_path, fields);
             }
 
-            PipelineSource::VarRef(src_var) => match symbol_table.get(src_var.as_str()) {
-                Some(df) => (df.clone().lazy(), None),
-                None => {
-                    return Err(format!(
-                        "변수 에러: 미선언 변수 '{}' 참조. 이전 파이프라인에서 먼저 선언하세요.",
-                        src_var
+            (lf_bridged, schema.as_ref())
+        }
+        Source::Ref { var } => match symbol_table.get(var.as_str()) {
+            Some(df) => (df.clone().lazy(), None),
+            None => {
+                return Err(format!(
+                    "변수 에러: 미선언 변수 '{}' 참조. 이전 파이프라인에서 먼저 선언하세요.",
+                    var
+                )
+                .into());
+            }
+        },
+    };
+
+    let mut pending_group: Option<String> = None;
+
+    for step in &node.steps {
+        match step {
+            IrStep::Data(op) => {
+                crate::lower::lower_data(op, &mut lf, symbol_table, &mut pending_group)?;
+            }
+            IrStep::ML(MLOp::Train { model, config }) => {
+                let snapshot = lf.clone().collect()?;
+                let layers = model_registry.get(model.as_str()).cloned().ok_or_else(|| {
+                    format!(
+                        "모델 블록 '{model}' 을 찾을 수 없습니다. 먼저 `model {model} {{ ... }}` 로 선언하세요."
                     )
-                    .into());
-                }
-            },
-        };
+                })?;
+                let trained = crate::dl::train(&snapshot, model, &layers, config)
+                    .map_err(|e| format!("학습 실패: {e}"))?;
+                print_train_report(&trained);
 
-    let mut pending_group_by: Option<String> = None;
-    let mut has_count_flag = false;
-
-    for op in ops {
-        match op {
-            PipelineOp::Filter(expr) => {
-                lf = lf.filter(to_polars_expr(expr));
-            }
-            PipelineOp::Select(cols) => {
-                let exprs: Vec<polars::prelude::Expr> =
-                    cols.iter().map(|c| col(c.as_str())).collect();
-                lf = lf.select(exprs);
-            }
-            PipelineOp::Count(None) => {
-                has_count_flag = true;
-            }
-
-            PipelineOp::GroupBy(group_col) => {
-                pending_group_by = Some(group_col.clone());
-            }
-
-            PipelineOp::Count(Some(agg_col)) => {
-                if let Some(group_col) = pending_group_by.take() {
-                    lf = lf
-                        .group_by([col(group_col.as_str())])
-                        .agg([col(agg_col.as_str()).count()]);
-                } else {
-                    lf = lf.select([col(agg_col.as_str()).count()]);
-                }
-            }
-            PipelineOp::Sum(agg_col) => {
-                if let Some(group_col) = pending_group_by.take() {
-                    lf = lf
-                        .group_by([col(group_col.as_str())])
-                        .agg([col(agg_col.as_str()).sum()]);
-                } else {
-                    lf = lf.select([col(agg_col.as_str()).sum()]);
-                }
-            }
-            PipelineOp::Mean(agg_col) => {
-                if let Some(group_col) = pending_group_by.take() {
-                    lf = lf
-                        .group_by([col(group_col.as_str())])
-                        .agg([col(agg_col.as_str()).mean()]);
-                } else {
-                    lf = lf.select([col(agg_col.as_str()).mean()]);
-                }
-            }
-            PipelineOp::Min(agg_col) => {
-                if let Some(group_col) = pending_group_by.take() {
-                    lf = lf
-                        .group_by([col(group_col.as_str())])
-                        .agg([col(agg_col.as_str()).min()]);
-                } else {
-                    lf = lf.select([col(agg_col.as_str()).min()]);
-                }
-            }
-            PipelineOp::Max(agg_col) => {
-                if let Some(group_col) = pending_group_by.take() {
-                    lf = lf
-                        .group_by([col(group_col.as_str())])
-                        .agg([col(agg_col.as_str()).max()]);
-                } else {
-                    lf = lf.select([col(agg_col.as_str()).max()]);
-                }
-            }
-
-            // ── v0.22 median / variance / std 집계 (ddof=1) ────────────────
-            PipelineOp::Median(agg_col) => {
-                if let Some(group_col) = pending_group_by.take() {
-                    lf = lf
-                        .group_by([col(group_col.as_str())])
-                        .agg([col(agg_col.as_str()).median()]);
-                } else {
-                    lf = lf.select([col(agg_col.as_str()).median()]);
-                }
-            }
-            PipelineOp::Variance(agg_col) => {
-                if let Some(group_col) = pending_group_by.take() {
-                    lf = lf
-                        .group_by([col(group_col.as_str())])
-                        .agg([col(agg_col.as_str()).var(1)]);
-                } else {
-                    lf = lf.select([col(agg_col.as_str()).var(1)]);
-                }
-            }
-            PipelineOp::Std(agg_col) => {
-                if let Some(group_col) = pending_group_by.take() {
-                    lf = lf
-                        .group_by([col(group_col.as_str())])
-                        .agg([col(agg_col.as_str()).std(1)]);
-                } else {
-                    lf = lf.select([col(agg_col.as_str()).std(1)]);
-                }
-            }
-
-            // ── v0.22 sample(n) / sample(n, seed: 42) — 무작위 샘플링 ───────
-            PipelineOp::Sample { n, seed } => {
-                let snapshot = lf.clone().collect()?;
-                let seed_u64 = seed.map(|s| s as u64);
-                let sampled = snapshot.sample_n_literal(*n as usize, false, false, seed_u64)?;
-                lf = sampled.lazy();
-            }
-
-            // ── v0.6 withDp(epsilon: ...) — 차등 프라이버시 노이즈 주입 ──────
-            PipelineOp::WithDp(dp_args) => {
-                // 1) 세션 ε-budget 차감 — 초과 시 파이프라인 전체 거부 (재구성 공격 방어)
-                dp_budget.spend(dp_args.epsilon)?;
-
-                // 2) 현재까지의 파이프라인을 collect 후 출력 섭동(output perturbation)
-                let snapshot = lf.clone().collect()?;
-                let (noised, report) = crate::dp::apply_dp(&snapshot, dp_args)?;
-
-                // 3) 감사로그 마커 — 프론트엔드/증적 시스템이 파싱 가능한 두 줄 출력.
-                //    프라이버시 예산 게이지를 그릴 수 있도록 누적 spent/total 을 함께 실는다.
-                println!("[xazz:dp]");
-                let mut dp_json =
-                    serde_json::to_value(&report).unwrap_or_else(|_| serde_json::json!({}));
-                if let Some(obj) = dp_json.as_object_mut() {
-                    obj.insert("budget_spent".into(), serde_json::json!(dp_budget.spent()));
-                    obj.insert("budget_total".into(), serde_json::json!(dp_budget.total()));
-                }
-                println!("{}", dp_json);
-                eprintln!(
-                    "[xazz] DP 적용: {} (ε={}, Δf={}, 노이즈 파라미터={:.4}) — 컬럼 {:?} | 예산 {:.2}/{:.2} 사용",
-                    report.mechanism,
-                    report.epsilon,
-                    report.sensitivity,
-                    report.noise_param,
-                    report.noised_columns,
-                    dp_budget.spent(),
-                    dp_budget.total(),
+                let source_var = node.name.clone().unwrap_or_else(|| match &node.source {
+                    Source::Ref { var } => var.clone(),
+                    Source::Load { .. } => String::new(),
+                });
+                let train_json = serde_json::json!({
+                    "type": "train_stmt",
+                    "success": true,
+                    "source_var": source_var,
+                    "model_name": model,
+                    "report": serde_json::to_value(&trained.report).unwrap_or_default(),
+                });
+                println!(
+                    "[xazz:train] {}",
+                    serde_json::to_string(&train_json).unwrap_or_default()
                 );
 
-                lf = noised.lazy();
-            }
-
-            PipelineOp::OrderBy {
-                col: sort_col,
-                desc,
-            } => {
-                let sort_opts = SortMultipleOptions::default().with_order_descending(*desc);
-                lf = lf.sort([sort_col.as_str()], sort_opts);
-            }
-
-            PipelineOp::Take(n) => {
-                if *n <= 0 {
-                    return Err("take() 의 n 은 0보다 커야 합니다.".into());
+                if node.yields_model
+                    && let Some(vname) = &node.name
+                {
+                    model_table.insert(vname.clone(), trained);
                 }
-                lf = lf.limit(*n as u32);
+                return Ok(None);
             }
-
-            PipelineOp::DropNull(drop_col) => {
-                lf = lf.filter(col(drop_col.as_str()).is_not_null());
-            }
-            PipelineOp::FillNull {
-                col: fill_col,
-                value,
-            } => {
-                // 전략형 채우기: fillNull("col", strategy: "mean" | "median" | "zero")
-                // fill_null() 은 Expr 을 받으므로 컬럼 평균/중앙값 Expr 로 직접 채운다.
-                let fill_expr: polars::prelude::Expr = match value {
-                    FillNullValue::Mean => col(fill_col.as_str()).mean(),
-                    FillNullValue::Median => col(fill_col.as_str()).median(),
-                    FillNullValue::Zero => lit(0),
-                    FillNullValue::Int(n) => lit(*n),
-                    FillNullValue::Float(f) => lit(*f),
-                    FillNullValue::Str(s) => lit(s.clone()),
-                };
-                lf = lf.with_columns([col(fill_col.as_str()).fill_null(fill_expr)]);
-            }
-
-            PipelineOp::Join {
-                other,
-                left_on,
-                right_on,
-                how,
-            } => match symbol_table.get(other.as_str()) {
-                Some(other_df) => {
-                    let other_lf = other_df.clone().lazy();
-                    let left_keys: Vec<polars::prelude::Expr> =
-                        left_on.iter().map(|k| col(k.as_str())).collect();
-                    let right_keys: Vec<polars::prelude::Expr> =
-                        right_on.iter().map(|k| col(k.as_str())).collect();
-                    let join_type = to_polars_join_type(how);
-                    lf = lf.join(other_lf, left_keys, right_keys, JoinArgs::new(join_type));
-                }
-                None => {
-                    return Err(format!(
-                        "런타임 에러: join() 대상 변수 '{}' 가 심볼 테이블에 없습니다.",
-                        other
+            IrStep::ML(MLOp::Predict { model, as_col }) => {
+                let trained = model_table.get(model.as_str()).ok_or_else(|| {
+                    format!(
+                        "학습된 모델 변수 '{model}' 이 없습니다. 먼저 `v {model} = ... |> train(...)` 로 학습하세요."
                     )
-                    .into());
-                }
-            },
-
-            PipelineOp::WithColumn {
-                name: col_name,
-                expr,
-            } => {
-                let polars_expr = to_polars_expr(expr).alias(col_name.as_str());
-                lf = lf.with_columns([polars_expr]);
+                })?;
+                let snapshot = lf.clone().collect()?;
+                let out = crate::dl::predict(trained, &snapshot, as_col.as_deref())
+                    .map_err(|e| format!("예측 실패: {e}"))?;
+                eprintln!(
+                    "[xazz] Predict '{}' 완료: 예측 컬럼 추가 ({} 행)",
+                    model,
+                    out.height()
+                );
+                lf = out.lazy();
             }
-
-            PipelineOp::Cast {
-                col: cast_col,
-                to_type,
-            } => {
-                use polars::prelude::DataType;
-                let dtype = match to_type.as_str() {
-                    "float" => DataType::Float64,
-                    "int" => DataType::Int64,
-                    "str" => DataType::String,
-                    "bool" => DataType::Boolean,
-                    other => {
-                        return Err(format!(
-                            "런타임 에러: cast() 에 알 수 없는 타입 '{}'. 지원 타입: \"float\", \"int\", \"str\", \"bool\"",
-                            other
-                        )
-                        .into());
-                    }
-                };
-                lf = lf.with_columns([col(cast_col.as_str()).cast(dtype)]);
-            }
-
-            PipelineOp::Rename { old_name, new_name } => {
-                let old: Vec<&str> = vec![old_name.as_str()];
-                let new: Vec<&str> = vec![new_name.as_str()];
-                lf = lf.rename(old, new, false);
-            }
-
-            PipelineOp::Replace {
-                col: replace_col,
-                from,
-                to,
-            } => {
-                lf = lf.with_columns([col(replace_col.as_str())
-                    .str()
-                    .replace_all(lit(from.as_str()), lit(to.as_str()), true)
-                    .alias(replace_col.as_str())]);
-            }
-
-            PipelineOp::Chart(config) => {
+            IrStep::Side(SideOp::Chart(config)) => {
                 let snapshot = lf.clone().collect()?;
                 let spec = build_chart_spec(config, &snapshot)?;
                 println!("[xazz:chart]");
                 println!("{}", serde_json::to_string(&spec)?);
 
-                let safe_name: String = var_name
+                let safe_base = node.name.clone().unwrap_or_else(|| match &node.source {
+                    Source::Ref { var } => var.clone(),
+                    Source::Load { .. } => format!("chart_{}", node.id + 1),
+                });
+                let safe_name: String = safe_base
                     .chars()
                     .map(|c| {
                         if c.is_alphanumeric() || c == '_' || c == '-' {
@@ -1007,64 +696,39 @@ fn execute_var_decl(
                 );
                 lf = snapshot.lazy();
             }
+            IrStep::Side(SideOp::WithDp(args)) => {
+                // 1) 세션 ε-budget 차감 — 초과 시 파이프라인 전체 거부 (재구성 공격 방어)
+                dp_budget.spend(args.epsilon)?;
 
-            // ── v0.5 train(Model, ...) — Burn 딥러닝 학습 (파이프라인 연산자) ──
-            PipelineOp::Train { model_name, config } => {
+                // 2) 현재까지의 파이프라인을 collect 후 출력 섭동(output perturbation)
                 let snapshot = lf.clone().collect()?;
-                let layers = model_registry
-                    .get(model_name.as_str())
-                    .cloned()
-                    .ok_or_else(|| {
-                        format!(
-                            "모델 블록 '{model_name}' 을 찾을 수 없습니다. 먼저 `model {model_name} {{ ... }}` 로 선언하세요."
-                        )
-                    })?;
-                let trained = crate::dl::train(&snapshot, model_name, &layers, config)
-                    .map_err(|e| format!("학습 실패: {e}"))?;
-                // 학습 리포트 출력
-                print_train_report(&trained);
+                let (noised, report) = crate::dp::apply_dp(&snapshot, args)?;
 
-                // [xazz:train] JSON 마커 — 서버/IDE에서 학습 결과를 파싱 (파이프라인 연산자 경로)
-                let train_json = serde_json::json!({
-                    "type": "train_stmt",
-                    "success": true,
-                    "source_var": var_name,
-                    "model_name": model_name,
-                    "report": serde_json::to_value(&trained.report).unwrap_or_default(),
-                });
-                println!(
-                    "[xazz:train] {}",
-                    serde_json::to_string(&train_json).unwrap_or_default()
-                );
-
-                model_table.insert(var_name.to_string(), trained);
-                return Ok(None);
-            }
-
-            // ── v0.5 predict(model_var, as: "col") — 학습 모델 예측 ──────────
-            PipelineOp::Predict { model_var, as_col } => {
-                let trained = model_table.get(model_var.as_str()).ok_or_else(|| {
-                    format!(
-                        "학습된 모델 변수 '{model_var}' 이 없습니다. 먼저 `v {model_var} = ... |> train(...)` 로 학습하세요."
-                    )
-                })?;
-                let snapshot = lf.clone().collect()?;
-                let out = crate::dl::predict(trained, &snapshot, as_col.as_deref())
-                    .map_err(|e| format!("예측 실패: {e}"))?;
+                println!("[xazz:dp]");
+                let mut dp_json =
+                    serde_json::to_value(&report).unwrap_or_else(|_| serde_json::json!({}));
+                if let Some(obj) = dp_json.as_object_mut() {
+                    obj.insert("budget_spent".into(), serde_json::json!(dp_budget.spent()));
+                    obj.insert("budget_total".into(), serde_json::json!(dp_budget.total()));
+                }
+                println!("{}", dp_json);
                 eprintln!(
-                    "[xazz] Predict '{}' 완료: 예측 컬럼 추가 ({} 행)",
-                    model_var,
-                    out.height()
+                    "[xazz] DP 적용: {} (ε={}, Δf={}, 노이즈 파라미터={:.4}) — 컬럼 {:?} | 예산 {:.2}/{:.2} 사용",
+                    report.mechanism,
+                    report.epsilon,
+                    report.sensitivity,
+                    report.noise_param,
+                    report.noised_columns,
+                    dp_budget.spent(),
+                    dp_budget.total(),
                 );
-                lf = out.lazy();
+
+                lf = noised.lazy();
             }
         }
     }
 
     let df = lf.collect()?;
-
-    let _ = (var_name, has_count_flag, schema_fields_opt);
-
     Ok(Some(df))
 }
 
@@ -1103,82 +767,6 @@ fn handle_model_decl(name: &str, layers: &[LayerKind]) {
     );
 }
 
-/// TrainStmt 처리 — Burn 학습 루프를 실제 실행하고 결과를 리포트한다.
-fn handle_train_stmt(
-    source_var: &str,
-    model_name: &str,
-    layers: &[LayerKind],
-    config: &TrainConfig,
-    symbol_table: &HashMap<String, polars::frame::DataFrame>,
-) {
-    println!();
-    println!("🏋️  [xazz Training: {} → {}]", source_var, model_name);
-    println!("{}", "─".repeat(60));
-
-    let Some(df) = symbol_table.get(source_var) else {
-        eprintln!(
-            "  ❌  데이터 소스 변수 '{}' 가 심볼 테이블에 없습니다.",
-            source_var
-        );
-        return;
-    };
-
-    println!(
-        "  데이터 소스: {} ({} 행 × {} 열)",
-        source_var,
-        df.height(),
-        df.width()
-    );
-    println!("  컬럼: {:?}", df.get_column_names());
-    println!("  모델: {}", model_name);
-    println!("  타겟 컬럼: {}", config.target);
-    println!("  에포크: {}", config.epochs);
-    println!("  학습률: {}", config.learning_rate);
-    let batch_str = match config.batch_size {
-        Some(b) => format!("{}", b),
-        None => "전체 데이터".to_string(),
-    };
-    let val_str = match config.validation_split {
-        Some(v) => format!("{:.1}%", v * 100.0),
-        None => "없음".to_string(),
-    };
-    println!("  배치 크기: {}", batch_str);
-    println!("  검증 비율: {}", val_str);
-    println!();
-
-    match crate::dl::train(df, model_name, layers, config) {
-        Ok(trained) => {
-            print_train_report(&trained);
-
-            // [xazz:train] JSON 마커 — 서버/IDE에서 학습 결과를 파싱
-            let train_json = serde_json::json!({
-                "type": "train_stmt",
-                "success": true,
-                "source_var": source_var,
-                "model_name": model_name,
-                "report": serde_json::to_value(&trained.report).unwrap_or_default(),
-            });
-            println!(
-                "[xazz:train] {}",
-                serde_json::to_string(&train_json).unwrap_or_default()
-            );
-        }
-        Err(e) => {
-            eprintln!("  ❌  학습 실패: {}", e);
-            let train_json = serde_json::json!({
-                "type": "train_stmt",
-                "success": false,
-                "source_var": source_var,
-                "model_name": model_name,
-                "error": e,
-            });
-            println!(
-                "[xazz:train] {}",
-                serde_json::to_string(&train_json).unwrap_or_default()
-            );
-        }
-    }
-}
 
 /// 학습된 모델(TrainedModel)의 리포트를 콘솔에 출력한다.
 fn print_train_report(trained: &crate::dl::TrainedModel) {
