@@ -217,7 +217,7 @@ async fn handle_execute(
     }
 
     // 2. xazz.exe 실행 파일 경로 탐색
-    let exe_path = find_xazz_exe();
+    let exe_path = find_xazz_exe().map_err(|e| internal_err(e))?;
 
     // 3. xazz run <tmp.xzz> 실행
     //    게이트를 통과한 요청만 이 지점에 도달한다 — 테스트가 카운터로 검증한다.
@@ -701,11 +701,11 @@ async fn handle_remediate(
 
 // ── 유틸리티 ──────────────────────────────────────────────────────────────────
 
-fn find_xazz_exe() -> PathBuf {
-    // 0. 환경변수로 경로 고정 (배포 하드닝) — 지정되면 PATH 폴백을 절대 수행하지 않는다
+fn find_xazz_exe() -> Result<PathBuf, String> {
+    // 1. 환경변수로 경로 고정 (배포 하드닝)
     if let Ok(pinned) = std::env::var("XAZZ_EXEC_PATH") {
         if !pinned.trim().is_empty() {
-            return PathBuf::from(pinned);
+            return Ok(PathBuf::from(pinned));
         }
     }
 
@@ -716,28 +716,29 @@ fn find_xazz_exe() -> PathBuf {
         &["xazz", "xazz.exe"]
     };
 
-    // 1. 현재 실행파일과 같은 디렉터리
+    // 2. 현재 실행파일과 같은 디렉터리
     if let Ok(current_exe) = std::env::current_exe() {
         let dir = current_exe.parent().unwrap_or(&current_exe);
         for name in names {
             let sibling = dir.join(name);
             if sibling.exists() {
-                return sibling;
+                return Ok(sibling);
             }
         }
     }
-    // 2. target/release (CWD 기준)
+    // 3. target/release (CWD 기준, 프로젝트 로컬)
     for name in names {
         let candidate = PathBuf::from("target/release").join(name);
         if candidate.exists() {
-            return candidate;
+            return Ok(candidate);
         }
     }
-    // 3. PATH fallback
-    eprintln!(
-        "[xazz WARN] 실행기 xazz 를 PATH 에서 찾았습니다 (운영 환경에서는 XAZZ_EXEC_PATH 로 절대 경로를 고정하세요)"
-    );
-    PathBuf::from("xazz")
+    // PATH 폴백은 수행하지 않는다 (PATH 셰도잉 방지, fail-closed)
+    Err(
+        "xazz 실행 파일을 찾을 수 없습니다 (PATH 폴백은 보안상 비활성화됨). \
+         XAZZ_EXEC_PATH 로 절대 경로를 지정하거나 xazz 를 xazz-server 와 같은 디렉터리에 배치하세요."
+            .to_string(),
+    )
 }
 
 fn internal_err(msg: String) -> (StatusCode, Json<ExecuteResponse>) {

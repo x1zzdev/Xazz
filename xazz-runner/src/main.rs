@@ -53,9 +53,13 @@ fn main() {
     }
 
     // ── xazz-exec 바이너리 경로 해석 ──────────────────────────────────────
-    // 1순위: 현재 실행 파일과 동일 디렉터리의 xazz-exec[.exe]
-    // 2순위: PATH에서 검색
-    let exec_path = resolve_exec_binary();
+    let exec_path = match resolve_exec_binary() {
+        Ok(p) => p,
+        Err(msg) => {
+            eprintln!("[xazz-runner] ERROR: {}", msg);
+            std::process::exit(1);
+        }
+    };
 
     // ── xazz-exec 서브프로세스 스폰 ───────────────────────────────────────
     // stdin/stdout/stderr 상속 → 투명한 IPC relay
@@ -96,23 +100,28 @@ fn print_usage() {
 ///
 /// 종료 코드: 0 = 정상, 1 = 엔진 누락/실행 불가
 fn check_engine() {
-    let exec_path = resolve_exec_binary();
-
     let mut ok = true;
     println!("[xazz-runner] 실행 엔진 진단");
-    println!("  엔진 경로 : {}", exec_path.display());
+
+    let exec_path = match resolve_exec_binary() {
+        Ok(p) => {
+            println!("  엔진 경로 : {}", p.display());
+            p
+        }
+        Err(msg) => {
+            eprintln!("  오류     : {}", msg);
+            eprintln!(
+                "[xazz-runner] 진단 실패 — xazz-exec 를 xazz-runner 와 같은 디렉터리에 배치하거나 XAZZ_EXEC_PATH 를 설정하세요."
+            );
+            std::process::exit(1);
+        }
+    };
 
     if exec_path.exists() {
         println!("  존재     : 예");
     } else {
-        // PATH 폴백 경로일 수 있으므로 PATH 재검색
-        match find_on_path("xazz-exec") {
-            Some(p) => println!("  존재     : 예 (PATH: {})", p.display()),
-            None => {
-                println!("  존재     : 아니오");
-                ok = false;
-            }
-        }
+        println!("  존재     : 아니오");
+        ok = false;
     }
 
     // 실행 가능 여부는 실제로 --version 호출로 확인
@@ -144,60 +153,45 @@ fn check_engine() {
         println!("[xazz-runner] 진단 통과 — 실행 엔진 사용 가능");
     } else {
         eprintln!(
-            "[xazz-runner] 진단 실패 — xazz-exec 를 xazz-runner 와 같은 디렉터리에 배치하거나 PATH 에 추가하세요."
+            "[xazz-runner] 진단 실패 — xazz-exec 를 xazz-runner 와 같은 디렉터리에 배치하거나 XAZZ_EXEC_PATH 를 설정하세요."
         );
     }
     std::process::exit(if ok { 0 } else { 1 });
 }
 
-/// PATH 에서 실행 파일을 검색한다.
-fn find_on_path(name: &str) -> Option<PathBuf> {
-    let path_var = std::env::var_os("PATH")?;
-    let exe = if cfg!(windows) {
-        format!("{}.exe", name)
-    } else {
-        name.to_string()
-    };
-    for dir in std::env::split_paths(&path_var) {
-        let candidate = dir.join(&exe);
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-    None
-}
-
 /// xazz-exec 바이너리 경로를 해석한다.
 ///
 /// 우선순위:
-/// 1. 현재 실행 파일(xazz-runner)과 같은 디렉터리
-/// 2. PATH 검색 폴백
-fn resolve_exec_binary() -> PathBuf {
+/// 1. `XAZZ_EXEC_PATH` 환경변수 (배포 하드닝)
+/// 2. 현재 실행 파일(xazz-runner)과 같은 디렉터리
+///
+/// PATH 폴백은 수행하지 않는다 (PATH 셰도잉으로 임의 코드 실행되는 것을 방지).
+/// 찾지 못하면 `Err`를 반환한다 (fail-closed).
+fn resolve_exec_binary() -> Result<PathBuf, String> {
     #[cfg(target_os = "windows")]
     let exec_name = "xazz-exec.exe";
     #[cfg(not(target_os = "windows"))]
     let exec_name = "xazz-exec";
 
-    // 0. 환경변수로 경로 고정 (배포 하드닝) — 지정되면 PATH 폴백을 절대 수행하지 않는다
+    // 1. 환경변수로 경로 고정 (배포 하드닝)
     if let Ok(pinned) = std::env::var("XAZZ_EXEC_PATH") {
         if !pinned.trim().is_empty() {
-            return PathBuf::from(pinned);
+            return Ok(PathBuf::from(pinned));
         }
     }
 
-    // 현재 실행 파일 옆에서 찾기
+    // 2. 현재 실행 파일 옆에서 찾기
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(dir) = current_exe.parent() {
             let candidate = dir.join(exec_name);
             if candidate.exists() {
-                return candidate;
+                return Ok(candidate);
             }
         }
     }
 
-    // PATH 폴백
-    eprintln!(
-        "[xazz WARN] 실행기 xazz-exec 를 PATH 에서 찾았습니다 (운영 환경에서는 XAZZ_EXEC_PATH 로 절대 경로를 고정하세요)"
-    );
-    PathBuf::from(exec_name)
+    Err(format!(
+        "xazz-exec 실행 엔진을 찾을 수 없습니다 (PATH 폴백은 보안상 비활성화됨). \
+         XAZZ_EXEC_PATH 로 절대 경로를 지정하거나 xazz-exec 를 xazz-runner 와 같은 디렉터리에 배치하세요."
+    ))
 }

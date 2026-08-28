@@ -368,17 +368,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 // ── xazz-runner 바이너리 탐색 ────────────────────────────────────────────────
 //
 // 탐색 순서:
-//   1. 현재 xazz 실행 파일과 같은 디렉토리
-//   2. PATH에서 찾기 (OS가 Command::new에서 자동 처리)
+//   1. XAZZ_RUNNER_PATH 환경변수 (배포 하드닝)
+//   2. 현재 xazz 실행 파일과 같은 디렉토리
+// PATH 폴백은 수행하지 않는다 (PATH 셰도잉으로 임의 코드 실행 방지, fail-closed)
 fn find_runner() -> Result<std::path::PathBuf, String> {
-    // 0. 환경변수로 경로 고정 (배포 하드닝) — 지정되면 PATH 폴백을 절대 수행하지 않는다
+    // 1. 환경변수로 경로 고정 (배포 하드닝)
     if let Ok(pinned) = std::env::var("XAZZ_RUNNER_PATH") {
         if !pinned.trim().is_empty() {
             return Ok(std::path::PathBuf::from(pinned));
         }
     }
 
-    // 1. 현재 실행 파일 옆에서 탐색
+    // 2. 현재 실행 파일 옆에서 탐색
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             #[cfg(windows)]
@@ -392,9 +393,9 @@ fn find_runner() -> Result<std::path::PathBuf, String> {
         }
     }
 
-    // 2. PATH에서 탐색 (OS 위임)
-    eprintln!(
-        "[xazz WARN] 실행기 xazz-runner 를 PATH 에서 찾았습니다 (운영 환경에서는 XAZZ_RUNNER_PATH 로 절대 경로를 고정하세요)"
-    );
-    Ok(std::path::PathBuf::from("xazz-runner"))
+    Err(
+        "실행기 xazz-runner 를 찾을 수 없습니다 (PATH 폴백은 보안상 비활성화됨). \
+         XAZZ_RUNNER_PATH 로 절대 경로를 지정하거나 xazz-runner 를 xazz 와 같은 디렉터리에 배치하세요."
+            .to_string(),
+    )
 }
