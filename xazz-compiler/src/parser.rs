@@ -755,6 +755,14 @@ impl Parser {
                         ));
                     }
                 };
+                // 음수/0은 u32 캐스팅 시 거대한 wrap-around limit 을 만들므로 거부
+                if n <= 0 {
+                    return Err(CompileError::new(
+                        ErrorKind::UnexpectedToken("take n <= 0".into()),
+                        self.current_span(),
+                        format!("take() 의 n 은 0보다 커야 합니다. 실제: {}", n),
+                    ));
+                }
                 self.expect(&TokenKind::RParen)?;
                 Ok(PipelineOp::Take(n))
             }

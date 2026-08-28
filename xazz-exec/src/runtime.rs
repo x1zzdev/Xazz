@@ -856,6 +856,9 @@ fn execute_var_decl(
             }
 
             PipelineOp::Take(n) => {
+                if *n <= 0 {
+                    return Err("take() 의 n 은 0보다 커야 합니다.".into());
+                }
                 lf = lf.limit(*n as u32);
             }
 
