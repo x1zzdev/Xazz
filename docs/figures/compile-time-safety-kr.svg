@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="460" viewBox="0 0 1280 460" font-family="'Noto Sans KR', Inter, -apple-system, 'Segoe UI', sans-serif">
+  <defs>
+    <marker id="t1k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+    </marker>
+    <marker id="t2k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#166534"/>
+    </marker>
+  </defs>
+  <rect width="1280" height="460" fill="#ffffff"/>
+  <rect x="0" y="0" width="1280" height="6" fill="#1e3a5f"/>
+  <text x="36" y="46" font-size="26" font-weight="800" fill="#0f172a">오류는 학습 중이 아니라 GPU 앞에서</text>
+  <text x="36" y="70" font-size="13.5" fill="#64748b">30 에포크쯤에 발견되는 NaN 하나가 클러스터 전체의 대기 비용이 됩니다. Xazz는 대신 컴파일을 거부합니다.</text>
+
+  <!-- Python 타임라인 -->
+  <rect x="36" y="100" width="1208" height="150" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="56" y="130" font-size="13" font-weight="700" fill="#64748b">파이썬 · 오류가 런타임에 표면화</text>
+  <line x1="70" y1="185" x2="1210" y2="185" stroke="#cbd5e1" stroke-width="2.5" marker-end="url(#t1k)"/>
+  <circle cx="120" cy="185" r="7" fill="#94a3b8"/>
+  <text x="120" y="165" font-size="11.5" font-weight="600" fill="#475569" text-anchor="middle">코드 제출</text>
+  <circle cx="330" cy="185" r="7" fill="#94a3b8"/>
+  <text x="330" y="165" font-size="11.5" font-weight="600" fill="#475569" text-anchor="middle">데이터 적재 · 전처리</text>
+  <circle cx="560" cy="185" r="7" fill="#94a3b8"/>
+  <text x="560" y="165" font-size="11.5" font-weight="600" fill="#475569" text-anchor="middle">GPU 할당 · 학습 중…</text>
+  <g>
+    <circle cx="800" cy="185" r="9" fill="#b91c1c"/>
+    <text x="800" y="160" font-size="11.5" font-weight="700" fill="#b91c1c" text-anchor="middle">💥 크래시: pm25의 NaN</text>
+    <text x="800" y="214" font-size="11.5" fill="#b91c1c" text-anchor="middle">수십 분 소진 · GPU 사이클 낭비</text>
+  </g>
+  <path d="M 800 220 q 40 26 80 0" fill="none" stroke="#b91c1c" stroke-width="2" marker-end="url(#t1k)"/>
+  <text x="1010" y="238" font-size="11.5" font-weight="700" fill="#b91c1c" text-anchor="middle">수정 → GPU 재배정 → 반복</text>
+
+  <!-- Xazz 타임라인 -->
+  <rect x="36" y="278" width="1208" height="150" rx="14" fill="#f0fdf4" stroke="#bbf7d0"/>
+  <text x="56" y="308" font-size="13" font-weight="700" fill="#166534">XAZZ · 오류가 컴파일 시점에 표면화</text>
+  <line x1="70" y1="363" x2="1210" y2="363" stroke="#86efac" stroke-width="2.5" marker-end="url(#t2k)"/>
+  <circle cx="120" cy="363" r="7" fill="#22c55e"/>
+  <text x="120" y="343" font-size="11.5" font-weight="600" fill="#166534" text-anchor="middle">xazz check</text>
+  <g>
+    <circle cx="330" cy="363" r="9" fill="#166534"/>
+    <text x="330" y="338" font-size="11.5" font-weight="700" fill="#166534" text-anchor="middle">오류: Option&lt;float&gt; 미처리 (10행:16열)</text>
+    <text x="330" y="392" font-size="11.5" fill="#166534" text-anchor="middle">수 밀리초 · GPU 접촉 0</text>
+  </g>
+  <circle cx="620" cy="363" r="7" fill="#22c55e"/>
+  <text x="620" y="343" font-size="11.5" font-weight="600" fill="#166534" text-anchor="middle">해당 한 줄 수정</text>
+  <circle cx="880" cy="363" r="7" fill="#22c55e"/>
+  <text x="880" y="343" font-size="11.5" font-weight="600" fill="#166534" text-anchor="middle">재검사 통과</text>
+  <circle cx="1080" cy="363" r="7" fill="#22c55e"/>
+  <text x="1080" y="343" font-size="11.5" font-weight="600" fill="#166534" text-anchor="middle">깨끗한 데이터로 학습</text>
+
+  <text x="36" y="446" font-size="12.5" fill="#475569">정적 널 안전성(Option&lt;T>)과 타입 검사기가 실패를 가장 저렴한 시점 — 클러스터에 손대기 전으로 옮깁니다.</text>
+</svg>
