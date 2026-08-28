@@ -19,8 +19,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{
-    ChartConfig, Expr, FillNullValue, LayerKind, PipelineOp, PipelineSource, Program, Stmt,
-    StructField, TrainConfig,
+    BinOpKind, ChartConfig, Expr, FillNullValue, LayerKind, PipelineOp, PipelineSource, Program,
+    Stmt, StructField, TrainConfig,
 };
 use crate::error::{CompileError, ErrorKind};
 
@@ -481,6 +481,7 @@ impl Analyzer {
                 }
                 PipelineOp::WithColumn { name, expr } => {
                     self.check_expr_columns(expr, &cols);
+                    self.check_division_by_zero(expr);
                     let t = infer_expr_type(expr, &cols);
                     cols.insert(name.clone(), t);
                 }
@@ -606,6 +607,32 @@ impl Analyzer {
         }
     }
 
+    /// Div 연산의 분모가 리터럴 0 인 경우를 정적으로 감지해 경고를 남긴다.
+    /// (데이터 의존적인 "컬럼에 0 존재" 는 런타임에만 판별 가능하므로,
+    ///  여기서는 컴파일 타임에 확정 가능한 리터럴 0 분모만 처리한다.)
+    fn check_division_by_zero(&mut self, expr: &Expr) {
+        match expr {
+            Expr::BinOp { lhs, op, rhs } => {
+                if *op == BinOpKind::Div && is_zero_literal(rhs.as_ref()) {
+                    let message = "0으로 나누기 감지 — DivisionByZero. 필터/치환으로 분모 0 을 처리하세요.";
+                    let span = self.resolve_span(message);
+                    self.warnings.push(CompileError::new(
+                        ErrorKind::DivisionByZero {
+                            col: "(literal)".to_string(),
+                            row_count: 0,
+                            expr_context: format_expr_display(expr),
+                        },
+                        span,
+                        message,
+                    ));
+                }
+                self.check_division_by_zero(lhs);
+                self.check_division_by_zero(rhs);
+            }
+            _ => {}
+        }
+    }
+
     fn check_column(&mut self, col: &str, ctx: &str, cols: &HashMap<String, ColType>) {
         if !cols.contains_key(col) {
             self.column_missing(col, ctx);
@@ -690,6 +717,46 @@ fn extract_quoted(message: &str) -> Option<String> {
     let rest = &message[start..];
     let end = rest.find('\'')?;
     Some(rest[..end].to_string())
+}
+
+/// 리터럴이 0 인지 확인한다 (DivisionByZero 정적 검사용).
+fn is_zero_literal(expr: &Expr) -> bool {
+    match expr {
+        Expr::IntLit(0) => true,
+        Expr::FloatLit(f) => *f == 0.0,
+        _ => false,
+    }
+}
+
+/// 표현식을 사람이 읽기 좋은 문자열로 변환한다 (DivisionByZero 경고 컨텍스트).
+fn format_expr_display(expr: &Expr) -> String {
+    match expr {
+        Expr::Ident(s) => format!("col(\"{}\")", s),
+        Expr::StringLit(s) => format!("\"{}\"", s),
+        Expr::IntLit(n) => n.to_string(),
+        Expr::FloatLit(f) => f.to_string(),
+        Expr::BoolLit(b) => b.to_string(),
+        Expr::BinOp { lhs, op, rhs } => {
+            let op_str = match op {
+                BinOpKind::Add => "+",
+                BinOpKind::Sub => "-",
+                BinOpKind::Mul => "*",
+                BinOpKind::Div => "/",
+                BinOpKind::Eq => "==",
+                BinOpKind::NotEq => "!=",
+                BinOpKind::Lt => "<",
+                BinOpKind::Gt => ">",
+                BinOpKind::LtEq => "<=",
+                BinOpKind::GtEq => ">=",
+            };
+            format!(
+                "{} {} {}",
+                format_expr_display(lhs),
+                op_str,
+                format_expr_display(rhs)
+            )
+        }
+    }
 }
 
 /// 스키마 field_type 문자열 → ColType 변환 (Option<T> 지원)
