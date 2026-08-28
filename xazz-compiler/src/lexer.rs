@@ -104,7 +104,7 @@ impl<'src> Lexer<'src> {
 
     /// 첫 번째 자리(first)는 이미 소비된 상태
     /// underscore(_)를 허용: 1_200_000 → IntLit(1200000)
-    fn read_number(&mut self, first: char) -> TokenKind {
+    fn read_number(&mut self, first: char, span: &Span) -> CompileResult<TokenKind> {
         let mut buf = String::new();
         buf.push(first);
 
@@ -132,10 +132,24 @@ impl<'src> Lexer<'src> {
                     buf.push(c);
                 }
             }
-            return TokenKind::FloatLit(buf.parse().unwrap_or(0.0));
+            let value = buf.parse::<f64>().map_err(|_| {
+                CompileError::new(
+                    ErrorKind::Other(format!("숫자 리터럴 파싱 실패: {}" , buf)),
+                    span.clone(),
+                    format!("숫자 리터럴 파싱 실패: '{}'", buf),
+                )
+            })?;
+            return Ok(TokenKind::FloatLit(value));
         }
 
-        TokenKind::IntLit(buf.parse().unwrap_or(0))
+        let value = buf.parse::<i64>().map_err(|_| {
+            CompileError::new(
+                ErrorKind::Other(format!("숫자 리터럴 파싱 실패: {}" , buf)),
+                span.clone(),
+                format!("정수 리터럴이 i64 범위를 벗어났거나 파싱 실패: '{}'", buf),
+            )
+        })?;
+        Ok(TokenKind::IntLit(value))
     }
 
     // ── 식별자 · 키워드 ──────────────────────────────────────────────────────
@@ -288,8 +302,18 @@ impl<'src> Lexer<'src> {
             // ── 음수 또는 Minus ────────────────────────────────────────
             '-' if self.peek().map_or(false, |c| c.is_ascii_digit()) => {
                 let digit = self.advance().unwrap();
-                match self.read_number(digit) {
-                    TokenKind::IntLit(n) => TokenKind::IntLit(-n),
+                match self.read_number(digit, &span)? {
+                    TokenKind::IntLit(n) => {
+                        // -i64::MIN 은 오버플로되므로 명시적으로 거부
+                        if n == i64::MIN {
+                            return Err(CompileError::new(
+                                ErrorKind::Other("숫자 리터럴 파싱 실패: -9223372036854775808".to_string()),
+                                span,
+                                "리터럴이 i64 범위를 벗어났습니다: -9223372036854775808",
+                            ));
+                        }
+                        TokenKind::IntLit(-n)
+                    }
                     TokenKind::FloatLit(f) => TokenKind::FloatLit(-f),
                     other => other,
                 }
@@ -307,7 +331,7 @@ impl<'src> Lexer<'src> {
             ';' => TokenKind::Semicolon,
 
             // ── 숫자 ───────────────────────────────────────────────────
-            c if c.is_ascii_digit() => self.read_number(c),
+            c if c.is_ascii_digit() => self.read_number(c, &span)?,
 
             // ── 식별자 / 키워드 ────────────────────────────────────────
             c if c.is_alphabetic() || c == '_' => self.read_ident(c),
