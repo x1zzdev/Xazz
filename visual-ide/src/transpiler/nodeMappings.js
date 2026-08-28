@@ -11,19 +11,29 @@
  *   - join  → join(other_var, on: "key")
  */
 
-import { sanitizeFieldName } from './pathResolver.js';
+import { sanitizeFieldName, isSafeRepoPath } from './pathResolver.js';
 
 // ─── 경로 정규화 ───────────────────────────────────────────────────────────────
 /**
  * UI 원시 파일명 → Xazz DSL load 경로.
  * Xazz는 @data alias 대신 저장소 내 상대 경로(visual-ide/data/...)를 사용한다.
+ * 안전하지 않은 경로(트래버설/절대/드라이브/URL 스킴)는 기본 경로로 폴백한다.
  * @param {string} path
  * @returns {string}
  */
 export function normalizeLoadPath(path) {
   if (!path || typeof path !== 'string') return 'visual-ide/data/data.csv';
-  if (path.startsWith('visual-ide/') || path.startsWith('examples/')) return path;
-  if (/^[A-Za-z]:[\\\/]/.test(path) || path.startsWith('/')) return path;
+  if (isSafeRepoPath(path)) return path;
+  // 트래버설/절대 경로는 허용하지 않는다 → 안전한 기본 경로로 폴백
+  if (
+    path.startsWith('/') ||
+    path.startsWith('\\') ||
+    /^[A-Za-z]:[\\/]/.test(path) ||
+    /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(path) ||
+    path.split(/[\\/]/).includes('..')
+  ) {
+    return 'visual-ide/data/data.csv';
+  }
   return `visual-ide/data/${path}`;
 }
 
