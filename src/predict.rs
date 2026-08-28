@@ -12,9 +12,10 @@ use std::process::{Command, Stdio};
 
 /// Absolute path to the NQP prediction Python entry-point.
 /// Resolved at compile time from the Cargo workspace root.
+/// Built with the platform's native separator for cross-platform support.
 const NQP_SCRIPT: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "\\cli_integration\\nqp_predict.py"
+    "/cli_integration/nqp_predict.py"
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -45,13 +46,23 @@ pub fn run_predict(source_path: &str) -> Result<(), String> {
     println!("🔮  NQP 시맨틱 실행 예측을 시작합니다 …");
     println!("    파일   : {}", source_path);
     println!("    스크립트: {}", NQP_SCRIPT);
-    println!("    모델   : C:\\checkpoint-2814  (Neural Query Planner)");
+    println!("    모델   : NQP checkpoint (Neural Query Planner)");
     println!();
     println!("  ※ 모델 로딩에 수 분이 소요될 수 있습니다. 잠시 기다려 주세요 …");
     println!();
 
     // ── 3. Spawn Python subprocess ───────────────────────────────────────────
-    let mut child = Command::new("python")
+    // Prefer an explicitly pinned interpreter; fall back to a PATH lookup.
+    let python = std::env::var("XAZZ_PYTHON")
+        .or_else(|_| std::env::var("PYTHON"))
+        .unwrap_or_else(|_| {
+            if cfg!(windows) {
+                "python".to_string()
+            } else {
+                "python3".to_string()
+            }
+        });
+    let mut child = Command::new(python)
         .arg(NQP_SCRIPT)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -107,9 +118,13 @@ pub fn run_predict(source_path: &str) -> Result<(), String> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn print_prediction_result(raw: &str) {
-    // Locate the first JSON object in the output (skip any leading noise)
-    let json_start = raw.find('{').unwrap_or(0);
-    let json_str = &raw[json_start..];
+    // Locate the first JSON object in the output (skip any leading noise).
+    // Search on char boundaries to avoid a "byte index is not a char boundary" panic.
+    let json_start = raw.char_indices().find(|&(_, c)| c == '{').map(|(i, _)| i);
+    let json_str = match json_start {
+        Some(start) => &raw[start..],
+        None => raw,
+    };
 
     println!();
     println!("[NQP PREDICTION RESULT]");
