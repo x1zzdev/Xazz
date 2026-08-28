@@ -12,10 +12,15 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::sync::Mutex;
 
 /// JSONL 파일 경로 (서버 실행 디렉터리 기준)
 pub const AUDIT_LOG_DIR: &str = "audit_log";
 pub const AUDIT_LOG_FILE: &str = "audit_log/audit.jsonl";
+
+/// append 의 read-modify-write 를 직렬화하는 전역 잠금.
+/// 동시 append 가 같은 index/prev_hash 를 계산해 감사 체인이 깨지는 TOCTOU 를 방지한다.
+static APPEND_LOCK: Mutex<()> = Mutex::new(());
 
 /// 감사 로그 레코드 — 한 줄 JSON
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,6 +104,11 @@ fn append_to_path(
     outcome: Option<&str>,
     file_path: &std::path::Path,
 ) -> Result<AuditRecord, String> {
+    // 동시 append 의 read-modify-write 를 직렬화한다. (TOCTOU 방지)
+    let _guard = APPEND_LOCK
+        .lock()
+        .map_err(|_| "감사 로그 잠금 획득 실패 (poisoned)".to_string())?;
+
     let existing = read_all(file_path).map_err(|e| format!("감사 로그 읽기 실패: {e}"))?;
     let index = existing.len() as u64;
     let prev_hash = existing
