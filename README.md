@@ -239,11 +239,7 @@ python benches/render_benchmark_chart.py   # regenerate the chart above
 ### Where the speed comes from
 
 <div align="center">
-<table>
-<tr>
-<td width="50%"><img src="docs/figures/zero-copy.svg" alt="Zero-copy: pandas→PyTorch copies 3 times across 2 language walls; Xazz shares the Arrow buffer directly with Burn"></td>
-</tr>
-</table>
+<img src="docs/figures/zero-copy.svg" alt="Zero-copy: pandas→PyTorch copies 3 times across 2 language walls; Xazz shares the Arrow buffer directly with Burn" width="94%">
 </div>
 
 <div align="center">
