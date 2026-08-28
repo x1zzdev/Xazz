@@ -17,6 +17,12 @@ use crate::ast::{
 /// 코드 생성기 — 유닛 구조체
 pub struct Codegen;
 
+/// 생성된 Rust 문자열 리터럴에 삽입할 DSL 문자열 값을 이스케이프한다.
+/// (`"` 와 `\` 를 이스케이프하여 생성 코드 주입 방지)
+fn esc(s: &str) -> String {
+    crate::policy::printer::escape(s)
+}
+
 impl Codegen {
     pub fn new() -> Self {
         Codegen
@@ -242,7 +248,7 @@ impl Codegen {
                 )
             }
             PipelineOp::Select(cols) => {
-                let polars: Vec<String> = cols.iter().map(|c| format!("col(\"{}\")", c)).collect();
+                let polars: Vec<String> = cols.iter().map(|c| format!("col(\"{}\")", esc(c))).collect();
                 let xzz = cols.join(", ");
                 format!(
                     "  .select([{}])  // |> select([{}])",
@@ -254,7 +260,7 @@ impl Codegen {
             PipelineOp::Count(Some(col)) => {
                 format!(
                     "  .agg([col(\"{}\").count()])  // |> count(\"{}\")",
-                    col, col
+                    esc(col), esc(col)
                 )
             }
 
@@ -262,31 +268,31 @@ impl Codegen {
             PipelineOp::GroupBy(group_col) => {
                 format!(
                     "  .group_by([col(\"{}\")])  // |> groupBy(\"{}\")",
-                    group_col, group_col
+                    esc(group_col), esc(group_col)
                 )
             }
             PipelineOp::Sum(agg_col) => {
                 format!(
                     "  .agg([col(\"{}\").sum()])  // |> sum(\"{}\")",
-                    agg_col, agg_col
+                    esc(agg_col), esc(agg_col)
                 )
             }
             PipelineOp::Mean(agg_col) => {
                 format!(
                     "  .agg([col(\"{}\").mean()])  // |> mean(\"{}\")",
-                    agg_col, agg_col
+                    esc(agg_col), esc(agg_col)
                 )
             }
             PipelineOp::Min(agg_col) => {
                 format!(
                     "  .agg([col(\"{}\").min()])  // |> min(\"{}\")",
-                    agg_col, agg_col
+                    esc(agg_col), esc(agg_col)
                 )
             }
             PipelineOp::Max(agg_col) => {
                 format!(
                     "  .agg([col(\"{}\").max()])  // |> max(\"{}\")",
-                    agg_col, agg_col
+                    esc(agg_col), esc(agg_col)
                 )
             }
 
@@ -294,7 +300,7 @@ impl Codegen {
             PipelineOp::OrderBy { col, desc } => {
                 format!(
                     "  .sort([\"{}\"], SortMultipleOptions::default().with_order_descending({}))  // |> orderBy(\"{}\", desc: {})",
-                    col, desc, col, desc
+                    esc(col), desc, esc(col), desc
                 )
             }
             PipelineOp::Take(n) => {
@@ -305,21 +311,21 @@ impl Codegen {
             PipelineOp::DropNull(drop_col) => {
                 format!(
                     "  .drop_nulls(Some(vec![col(\"{}\")]))  // |> dropNull(\"{}\")",
-                    drop_col, drop_col
+                    esc(drop_col), esc(drop_col)
                 )
             }
             PipelineOp::FillNull { col, value } => {
                 let lit_str = match value {
-                    FillNullValue::Mean => format!("col(\"{}\").mean()", col),
-                    FillNullValue::Median => format!("col(\"{}\").median()", col),
+                    FillNullValue::Mean => format!("col(\"{}\").mean()", esc(col)),
+                    FillNullValue::Median => format!("col(\"{}\").median()", esc(col)),
                     FillNullValue::Zero => "lit(0)".to_string(),
                     FillNullValue::Int(n) => format!("lit({}i64)", n),
                     FillNullValue::Float(f) => format!("lit({}f64)", f),
-                    FillNullValue::Str(s) => format!("lit(\"{}\")", s),
+                    FillNullValue::Str(s) => format!("lit(\"{}\")", esc(s)),
                 };
                 format!(
                     "  .with_columns([col(\"{}\").fill_null({})])  // |> fillNull(\"{}\", ...)",
-                    col, lit_str, col
+                    esc(col), lit_str, esc(col)
                 )
             }
 
@@ -331,9 +337,9 @@ impl Codegen {
                 how,
             } => {
                 let left_cols: Vec<String> =
-                    left_on.iter().map(|k| format!("col(\"{}\")", k)).collect();
+                    left_on.iter().map(|k| format!("col(\"{}\")", esc(k))).collect();
                 let right_cols: Vec<String> =
-                    right_on.iter().map(|k| format!("col(\"{}\")", k)).collect();
+                    right_on.iter().map(|k| format!("col(\"{}\")", esc(k))).collect();
                 let left_str = left_cols.join(", ");
                 let right_str = right_cols.join(", ");
                 format!(
@@ -354,8 +360,8 @@ impl Codegen {
                 format!(
                     "  .with_columns([{}.alias(\"{}\")])  // |> withColumn(\"{}\", {})",
                     Self::expr_to_polars(expr),
-                    name,
-                    name,
+                    esc(name),
+                    esc(name),
                     Self::expr_to_xzz(expr)
                 )
             }
@@ -379,7 +385,7 @@ impl Codegen {
                 };
                 format!(
                     "  .with_columns([col(\"{}\").cast({})])  // |> cast(\"{}\", \"{}\")",
-                    col, polars_type, col, to_type
+                    esc(col), polars_type, esc(col), esc(to_type)
                 )
             }
 
@@ -387,7 +393,7 @@ impl Codegen {
             PipelineOp::Rename { old_name, new_name } => {
                 format!(
                     "  .rename([\"{}\"], [\"{}\"], false)  // |> rename(\"{}\", \"{}\")",
-                    old_name, new_name, old_name, new_name
+                    esc(old_name), esc(new_name), esc(old_name), esc(new_name)
                 )
             }
 
@@ -395,7 +401,7 @@ impl Codegen {
             PipelineOp::Replace { col, from, to } => {
                 format!(
                     "  .with_columns([col(\"{}\").str().replace(lit(\"{}\"), lit(\"{}\"), false).alias(\"{}\")])  // |> replace(\"{}\", \"{}\", \"{}\")",
-                    col, from, to, col, col, from, to
+                    esc(col), esc(from), esc(to), esc(col), esc(col), esc(from), esc(to)
                 )
             }
 

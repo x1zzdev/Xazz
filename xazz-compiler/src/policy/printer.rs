@@ -338,7 +338,8 @@ pub(crate) fn print_f64(v: f64) -> String {
 }
 
 /// 문자열 리터럴 내부의 `"` 와 `\` 를 이스케이프한다.
-fn escape(s: &str) -> String {
+/// codegen/emitter에서 생성된 Rust 소스에 삽입되는 DSL 문자열 값에 공통 사용한다.
+pub(crate) fn escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 

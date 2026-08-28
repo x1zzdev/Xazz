@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 use std::fs;
 
+use crate::policy::printer::escape;
 use crate::ast::{
     BinOpKind, Expr, FillNullValue, LayerKind, PipelineOp, PipelineSource, Program, Stmt,
     TrainConfig,
@@ -207,11 +208,11 @@ fn generate_rust_src(
                 } => {
                     out.push_str(&format!(
                         "    // load(\"{}\") :: {}\n",
-                        file_path, schema_name
+                        escape(file_path), schema_name
                     ));
                     out.push_str(&format!(
                         "    let {}{} = load_csv(\"{}\")? // :: {}\n",
-                        mut_kw, var_name, file_path, schema_name
+                        mut_kw, var_name, escape(file_path), schema_name
                     ));
                     out.push_str("        .lazy()\n");
                 }
@@ -443,7 +444,7 @@ fn generate_rust_src(
                     } => {
                         out.push_str(&format!(
                             "        .with_columns([col(\"{}\").str().replace(lit(\"{}\"), lit(\"{}\"), false).alias(\"{}\")])  // |> replace(\"{}\", \"{}\", \"{}\")\n",
-                            rep_col, from, to, rep_col, rep_col, from, to
+                            escape(rep_col), escape(from), escape(to), escape(rep_col), escape(rep_col), escape(from), escape(to)
                         ));
                     }
 
@@ -1025,8 +1026,8 @@ fn validate_expr_columns(
 
 fn to_typed_polars_expr(expr: &Expr, col_types: &HashMap<String, String>) -> String {
     match expr {
-        Expr::Ident(s) => format!("col(\"{}\")", s),
-        Expr::StringLit(s) => format!("lit(\"{}\")", s),
+        Expr::Ident(s) => format!("col(\"{}\")", escape(s)),
+        Expr::StringLit(s) => format!("lit(\"{}\")", escape(s)),
         Expr::IntLit(n) => format!("lit({}i64)", n),
         Expr::FloatLit(f) => format!("lit({}f64)", f),
         Expr::BoolLit(b) => format!("lit({})", b),
