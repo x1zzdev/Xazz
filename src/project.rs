@@ -2,6 +2,36 @@ use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::Path;
 
+/// 프로젝트명이 단일 안전한 경로 세그먼트인지 검증한다.
+/// 경로 구분자, `..`, 절대 경로, 드라이브 접두사를 거부한다.
+fn validate_project_name(name: &str) -> Result<()> {
+    let invalid_hint = |c: &str| {
+        format!(
+            "프로젝트 생성 실패: '{}' 은(는) 유효하지 않은 프로젝트명입니다.\n\
+             프로젝트명에는 '{}' 을(를) 포함할 수 없습니다. 영숫자, '-', '_' 만 사용하세요.",
+            name, c
+        )
+    };
+
+    if name.is_empty() {
+        bail!("프로젝트 생성 실패: 프로젝트명이 비어 있습니다.");
+    }
+    if name == "." || name == ".." {
+        bail!(invalid_hint(name));
+    }
+    if name.starts_with('/') || name.starts_with('\\') || name.contains("..") {
+        bail!(invalid_hint("경로 구분자 / .."));
+    }
+    // Windows 드라이브 접두사 (C:\) 및 URL 스킴 거부
+    if name.len() >= 2 && name.as_bytes()[1] == b':' {
+        bail!(invalid_hint("드라이브 문자 (:)"));
+    }
+    if name.contains('/') || name.contains('\\') {
+        bail!(invalid_hint("경로 구분자"));
+    }
+    Ok(())
+}
+
 /// 새 Xazz 프로젝트 디렉터리를 생성합니다.
 ///
 /// 생성 구조:
@@ -14,6 +44,9 @@ use std::path::Path;
 /// └── xazz.toml
 /// ```
 pub fn create_project(name: &str) -> Result<()> {
+    // ── 프로젝트명 검증: 단일 안전 경로 세그먼트만 허용 (디렉터리 트래버설 방지)
+    validate_project_name(name)?;
+
     let root = Path::new(name);
 
     // 이미 존재하면 실패
@@ -72,8 +105,9 @@ v result = data
     fs::write(root.join("main.xzz"), main_xzz)
         .with_context(|| "main.xzz 파일 작성에 실패했습니다.".to_string())?;
 
-    // xazz.toml 작성
-    let toml_content = format!("[project]\nname = \"{}\"\nversion = \"0.1.0\"\n", name);
+    // xazz.toml 작성 — name 값은 TOML 문자열로 이스케이프
+    let toml_name = name.replace('\\', "\\\\").replace('"', "\\\"");
+    let toml_content = format!("[project]\nname = \"{}\"\nversion = \"0.1.0\"\n", toml_name);
     fs::write(root.join("xazz.toml"), toml_content)
         .with_context(|| "xazz.toml 파일 작성에 실패했습니다.".to_string())?;
 
