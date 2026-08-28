@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="620" viewBox="0 0 1280 620" font-family="Inter, -apple-system, 'Segoe UI', sans-serif">
+  <rect width="1280" height="620" fill="#ffffff"/>
+  <rect x="0" y="0" width="1280" height="6" fill="#1e3a5f"/>
+  <text x="36" y="46" font-size="26" font-weight="800" fill="#0f172a">Xazz workspace — three layers, six crates</text>
+  <text x="36" y="70" font-size="13.5" fill="#64748b">A thin CLI on top; heavyweight engines isolated behind a subprocess boundary.</text>
+
+  <!-- Layer 3: surface -->
+  <rect x="36" y="100" width="1208" height="118" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="56" y="130" font-size="13" font-weight="700" fill="#1e3a5f">LAYER 3 · DEVELOPER SURFACE</text>
+  <rect x="56" y="146" width="380" height="56" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="246" y="170" font-size="14" font-weight="800" fill="#0f172a" text-anchor="middle">Visual IDE</text>
+  <text x="246" y="188" font-size="11" fill="#94a3b8" text-anchor="middle">React 18 · @xyflow/react node graph</text>
+  <rect x="456" y="146" width="380" height="56" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="646" y="170" font-size="14" font-weight="800" fill="#0f172a" text-anchor="middle">CLI — xazz</text>
+  <text x="646" y="188" font-size="11" fill="#94a3b8" text-anchor="middle">run · check · import · emit rust · policy · sde</text>
+  <rect x="856" y="146" width="368" height="56" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="1040" y="170" font-size="14" font-weight="800" fill="#0f172a" text-anchor="middle">REST API — xazz-server</text>
+  <text x="1040" y="188" font-size="11" fill="#94a3b8" text-anchor="middle">/execute · /security/audit · /security/verify</text>
+
+  <!-- Layer 2: toolchain -->
+  <rect x="36" y="248" width="1208" height="150" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="56" y="278" font-size="13" font-weight="700" fill="#1e3a5f">LAYER 2 · TOOLCHAIN (pure Rust)</text>
+  <rect x="56" y="294" width="262" height="56" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="187" y="318" font-size="14" font-weight="800" fill="#0f172a" text-anchor="middle">xazz-core</text>
+  <text x="187" y="336" font-size="11" fill="#94a3b8" text-anchor="middle">AST · static type checker · tensors</text>
+  <rect x="338" y="294" width="230" height="56" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
+  <text x="453" y="318" font-size="14" font-weight="800" fill="#1e3a5f" text-anchor="middle">xazz-compiler</text>
+  <text x="453" y="336" font-size="11" fill="#60a5fa" text-anchor="middle">lexer → parser → codegen</text>
+  <rect x="588" y="294" width="200" height="56" rx="10" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="688" y="318" font-size="14" font-weight="800" fill="#166534" text-anchor="middle">xazz-exec</text>
+  <text x="688" y="336" font-size="11" fill="#4ade80" text-anchor="middle">Polars · Burn runtime</text>
+  <rect x="808" y="294" width="200" height="56" rx="10" fill="#fef2f2" stroke="#fca5a5"/>
+  <text x="908" y="318" font-size="14" font-weight="800" fill="#b91c1c" text-anchor="middle">xazz-runner</text>
+  <text x="908" y="336" font-size="11" fill="#f87171" text-anchor="middle">subprocess sandbox · IPC</text>
+  <rect x="1028" y="294" width="196" height="56" rx="10" fill="#fff7ed" stroke="#fdba74"/>
+  <text x="1126" y="318" font-size="14" font-weight="800" fill="#9a3412" text-anchor="middle">xazz-server</text>
+  <text x="1126" y="336" font-size="11" fill="#fb923c" text-anchor="middle">Axum · audit log · sLM hook</text>
+
+  <!-- isolation note -->
+  <rect x="56" y="360" width="1168" height="24" rx="8" fill="#f1f5f9"/>
+  <text x="72" y="377" font-size="11.5" fill="#64748b">Why subprocess? Polars adds ~28 MB to a binary — isolating it keeps the xazz CLI at 2–5 MB while the engine stays sandboxed.</text>
+
+  <!-- Layer 1: engines -->
+  <rect x="36" y="428" width="1208" height="118" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="56" y="458" font-size="13" font-weight="700" fill="#1e3a5f">LAYER 1 · ENGINES</text>
+  <rect x="56" y="474" width="280" height="56" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="196" y="498" font-size="14" font-weight="800" fill="#0f172a" text-anchor="middle">Polars (Rust)</text>
+  <text x="196" y="516" font-size="11" fill="#94a3b8" text-anchor="middle">LazyFrame · Apache Arrow memory</text>
+  <rect x="356" y="474" width="280" height="56" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="496" y="498" font-size="14" font-weight="800" fill="#0f172a" text-anchor="middle">Burn v0.21</text>
+  <text x="496" y="516" font-size="11" fill="#94a3b8" text-anchor="middle">autodiff · ndarray backend · checkpoints</text>
+  <rect x="656" y="474" width="280" height="56" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="796" y="498" font-size="14" font-weight="800" fill="#0f172a" text-anchor="middle">Tokio · Axum 0.8</text>
+  <text x="796" y="516" font-size="11" fill="#94a3b8" text-anchor="middle">async REST · same-origin IDE serving</text>
+  <rect x="956" y="474" width="268" height="56" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="1090" y="498" font-size="14" font-weight="800" fill="#0f172a" text-anchor="middle">sLM (Ollama / llama.cpp)</text>
+  <text x="1090" y="516" font-size="11" fill="#94a3b8" text-anchor="middle">Qwen2.5-Coder-1.5B · on-premise</text>
+
+  <text x="36" y="588" font-size="12.5" fill="#475569">Data flows top → bottom: surface requests compile or execute; the toolchain layer orchestrates; engines do the heavy lifting.</text>
+</svg>
