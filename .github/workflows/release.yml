@@ -229,7 +229,7 @@ jobs:
           PREV=$(git tag --sort=-version:refname \
             | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
             | grep -v "^${VERSION}$" \
-            | head -1)
+            | head -1 || true)
 
           {
             echo "## What's Changed"
