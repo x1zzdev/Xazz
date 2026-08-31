@@ -13,7 +13,7 @@
 //!   (겹치는 집계쿼리 대량 반복 → 연립방정식 원본 복원 공격 방어. RULE_010 계열)
 //!
 //! 난수: 외부 crate 의존 없이 SplitMix64 + 역CDF/Box-Muller로 자체 구현.
-//!   seed 지정 시 완전 결정적(감사·테스트 재현), 미지정 시 시스템 시간 기반.
+//!   seed 지정 시 완전 결정적(감사·테스트 재현), 미지정 시 OS 엔트로피(/dev/urandom) 기반.
 
 use polars::prelude::{Column, DataFrame, DataType};
 use xazz_compiler::ast::{DpArgs, DpMechanism};
@@ -213,13 +213,40 @@ impl SplitMix64 {
     }
 }
 
-/// seed 미지정 시 시스템 시간 기반 시드 생성.
-fn time_seed() -> u64 {
+/// seed 미지정 시 OS 엔트로피(/dev/urandom) 기반 시드 생성.
+///
+/// 시스템 시간 단독 시드는 공격자가 벽시계 시간으로 시드 후보를 좁힐 수 있어
+/// 노이즈 역산이 가능하다 — 따라서 CSPRNG(/dev/urandom)에서 8바이트를 직접 읽는다.
+/// 읽기에 실패하면 시간+PID+주소를 혼합한 폴백을 쓴다 (예측 불가 보장은 아님).
+fn os_seed() -> u64 {
+    #[cfg(unix)]
+    {
+        use std::io::Read;
+        let mut f = match std::fs::File::open("/dev/urandom") {
+            Ok(f) => f,
+            Err(_) => return fallback_seed(),
+        };
+        let mut buf = [0u8; 8];
+        if f.read_exact(&mut buf).is_ok() {
+            return u64::from_ne_bytes(buf);
+        }
+        fallback_seed()
+    }
+    #[cfg(not(unix))]
+    {
+        fallback_seed()
+    }
+}
+
+fn fallback_seed() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
+    let t = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0x5EED_5EED_5EED_5EED)
+        .unwrap_or(0);
+    let pid = std::process::id() as u64;
+    let addr = &t as *const _ as u64;
+    t ^ pid.rotate_left(17) ^ addr.rotate_left(31) ^ 0x5EED_5EED_5EED_5EED
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -303,7 +330,7 @@ pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), 
         DpMechanism::Gaussian => gaussian_sigma(args.sensitivity, args.epsilon, delta),
     };
 
-    let mut rng = SplitMix64::new(args.seed.map(|s| s as u64).unwrap_or_else(time_seed));
+    let mut rng = SplitMix64::new(args.seed.map(|s| s as u64).unwrap_or_else(os_seed));
 
     let mut out = df.clone();
     let mut noised_columns: Vec<String> = Vec::new();
