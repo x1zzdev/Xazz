@@ -1,175 +1,151 @@
-# Policy-as-Code 정적 보안 가드레일
+# Policy-as-Code Static Security Guardrail
 
-> Xazz 는 `.xzz` 파이프라인이 **실행되기 전에** 개인정보 유출과 보안 컴플라이언스
-> 위반을 정적으로 탐지하고 차단한다. Type Checker 가 "이 코드가 돌아가는가"를
-> 묻는다면, 가드레일은 "이 코드를 돌려도 되는가"를 묻는다.
+> Xazz statically detects and blocks PII leaks and security-compliance violations **before** a `.xzz` pipeline runs. The Type Checker asks "does this code run?"; the guardrail asks "is it safe to run this code?"
 
-관련: [ARCHITECTURE.md](ARCHITECTURE.md) · [WORKSPACE.md](WORKSPACE.md) ·
+Related: [ARCHITECTURE.md](ARCHITECTURE.md) · [WORKSPACE.md](WORKSPACE.md) ·
 [design/security-model.md](design/security-model.md) · [experiments/slm_guardrail](../experiments/slm_guardrail/README.md)
 
 ---
 
-## 1. 30초 요약
+## 1. 30-second summary
 
 ```bash
-# 위반 코드는 실행 전에 차단된다
+# Violating code is blocked before execution
 $ xazz run examples/security/patient_unsafe.xzz
-[xazz 보안 가드레일] 실행이 차단되었습니다
+[xazz security guardrail] execution blocked
   ✖ XZP001 DIRECT_IDENTIFIER_EXPOSED
-    사유 : 직접 식별자 컬럼이 결과로 그대로 출력됩니다: patient_id, name, phone.
-    보정 : |> select([...]) 에서 patient_id, name, phone 을(를) 제외하거나 …
+    reason : direct identifier columns are emitted as-is in the result: patient_id, name, phone.
+    fix    : remove patient_id, name, phone from |> select([...]) or …
 $ echo $?
 1
 
-# 차단에서 끝나지 않는다 — 검증된 안전 코드를 제안한다
+# It does not stop at blocking — it proposes verified safe code
 $ xazz policy examples/security/patient_unsafe.xzz --fix
 
-# 안전한 코드는 그대로 실행된다
+# Safe code runs normally
 $ xazz run examples/security/patient_safe.xzz
 📊 [xazz Execution Result: 'visits_by_band' (Top 5 Rows)]
 ```
 
 ---
 
-## 2. 설계 원칙
+## 2. Design principles
 
-### Fail-closed — "판단 불가"는 안전이 아니다
+### Fail-closed — "can't decide" is not safe
 
-정책 파일이 깨졌거나, 코드가 파싱되지 않거나, 스키마를 해석하지 못하면
-**실행을 거부한다**. "정책을 못 읽었으니 일단 실행한다"는 가드레일의 존재
-이유를 무너뜨린다.
+If the policy file is broken, the code fails to parse, or the schema cannot be resolved, execution is **refused**. "I couldn't read the policy, so let's run anyway" would defeat the purpose of a guardrail.
 
-| 상황 | 결과 |
+| Situation | Result |
 |---|---|
-| `XAZZ_POLICY_PATH` 가 가리키는 파일이 없음 | 실행 거부 · `XZP999 POLICY_LOAD_FAILED` |
-| 정책 JSON 구문 오류 | 실행 거부 · `XZP999` |
-| `.xzz` 구문 오류 | 실행 거부 · `XZP000 PARSE_FAILED` (리터럴 스캔은 계속 수행) |
-| 스키마 미해석 + `select` 없음 | 경고 · `XZP014` (정책에서 `block` 으로 승격 가능) |
+| File pointed to by `XAZZ_POLICY_PATH` missing | Execution refused · `XZP999 POLICY_LOAD_FAILED` |
+| Policy JSON syntax error | Execution refused · `XZP999` |
+| `.xzz` syntax error | Execution refused · `XZP000 PARSE_FAILED` (literal scan still runs) |
+| Unresolved schema + no `select` | Warning · `XZP014` (promotable to `block` in policy) |
 
-### 정밀 우선 — 부분 문자열로 판정하지 않는다
+### Precision first — no substring matching
 
-컬럼 분류는 정규화(소문자화 + 영숫자/한글만 남김) 후 **완전 일치**로만 한다.
-`patient_id` · `patientID` · `Patient-Id` 는 모두 같은 컬럼이지만,
-`message` 는 `age` 로, `sexagesimal` 은 `sex` 로 잡히지 않는다.
+Column classification normalizes (lowercase + keep alphanumerics/Hangul) then requires **exact match**. `patient_id` · `patientID` · `Patient-Id` are the same column, but `message` is not caught as `age`, and `sexagesimal` is not caught as `sex`.
 
-### 집계 결과는 식별자가 아니다
+### Aggregate results are not identifiers
 
-이 구분이 없으면 정상 통계 쿼리가 전부 오탐으로 막힌다.
+Without this distinction, every legitimate statistical query would be blocked as a false positive.
 
 ```
 groupBy("age_band") |> count("patient_id")
-                            ^^^^^^^^^^^^ 결과 컬럼은 '건수'이지 환자번호가 아니다 → 통과
+                            ^^^^^^^^^^^^ result column is a *count*, not a patient number → allowed
 select([patient_id, age_band])
-        ^^^^^^^^^^ 원본 값 그대로 → 차단
+        ^^^^^^^^^^ raw values passed through → blocked
 ```
 
-### 원본 값을 리포트에 싣지 않는다
+### Reports never carry raw values
 
-탐지된 비밀값은 항상 마스킹된다. `900101-1234568` 은 `90************` 으로만
-보고된다. 리포트 자체가 2차 유출 경로가 되면 안 되기 때문이다.
+Detected secrets are always masked. `900101-1234568` is reported only as `90************`. A report must not become a secondary leak channel.
 
 ---
 
-## 3. 규칙 카탈로그
+## 3. Rule catalog
 
-| ID | 이름 | 기본 심각도 | 무엇을 막는가 |
+| ID | Name | Default severity | What it blocks |
 |---|---|---|---|
-| `XZP000` | `PARSE_FAILED` | block | 파싱 불가 — 안전성을 증명하지 못함 |
-| `XZP001` | `DIRECT_IDENTIFIER_EXPOSED` | block | 이름·환자번호·연락처 등이 결과로 그대로 출력 |
-| `XZP002` | `SENSITIVE_ATTRIBUTE_ROW_LEVEL` | block | 진단명·소득 등 민감 속성이 집계 없이 행 단위로 출력 |
-| `XZP003` | `QUASI_IDENTIFIER_COMBINATION` | block¹ | 준식별자(나이+성별+우편번호…)가 임계치 이상 결합 |
-| `XZP004` | `AGGREGATE_WITHOUT_DP` | block² | 민감 속성 집계에 차등 프라이버시 미적용 |
-| `XZP005` | `DP_EPSILON_TOO_LARGE` | block | ε 이 정책 상한 초과 또는 0 이하 |
-| `XZP010` | `PII_LITERAL_IN_SOURCE` | block | 주민등록번호·전화번호·이메일·카드번호 하드코딩 |
-| `XZP011` | `HARDCODED_SECRET` | block | API 키·개인키·비밀번호 하드코딩 |
-| `XZP012` | `SENSITIVE_PATH_ACCESS` | block | `/etc/passwd`, `~/.ssh/`, `.aws/credentials` 등 접근 |
-| `XZP013` | `PATH_TRAVERSAL` | warn | `..` 상위 디렉터리 탈출 경로 |
-| `XZP014` | `UNRESOLVED_SCHEMA` | warn | 스키마 미해석 — 출력 컬럼을 확정하지 못함 |
-| `XZP999` | `POLICY_LOAD_FAILED` | block | 정책 자체를 불러오지 못함 |
+| `XZP000` | `PARSE_FAILED` | block | Unparseable — safety cannot be proven |
+| `XZP001` | `DIRECT_IDENTIFIER_EXPOSED` | block | Names, patient numbers, contact info emitted as-is in results |
+| `XZP002` | `SENSITIVE_ATTRIBUTE_ROW_LEVEL` | block | Sensitive attributes (diagnosis, income, …) emitted row-wise without aggregation |
+| `XZP003` | `QUASI_IDENTIFIER_COMBINATION` | block¹ | Quasi-identifiers (age+gender+zip…) combined above a threshold |
+| `XZP004` | `AGGREGATE_WITHOUT_DP` | block² | Sensitive-attribute aggregate without differential privacy |
+| `XZP005` | `DP_EPSILON_TOO_LARGE` | block | ε above the policy cap or ≤ 0 |
+| `XZP010` | `PII_LITERAL_IN_SOURCE` | block | Hardcoded RRN, phone, email, or card number |
+| `XZP011` | `HARDCODED_SECRET` | block | Hardcoded API key, private key, or password |
+| `XZP012` | `SENSITIVE_PATH_ACCESS` | block | Access to `/etc/passwd`, `~/.ssh/`, `.aws/credentials`, etc. |
+| `XZP013` | `PATH_TRAVERSAL` | warn | `..` parent-directory escape paths |
+| `XZP014` | `UNRESOLVED_SCHEMA` | warn | Schema unresolved — output columns cannot be determined |
+| `XZP999` | `POLICY_LOAD_FAILED` | block | The policy itself cannot be loaded |
 
-¹ 집계된 파이프라인에서는 `warn` 으로 낮아진다 (개별 레코드가 남지 않음).
-² `require_dp_for_sensitive_aggregate: false` 이면 `warn`.
+¹ Downgraded to `warn` in aggregated pipelines (no individual records remain).
+² `warn` if `require_dp_for_sensitive_aggregate: false`.
 
-모든 심각도는 정책 파일의 `rule_severity` 로 재정의할 수 있다.
+Every severity can be overridden via `rule_severity` in the policy file.
 
-### 리터럴 탐지 정밀도
+### Literal-detection precision
 
-오탐을 줄이기 위해 형태만 보지 않고 검증까지 한다.
+To cut false positives, detection validates beyond shape.
 
-- **주민등록번호** — `YYMMDD-SXXXXXX` 형태 + 성별코드 1~8 + 월/일 범위 +
-  가중치 체크섬. `900101-1234567`(체크섬 불일치)은 탐지하지 않는다.
-- **신용카드** — 13~19자리 + **Luhn 검증**. `4111-1111-1111-1112` 는 무시.
-  Luhn 만으로는 부족하다 — 임의의 긴 숫자열은 약 1/10 확률로 Luhn 을 통과한다.
-  그래서 구분자 없는 숫자열에는 **발급사 식별번호(IIN) 선두 자리**(3·4·5·6, MC 2-시리즈)를
-  추가로 요구하고, 식별자·경로에 붙어 있는 숫자열(`xazz_test_4150_1787805001967327111`)은
-  제외한다. 나노초 타임스탬프·주문번호가 카드번호로 잡히는 것을 막는다.
-- **전화번호** — 하이픈 구분자를 요구한다. `2026-08-27` 같은 날짜를
-  전화번호로 오탐하지 않는다.
-- **자격증명** — `<YOUR_PASSWORD>`, `********`, `${VAR}` 같은 플레이스홀더는 무시.
+- **Resident registration number (RRN)** — `YYMMDD-SXXXXXX` form + gender code 1–8 + month/day ranges + weighted checksum. `900101-1234567` (checksum mismatch) is not flagged.
+- **Credit cards** — 13–19 digits + **Luhn validation**. `4111-1111-1111-1112` is ignored. Luhn alone is insufficient — about 1 in 10 arbitrary long digit runs passes Luhn. So digit runs without separators additionally require an **issuer identifier (IIN) prefix** (3/4/5/6, MC 2-series), and digit runs attached to identifiers/paths (`xazz_test_4150_1787805001967327111`) are excluded. This prevents nanosecond timestamps and order numbers from being flagged as card numbers.
+- **Phone numbers** — hyphen separators required. Dates like `2026-08-27` are not misdetected as phone numbers.
+- **Credentials** — placeholders like `<YOUR_PASSWORD>`, `********`, `${VAR}` are ignored.
 
-> 정규식 크레이트를 쓰지 않고 직접 스캐너를 구현했다. `xazz-compiler` 는 CLI
-> 바이너리에 링크되므로 의존성을 늘리지 않는다는 아키텍처 제약을 지킨다
-> ([CONTRIBUTING.md](../CONTRIBUTING.md) 참조).
+> Scanners are hand-rolled instead of a regex crate. `xazz-compiler` links into the CLI binary, so it honors the architecture constraint of not growing dependencies (see [CONTRIBUTING.md](../CONTRIBUTING.md)).
 
 ---
 
-## 4. 게이트가 걸리는 세 지점
+## 4. Three gate points
 
 ```
 Visual IDE ──POST /execute──► xazz-server ──┐
-                              [게이트 ①]     │  위반이면 422, 실행기 스폰 안 함
+                              [gate ①]     │  violations → 422, engine never spawned
                                             ▼
-CLI ────────xazz run────────► xazz [게이트 ②]  위반이면 exit 1, 서브프로세스 안 띄움
+CLI ────────xazz run────────► xazz [gate ②]  violations → exit 1, no subprocess
                                             │
                                             ▼
-                              xazz-runner (인자 릴레이)
+                              xazz-runner (argument relay)
                                             │
                                             ▼
-                              xazz-exec [게이트 ③] ◄── 실제 Polars 실행 직전
+                              xazz-exec [gate ③] ◄── right before Polars executes
 ```
 
-**③ 이 최종 관문이다.** ①·② 를 우회해도 Polars 를 돌리는 곳은 ③ 하나뿐이므로,
-어떤 경로로 들어오든 이 지점을 지나야 한다. `xazz-exec` 에 CSV 를 직접 넘기는
-벤치마크 경로(`run_csv_benchmark`)도 결국 `run_pipeline` 을 호출하므로 덮인다.
+**③ is the final gate.** Even if ① and ② are bypassed, ③ is the only place that runs Polars, so every path must pass through it. The benchmark path that feeds a CSV directly to `xazz-exec` (`run_csv_benchmark`) also ends up calling `run_pipeline`, so it is covered.
 
-① 을 따로 두는 이유는 차단이 아니라 **응답 품질**이다. 프런트엔드는 서브프로세스
-기동 비용 없이 구조화된 위반 리포트를 즉시 받는다. 또한 차단된 요청도
-감사 로그에 `outcome: "blocked"` 로 기록된다.
+① exists not for blocking but for **response quality**: the frontend receives a structured violation report without subprocess startup cost. Blocked requests are also recorded in the audit log with `outcome: "blocked"`.
 
-### 알려진 한계 — PATH 셰도잉
+### Known limitation — PATH shadowing
 
-`xazz-server` 는 `xazz` 를, `xazz-runner` 는 `xazz-exec` 를 찾을 때 마지막
-수단으로 `PATH` 를 뒤진다. 공격자가 서버 프로세스의 `PATH` 를 조작해 가짜
-`xazz-exec` 를 심을 수 있다면 게이트를 통과하지 않고 임의 실행이 가능하다.
+When `xazz-server` looks for `xazz` and `xazz-runner` looks for `xazz-exec`, `PATH` is used as a last resort. If an attacker can manipulate the server process's `PATH` to plant a fake `xazz-exec`, arbitrary execution without passing the gate becomes possible.
 
-이것은 Rust 코드로 닫을 수 있는 문제가 아니라 **배포 환경의 문제**다. 운영
-환경에서는 실행 파일을 고정 경로에 두고 서버 프로세스의 `PATH` 를 통제해야
-한다. "우회 불가"라고 쓰지 않고 이 한계를 명시하는 편이 정직하다.
+This is not something Rust code can close — it is a **deployment-environment** issue. In production, place executables at pinned paths and control the server process's `PATH`. We state this limitation explicitly instead of claiming "unbypassable".
 
 ---
 
-## 5. 정책 파일
+## 5. Policy files
 
-정책은 코드가 아니라 데이터다. 조직은 JSON 하나만 교체해서 가드레일 동작을
-바꾼다.
+Policy is data, not code. An organization changes guardrail behavior by swapping one JSON file.
 
-### 적용 우선순위 (fail-closed)
+### Load precedence (fail-closed)
 
-1. 환경변수 `XAZZ_POLICY_PATH` — 지정되면 **반드시** 로딩에 성공해야 한다.
-2. 작업 디렉터리의 `xazz.policy.json` — 존재하면 **반드시** 로딩에 성공해야 한다.
-3. 둘 다 없으면 내장 기본 정책 (`xazz-builtin-pii`).
+1. Env var `XAZZ_POLICY_PATH` — if set, loading **must** succeed.
+2. `xazz.policy.json` in the working directory — if present, loading **must** succeed.
+3. If neither, the built-in default policy (`xazz-builtin-pii`).
 
 ```bash
-# 강화된 의료 정책 적용
+# Apply a hardened healthcare policy
 XAZZ_POLICY_PATH=examples/security/healthcare_policy.json \
     xazz policy pipeline.xzz
 ```
 
-### 스키마
+### Schema
 
 ```jsonc
 {
-  "id": "xazz-healthcare-strict",          // 필수 (비어 있으면 로딩 실패)
+  "id": "xazz-healthcare-strict",          // required (empty → load failure)
   "version": "1.0.0",
   "description": "...",
 
@@ -177,48 +153,46 @@ XAZZ_POLICY_PATH=examples/security/healthcare_policy.json \
   "sensitive_attributes": ["disease", "salary", "종교", ...],
   "quasi_identifiers":    ["age", "gender", "zip_code", ...],
 
-  "quasi_identifier_threshold": 2,          // 이 개수 이상 결합 시 위반 (기본 3)
+  "quasi_identifier_threshold": 2,          // violation when this many combine (default 3)
   "require_dp_for_sensitive_aggregate": true,
-  "max_epsilon": 1.0,                       // ε 상한 (기본 3.0)
-  "remediation_epsilon": 0.5,               // 자동 보정이 삽입하는 ε (기본 1.0)
+  "max_epsilon": 1.0,                       // ε cap (default 3.0)
+  "remediation_epsilon": 0.5,               // ε inserted by auto-remediation (default 1.0)
 
-  "allowed_output_columns": ["age_band"],   // 분류를 무력화하는 allowlist
+  "allowed_output_columns": ["age_band"],   // allowlist that overrides classification
   "denied_path_fragments": ["/etc/passwd", "/.ssh/", ...],
 
-  "rule_severity": { "XZP013": "block" },   // 규칙별 심각도 재정의
+  "rule_severity": { "XZP013": "block" },   // per-rule severity override
 
-  // ── 감사 증빙용 메타데이터 ──────────────────────────────────────────
+  // ── audit-evidence metadata ──────────────────────────────────────────
   "domain": "healthcare",                   // common | healthcare | finance | public-sector | …
-  "risk_level": "high",                     // low | medium | high (가명정보 가이드라인 위험도 구분)
-  "rule_source_refs": {                     // 규칙별 규제 근거 재정의
+  "risk_level": "high",                     // low | medium | high (PII-guideline risk tiers)
+  "rule_source_refs": {                     // per-rule regulatory basis override
     "XZP002": "의료법 제19조 · 개인정보 보호법 제23조"
   }
 }
 ```
 
-컬럼명은 한국어로 써도 된다 — 정규화가 한글을 보존한다.
+Column names may be Korean — normalization preserves Hangul.
 
-### Domain Policy Pack
+### Domain policy packs
 
-공통 기준(Common Security Baseline)을 내장 정책이 담당하고, 도메인별 고유 규제는
-정책 팩으로 확장한다. 모든 법규를 코드에 박아 넣는 대신 **규제를 실행 가능한
-룰셋으로 바꿀 수 있는 구조**를 제공하는 것이 목표다.
+A common baseline is provided by the built-in policy; domain-specific regulation is extended via policy packs. The goal is not to hardcode every statute into code but to provide a structure that turns **regulation into executable rulesets**.
 
-| 팩 | `domain` | 위험도 | 준식별자 임계치 | 특징 |
+| Pack | `domain` | Risk | Quasi-id threshold | Focus |
 |---|---|---|---|---|
-| 내장 기본 | `common` | medium | 3 | 한국 개인정보보호법 맥락의 공통 기준 |
-| [`healthcare_policy.json`](../examples/security/healthcare_policy.json) | `healthcare` | high | 2 | 환자ID·진단명·처방·검사결과, 의료법 제19조 |
-| [`finance_policy.json`](../examples/security/finance_policy.json) | `finance` | high | 2 | 계좌·카드번호·신용점수·거래내역, 신용정보법 |
-| [`public_sector_policy.json`](../examples/security/public_sector_policy.json) | `public-sector` | high | 2 | 주민등록번호·민원내용·수급자격, 공공데이터법 |
+| Built-in default | `common` | medium | 3 | Common baseline in a K-PIPA context |
+| [`healthcare_policy.json`](../examples/security/healthcare_policy.json) | `healthcare` | high | 2 | Patient ID, diagnosis, prescription, lab results, Medical Service Act §19 |
+| [`finance_policy.json`](../examples/security/finance_policy.json) | `finance` | high | 2 | Account, card number, credit score, transactions, Credit Information Act |
+| [`public_sector_policy.json`](../examples/security/public_sector_policy.json) | `public-sector` | high | 2 | RRN, civil complaints, benefit eligibility, Public Data Act |
 
 ```bash
 XAZZ_POLICY_PATH=examples/security/finance_policy.json \
     xazz policy pipeline.xzz
 ```
 
-### 감사 증빙 (Compliance Evidence)
+### Compliance evidence
 
-모든 위반은 **무엇이 왜 막혔는지 사후에 따라갈 수 있는 형태**로 기록된다.
+Every violation is recorded in a form that makes it possible to trace **what was blocked and why**, after the fact.
 
 ```jsonc
 {
@@ -236,82 +210,71 @@ XAZZ_POLICY_PATH=examples/security/finance_policy.json \
 }
 ```
 
-`rule_id` · `source_ref` · `policy_version` · `domain` · `risk_level` 다섯 항목이
-한 리포트에 함께 담기므로, 내부통제·사후감사에서 "이 차단은 어떤 기준의 몇 조에
-근거했는가"를 바로 확인할 수 있다. 여기에 기존 SHA-256 감사 로그가 코드 해시와
-실행 결과(`outcome`)를 이어 붙인다 — 차단된 실행도 `outcome: "blocked"` 로 남는다.
+`rule_id` · `source_ref` · `policy_version` · `domain` · `risk_level` travel together in one report, so internal control and post-hoc audit can directly answer "which rule, which clause of which standard was this block based on". The existing SHA-256 audit log then chains the code hash and execution outcome — blocked runs are recorded with `outcome: "blocked"` too.
 
-> ⚠️ `source_ref` 는 **법률 자문이 아니라 감사 추적용 참조**다. 어떤 기준을 근거로
-> 규칙을 만들었는지 남기기 위한 것이며, 실제 적용 법령은 조직·도메인마다 다르므로
-> `rule_source_refs` 로 재정의하는 것을 전제로 설계했다.
+> ⚠️ `source_ref` is an **audit-trail reference, not legal advice**. It records which standard a rule was based on; the applicable statute varies by organization and domain, so the design assumes `rule_source_refs` overrides.
 
 ---
 
-## 6. 자동 보정
+## 6. Auto-remediation
 
-차단에서 끝나면 개발자는 다음 행동을 못 한다. 가드레일은 **검증된 안전 코드**를
-함께 제시한다.
+Blocking alone leaves developers with no next step. The guardrail also presents **verified safe code**.
 
-### 2단 구조
-
-```
-① 결정적 보정 (항상 동작)
-   AST 를 직접 고쳐 쓰고 printer 로 .xzz 를 다시 찍어낸다.
-   문자열 치환이 아니므로 구문이 깨지지 않는다.
-     · 직접 식별자·행 단위 민감 속성 → select 투영에서 제거
-     · 준식별자 초과분 → 임계치 미만까지 제거
-     · 민감 속성 집계 → |> withDp(...) 삽입
-     · ε 상한 초과 → 상한값으로 클램프
-
-② 온프레미스 sLM (선택 — Qwen2.5-Coder-1.5B)
-   더 자연스러운 재작성을 제안한다. 단, 제안은 반드시 같은 정책 엔진으로
-   재파싱·재검증되며, 통과하지 못하면 ① 로 되돌아간다.
-```
-
-### 자동으로 고치지 않는 것
-
-하드코딩된 비밀키·개인정보는 `residual` 로 남긴다. **소스에서 값을 지우는
-것만으로는 끝나지 않기 때문이다** — 노출된 자격증명은 폐기·재발급해야 한다.
-`residual` 이 비어 있지 않으면 `verified` 는 `false` 이며, 보정 코드를
-"안전하다"고 표시하지 않는다.
-
-### 보정이 의도를 바꿀 수 있다
-
-결정적 보정은 위반을 확실히 없애지만 질문 자체를 좁힐 수 있다.
+### Two-layer structure
 
 ```
-원본:  select([age, disease])     "40대 이상 환자의 진단명"
-보정:  select([age])              위반은 사라졌지만 질문도 사라졌다
+① Deterministic remediation (always works)
+   Rewrites the AST directly and re-prints .xzz with the printer.
+   Not a string substitution, so syntax never breaks.
+     · direct identifiers & row-wise sensitive attributes → removed from the select projection
+     · excess quasi-identifiers → removed down to below the threshold
+     · sensitive-attribute aggregates → |> withDp(...) inserted
+     · ε above the cap → clamped to the cap
+
+② On-premise sLM (optional — Qwen2.5-Coder-1.5B)
+   Proposes a more natural rewrite. Proposals are always re-parsed and
+   re-verified by the same policy engine; if they fail, it falls back to ①.
 ```
 
-sLM 층이 존재하는 이유가 이것이다. 자세한 지표 정의는
-[experiments/slm_guardrail/README.md](../experiments/slm_guardrail/README.md) 참조.
+### What is never auto-fixed
 
-> 보정 코드는 AST 에서 다시 생성되므로 **원본 주석과 서식은 보존되지 않는다.**
-> 이 사실은 응답의 `notes` 에 항상 명시된다.
+Hardcoded secrets and personal data are left as `residual`. **Deleting the value from source is not the end** — exposed credentials must be revoked and reissued. If `residual` is non-empty, `verified` is `false` and the remediated code is not labeled "safe".
+
+### Remediation can change intent
+
+Deterministic remediation reliably removes violations but can narrow the question itself.
+
+```
+original: select([age, disease])    "diagnosis of patients in their 40s+"
+remediation: select([age])          violation gone, but so is the question
+```
+
+This is why the sLM layer exists. See [experiments/slm_guardrail/README.md](../experiments/slm_guardrail/README.md) for metric definitions.
+
+> Remediated code is regenerated from the AST, so **original comments and formatting are not preserved**. This is always stated in the response's `notes`.
 
 ---
 
-## 7. 사용법
+## 7. Usage
 
 ### CLI
 
 ```bash
-xazz policy <file.xzz>                    # 검사 (통과 0 / 위반 1)
-xazz policy <file.xzz> --json             # 기계 판독용 JSON
-xazz policy <file.xzz> --fix              # 안전한 대체 코드까지 제안
+xazz policy <file.xzz>                    # inspect (pass 0 / violation 1)
+xazz policy <file.xzz> --json             # machine-readable JSON
+xazz policy <file.xzz> --fix              # also propose safe alternatives
 xazz policy <file.xzz> --fix --out safe.xzz
-xazz run <file.xzz>                       # 실행 — 위반이면 자동 차단
+xazz run <file.xzz>                       # run — auto-blocked on violation
 ```
 
 ### HTTP API
 
-| 메서드 | 경로 | 설명 |
+| Method | Path | Description |
 |---|---|---|
-| `GET` | `/security/policy` | 활성 정책 + sLM 설정 조회 |
-| `POST` | `/security/policy/check` | 실행 없이 검사만 (위반이어도 200) |
-| `POST` | `/security/remediate` | 보정 코드 + 위반 리포트 반환 |
-| `POST` | `/execute` | 실행 — 위반이면 **422** + 리포트 |
+| `GET` | `/security/policy` | Active policy + sLM config |
+| `POST` | `/security/policy/check` | Inspect only, no execution (200 even on violation) |
+| `POST` | `/security/remediate` | Remediated code + violation report |
+| `POST` | `/execute` | Execute — **422** + report on violation |
 
 ```bash
 curl -X POST localhost:8005/security/remediate \
@@ -331,11 +294,11 @@ curl -X POST localhost:8005/security/remediate \
         "rule_id": "XZP001",
         "rule_name": "DIRECT_IDENTIFIER_EXPOSED",
         "severity": "block",
-        "message": "직접 식별자 컬럼이 결과로 그대로 출력됩니다: name. …",
+        "message": "direct identifier columns are emitted as-is: name. …",
         "statement_index": 1,
         "variable": "x",
         "columns": ["name"],
-        "remediation_hint": "|> select([...]) 에서 name 을(를) 제외하거나 …"
+        "remediation_hint": "remove name from |> select([...]) or …"
       }
     ],
     "warnings": []
@@ -343,7 +306,7 @@ curl -X POST localhost:8005/security/remediate \
   "remediation": {
     "strategy": "deterministic",
     "code": "type P = {\n    name: string,\n    age_band: string,\n};\n\nv x = load(\"d.csv\") :: P\n    |> select([age_band]);\n",
-    "applied": [{ "rule_id": "XZP001", "description": "출력에서 'name' 컬럼을 제거했습니다." }],
+    "applied": [{ "rule_id": "XZP001", "description": "removed the 'name' column from output" }],
     "residual": [],
     "notes": [],
     "verified": true
@@ -352,16 +315,15 @@ curl -X POST localhost:8005/security/remediate \
 }
 ```
 
-### 실행 엔진 마커
+### Execution-engine marker
 
-`xazz-exec` 는 차단·통과와 무관하게 항상 `[xazz:policy]` 마커를 stdout 에
-내보낸다. 프런트엔드는 "검사가 실제로 수행되었다"는 사실 자체를 신뢰할 수 있다.
+`xazz-exec` always emits a `[xazz:policy]` marker on stdout, regardless of block or pass. The frontend can trust that "an inspection actually ran".
 
 ```
 [xazz:policy] {"policy_id":"xazz-builtin-pii","safe_to_execute":false,"violations":[…]}
 ```
 
-### 온프레미스 sLM 켜기
+### Enabling the on-premise sLM
 
 ```bash
 XAZZ_SLM_ENABLED=1 \
@@ -370,46 +332,43 @@ XAZZ_SLM_ENDPOINT=http://127.0.0.1:11434 \
     cargo run -p xazz-server
 ```
 
-| 환경변수 | 기본값 | 설명 |
+| Env var | Default | Description |
 |---|---|---|
-| `XAZZ_SLM_ENABLED` | `false` | `1`/`true`/`on` 일 때만 sLM 호출 |
-| `XAZZ_SLM_ENDPOINT` | `http://127.0.0.1:11434` | 로컬호스트 고정 권장 |
-| `XAZZ_SLM_MODEL` | `xazz-guardrail` | Ollama 모델명 |
-| `XAZZ_SLM_TIMEOUT_MS` | `20000` | 응답 대기 시간 |
+| `XAZZ_SLM_ENABLED` | `false` | sLM invoked only for `1`/`true`/`on` |
+| `XAZZ_SLM_ENDPOINT` | `http://127.0.0.1:11434` | localhost pinned recommended |
+| `XAZZ_SLM_MODEL` | `xazz-guardrail` | Ollama model name |
+| `XAZZ_SLM_TIMEOUT_MS` | `20000` | response wait time |
 
-sLM 이 꺼져 있거나 연결에 실패하면 결정적 보정이 그대로 쓰인다.
-서비스가 멈추지 않는다는 것은 테스트로 보장된다.
+If the sLM is off or unreachable, deterministic remediation is used as-is. The service never stops — guaranteed by tests.
 
 ---
 
-## 8. 예제
+## 8. Examples
 
 ```bash
-# 합성 데이터 생성 (실제 개인정보 없음, CSV 는 커밋되지 않는다)
+# Generate synthetic data (no real PII; CSV is not committed)
 python3 examples/security/generate_patients.py
 
-xazz policy examples/security/patient_unsafe.xzz --fix       # 4개 규칙 위반 + 보정
-xazz policy examples/security/patient_secret_leak.xzz --fix  # 자동 보정 불가 사례
-xazz policy examples/security/patient_safe.xzz               # 통과
-xazz run    examples/security/patient_safe.xzz               # 실행
+xazz policy examples/security/patient_unsafe.xzz --fix       # 4 rule violations + remediation
+xazz policy examples/security/patient_secret_leak.xzz --fix  # cannot be auto-fixed case
+xazz policy examples/security/patient_safe.xzz               # passes
+xazz run    examples/security/patient_safe.xzz               # runs
 ```
 
 ---
 
-## 9. 구현 위치
+## 9. Implementation locations
 
-| 경로 | 역할 |
+| Path | Role |
 |---|---|
-| `xazz-compiler/src/policy/mod.rs` | 정책·리포트 타입, 규칙 카탈로그, 진입점, 정책 로딩 |
-| `xazz-compiler/src/policy/rules.rs` | 출력 컬럼 추론(`PipelineShape`) 및 규칙 판정 |
-| `xazz-compiler/src/policy/patterns.rs` | 리터럴 스캐너 (RRN 체크섬 · Luhn · API 키) |
-| `xazz-compiler/src/policy/printer.rs` | AST → `.xzz` 프린터 (왕복 성질 테스트 포함) |
-| `xazz-compiler/src/policy/remediate.rs` | 결정적 AST 보정 + 재검증 |
-| `src/policy_cli.rs` | `xazz policy` 서브커맨드 및 `xazz run` 게이트 |
-| `xazz-exec/src/runtime.rs` (STEP 3.6) | 최종 실행 게이트 + `[xazz:policy]` 마커 |
-| `xazz-server/src/guardrail.rs` | `/execute` 게이트, 보정 오케스트레이션 |
-| `xazz-server/src/slm.rs` | Ollama 어댑터, 프롬프트 구성, 코드 추출 |
+| `xazz-compiler/src/policy/mod.rs` | Policy/report types, rule catalog, entry points, policy loading |
+| `xazz-compiler/src/policy/rules.rs` | Output-column inference (`PipelineShape`) and rule evaluation |
+| `xazz-compiler/src/policy/patterns.rs` | Literal scanners (RRN checksum · Luhn · API keys) |
+| `xazz-compiler/src/policy/printer.rs` | AST → `.xzz` printer (round-trip tests included) |
+| `xazz-compiler/src/policy/remediate.rs` | Deterministic AST remediation + re-verification |
+| `src/policy_cli.rs` | `xazz policy` subcommand and the `xazz run` gate |
+| `xazz-exec/src/runtime.rs` (STEP 3.6) | Final execution gate + `[xazz:policy]` marker |
+| `xazz-server/src/guardrail.rs` | `/execute` gate, remediation orchestration |
+| `xazz-server/src/slm.rs` | Ollama adapter, prompt construction, code extraction |
 
-가드레일은 `xazz-compiler` 에 있다. Polars/Tokio 를 링크하지 않는 유일한 공용
-크레이트이므로, CLI·실행 엔진·API 서버 세 진입점 모두에 **같은 코드**로 게이트를
-걸 수 있다. 정책 판정이 진입점마다 달라지면 그 자체가 취약점이다.
+The guardrail lives in `xazz-compiler` — the only shared crate that links neither Polars nor Tokio, so the CLI, the execution engine, and the API server all gate with **the same code**. If policy evaluation differed per entry point, that inconsistency would itself be a vulnerability.

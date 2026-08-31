@@ -145,7 +145,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - Dependency isolation: Polars removed from CLI binary, isolated to `xazz-exec`
 - Multi-crate workspace: `xazz-core`, `xazz-compiler`, `xazz-exec`, `xazz-runner`, `xazz-server`
 - CSV LFS migration for large example data files
-- Benchmark: 3.84× speedup over pandas on 3.4M-row workload
+- Benchmark: up to 2.62× speedup over pandas at 228K rows; 1.93× at 4.09M rows (see README Performance)
 
 ### Architecture
 - `xazz` CLI binary: no Polars, no Tokio (~2–5 MB)
