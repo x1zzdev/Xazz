@@ -72,6 +72,8 @@ Xazz is not a wrapper around existing libraries. The parser, AST, static type ch
    xazz --help
    ```
 
+   CLI output is English by default; set `XAZZ_LANG=ko` for Korean diagnostics.
+
 ### Option B — Build from source
 
 Requires Rust stable.

@@ -72,6 +72,8 @@ Xazz는 기존 라이브러리의 래퍼가 아닙니다. 파서, AST, 정적 �
    xazz --help
    ```
 
+   CLI 출력은 기본 영어입니다. 한국어 진단을 보려면 `XAZZ_LANG=ko` 를 설정하세요.
+
 ### Option B — 소스에서 빌드
 
 Rust stable 툴체인이 필요합니다.
