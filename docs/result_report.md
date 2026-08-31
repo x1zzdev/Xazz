@@ -26,19 +26,19 @@
 
 Python 기반 AI 파이프라인은 데이터 과학자에게 뛰어난 생산성을 제공하지만, 파이프라인이 대규모화될수록 구조적 한계가 표면화된다. 런타임에서만 드러나는 타입 오류와 NaN(결측치) 처리 실패는 분산 학습 도중 치명적인 중단을 유발하고, Python과 네이티브 코드 사이의 메모리 복사 오버헤드는 성능 병목으로 작용한다. 결과적으로 이는 GPU 연산 자원의 막대한 낭비와 반복적인 디버깅에 따른 개발 생산성 저하로 이어진다.
 
-Xazz는 이 세 가지 한계를 정면에서 해결하고자 한다. 첫째, Rust 강타입 시스템과 `Option<T>` 기반 정적 널 안전성으로 결측치·타입 오류를 컴파일 단계에서 검증하여, 학습 실행 전에 오류를 차단함으로써 대규모 분산 학습 시 발생할 수 있는 불필요한 GPU 연산 자원 손실을 사전에 방지한다. 둘째, Apache Arrow 기반 메모리 레이아웃을 통해 Polars 전처리 결과에서 Burn 딥러닝 텐서로 전환할 때 불필요한 중간 복사를 제거하고 **남는 복사 경계(f64→f32, columnar→row-major, host→device)를 메모리 모델로 명시**하는 직접 버퍼 데이터 전환을 구현한다. 셋째, Policy-as-Code 정적 가드레일, 차등 프라이버시(DP) 노이즈, 파인튜닝된 온프레미스 sLM 코드 자동 보정, SHA-256 감사 로그를 결합하여 금융·의료 등 민감 데이터의 보안 규제 요구를 충족한다.
+Xazz는 이 세 가지 한계를 정면에서 해결하고자 한다. 첫째, Rust 강타입 시스템과 `Option<T>` 기반 정적 널 안전성으로 결측치·타입 오류를 컴파일 단계에서 검증하여, 학습 실행 전에 오류를 차단함으로써 대규모 분산 학습 시 발생할 수 있는 불필요한 GPU 연산 자원 손실을 사전에 방지한다. 둘째, Apache Arrow 기반 메모리 레이아웃을 통해 Polars 전처리 결과에서 Burn 딥러닝 텐서로 전환할 때 불필요한 중간 복사를 제거하고 **남는 복사 경계(f64→f32, columnar→row-major, host→device)를 메모리 모델로 명시**하는 직접 버퍼 데이터 전환을 구현한다. 셋째, Policy-as-Code 정적 가드레일, 차등 프라이버시(DP) 노이즈, 온프레미스 sLM 코드 자동 보정 어댑터(QLoRA 파인튜닝은 Phase 8 진행 중), SHA-256 감사 로그를 결합하여 금융·의료 등 민감 데이터의 보안 규제 요구를 충족한다.
 
 아울러 Xazz는 AI-Native 선언형 문법을 채택하여 Rust의 거친 학습 곡선 없이도 데이터 과학자와 입문자가 즉시 파이프라인을 작성할 수 있도록 설계되었다. 모호성이 없는 정적 타입 스키마와 명확한 DSL 구조는 LLM/AI Agent가 코드를 오차 없이 정확히 생성·수정하고, 온프레미스 sLM이 정적 분석을 통해 실시간으로 자동 리뷰·보정하는 'Agent-Ready Environment'를 제공한다. 이로써 보안 compliance가 중요한 기업형 AI 환경에서 파이썬 파이프라인의 하이퍼 퍼포먼스 모듈로 즉시 통합되어 탁월한 효율을 발휘하는 오픈소스 플랫폼을 완성하고자 한다.
 
 **개발환경**
 
-- 언어: Rust 2024 Edition (stable toolchain), TypeScript/React, Python (sLM 파인튜닝)
+- 언어: Rust 2024 Edition (stable toolchain), TypeScript/React, Python (sLM 파인튜닝 — Phase 8)
 - DL 프레임워크: Burn v0.21 (CPU 백엔드 ndarray, autodiff 지원)
 - 데이터 엔진: Polars v0.53 (lazy / csv / strings / regex)
 - 백엔드 서버: Axum 0.8 (REST API), Tokio, SHA-256 감사 로그
 - 프론트엔드: React 18, @xyflow/react 12 (노드 기반 Visual IDE), Vite
 - 보안/프라이버시: Policy-as-Code 정적 가드레일, DP 노이즈(Laplace/Gaussian Mechanism)
-- sLM 서빙: Qwen2.5-Coder-1.5B, Unsloth + QLoRA 파인튜닝, GGUF 변환, llama.cpp / Ollama
+- sLM 서빙: Qwen2.5-Coder-1.5B, Ollama 온프레미스 (Unsloth + QLoRA 파인튜닝은 Phase 8 — 현재 미실행)
 - CI/CD: GitHub Actions, Playwright E2E 테스트, Cargo test / clippy
 - 워크스페이스: xazz, xazz-core, xazz-compiler, xazz-exec, xazz-runner, xazz-server
 
@@ -57,12 +57,12 @@ Xazz는 이 세 가지 한계를 정면에서 해결하고자 한다. 첫째, Ru
 
 - **[컴파일러 코어]** .xzz 스크립트를 위한 파서(Parser)와 내부 구문 트리(AST) 툴체인을 직접 구현, 정적 분석 단계에서 **Typed IR** 생성 및 IR 최적화 지원
 - **[정적 의미 분석기(Type Checker)]** 실행 전 단계에서 미선언 변수·모델·스키마, 중복 선언, 스키마에 없는 컬럼(오타 did-you-mean 제안), 잘못된 `cast` 타입, `groupBy` 후 집계 누락 등을 컴파일 시점에 검출 — `xazz check`로 라인·컬럼(Span) 단위 진단과 `--json` 구조화 출력 제공
-- **[데이터 가속 엔진]** 전처리 명령을 Polars LazyFrame 연산 그래프로 변환·실행 (pandas 대비 최대 3.84배)
+- **[데이터 가속 엔진]** 전처리 명령을 Polars LazyFrame 연산 그래프로 변환·실행 (pandas 대비 최대 2.62배 — 228K 행; 409만 행에서는 1.93배, README Performance 참고)
 - **[딥러닝 컴파일]** Burn 프레임워크 연동 — 학습 레이어로 변환하는 컴파일 계층 구현 (`model {}` 선언 + `train()`, Adam+MSE, 체크포인트)
 - **[데이터 변환 인터페이스]** Polars LazyFrame 연산 결과를 Burn 텐서(Tensor) 계층으로 전환하는 직접 버퍼 변환 인터페이스 — 연속 Float64/Float32 컬럼은 Arrow raw 버퍼(`cont_slice`)를 직접 읽고, 불가피한 복사 경계는 메모리 모델로 명시 (`docs/design/memory-model.md`)
 - **[정적 가드레일]** Policy-as-Code 기반 정적 규칙으로 실행 전 단계에서 개인정보 유출·보안 컴플라이언스 위반 코드를 탐지·차단 (Definition of Done: 위반 코드 실시간 차단)
 - **[프라이버시 R&D]** Rust/Python 환경에서 Laplace / Gaussian Mechanism 기반 차등 프라이버시(DP) 노이즈 주입 알고리즘 구현 — 지정된 Privacy Budget 하에서 Polars DataFrame 연산 결과에 노이즈를 적용하고, Privacy Budget 소모 상태를 모니터링
-- **[내장형 sLM 엔진]** Qwen2.5-Coder-1.5B를 Unsloth + QLoRA로 보안 위반 코드 보정에 특화 파인튜닝 후 GGUF 변환, llama.cpp/Ollama 기반 온프레미스 서빙 환경 구축. 정적 가드레일에 차단된 코드를 자동 보정하고, 수정된 안전한 코드와 위반 사유·분석 리포트를 JSON API로 반환
+- **[sLM 어댑터(실험)]** Qwen2.5-Coder-1.5B 보안 위반 코드 보정 어댑터 및 Ollama 기반 온프레미스 서빙 훅 구현. 단, **QLoRA 파인튜닝 학습은 아직 실행되지 않았다** (재현 가능한 학습·평가 스캐폴드는 `experiments/slm_guardrail/` 에 공개). 정적 가드레일에 차단된 코드를 결정적 규칙으로 자동 보정하고, sLM 제안은 채택 전에 동일 정책 엔진으로 재검증한다
 - **[비주얼 콘솔 UI]** React·@xyflow/react 기반으로 데이터 전처리·딥러닝 컴파일 파이프라인 흐름을 시각화하는 웹 IDE
 - **[신뢰성 인프라]** SHA-256 append-only 해시 체인 감사 로그로 모든 연산 이력을 영구 보존하고 변조를 검증(조회·재생·체인 무결성 API)하며, GitHub Actions 기반 CI/CD·자동화 테스트(Rust 전체 + Visual IDE 프런트엔드) 환경 구축. `xazz run --json`으로 기계 판독 실행 결과, `xazz-runner --check-engine`으로 실행 엔진 가용성 진단
 
@@ -82,16 +82,16 @@ cd my-project
 
 시연 예시(공기질 데이터): `type AirData` 스키마 선언 → `fillNull("pm10", strategy:"mean")` 전처리 → DP 노이즈 주입(Privacy Budget 지정) → Polars→Burn 텐서 변환 → `AirPredictor` 모델 선언 → `train()`/`predict()` → `chart {}`로 결과 시각화.
 
-보안 가드레일 시연: 개인정보(주민등록번호·전화번호 등) 노출 규칙을 포함한 `.xzz` 코드 실행 시, 실행 전 단계에서 정적 가드레일이 즉시 차단 → sLM(파인튜닝된 Qwen2.5-Coder-1.5B)이 안전한 코드로 자동 보정하고, 위반 사유·분석 리포트를 JSON으로 반환. Visual IDE에서는 이 전 과정이 노드 그래프로 표시된다.
+보안 가드레일 시연: 개인정보(주민등록번호·전화번호 등) 노출 규칙을 포함한 `.xzz` 코드 실행 시, 실행 전 단계에서 정적 가드레일이 즉시 차단 → 결정적 규칙(및 opt-in sLM 어댑터)이 안전한 코드로 자동 보정하고, 위반 사유·분석 리포트를 JSON으로 반환. Visual IDE에서는 이 전 과정이 노드 그래프로 표시된다.
 
 ### 기대효과 및 활용분야
 
 **향후 확장성 및 기대효과**
 
-- **연산 효율성**: Apache Arrow 기반 메모리 레이아웃과 Rust 런타임으로 Python 환경 대비 파이프라인 성능·자원 효율을 벤치마크 3.84배까지 향상. 이는 대규모 데이터 전처리 워크로드에서 운영 비용을 직접 절감하는 실무적·엔터프라이즈 가치를 제공한다.
+- **연산 효율성**: Apache Arrow 기반 메모리 레이아웃과 Rust 런타임으로 Python 환경 대비 파이프라인 성능·자원 효율을 벤치마크 최대 2.62배(228K 행)까지 향상. 이는 대규모 데이터 전처리 워크로드에서 운영 비용을 직접 절감하는 실무적·엔터프라이즈 가치를 제공한다.
 - **GPU 자원 절약**: 컴파일 단계 정적 타입·결측치(`Option<T>`) 검사로 오류를 학습 이전에 발견함으로써, 대규모 분산 학습 중 오류로 인한 중단과 그로 인한 막대한 GPU 연산 자원 낭비를 사전에 방지한다.
 - **엔터프라이즈 적용성**: 실행 전 정적 가드레일·차등 프라이버시 노이즈·SHA-256 감사 로그의 3중 안전망으로 금융·의료 등 민감 데이터 규제 산업에 즉시 적용 가능하다.
-- **보안 운영 부담 경감**: 파인튜닝된 온프레미스 sLM이 차단된 보안 위반 코드를 자동 보정하고 위반 사유 리포트를 제공하여, 데이터 유출 없이 보안 운영 오버헤드를 대폭 완화한다.
+- **보안 운영 부담 경감**: 정적 가드레일이 차단된 보안 위반 코드를 결정적 규칙(및 opt-in sLM 어댑터)으로 자동 보정하고 위반 사유 리포트를 제공하여, 데이터 유출 없이 보안 운영 오버헤드를 대폭 완화한다.
 - **생태계 확대**: 선언형 DSL로 개발 진입 장벽을 낮추고, CI/CD와 기여 가이드라인을 기반으로 대한민국 주도 데이터 엔지니어링 오픈소스 생태계 활성화에 기여한다.
 - **확장 가능성**: GPU 백엔드(burn-tch / burn-wgpu) 전환, 분산 학습, 실시간 스트리밍 파이프라인, 연산자·조인·스키마 진화 확장으로 지속 성장이 가능한 로드맵을 갖춘다.
 
@@ -102,7 +102,7 @@ cd my-project
 - 라이브러리 래퍼에 그치지 않고, 파서·AST·타입 검사·코드 생성·보안 런타임·딥러닝 컴파일 엔진까지 핵심 툴체인을 직접 설계·구현한 독립 컴파일러 플랫폼
 - 스크립트 언어의 생산성과 Rust 강타입 컴파일러의 안전성을 하나의 DSL로 통합하는 "겉은 스크립트, 핵심은 컴파일러" Architecture — 스크립트의 직관적 작성 경험과 컴파일러의 정적 안전성이 결합되어 초보자도 즉시 파이프라인을 작성하면서도 런타임 오류를 구조적으로 원천 차단한다.
 - Apache Arrow 기반 직접 버퍼 텐서 변환(복사 경계 명시)과 정적 널 안전성(`Option<T>`)으로 Python 런타임 오류를 구조적으로 줄이고 불필요한 언어 간 메모리 복사를 제거 — "겉은 스크립트, 핵심은 컴파일러"의 생산성·안전성·성능 삼중 가치를 실현한다.
-- 데이터 전처리부터 딥러닝 학습까지 잇는 파이프라인 DSL에 보안 가드레일과 감사 로그를 결합하여, 인간 개발자뿐 아니라 AI Agent가 코드를 자동 생성하고 파인튜닝된 온프레미스 sLM이 정적 분석으로 자동 검증까지 완결 짓는 차세대 AI 파이프라인 자동화의 모범 사례를 제시한다.
+- 데이터 전처리부터 딥러닝 학습까지 잇는 파이프라인 DSL에 보안 가드레일과 감사 로그를 결합하여, 인간 개발자뿐 아니라 AI Agent가 코드를 자동 생성하고 정적 정책 엔진이 자동 검증까지 완결 짓는 차세대 AI 파이프라인 자동화의 모범 사례를 제시한다.
 
 **한계점 및 향후 발전 로드맵**
 
@@ -114,7 +114,7 @@ cd my-project
 | Phase 4 | 연산자 확장·join 개선·스키마 진화 | 진행 중 |
 | Phase 5 | Burn 딥러닝 계층(모델·학습·체크포인트), NQP | 딥러닝 완료 / NQP Experimental |
 | Phase 6 | DP 노이즈 주입 모듈 + Polars→Burn 데이터 변환 인터페이스 | 완료 |
-| Phase 7 | 정적 가드레일 + 자동 보정 모듈 (sLM 어댑터·QLoRA 파이프라인) | 완료 |
+| Phase 7 | 정적 가드레일 + 자동 보정 모듈 (sLM 어댑터·QLoRA 파이프라인 스캐폴드) | 완료 (학습은 Phase 8) |
 | Phase 8 | sLM 실학습(QLoRA) · GGUF 배포 · 보정 정확도 측정 | 진행 중 |
 
 향후 계획: Phase 4(연산자·조인·스키마 진화) 및 Phase 5(NQP 쿼리 플래너 고도화) 완성, GPU 백엔드 및 분산 학습 지원, sLM 파인튜닝 데이터·보정 정확도 고도화 및 다양한 언어 모델 확장, 커뮤니티 기여·유지보수 체계 지속 강화.
@@ -152,8 +152,8 @@ cd my-project
 | 21 | lucide-react | 1.16.0 | ISC | https://github.com/lucide-icons/lucide | 아이콘 |
 | 22 | vite | 7.3.6 | MIT | https://github.com/vitejs/vite | 프론트엔드 빌드 도구 |
 | 23 | @playwright/test | 1.55.1 | Apache-2.0 | https://github.com/microsoft/playwright | E2E·대비 테스트 |
-| 24 | Qwen2.5-Coder-1.5B | 1.5B | Apache-2.0 | https://github.com/QwenLM/Qwen2.5-Coder | 보안 위반 코드 자동 보정 sLM (파인튜닝 기반) |
-| 25 | Unsloth | - | Apache-2.0 | https://github.com/unslothai/unsloth | sLM 파인튜닝 최적화 (QLoRA) |
+| 24 | Qwen2.5-Coder-1.5B | 1.5B | Apache-2.0 | https://github.com/QwenLM/Qwen2.5-Coder | 보안 위반 코드 자동 보정 sLM (Ollama 어댑터 — QLoRA 학습은 Phase 8 진행 중) |
+| 25 | Unsloth | - | Apache-2.0 | https://github.com/unslothai/unsloth | sLM 파인튜닝 최적화 (QLoRA, Phase 8) |
 | 26 | llama.cpp | - | MIT | https://github.com/ggml-org/llama.cpp | GGUF 모델 추론·서빙 |
 | 27 | Ollama | - | MIT | https://github.com/ollama/ollama | 온프레미스 sLM 모델 서빙/실행 |
 
@@ -163,8 +163,8 @@ cd my-project
 
 ### 1. AI 모델 활용 유형 (해당하는 항목에 ▣ 표시)
 
-- □ 유형 1: 외부 모델 그대로 활용
-- ▣ 유형 2: 외부 모델 파인튜닝 (기존 공개 모델 Qwen2.5-Coder-1.5B를 가져와 보안 위반 코드 보정용 데이터셋으로 QLoRA 미세조정)
+- ▣ 유형 1: 외부 모델 그대로 활용 (현재 구현은 Ollama에 공개 Qwen2.5-Coder-1.5B를 그대로 서빙)
+- □ 유형 2: 외부 모델 파인튜닝 (보안 위반 코드 보정용 QLoRA 파인튜닝은 **학습 진행 중이며 아직 미실행** — 완료 시 유형 2로 갱신 예정)
 - □ 유형 3: 자체 개발 모델
 
 ※ 개발 과정에서 코딩·디버깅 보조용으로 상용 AI를 단순 활용한 경우는 유형에 체크하지 않음 (4번 항목에 기재)
@@ -176,14 +176,14 @@ cd my-project
 | 기반 모델명 및 개발사 | Qwen2.5-Coder-1.5B (Alibaba Qwen team) |
 | 기반 모델 라이선스 | Apache 2.0 |
 
-### 3. 데이터셋 정보 및 가중치 배포 명세 (유형 2, 3 작성 필수)
+### 3. 데이터셋 정보 및 가중치 배포 명세 (유형 2, 3 작성 필수 — 현재 유형 1 해당)
 
 | 항 목 | 내 용 |
 |---|---|
-| 학습 데이터셋 정보 | 정적 가드레일로 탐지되는 개인정보 노출·보안 위반 코드 쌍을 수집·합성하여 구성한 보안 위반→안전 코드 대조 데이터셋 (보정 특화) |
-| 데이터 정제/가공 방법 요약 | 개인정보 비식별화(마스킹) 조치, 오픈소스 출품을 위한 프롬프트 포맷 변환 및 필터링, 보안 위반 코드와 안전한 보정 코드의 instruction/response 구조로 정제 |
-| 새로 생성된 가중치 공개 저장소 URL | [Hugging Face 모델 리포지토리 URL 기재 — 승인 절차 없이 누구나 접근 가능한 공개 주소] |
-| 가중치 파일 정보 및 배포방식 | LoRA 어댑터(QLoRA) 형태 배포 후 GGUF 양자화 변환, llama.cpp/Ollama로 온프레미스 서빙 |
+| 학습 데이터셋 정보 | 보안 위반→안전 코드 대조 데이터셋 구성 스캐폴드 (`experiments/slm_guardrail/build_dataset.py`) — QLoRA 학습 미실행 |
+| 데이터 정제/가공 방법 요약 | 개인정보 비식별화(마스킹) 조치, 오픈소스 출품을 위한 프롬프트 포맷 변환 및 필터링, 보안 위반 코드와 안전한 보정 코드의 instruction/response 구조로 정제 (Phase 8) |
+| 새로 생성된 가중치 공개 저장소 URL | [미해당 — 학습 미실행. QLoRA 학습 완료 시 Hugging Face 공개 URL 기재] |
+| 가중치 파일 정보 및 배포방식 | [미해당 — 학습 미실행] |
 
 ### 4. 소스코드 라이선스 및 개발 환경 정보 (모든 유형 필수 작성)
 
@@ -195,4 +195,4 @@ cd my-project
 
 ---
 
-※ 붙임2 작성 안내: 본 프로젝트는 외부 공개 모델(Qwen2.5-Coder-1.5B, Apache-2.0)을 보안 위반 코드 보정에 특화하여 QLoRA 방식으로 파인튜닝한 **유형 2**에 해당합니다. 새로 생성된 가중치의 공개 저장소 URL은 모델 배포 전 확정하여 기재해 주시기 바랍니다.
+※ 붙임2 작성 안내: 현재 구현은 외부 공개 모델(Qwen2.5-Coder-1.5B, Apache-2.0)을 그대로 Ollama로 서빙하는 **유형 1**에 해당합니다. 보안 위반 코드 보정용 QLoRA 파인튜닝은 학습이 완료되는 시점에 유형 2로 갱신하고, 새로 생성된 가중치의 공개 저장소 URL을 기재할 예정입니다.

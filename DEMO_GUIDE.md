@@ -17,9 +17,9 @@
    `duplicate column` 런타임 에러가 나지 않는다.
 3. **`xazz`와 `xazz-runner`는 같은 디렉토리**에 있어야 실행된다. (둘 다 `target/release/`에 있음)
 4. **예약어 주의**: 변수명으로 `chart`, `model`, `raw` 등은 피할 것.
-5. **정적 가드레일 / sLM 자동보정은 현재 컴파일된 바이너리에 미구현**이다(보고서엔 "완료"로 기재돼 있으나
-   코드에 없음). **영상에서 시연하지 말 것.** 대신 DP 노이즈 + SHA-256 감사로그로 "보안" 축을 증명한다.
-   (강제로 보여주려면 별도 Ollama sLM 스택을 준비해야 하며, 본 가이드 범위 밖)
+5. **정적 가드레일 / sLM 자동보정은 현재 구현되어 있다** (`xazz policy` / 실행 전 게이트, `xazz-server` sLM 훅은 `XAZZ_SLM_ENABLED` 로 opt-in).
+   데모 주제로 삼으면 좋은 축은 **정적 가드레일 차단 → `xazz policy --fix` 보정 → DP 노이즈 → SHA-256 감사 로그** 순이다.
+   (sLM 자동보정을 보여주려면 별도 Ollama 스택 준비 필요 — 본 가이드 범위 밖)
 
 ---
 
@@ -128,7 +128,7 @@ cd /home/x1zz/Xazz/visual-ide && npm install
 **대본**:
 > "이제 실제 파이프라인을 돌립니다. 서울 공기질 데이터를 Polars LazyFrame으로 초고속 전처리하고,
 > 결측치는 `fillNull`로 평균 채움, 구청별 평균을 내서 bar 차트로 렌더링했습니다.
-> 파이썬 환경 대비 최대 3.84배 성능을 냅니다."
+> 파이썬 환경 대비 최대 2.62배(228K 행), 409만 행에서는 1.93배 성능을 냅니다 (README Performance 참고)."
 
 ---
 
@@ -181,7 +181,7 @@ cd /home/x1zz/Xazz/visual-ide && npm install
        파이썬의 생산성은 살리고, 런타임 타입 에러·GPU 낭비·보안 검증 부재를 컴파일러가 해결합니다.
 [0:10] xazz check — 실행 전에 타입과 결측치를 정적으로 검증. 통과.
 [0:35] xazz emit rust — .xzz가 Polars + Burn을 담은 실제 Rust 소스로 변환됩니다. 우리가 만든 컴파일러입니다.
-[1:00] xazz run — 서울 공기질 데이터 전처리, 결측치 평균 채움, 구청별 평균 bar 차트. pandas 대비 최대 3.84배.
+[1:00] xazz run — 서울 공기질 데이터 전처리, 결측치 평균 채움, 구청별 평균 bar 차트. pandas 대비 최대 2.62배.
 [1:35] model AirPredictor { } + train() — Burn에서 실제 학습. loss가 줄어듭니다. 제로카피 텐서 변환.
 [2:10] withDp() — 차등 프라이버시 노이즈 주입, 예산 리포트. 모든 실행은 SHA-256 감사 로그로 기록.
 [2:35] Visual IDE — 노드 그래프로 전처리→컴파일→학습→예측. 코드 해시로 무결성 확인. 감사합니다.
@@ -199,5 +199,5 @@ cd /home/x1zz/Xazz/visual-ide && npm install
 | 8005 포트 충돌 | `xazz-server` 백그라운드 프로세스가 이미 떠 있지 않은지 확인 |
 | 5173 포트 사용 중 | Vite가 자동으로 5174 등으로 올림 → 그 주소로 접속 |
 | 딥러닝 학습이 느림 | epoch 수를 5로 낮춤(본 예제 기준 ~1초) |
-| **가드레일/sLM 시연 요구** | 바이너리에 미구현 → 시연하지 말 것. DP+감사로그로 대체 |
+| **가드레일/sLM 시연 요구** | 정적 가드레일은 시연 가능(`xazz policy --fix`). sLM 자동보정은 Ollama 스택 필요 |
 | `xazz-server`가 IDE 안 서빙(404) | same-origin은 릴리즈 전용 → Vite dev(5173)로 IDE 열기 |
