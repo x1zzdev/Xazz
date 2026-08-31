@@ -296,7 +296,11 @@ impl PolicyReport {
     pub fn summary(&self) -> String {
         if self.safe_to_execute {
             if self.warnings.is_empty() {
-                tr("policy check passed — no violations", "정책 검사 통과 — 위반 없음").to_string()
+                tr(
+                    "policy check passed — no violations",
+                    "정책 검사 통과 — 위반 없음",
+                )
+                .to_string()
             } else {
                 if is_korean() {
                     format!("정책 검사 통과 — 경고 {}건", self.warnings.len())

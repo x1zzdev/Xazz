@@ -157,7 +157,10 @@ async fn optional_bearer_auth(
     if ok {
         Ok(next.run(req).await)
     } else {
-        Err((StatusCode::UNAUTHORIZED, "missing or invalid bearer token".into()))
+        Err((
+            StatusCode::UNAUTHORIZED,
+            "missing or invalid bearer token".into(),
+        ))
     }
 }
 

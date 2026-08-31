@@ -111,9 +111,7 @@ fn main() {
                 std::thread::sleep(Duration::from_millis(100));
             }
             Err(e) => {
-                eprintln!(
-                    "[xazz-runner] ERROR: failed to check execution engine status: {e}"
-                );
+                eprintln!("[xazz-runner] ERROR: failed to check execution engine status: {e}");
                 std::process::exit(1);
             }
         }

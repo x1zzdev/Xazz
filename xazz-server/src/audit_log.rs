@@ -79,7 +79,8 @@ pub fn hash_code(code: &str) -> String {
 /// 로그 파일 디렉터리를 생성하고 경로를 반환한다.
 fn ensure_log_dir() -> Result<std::path::PathBuf, String> {
     let path = std::path::PathBuf::from(AUDIT_LOG_DIR);
-    std::fs::create_dir_all(&path).map_err(|e| format!("failed to create audit-log directory: {e}"))?;
+    std::fs::create_dir_all(&path)
+        .map_err(|e| format!("failed to create audit-log directory: {e}"))?;
     Ok(path)
 }
 
@@ -138,7 +139,8 @@ fn append_to_path(
         .append(true)
         .open(file_path)
         .map_err(|e| format!("failed to open audit-log file: {e}"))?;
-    let line = serde_json::to_string(&record).map_err(|e| format!("JSON serialization failed: {e}"))?;
+    let line =
+        serde_json::to_string(&record).map_err(|e| format!("JSON serialization failed: {e}"))?;
     writeln!(file, "{}", line).map_err(|e| format!("failed to write audit log: {e}"))?;
 
     Ok(record)

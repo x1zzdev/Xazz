@@ -376,8 +376,11 @@ mod tests {
     #[test]
     fn chart_html_escapes_script_closing_tag_in_data() {
         let out = std::env::temp_dir().join("xazz_xss_test.html");
-        write_chart_html(&spec_with_cell("</script><script>alert(1)</script>"), out.to_str().unwrap())
-            .unwrap();
+        write_chart_html(
+            &spec_with_cell("</script><script>alert(1)</script>"),
+            out.to_str().unwrap(),
+        )
+        .unwrap();
         let html = std::fs::read_to_string(&out).unwrap();
         assert!(
             !html.contains("</script><script>alert"),

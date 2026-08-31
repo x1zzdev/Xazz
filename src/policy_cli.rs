@@ -259,11 +259,11 @@ fn print_result(
     println!(
         "verified : {}",
         if rem.verified {
-            "passed — remediated code satisfies the policy".green().to_string()
-        } else {
-            "not verified — manual review required"
-                .red()
+            "passed — remediated code satisfies the policy"
+                .green()
                 .to_string()
+        } else {
+            "not verified — manual review required".red().to_string()
         }
     );
     for fix in &rem.applied {

@@ -109,7 +109,10 @@ impl PrivacyBudget {
             return Err(format!(
                 "{}: {} {epsilon}",
                 tr("DP error", "DP 에러"),
-                tr("epsilon must be greater than 0", "epsilon 은 0보다 커야 합니다. 실제:")
+                tr(
+                    "epsilon must be greater than 0",
+                    "epsilon 은 0보다 커야 합니다. 실제:"
+                )
             ));
         }
         let delta = match mechanism {
@@ -119,7 +122,10 @@ impl PrivacyBudget {
                     return Err(format!(
                         "{}: {} {delta}",
                         tr("DP error", "DP 에러"),
-                        tr("gaussian delta must be in (0, 1)", "gaussian 의 delta 는 (0, 1) 범위여야 합니다. 실제:")
+                        tr(
+                            "gaussian delta must be in (0, 1)",
+                            "gaussian 의 delta 는 (0, 1) 범위여야 합니다. 실제:"
+                        )
                     ));
                 }
                 delta
@@ -314,7 +320,10 @@ pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), 
         return Err(format!(
             "{}: {} {}",
             tr("DP error", "DP 에러"),
-            tr("epsilon must be greater than 0", "epsilon 은 0보다 커야 합니다. 실제:"),
+            tr(
+                "epsilon must be greater than 0",
+                "epsilon 은 0보다 커야 합니다. 실제:"
+            ),
             args.epsilon
         ));
     }
@@ -322,7 +331,10 @@ pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), 
         return Err(format!(
             "{}: {} {}",
             tr("DP error", "DP 에러"),
-            tr("sensitivity must be greater than 0", "sensitivity 는 0보다 커야 합니다. 실제:"),
+            tr(
+                "sensitivity must be greater than 0",
+                "sensitivity 는 0보다 커야 합니다. 실제:"
+            ),
             args.sensitivity
         ));
     }
@@ -332,7 +344,10 @@ pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), 
         return Err(format!(
             "{}: {} {delta}",
             tr("DP error", "DP 에러"),
-            tr("gaussian delta must be in (0, 1)", "gaussian 의 delta 는 (0, 1) 범위여야 합니다. 실제:")
+            tr(
+                "gaussian delta must be in (0, 1)",
+                "gaussian 의 delta 는 (0, 1) 범위여야 합니다. 실제:"
+            )
         ));
     }
 
@@ -353,9 +368,7 @@ pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), 
         .collect();
 
     for name in &col_names {
-        let column = df
-            .column(name.as_str())
-            .map_err(|e| {
+        let column = df.column(name.as_str()).map_err(|e| {
             format!(
                 "{}: {} '{name}' — {e}",
                 tr("DP error", "DP 에러"),
@@ -368,18 +381,14 @@ pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), 
         }
 
         // f64 로 승격 (int 컬럼도 노이즈 합산 후엔 실수가 됨)
-        let casted = column
-            .cast(&DataType::Float64)
-            .map_err(|e| {
+        let casted = column.cast(&DataType::Float64).map_err(|e| {
             format!(
                 "{}: {} '{name}' — {e}",
                 tr("DP error", "DP 에러"),
                 tr("float cast failed", "컬럼 float 캐스팅 실패")
             )
         })?;
-        let ca = casted
-            .f64()
-            .map_err(|e| {
+        let ca = casted.f64().map_err(|e| {
             format!(
                 "{}: {} '{name}' — {e}",
                 tr("DP error", "DP 에러"),
@@ -402,12 +411,12 @@ pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), 
 
         out.with_column(Column::new(name.as_str().into(), noised))
             .map_err(|e| {
-            format!(
-                "{}: {} '{name}' — {e}",
-                tr("DP error", "DP 에러"),
-                tr("replacement failed", "컬럼 치환 실패")
-            )
-        })?;
+                format!(
+                    "{}: {} '{name}' — {e}",
+                    tr("DP error", "DP 에러"),
+                    tr("replacement failed", "컬럼 치환 실패")
+                )
+            })?;
         noised_columns.push(name.clone());
     }
 

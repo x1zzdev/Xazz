@@ -23,8 +23,8 @@ use crate::ast::{
     Stmt, StructField, TrainConfig,
 };
 use crate::error::{CompileError, ErrorKind};
-use xazz_core::i18n::is_korean;
 use crate::ir;
+use xazz_core::i18n::is_korean;
 
 /// 컬럼 타입 정보 (canonical name + nullable 여부)
 #[derive(Debug, Clone, PartialEq)]
@@ -284,7 +284,10 @@ impl Analyzer {
                         name
                     )
                 } else {
-                    format!("Model '{}' is declared twice. Choose a different name.", name)
+                    format!(
+                        "Model '{}' is declared twice. Choose a different name.",
+                        name
+                    )
                 },
             );
             return;
@@ -905,7 +908,15 @@ impl Analyzer {
     fn check_expr_columns(&mut self, expr: &Expr, cols: &HashMap<String, ColType>) {
         match expr {
             Expr::Ident(c) => {
-                self.check_column(c, if is_korean() { "표현식" } else { "expression" }, cols);
+                self.check_column(
+                    c,
+                    if is_korean() {
+                        "표현식"
+                    } else {
+                        "expression"
+                    },
+                    cols,
+                );
             }
             Expr::BinOp { lhs, rhs, .. } => {
                 self.check_expr_columns(lhs, cols);
@@ -1239,7 +1250,7 @@ mod tests {
     use super::*;
     use crate::Lexer;
     use crate::parser::Parser;
-    use xazz_core::i18n::{Lang, set_lang, reset_lang};
+    use xazz_core::i18n::{Lang, reset_lang, set_lang};
 
     fn check(src: &str) -> CheckResult {
         let tokens = Lexer::new(src).tokenize().unwrap();
@@ -1512,7 +1523,10 @@ mod tests {
         assert!(
             r.errors.iter().any(|e| e.message.contains("Option")),
             "non-Option 컬럼에 fillNull 은 스키마 수정을 제안하는 오류여야 함: {:?}",
-            r.errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>()
+            r.errors
+                .iter()
+                .map(|e| e.message.clone())
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1522,7 +1536,11 @@ mod tests {
             "type X = { temp: Option<float> };
              v p = load(\"x.csv\") :: X |> fillNull(\"temp\", strategy: \"mean\");",
         );
-        assert!(r.errors.is_empty(), "Option 컬럼에 fillNull 은 허용: {:?}", r.errors);
+        assert!(
+            r.errors.is_empty(),
+            "Option 컬럼에 fillNull 은 허용: {:?}",
+            r.errors
+        );
     }
 
     // ── IR 생성 검증 ──────────────────────────────────────────────────────────

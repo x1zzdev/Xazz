@@ -157,7 +157,7 @@ fn check_source_path(
                 ),
                 tr(
                     "move the data file into the project's data directory and use that path",
-                    "데이터 파일을 프로젝트의 데이터 디렉터리로 옮기고 그 경로를 사용하세요"
+                    "데이터 파일을 프로젝트의 데이터 디렉터리로 옮기고 그 경로를 사용하세요",
                 ),
             )
             .at_stmt(index, var),
@@ -183,7 +183,7 @@ fn check_source_path(
                 ),
                 tr(
                     "use a project-root-relative path or an authorized absolute path",
-                    "프로젝트 루트 기준의 상대 경로 또는 인가된 절대 경로를 사용하세요"
+                    "프로젝트 루트 기준의 상대 경로 또는 인가된 절대 경로를 사용하세요",
                 ),
             )
             .at_stmt(index, var),
@@ -594,7 +594,7 @@ pub fn apply_literal_rules(source: &str, policy: &Policy, report: &mut PolicyRep
                 RULE_PII_LITERAL,
                 tr(
                     "do not write PII values into source; replace them with de-identified keys or parameters",
-                    "개인정보 값을 소스에 직접 쓰지 말고, 비식별화된 키나 파라미터로 대체하세요"
+                    "개인정보 값을 소스에 직접 쓰지 말고, 비식별화된 키나 파라미터로 대체하세요",
                 ),
             )
         } else {
@@ -602,7 +602,7 @@ pub fn apply_literal_rules(source: &str, policy: &Policy, report: &mut PolicyRep
                 RULE_HARDCODED_SECRET,
                 tr(
                     "remove the credential from source and move it to env vars / a secret store; revoke and reissue any exposed key immediately",
-                    "자격증명을 소스에서 제거하고 환경변수·시크릿 저장소로 옮긴 뒤, 노출된 키는 즉시 폐기·재발급하세요"
+                    "자격증명을 소스에서 제거하고 환경변수·시크릿 저장소로 옮긴 뒤, 노출된 키는 즉시 폐기·재발급하세요",
                 ),
             )
         };

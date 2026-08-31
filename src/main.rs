@@ -229,11 +229,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let source = match std::fs::read_to_string(&file) {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!(
-                        "IO error: failed to read file '{}' — {}",
-                        file.display(),
-                        e
-                    );
+                    eprintln!("IO error: failed to read file '{}' — {}", file.display(), e);
                     std::process::exit(1);
                 }
             };

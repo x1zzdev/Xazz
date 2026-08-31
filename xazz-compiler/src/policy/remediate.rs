@@ -101,11 +101,13 @@ pub fn remediate(source: &str, policy: &Policy) -> Remediation {
             code: source.to_string(),
             applied: Vec::new(),
             residual: before.violations.clone(),
-            notes: vec![tr(
-                "could not apply auto-remediation due to a syntax error; fix the syntax first",
-                "구문 오류가 있어 자동 보정을 적용하지 못했습니다. 먼저 구문을 고쳐야 합니다"
-            )
-            .to_string()],
+            notes: vec![
+                tr(
+                    "could not apply auto-remediation due to a syntax error; fix the syntax first",
+                    "구문 오류가 있어 자동 보정을 적용하지 못했습니다. 먼저 구문을 고쳐야 합니다",
+                )
+                .to_string(),
+            ],
             verified: false,
             report_after: before,
         };
@@ -117,11 +119,13 @@ pub fn remediate(source: &str, policy: &Policy) -> Remediation {
             code: source.to_string(),
             applied: Vec::new(),
             residual: before.violations.clone(),
-            notes: vec![tr(
-                "source could not be parsed, so auto-remediation was skipped",
-                "소스를 파싱하지 못해 자동 보정을 건너뛰었습니다"
-            )
-            .to_string()],
+            notes: vec![
+                tr(
+                    "source could not be parsed, so auto-remediation was skipped",
+                    "소스를 파싱하지 못해 자동 보정을 건너뛰었습니다",
+                )
+                .to_string(),
+            ],
             verified: false,
             report_after: before,
         };

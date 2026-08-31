@@ -169,7 +169,10 @@ pub fn run_pipeline(
             "[xazz POLICY ERROR] {}\n{} `xazz policy <file> --fix` {}.",
             policy_report.summary(),
             tr("execution blocked", "실행이 차단되었습니다"),
-            tr("to review a safe alternative", "로 안전한 대체 코드를 확인하세요")
+            tr(
+                "to review a safe alternative",
+                "로 안전한 대체 코드를 확인하세요"
+            )
         )
         .into());
     }
@@ -269,7 +272,10 @@ pub fn run_pipeline(
                     "[xazz] Pipeline #{} (TrainStmt) {}: {}",
                     pipeline_count,
                     tr("done", "완료"),
-                    tr("trained model created (no binding)", "학습 모델 생성 (바인딩 없음)")
+                    tr(
+                        "trained model created (no binding)",
+                        "학습 모델 생성 (바인딩 없음)"
+                    )
                 );
             }
             Err(e) => {
@@ -334,11 +340,7 @@ pub fn run_pipeline(
                 match save_df_as_csv(df, csv_path) {
                     Ok(_) => {
                         println!();
-                        println!(
-                            "💾 [xazz] CSV {}: {}",
-                            tr("saved", "저장 완료"),
-                            csv_path
-                        );
+                        println!("💾 [xazz] CSV {}: {}", tr("saved", "저장 완료"), csv_path);
                     }
                     Err(e) => {
                         eprintln!("[xazz] ⚠️  CSV {}: {}", tr("save failed", "저장 실패"), e);
@@ -797,17 +799,33 @@ fn print_train_report(trained: &crate::dl::TrainedModel) {
     println!("{}", "─".repeat(60));
     println!("✅  {}", tr("training complete", "학습 완료"));
     println!("  {}  : {}", tr("input dim", "입력 차원"), report.input_dim);
-    println!("  {}  : {}", tr("output dim", "출력 차원"), report.output_dim);
-    println!("  {} : {}", tr("parameters", "파라미터 수"), report.num_params);
+    println!(
+        "  {}  : {}",
+        tr("output dim", "출력 차원"),
+        report.output_dim
+    );
+    println!(
+        "  {} : {}",
+        tr("parameters", "파라미터 수"),
+        report.num_params
+    );
     println!(
         "  {} : {:.6}",
         tr("final loss (MSE)", "최종 손실(MSE)"),
         report.final_train_loss
     );
     if let Some(v) = report.final_val_loss {
-        println!("  {} : {:.6}", tr("validation loss (MSE)", "검증 손실(MSE)"), v);
+        println!(
+            "  {} : {:.6}",
+            tr("validation loss (MSE)", "검증 손실(MSE)"),
+            v
+        );
     }
-    println!("  {}  : {:?}", tr("feature columns", "특성 컬럼"), report.feature_names);
+    println!(
+        "  {}  : {:?}",
+        tr("feature columns", "특성 컬럼"),
+        report.feature_names
+    );
     if !report.predictions.is_empty() {
         println!("  {}  :", tr("sample predictions", "샘플 예측"));
         for i in 0..report.predictions.len().min(5) {
@@ -820,7 +838,11 @@ fn print_train_report(trained: &crate::dl::TrainedModel) {
             );
         }
     }
-    println!("  {} : {}", tr("checkpoint", "체크포인트"), report.checkpoint_path);
+    println!(
+        "  {} : {}",
+        tr("checkpoint", "체크포인트"),
+        report.checkpoint_path
+    );
     println!();
 }
 
@@ -834,7 +856,10 @@ fn emit_policy_marker(report: &xazz_compiler::PolicyReport) {
         Ok(json) => println!("[xazz:policy] {}", json),
         Err(e) => eprintln!(
             "[xazz] ⚠️ {}: {}",
-            tr("policy report serialization failed", "정책 리포트 직렬화 실패"),
+            tr(
+                "policy report serialization failed",
+                "정책 리포트 직렬화 실패"
+            ),
             e
         ),
     }

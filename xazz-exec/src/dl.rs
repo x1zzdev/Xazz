@@ -88,7 +88,11 @@ impl<B: Backend> Mlp<B> {
     fn forward<const D: usize>(&self, input: Tensor<B, D>) -> Tensor<B, D> {
         let mut x = input;
         for i in 0..self.layers.len() {
-            x = apply_activation(&self.activations[i], self.layers[i].forward(x), self.training);
+            x = apply_activation(
+                &self.activations[i],
+                self.layers[i].forward(x),
+                self.training,
+            );
         }
         x
     }
@@ -401,7 +405,10 @@ pub fn train(
     std::fs::create_dir_all(ckpt_dir).map_err(|e| {
         format!(
             "{}: {e}",
-            tr("failed to create checkpoints/ directory", "checkpoints/ 디렉토리 생성 실패")
+            tr(
+                "failed to create checkpoints/ directory",
+                "checkpoints/ 디렉토리 생성 실패"
+            )
         )
     })?;
     let ckpt = format!("{ckpt_dir}/{model_name}");
@@ -409,7 +416,12 @@ pub fn train(
     valid_model
         .clone()
         .save_file(&ckpt, &recorder)
-        .map_err(|e| format!("{}: {e}", tr("checkpoint save failed", "체크포인트 저장 실패")))?;
+        .map_err(|e| {
+            format!(
+                "{}: {e}",
+                tr("checkpoint save failed", "체크포인트 저장 실패")
+            )
+        })?;
 
     let report = TrainReport {
         model_name: model_name.to_string(),
@@ -462,9 +474,12 @@ pub fn predict(
     let mut col_vecs: Vec<Vec<f32>> = Vec::with_capacity(feature_count);
     for j in 0..feature_count {
         let name = &trained.feature_names[j];
-        let col = df
-            .column(name.as_str())
-            .map_err(|e| format!("{} '{name}': {e}", tr("prediction feature column access failed", "예측 특성 컬럼")))?;
+        let col = df.column(name.as_str()).map_err(|e| {
+            format!(
+                "{} '{name}': {e}",
+                tr("prediction feature column access failed", "예측 특성 컬럼")
+            )
+        })?;
         col_vecs.push(series_to_f32(col));
     }
 
@@ -494,7 +509,12 @@ pub fn predict(
 
     let mut out = df.clone();
     out.with_column(Column::new(out_col.into(), pred_f64))
-        .map_err(|e| format!("{}: {e}", tr("prediction column add failed", "예측 컬럼 추가 실패")))?;
+        .map_err(|e| {
+            format!(
+                "{}: {e}",
+                tr("prediction column add failed", "예측 컬럼 추가 실패")
+            )
+        })?;
     Ok(out)
 }
 

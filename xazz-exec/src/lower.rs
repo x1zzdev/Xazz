@@ -112,7 +112,11 @@ pub fn lower_data(
         }
         DataOp::Limit(n) => {
             if *n <= 0 {
-                return Err(tr("take() n must be greater than 0.", "take() 의 n 은 0보다 커야 합니다.").into());
+                return Err(tr(
+                    "take() n must be greater than 0.",
+                    "take() 의 n 은 0보다 커야 합니다.",
+                )
+                .into());
             }
             *lf = lf.clone().limit(*n as u32);
         }
@@ -286,7 +290,10 @@ mod tests {
         set_lang(Lang::Ko);
         let err2 = collect_pipeline(frame, &[DataOp::Limit(0)]).unwrap_err();
         reset_lang();
-        assert!(err2.to_string().contains("0보다 커야"), "한국어 메시지: {err2}");
+        assert!(
+            err2.to_string().contains("0보다 커야"),
+            "한국어 메시지: {err2}"
+        );
     }
 
     #[test]

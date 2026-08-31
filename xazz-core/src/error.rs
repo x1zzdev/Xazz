@@ -288,8 +288,8 @@ pub type CompileResult<T> = Result<T, CompileError>;
 #[cfg(test)]
 mod tests {
     use super::*;
-use crate::i18n::{is_korean, tr};
-use crate::token::Span;
+    use crate::i18n::{is_korean, tr};
+    use crate::token::Span;
 
     #[test]
     fn test_error_ai_suggestion_display() {
@@ -303,11 +303,7 @@ use crate::token::Span;
             "타입 불일치",
         );
         let display = format!("{}", err);
-        assert!(
-            display.contains("💡"),
-            "제안 없음: {}",
-            display
-        );
+        assert!(display.contains("💡"), "제안 없음: {}", display);
         assert!(display.contains("pm10"), "필드명 포함 안 됨: {}", display);
     }
 
@@ -323,11 +319,7 @@ use crate::token::Span;
             "컬럼 없음",
         );
         let display = format!("{}", err);
-        assert!(
-            display.contains("💡"),
-            "제안 없음: {}",
-            display
-        );
+        assert!(display.contains("💡"), "제안 없음: {}", display);
         assert!(
             display.contains("pm10"),
             "Did you mean 제안 없음: {}",
@@ -392,11 +384,7 @@ use crate::token::Span;
             "DivisionByZero 카테고리 없음: {}",
             display
         );
-        assert!(
-            display.contains("💡"),
-            "제안 없음: {}",
-            display
-        );
+        assert!(display.contains("💡"), "제안 없음: {}", display);
         assert!(display.contains("pm25"), "컬럼명 포함 안 됨: {}", display);
         assert!(display.contains("3"), "0 개수 포함 안 됨: {}", display);
     }

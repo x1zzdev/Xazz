@@ -28,7 +28,11 @@ pub fn current() -> Lang {
         return lang;
     }
     match std::env::var("XAZZ_LANG") {
-        Ok(v) if v.eq_ignore_ascii_case("ko") || v.eq_ignore_ascii_case("kr") || v.eq_ignore_ascii_case("ko_KR") => {
+        Ok(v)
+            if v.eq_ignore_ascii_case("ko")
+                || v.eq_ignore_ascii_case("kr")
+                || v.eq_ignore_ascii_case("ko_KR") =>
+        {
             Lang::Ko
         }
         _ => Lang::En,
