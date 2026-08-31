@@ -131,6 +131,7 @@ criterion = nn.MSELoss()
 ```xzz
 // 1. 스키마 선언 (컴파일 타임 널 안전성)
 type AirData = {
+    station:  string,
     temp:     float,
     humidity: float,
     pm10:     Option<float>,
@@ -139,7 +140,7 @@ type AirData = {
 // 2. Polars 기반 초고속 Lazy 전처리
 v dataset = load("air_data.csv") :: AirData
     |> fillNull("pm10", strategy: "mean")
-    |> select(["temp", "humidity", "pm10"])
+    |> select(["station", "temp", "humidity", "pm10"])
 
 // 3. 선언적 Burn 딥러닝 모델
 model AirPredictor {
@@ -147,11 +148,11 @@ model AirPredictor {
 }
 
 // 4. 하나로 통합된 파이프라인: 학습 → 예측 → 시각화
-v model = dataset
+v trained = dataset
     |> train(AirPredictor, target: "pm10", epochs: 10)
 
 v prediction = dataset
-    |> predict(model, as: "pm10_pred")
+    |> predict(trained, as: "pm10_pred")
     |> chart {
         type:  line,
         x:     station,
@@ -226,14 +227,15 @@ Xazz는 모듈화된 Rust 워크스페이스입니다. CLI는 2–5 MB 경량 �
 <img src="docs/assets/benchmark_chart.png" alt="벤치마크: 228K/912K/409만 행에서의 지연 시간 스케일링과 속도 향상 — pandas 대비 2.62배, 2.55배, 1.93배" width="94%">
 </div>
 
-- 동등한 pandas 파이프라인 대비 **최대 2.62배 빠름** (228K 행: 277 ms vs 726 ms, 409만 행: 2,324 ms vs 4,489 ms)
-- 성능의 원천은 Apache Arrow 컬럼형 메모리 + Polars LazyFrame 쿼리 최적화(조건 푸시다운, 컬럼 프루닝) + 멀티스레드 네이티브 실행입니다
-- 정직한 주석: Polars의 멀티스레딩은 지연 시간을 줄이는 대신 더 높은 피크 RSS를 치른다는 트레이드오프가 있습니다. 직접 재현해 볼 수 있습니다:
+- 동등한 pandas 파이프라인 대비 **최대 2.62배 빠름** (228K 행: 277 ms vs 726 ms), **409만 행에서는 1.93배** (2,324 ms vs 4,489 ms). 데이터가 커질수록 격차가 줄어듭니다. 소규모 수치에는 pandas 인터프리터 부팅 비용이 포함되어 있으므로, 견고한 기준치는 409만 행의 1.93배로 보세요.
+- 성능의 원천은 Apache Arrow 컬럼형 메모리 + Polars LazyFrame 쿼리 최적화 + 멀티스레드 네이티브 실행입니다.
+- 정직한 주석: Polars의 멀티스레딩은 지연 시간을 줄이는 대신 더 높은 피크 RSS를 치른다는 트레이드오프가 있습니다. 벤치마크 데이터 자체는 커밋되어 있지 않습니다(서울시 공기질 원본에서 생성). 직접 재현해 볼 수 있습니다:
 
 ```bash
-python benches/make_scale_data.py          # examples/data에서 스케일 데이터셋 생성
-python benches/run_readme_benchmark.py     # pandas vs xazz, 3회 중앙값
-python benches/render_benchmark_chart.py   # 위 차트 재생성
+git lfs pull                                    # examples/data 가져오기 (Git LFS)
+python benches/make_scale_data.py               # examples/data에서 스케일 데이터셋 생성
+python benches/run_readme_benchmark.py          # pandas vs xazz, 3회 중앙값
+python benches/render_benchmark_chart.py        # 위 차트 재생성
 ```
 
 ### 속도의 근원
@@ -250,7 +252,7 @@ python benches/render_benchmark_chart.py   # 위 차트 재생성
 
 ## 보안 & 프라이버시
 
-**Policy-as-Code 가드레일**은 실행 *이전에* 파이프라인을 검사합니다 — 개인정보 패턴(주민번호, 전화번호, Luhn 검증 카드번호), 시크릿, 커스텀 규칙. 위반은 구조화된 JSON 리포트와 함께 차단되며, sLM 훅(파인튜닝된 Qwen2.5-Coder-1.5B, Ollama/llama.cpp로 온프레미스 서빙)이 검증된 안전 코드 수정을 제안합니다 — 코드가 기기를 떠나지 않습니다. 자세한 내용은 [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md).
+**Policy-as-Code 가드레일**은 실행 *이전에* 파이프라인을 검사합니다 — 개인정보 패턴(주민번호, 전화번호, Luhn 검증 카드번호), 시크릿, 커스텀 규칙. 위반은 구조화된 JSON 리포트와 함께 차단되며, 선택적 로컬 sLM 훅(Ollama, 예: Qwen2.5-Coder)이 안전한 코드 수정을 제안합니다 — 제안은 채택 전에 동일한 정책 엔진으로 재검증되며, 기본 구성에서 코드는 기기를 떠나지 않습니다. 자세한 내용은 [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md).
 
 **차등 프라이버시** — 라플라스/가우시안 메커니즘, 세션별 ε **및 δ** 조성 회계(composition accounting). 각 쿼리는 `(εᵢ, δᵢ)`를 기록하고 `PrivacyBudget`이 `Σεᵢ`·`Σδᵢ` 를 누적하며, 어느 쪽 예산을 초과할 쿼리는 거부됩니다. 예산 소모는 IDE 모니터에서 확인할 수 있습니다. 상세: [docs/design/dp-spec.md](docs/design/dp-spec.md).
 
@@ -261,7 +263,7 @@ python benches/render_benchmark_chart.py   # 위 차트 재생성
 | 정적 가드레일 | 개인정보/시크릿 탐지, 실행 차단, `--fix` 제안 | Stable |
 | 차등 프라이버시 | 라플라스 / 가우시안, 세션별 ε·δ 조성 회계, IDE 모니터 | Stable |
 | 감사 인프라 | SHA-256 해시 체인, append-only, API 검증 | Stable |
-| sLM 자동 보정 | Qwen2.5-Coder-1.5B (Unsloth + QLoRA → GGUF), 온프레미스 | Preview |
+| sLM 자동 보정 | 로컬 Ollama 모델 훅 (Qwen2.5-Coder), 결정적 폴백 | Preview |
 
 ---
 
@@ -269,7 +271,7 @@ python benches/render_benchmark_chart.py   # 위 차트 재생성
 
 | 기능 | 설명 | 상태 |
 |---------|-------------|--------|
-| `xazz run` | `.xzz` 파이프라인 컴파일·실행 (`--json` 기계 판독 결과, `--opt` IR 최적화) | Stable |
+| `xazz run` | `.xzz` 파이프라인 컴파일·실행 (`--json` 기계 판독 결과) | Stable |
 | `xazz check` | 정적 의미 분석 — 미선언 변수/컬럼, 중복 선언, 잘못된 cast, did-you-mean 제안, 행:열 단위 진단 | Stable |
 | `xazz import` | CSV 스키마 자동 추론 → 타입 블록 생성 (EUC-KR/CP949 자동 감지) | Stable |
 | `xazz new` | 샘플 CSV + 실행 가능한 예제가 포함된 프로젝트 생성 | Stable |
@@ -279,7 +281,7 @@ python benches/render_benchmark_chart.py   # 위 차트 재생성
 | `withDp(epsilon:)` | 차등 프라이버시 노이즈 (laplace / gaussian) + 예산 추적 | Stable |
 | 내장 `chart {}` | 결과를 bar / line / pie / scatter로 렌더링 (HTML) | Stable |
 | `Option<T>` 타입 시스템 | 널 안전 컬럼 선언, `fillNull(strategy:)` | Stable |
-| 25+ 파이프라인 연산자 | `filter`, `groupBy`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
+| 25 파이프라인 연산자 | `filter`, `groupBy`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
 | Visual IDE | 노드 기반 파이프라인 편집기 + 모니터, `xazz-server`가 서빙 | Stable |
 | `xazz sde` | 합성 데이터 생성 엔진 | Preview |
 

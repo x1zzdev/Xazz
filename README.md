@@ -131,6 +131,7 @@ criterion = nn.MSELoss()
 ```xzz
 // 1. Schema declaration (compile-time null safety)
 type AirData = {
+    station:  string,
     temp:     float,
     humidity: float,
     pm10:     Option<float>,
@@ -139,7 +140,7 @@ type AirData = {
 // 2. Ultra-fast lazy preprocessing via Polars
 v dataset = load("air_data.csv") :: AirData
     |> fillNull("pm10", strategy: "mean")
-    |> select(["temp", "humidity", "pm10"])
+    |> select(["station", "temp", "humidity", "pm10"])
 
 // 3. Declarative Burn deep-learning model
 model AirPredictor {
@@ -147,11 +148,11 @@ model AirPredictor {
 }
 
 // 4. One integrated pipeline: train → predict → visualize
-v model = dataset
+v trained = dataset
     |> train(AirPredictor, target: "pm10", epochs: 10)
 
 v prediction = dataset
-    |> predict(model, as: "pm10_pred")
+    |> predict(trained, as: "pm10_pred")
     |> chart {
         type:  line,
         x:     station,
@@ -226,14 +227,15 @@ Same 4-stage pipeline (drop nulls → dual filter → group-by aggregates → fi
 <img src="docs/assets/benchmark_chart.png" alt="Benchmark: latency scaling across 228K/912K/4.09M rows and speedup bars — 2.62x, 2.55x, 1.93x vs pandas" width="94%">
 </div>
 
-- **Up to 2.62× faster** than an equivalent pandas pipeline (228K rows: 277 ms vs 726 ms; 4.09M rows: 2,324 ms vs 4,489 ms)
-- Source comes from Apache Arrow columnar memory + Polars LazyFrame query optimization (predicate pushdown, column pruning) + multithreaded native execution
-- Honest footnote: Polars' multithreading trades higher peak RSS for latency — pandas holds more rows per thread, Polars parallelizes across them. Reproduce it yourself:
+- **Up to 2.62× faster** than an equivalent pandas pipeline at 228K rows (277 ms vs 726 ms); **1.93× at 4.09M rows** (2,324 ms vs 4,489 ms). The gap narrows as the data grows, so the small-scale figure includes a pandas interpreter-boot penalty — treat 1.93× at 4.09M rows as the robust number.
+- Source comes from Apache Arrow columnar memory + Polars LazyFrame query optimization + multithreaded native execution.
+- Honest footnote: Polars' multithreading trades higher peak RSS for latency — pandas holds more rows per thread, Polars parallelizes across them. Note the benchmark data itself is not committed (it is built from the Seoul air-quality sources). Reproduce it yourself:
 
 ```bash
-python benches/make_scale_data.py          # build scale datasets from examples/data
-python benches/run_readme_benchmark.py     # pandas vs xazz, median of 3
-python benches/render_benchmark_chart.py   # regenerate the chart above
+git lfs pull                                    # fetch examples/data (Git LFS)
+python benches/make_scale_data.py               # build scale datasets from examples/data
+python benches/run_readme_benchmark.py          # pandas vs xazz, median of 3
+python benches/render_benchmark_chart.py        # regenerate the chart above
 ```
 
 ### Where the speed comes from
@@ -250,9 +252,9 @@ python benches/render_benchmark_chart.py   # regenerate the chart above
 
 ## Security & Privacy
 
-**Policy-as-Code guardrails** scan the pipeline *before* execution — PII patterns (RRN, phone, card numbers with Luhn validation), secrets, and custom rules. Violations are blocked with structured JSON reports; the sLM hook (Qwen2.5-Coder-1.5B fine-tuned, served on-premise via Ollama/llama.cpp) proposes verified safe corrections without your code ever leaving the machine. See [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md).
+**Policy-as-Code guardrails** scan the pipeline *before* execution — PII patterns (RRN, phone, card numbers with Luhn validation), secrets, and custom rules. Violations are blocked with structured JSON reports; an optional local sLM hook (Ollama, e.g. Qwen2.5-Coder) proposes safe corrections that are re-verified by the same policy engine before adoption — your code stays on the machine by default. See [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md).
 
-**Differential privacy** — Laplace/Gaussian mechanisms with per-session ε **and δ** composition accounting. Each query records `(εᵢ, δᵢ)`; `PrivacyBudget` accumulates `Σεᵢ`, `Σδᵢ` and refuses queries that would exceed either budget (blocking noise-averaging reconstruction). Budget state is visible in the IDE monitor. See [docs/design/dp-spec.md](docs/design/dp-spec.md).
+**Differential privacy** — Laplace/Gaussian mechanisms with ε **and δ** composition accounting. Each query records `(εᵢ, δᵢ)`; `PrivacyBudget` accumulates `Σεᵢ`, `Σδᵢ` and refuses queries that would exceed either budget. Budget state is visible in the IDE monitor. See [docs/design/dp-spec.md](docs/design/dp-spec.md).
 
 **SHA-256 append-only audit log** — every operation is hashed and chained; tampering is verifiable via the `xazz-server` API (`/security/audit`, `/security/verify`).
 
@@ -261,7 +263,7 @@ python benches/render_benchmark_chart.py   # regenerate the chart above
 | Static guardrails | PII/secret detection, execution blocking, `--fix` proposals | Stable |
 | Differential privacy | Laplace / Gaussian, per-session ε·δ composition accounting, IDE monitor | Stable |
 | Audit infrastructure | SHA-256 hash chain, append-only, API verification | Stable |
-| sLM auto-fix | Qwen2.5-Coder-1.5B (Unsloth + QLoRA → GGUF), on-premise | Preview |
+| sLM auto-fix | Local Ollama model hook (Qwen2.5-Coder), deterministic fallback | Preview |
 
 ---
 
@@ -269,7 +271,7 @@ python benches/render_benchmark_chart.py   # regenerate the chart above
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| `xazz run` | Compile and execute `.xzz` pipelines (`--json` for machine-readable results, `--opt` enables the IR optimizer) | Stable |
+| `xazz run` | Compile and execute `.xzz` pipelines (`--json` for machine-readable results) | Stable |
 | `xazz check` | Static semantic analysis — undeclared variables/columns, duplicate declarations, invalid casts, with did-you-mean hints and `line:col` spans | Stable |
 | `xazz import` | Auto-infer CSV schema → generate type block (EUC-KR/CP949 auto-detected) | Stable |
 | `xazz new` | Scaffold project with sample CSV and runnable example | Stable |
@@ -278,8 +280,8 @@ python benches/render_benchmark_chart.py   # regenerate the chart above
 | `model {}` + `train()` | Burn DL model declaration & training (Adam + MSE, checkpoints) | Stable |
 | `withDp(epsilon:)` | Differential-privacy noise (laplace / gaussian) with budget tracking | Stable |
 | Built-in `chart {}` | Render results as bar / line / pie / scatter (HTML) | Stable |
-| `Option<T>` type system | Null-safe column declarations, `fillNull(strategy:)` | Stable |
-| 25+ pipeline operators | `filter`, `groupBy`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
+| `Option<T>` type system | Null-safe column declarations — `fillNull` on a non-nullable column is a compile error | Stable |
+| 25 pipeline operators | `filter`, `groupBy`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
 | Visual IDE | Node-based pipeline editor + monitor, served by `xazz-server` | Stable |
 | `xazz sde` | Synthetic data generation engine | Preview |
 
