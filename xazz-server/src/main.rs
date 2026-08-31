@@ -22,13 +22,14 @@ use std::process::Command;
 use axum::{
     Router,
     extract::{Multipart, Path},
-    http::StatusCode,
-    response::Json,
+    http::{HeaderValue, StatusCode, header::AUTHORIZATION},
+    middleware::{self, Next},
+    response::{IntoResponse, Json},
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::ServeDir;
 
 mod audit_log;
@@ -86,8 +87,17 @@ async fn main() {
     // uploads/ 디렉터리 미리 생성
     let _ = std::fs::create_dir_all("uploads");
 
+    // ── 보안: 루프백 오리진만 CORS 허용 ──────────────────────────────────────
+    // 이 서버는 실행할 파이프라인 코드를 받고 임의 로컬 파일을 읽을 수 있으므로,
+    // 임의 웹페이지(원격 오리진)의 cross-origin 요청을 차단한다.
+    // Vite dev(5173)와 same-origin(릴리즈 web/) 시나리오 모두 루프백이므로 통과한다.
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(AllowOrigin::predicate(|origin, _parts| {
+            let b = origin.as_bytes();
+            b.starts_with(b"http://localhost")
+                || b.starts_with(b"http://127.0.0.1")
+                || b.starts_with(b"http://[::1]")
+        }))
         .allow_methods(Any)
         .allow_headers(Any);
 
@@ -110,6 +120,11 @@ async fn main() {
         .route("/security/remediate", post(handle_remediate))
         .layer(cors);
 
+    // ── 선택적 Bearer 토큰 인증 ─────────────────────────────────────────────
+    // `XAZZ_SERVER_TOKEN` 이 설정된 경우 모든 요청에 `Authorization: Bearer <token>` 을 요구한다.
+    // 미설정 시 로컬 전용 도구로 동작한다 (루프백 바인딩 + 루프백 CORS가 1차 방어).
+    let app = app.layer(middleware::from_fn(optional_bearer_auth));
+
     let app = match web_root {
         Some(root) => app.fallback_service(ServeDir::new(root).not_found_service(serve_index())),
         None => app,
@@ -120,6 +135,30 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+// ── 선택적 Bearer 토큰 인증 미들웨어 ─────────────────────────────────────────
+
+/// `XAZZ_SERVER_TOKEN` 이 설정되어 있으면 모든 요청에 `Authorization: Bearer <token>` 을 요구한다.
+/// 미설정(또는 빈 값)이면 모든 요청을 통과시킨다 (로컬 전용 기본 동작).
+async fn optional_bearer_auth(
+    req: axum::extract::Request,
+    next: Next,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let expected = std::env::var("XAZZ_SERVER_TOKEN").unwrap_or_default();
+    if expected.is_empty() {
+        return Ok(next.run(req).await);
+    }
+    let ok = req
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|h: &HeaderValue| h.to_str().ok())
+        .is_some_and(|h| h == format!("Bearer {expected}"));
+    if ok {
+        Ok(next.run(req).await)
+    } else {
+        Err((StatusCode::UNAUTHORIZED, "missing or invalid bearer token".into()))
+    }
 }
 
 // ── Static IDE serving ───────────────────────────────────────────────────────
