@@ -23,6 +23,9 @@ uploads/
 # Windows metadata artifacts
 *.Zone.Identifier
 
+# Finder archive artifacts
+*.zip
+
 # Personal development notes (not for distribution)
 commitGuide.txt
 
@@ -31,6 +34,9 @@ core_code.zip
 final_result_chart.html
 result_file_input_chart.html
 dist/
+
+# Generated benchmark artifacts (regenerate via benches/*.py)
+benches/benchmark_report.html
 
 # Personal documents
 @Xazz_MVP_Roadmap_v3.docx
