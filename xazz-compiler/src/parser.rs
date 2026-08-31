@@ -630,7 +630,7 @@ impl Parser {
                     if matches!(self.current_kind(), TokenKind::RBracket | TokenKind::Eof) {
                         break;
                     }
-                    cols.push(self.expect_ident()?);
+                    cols.push(self.expect_ident_or_str()?);
                     if !self.eat(&TokenKind::Comma) {
                         break;
                     }
