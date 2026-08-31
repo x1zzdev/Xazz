@@ -46,18 +46,30 @@ enum Activation {
 }
 
 /// 레이어별 활성화 함수 적용.
-fn apply_activation<B: Backend, const D: usize>(act: &Activation, x: Tensor<B, D>) -> Tensor<B, D> {
+/// Dropout 은 학습(training=true)에서만 적용하고, 추론에서는 항등 함수로 통과시킨다.
+fn apply_activation<B: Backend, const D: usize>(
+    act: &Activation,
+    x: Tensor<B, D>,
+    training: bool,
+) -> Tensor<B, D> {
     match act {
         Activation::None => x,
         Activation::ReLU => relu(x),
         Activation::Sigmoid => sigmoid(x),
         Activation::Tanh => tanh(x),
         Activation::Softmax => softmax(x, 1),
-        Activation::Dropout(prob) => DropoutConfig::new(*prob).init().forward(x),
+        Activation::Dropout(prob) => {
+            if training {
+                DropoutConfig::new(*prob).init().forward(x)
+            } else {
+                x
+            }
+        }
     }
 }
 
 /// DSL `model { Dense -> ReLU -> ... }` 를 동적 다층 퍼셉트론(MLP)으로 표현한 Burn 모듈.
+// (Burn Module derive 가 Clone 을 제공한다)
 #[derive(Module, Debug)]
 pub struct Mlp<B: Backend> {
     /// Dense(units) 레이어 시퀀스.
@@ -65,6 +77,9 @@ pub struct Mlp<B: Backend> {
     /// 각 Dense 뒤에 적용할 활성화 함수 (마지막 레이어 포함).
     #[module(skip)]
     activations: Vec<Activation>,
+    /// 학습 모드 여부 — Dropout 적용을 결정한다 (추론 시 false).
+    #[module(skip)]
+    training: bool,
 }
 
 impl<B: Backend> Mlp<B> {
@@ -72,7 +87,7 @@ impl<B: Backend> Mlp<B> {
     fn forward<const D: usize>(&self, input: Tensor<B, D>) -> Tensor<B, D> {
         let mut x = input;
         for i in 0..self.layers.len() {
-            x = apply_activation(&self.activations[i], self.layers[i].forward(x));
+            x = apply_activation(&self.activations[i], self.layers[i].forward(x), self.training);
         }
         x
     }
@@ -114,6 +129,7 @@ fn build_mlp<B: Backend>(
     Ok(Mlp {
         layers: linears,
         activations,
+        training: true,
     })
 }
 
@@ -353,7 +369,8 @@ pub fn train(
         }
     }
     let xp = Tensor::<Plain, 2>::from_data(TensorData::new(xv, [n_pred, input_dim]), &device_plain);
-    let valid_model = model.valid();
+    let mut valid_model = model.valid();
+    valid_model.training = false;
     let pred_t = valid_model.forward(xp);
     let preds = pred_t.into_data().to_vec::<f32>().unwrap_or_default();
     let predictions: Vec<f64> = preds.iter().map(|&v| v as f64).collect();
@@ -443,7 +460,9 @@ pub fn predict(
 
     let device: Device<Plain> = Default::default();
     let x = Tensor::<Plain, 2>::from_data(TensorData::new(xs, [n, feature_count]), &device);
-    let pred_t = trained.model.forward(x);
+    let mut infer_model = trained.model.clone();
+    infer_model.training = false;
+    let pred_t = infer_model.forward(x);
     let preds = pred_t.into_data().to_vec::<f32>().unwrap_or_default();
 
     let out_col = match as_col {
