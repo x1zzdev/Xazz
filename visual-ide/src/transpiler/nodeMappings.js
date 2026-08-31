@@ -139,24 +139,20 @@ export const NODE_MAPPINGS = {
     const column = resolveColumn(node, params.column || '_col');
     const agg = params.agg || 'count';
     if (agg === 'count') {
-      // Xazz 컴파일러는 groupBy 뒤 count 를 집계로 인정하지 않아 정적 분석 경고가 남는다.
-      // 실행은 성공하지만, DIAGNOSTIC 경고를 피하려면 sum/mean 등 다른 집계를 쓰는 게 좋다.
+      // count() after groupBy counts rows per group (supported since v0.3.1).
       return {
         type: 'pipeline',
-        lines: [
-          `|> groupBy("${column}") |> count`,
-          `// ⚠️ Xazz 는 groupBy 뒤 count 를 집계로 인식하지 못합니다. 정적 분석 경고가 남으면 sum/mean 등 다른 집계를 사용하세요.`,
-        ],
+        lines: [`|> groupBy("${column}") |> count`],
       };
     }
-    // 집계 대상 컬럼: aggColumn 지정 시 사용, 없으면 경고 주석과 함께 그룹 키 사용 회피
+    // Aggregate target column: use aggColumn if specified, otherwise fall back to the group key.
     const aggCol = params.aggColumn ? resolveColumn(node, params.aggColumn) : null;
     if (!aggCol) {
       return {
         type: 'pipeline',
         lines: [
           `|> groupBy("${column}") |> ${agg}("${column}")`,
-          `// ⚠️ ${agg}() 대상 컬럼(aggColumn)을 지정하세요 — 그룹 키가 아니라 수치 컬럼에 집계를 적용해야 합니다`,
+          `// ⚠️ specify aggColumn for ${agg}() — apply the aggregate to a numeric column, not the group key`,
         ],
       };
     }
@@ -321,7 +317,7 @@ export const NODE_MAPPINGS = {
     return {
       type: 'pipeline',
       lines: [
-        `// [guardrail:${policy}] Policy-as-Code 게이트 — 실행 전 자동 적용 (차단 시 HTTP 422)`,
+        `// [guardrail:${policy}] Policy-as-Code gate — applied automatically before execution (blocks with HTTP 422)`,
       ],
     };
   },
