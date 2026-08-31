@@ -16,7 +16,7 @@
 | 항 목 | 내 용 |
 |---|---|
 | 프로젝트명 | **Xazz** |
-| 프로젝트 등록 URL | https://github.com/xazzdev/Xazz |
+| 프로젝트 등록 URL | https://github.com/x1zzdev/Xazz |
 | 시연영상 | [유튜브 업로드 후 URL 기재] |
 | 프로젝트 소개 | Xazz는 파이썬 생태계의 뛰어난 생산성을 존중하면서도, 대규모 데이터 처리에서 발생하는 런타임 타입 에러·GPU 자원 낭비·보안 검증 부재라는 구조적 한계를 극복하기 위해 설계된 Rust 기반 차세대 AI 파이프라인 DSL이다. Polars 데이터 전처리와 Burn 딥러닝 컴파일, 정적 보안 가드레일을 하나의 .xzz DSL로 통합하여, 스크립트처럼 즉시 작성하되 실행 시 컴파일러가 파싱·타입 검사·코드 생성까지 완결한다. 특히 보안 compliance가 중요하거나 high-throughput이 요구되는 기업형 AI 환경에서 파이썬 파이프라인의 하이퍼 퍼포먼스 모듈로 즉시 통합된다. |
 
@@ -190,7 +190,7 @@ cd my-project
 | 항 목 | 내 용 |
 |---|---|
 | 직접 작성한 코드의 오픈소스 라이선스 | Apache License 2.0 |
-| 학습/추론 소스코드 공개 저장소 URL | https://github.com/xazzdev/Xazz |
+| 학습/추론 소스코드 공개 저장소 URL | https://github.com/x1zzdev/Xazz |
 | 상용 AI 보조도구 활용 여부 및 범위 | 코드 작성 및 디버깅 보조용으로 상용 AI(예: ChatGPT/Claude)를 활용하였으며, 전체 코드의 일부 수준으로 보조적 활용만 함 |
 
 ---

@@ -53,7 +53,7 @@ Key constraint: **the `xazz` CLI binary must never link Polars or Tokio.** All P
 ### Build
 
 ```bash
-git clone https://github.com/xazzdev/Xazz.git
+git clone https://github.com/x1zzdev/Xazz.git
 cd Xazz
 
 # Build CLI binary only (lightweight, no Polars)

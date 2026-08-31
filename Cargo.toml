@@ -16,7 +16,7 @@ version = "0.3.0"
 edition = "2024"
 authors = ["Jangseowoo <ax1s.xazz.com>"]
 license = "Apache-2.0"
-repository = "https://github.com/xazzdev/Xazz"
+repository = "https://github.com/x1zzdev/Xazz"
 
 # ── 루트 패키지 (Xazz CLI 바이너리) ─────────────────────────────────────────────
 [package]
@@ -28,7 +28,7 @@ license = "Apache-2.0"
 description = "Xazz — scripting on the surface, compiled at its core. A data pipeline language that compiles .xzz scripts into optimized Polars LazyFrame execution plans."
 keywords = ["data", "pipeline", "polars", "compiler", "csv"]
 categories = ["command-line-utilities", "compilers", "science"]
-repository = "https://github.com/xazzdev/Xazz"
+repository = "https://github.com/x1zzdev/Xazz"
 readme = "README.md"
 
 exclude = [

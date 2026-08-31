@@ -19,8 +19,8 @@
 [![Language: .xzz](https://img.shields.io/badge/Language-.xzz-orange.svg)]()
 [![Backend: Polars](https://img.shields.io/badge/Backend-Polars-red.svg)]()
 [![DL Engine: Burn](https://img.shields.io/badge/DL%20Engine-Burn-purple.svg)]()
-[![Version: v0.3.0](https://img.shields.io/badge/Version-v0.3.0-green.svg)](https://github.com/xazzdev/Xazz/releases)
-[![CI](https://github.com/xazzdev/Xazz/actions/workflows/ci.yml/badge.svg)](https://github.com/xazzdev/Xazz/actions/workflows/ci.yml)
+[![Version: v0.3.0](https://img.shields.io/badge/Version-v0.3.0-green.svg)](https://github.com/x1zzdev/Xazz/releases)
+[![CI](https://github.com/x1zzdev/Xazz/actions/workflows/ci.yml/badge.svg)](https://github.com/x1zzdev/Xazz/actions/workflows/ci.yml)
 
 [한국어 README](README_kr.md)
 
@@ -54,7 +54,7 @@ Xazz is not a wrapper around existing libraries. The parser, AST, static type ch
 
 ### Option A — Pre-built release (recommended)
 
-1. Download the archive for your platform from [Releases](https://github.com/xazzdev/Xazz/releases):
+1. Download the archive for your platform from [Releases](https://github.com/x1zzdev/Xazz/releases):
 
    | Platform | Archive |
    |----------|---------|
@@ -79,7 +79,7 @@ Xazz is not a wrapper around existing libraries. The parser, AST, static type ch
 Requires Rust stable.
 
 ```bash
-git clone https://github.com/xazzdev/Xazz.git
+git clone https://github.com/x1zzdev/Xazz.git
 cd Xazz
 cargo build --release -p xazz -p xazz-runner
 # both binaries land in target/release/

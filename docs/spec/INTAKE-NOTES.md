@@ -38,7 +38,7 @@ Apache Arrow 기반의 효율적인 메모리 레이아웃과 Rust 런타임을 
 
 ## INTAKE-2026-07-27.06 — 저장소
 
-[xazzdev/Xazz](https://github.com/xazzdev/Xazz)
+[x1zzdev/Xazz](https://github.com/x1zzdev/Xazz)
 
 ## INTAKE-2026-07-27.07 — UI/UX 기여 목표
 

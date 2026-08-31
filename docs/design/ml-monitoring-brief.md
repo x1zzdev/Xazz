@@ -5,7 +5,7 @@
 - Risk profile: `STRICT` (inherits `../design-evidence/xazz-product-ux.json` rationale — this scope
   adds privacy-capability representation, the sharpest case of that risk)
 - Journey scope: `touchpoint_only` (workspace surface; no new service handoff, owner, or channel)
-- Source issue: https://github.com/xazzdev/Xazz/issues/1
+- Source issue: https://github.com/x1zzdev/Xazz/issues/1
 - Master constraint: `../design-system/xazz/MASTER.md`, page override
   `../design-system/xazz/pages/workspace.md`
 

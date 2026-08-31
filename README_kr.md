@@ -19,8 +19,8 @@
 [![Language: .xzz](https://img.shields.io/badge/Language-.xzz-orange.svg)]()
 [![Backend: Polars](https://img.shields.io/badge/Backend-Polars-red.svg)]()
 [![DL Engine: Burn](https://img.shields.io/badge/DL%20Engine-Burn-purple.svg)]()
-[![Version: v0.3.0](https://img.shields.io/badge/Version-v0.3.0-green.svg)](https://github.com/xazzdev/Xazz/releases)
-[![CI](https://github.com/xazzdev/Xazz/actions/workflows/ci.yml/badge.svg)](https://github.com/xazzdev/Xazz/actions/workflows/ci.yml)
+[![Version: v0.3.0](https://img.shields.io/badge/Version-v0.3.0-green.svg)](https://github.com/x1zzdev/Xazz/releases)
+[![CI](https://github.com/x1zzdev/Xazz/actions/workflows/ci.yml/badge.svg)](https://github.com/x1zzdev/Xazz/actions/workflows/ci.yml)
 
 [English README](README.md)
 
@@ -54,7 +54,7 @@ Xazz는 기존 라이브러리의 래퍼가 아닙니다. 파서, AST, 정적 �
 
 ### Option A — 사전 빌드 릴리스 (권장)
 
-1. [Releases](https://github.com/xazzdev/Xazz/releases)에서 플랫폼에 맞는 아카이브를 다운로드합니다:
+1. [Releases](https://github.com/x1zzdev/Xazz/releases)에서 플랫폼에 맞는 아카이브를 다운로드합니다:
 
    | 플랫폼 | 아카이브 |
    |--------|---------|
@@ -79,7 +79,7 @@ Xazz는 기존 라이브러리의 래퍼가 아닙니다. 파서, AST, 정적 �
 Rust stable 툴체인이 필요합니다.
 
 ```bash
-git clone https://github.com/xazzdev/Xazz.git
+git clone https://github.com/x1zzdev/Xazz.git
 cd Xazz
 cargo build --release -p xazz -p xazz-runner
 # 두 바이너리 모두 target/release/에 생성됩니다
