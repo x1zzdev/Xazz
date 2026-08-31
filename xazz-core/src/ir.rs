@@ -155,6 +155,8 @@ pub enum FillValue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AggKind {
     Count,
+    /// count() (인수 없음) — 행 수. 그룹 집계 시 그룹별 행 수.
+    Len,
     Sum,
     Mean,
     Min,

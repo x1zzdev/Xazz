@@ -84,6 +84,7 @@ pub fn lower_data(
         DataOp::Aggregate { kind, col: agg_col } => {
             let agg_expr: polars::prelude::Expr = match kind {
                 AggKind::Count => col(agg_col.as_str()).count(),
+                AggKind::Len => polars::prelude::len(),
                 AggKind::Sum => col(agg_col.as_str()).sum(),
                 AggKind::Mean => col(agg_col.as_str()).mean(),
                 AggKind::Min => col(agg_col.as_str()).min(),

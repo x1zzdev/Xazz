@@ -530,7 +530,13 @@ impl Analyzer {
                     pending_group = None;
                     steps.push(ir::Step::Data(ir::DataOp::Aggregate { kind, col: agg_col }));
                 }
-                PipelineOp::Count(None) => {}
+                PipelineOp::Count(None) => {
+                    pending_group = None;
+                    steps.push(ir::Step::Data(ir::DataOp::Aggregate {
+                        kind: ir::AggKind::Len,
+                        col: String::new(),
+                    }));
+                }
                 PipelineOp::OrderBy { col, desc } => {
                     self.check_column(col, "orderBy", &cols);
                     steps.push(ir::Step::Data(ir::DataOp::Sort {
