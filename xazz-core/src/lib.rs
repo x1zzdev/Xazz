@@ -6,10 +6,14 @@
 /// v0.3: 딥러닝 모델 선언(ModelDecl), 학습(TrainStmt), 레이어(LayerKind) 추가
 pub mod ast;
 pub mod error;
+pub mod i18n;
 pub mod ir;
 pub mod token;
 
 // ── 상위 노출 ────────────────────────────────────────────────────────────────
+
+// i18n
+pub use i18n::{Lang, tr};
 
 // token
 pub use token::{Span, Token, TokenKind};

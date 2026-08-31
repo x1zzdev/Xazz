@@ -1,6 +1,7 @@
 /// xazzLang - 컴파일러/런타임 에러 타입 정의 (v0.16)
 /// Diagnostic Engine: Line/Col 정확 추적 + 친화적 메시지 포맷
 /// + AI Suggestion: ai_suggestion 필드 + SafeLoadViolation
+use crate::i18n::{is_korean, tr};
 use crate::token::Span;
 
 /// 컴파일 에러 종류 (ErrorKind 고도화)
@@ -48,18 +49,18 @@ impl ErrorKind {
     /// 에러 종류의 카테고리 레이블 반환
     pub fn category(&self) -> &'static str {
         match self {
-            ErrorKind::UnexpectedChar(_) => "렉서 에러",
-            ErrorKind::UnexpectedToken(_) => "구문 에러",
-            ErrorKind::ExpectedToken(_) => "구문 에러",
-            ErrorKind::UndeclaredType(_) => "타입 에러",
-            ErrorKind::UndeclaredVariable(_) => "변수 에러",
-            ErrorKind::TypeMismatch { .. } => "타입 에러",
-            ErrorKind::NullViolation { .. } => "Null 위반",
-            ErrorKind::IoError(_) => "IO 에러",
-            ErrorKind::SchemaMappingFailed { .. } => "스키마 에러",
-            ErrorKind::SafeLoadViolation { .. } => "Safe-Load 위반",
+            ErrorKind::UnexpectedChar(_) => tr("lexer error", "렉서 에러"),
+            ErrorKind::UnexpectedToken(_) => tr("syntax error", "구문 에러"),
+            ErrorKind::ExpectedToken(_) => tr("syntax error", "구문 에러"),
+            ErrorKind::UndeclaredType(_) => tr("type error", "타입 에러"),
+            ErrorKind::UndeclaredVariable(_) => tr("variable error", "변수 에러"),
+            ErrorKind::TypeMismatch { .. } => tr("type error", "타입 에러"),
+            ErrorKind::NullViolation { .. } => tr("null violation", "Null 위반"),
+            ErrorKind::IoError(_) => tr("io error", "IO 에러"),
+            ErrorKind::SchemaMappingFailed { .. } => tr("schema error", "스키마 에러"),
+            ErrorKind::SafeLoadViolation { .. } => tr("safe-load violation", "Safe-Load 위반"),
             ErrorKind::DivisionByZero { .. } => "DivisionByZero",
-            ErrorKind::Other(_) => "에러",
+            ErrorKind::Other(_) => tr("error", "에러"),
         }
     }
 }
@@ -116,19 +117,38 @@ impl CompileError {
 
 /// ErrorKind에서 AI 수정 제안 자동 생성
 fn generate_suggestion(kind: &ErrorKind) -> Option<String> {
+    let ko = crate::i18n::is_korean();
     match kind {
         ErrorKind::TypeMismatch {
             expected,
             found,
             field,
-        } => Some(format!(
-            "필드 '{}' 의 타입이 '{}' 가 아닌 '{}' 입니다. → 올바른 타입 '{}' 으로 변경하거나 cast() 를 사용하세요.",
-            field, expected, found, expected
-        )),
-        ErrorKind::NullViolation { field, schema } => Some(format!(
-            "스키마 '{}' 의 필수 필드 '{}' 에 null 값이 있습니다. → dropNull(\"{}\") 또는 fillNull(\"{}\", <기본값>) 을 파이프라인에 추가하세요.",
-            schema, field, field, field
-        )),
+        } => {
+            if ko {
+                Some(format!(
+                    "필드 '{}' 의 타입이 '{}' 가 아닌 '{}' 입니다. → 올바른 타입 '{}' 으로 변경하거나 cast() 를 사용하세요.",
+                    field, expected, found, expected
+                ))
+            } else {
+                Some(format!(
+                    "Field '{}' has type '{}', not '{}'. → change it to '{}' or use cast().",
+                    field, found, expected, expected
+                ))
+            }
+        }
+        ErrorKind::NullViolation { field, schema } => {
+            if ko {
+                Some(format!(
+                    "스키마 '{}' 의 필수 필드 '{}' 에 null 값이 있습니다. → dropNull(\"{}\") 또는 fillNull(\"{}\", <기본값>) 을 파이프라인에 추가하세요.",
+                    schema, field, field, field
+                ))
+            } else {
+                Some(format!(
+                    "Required field '{}' of schema '{}' contains null. → add dropNull(\"{}\") or fillNull(\"{}\", <default>) to the pipeline.",
+                    field, schema, field, field
+                ))
+            }
+        }
         ErrorKind::SafeLoadViolation {
             col,
             schema,
@@ -137,30 +157,67 @@ fn generate_suggestion(kind: &ErrorKind) -> Option<String> {
             let hint = find_closest(col, available)
                 .map(|s| format!("  Did you mean: col(\"{}\")?", s))
                 .unwrap_or_default();
-            Some(format!(
-                "스키마 '{}' 에 '{}' 컬럼이 없습니다.\n💡 사용 가능한 컬럼: {}\n{}",
-                schema,
-                col,
-                available.join(", "),
-                hint
-            ))
+            if ko {
+                Some(format!(
+                    "스키마 '{}' 에 '{}' 컬럼이 없습니다.\n💡 사용 가능한 컬럼: {}\n{}",
+                    schema,
+                    col,
+                    available.join(", "),
+                    hint
+                ))
+            } else {
+                Some(format!(
+                    "Schema '{}' does not contain column '{}'.\n💡 available columns: {}\n{}",
+                    schema,
+                    col,
+                    available.join(", "),
+                    hint
+                ))
+            }
         }
-        ErrorKind::UndeclaredVariable(name) => Some(format!(
-            "변수 '{}' 가 선언되지 않았습니다. → 이 변수를 먼저 `v {} = ...` 으로 선언하세요.",
-            name, name
-        )),
-        ErrorKind::UndeclaredType(name) => Some(format!(
-            "타입 '{}' 가 선언되지 않았습니다. → `type {} = {{ ... }}` 으로 먼저 선언하세요.",
-            name, name
-        )),
+        ErrorKind::UndeclaredVariable(name) => {
+            if ko {
+                Some(format!(
+                    "변수 '{}' 가 선언되지 않았습니다. → 이 변수를 먼저 `v {} = ...` 으로 선언하세요.",
+                    name, name
+                ))
+            } else {
+                Some(format!(
+                    "Variable '{}' is not declared. → declare it first with `v {} = ...`.",
+                    name, name
+                ))
+            }
+        }
+        ErrorKind::UndeclaredType(name) => {
+            if ko {
+                Some(format!(
+                    "타입 '{}' 가 선언되지 않았습니다. → `type {} = {{ ... }}` 으로 먼저 선언하세요.",
+                    name, name
+                ))
+            } else {
+                Some(format!(
+                    "Type '{}' is not declared. → declare it first with `type {} = {{ ... }}`.",
+                    name, name
+                ))
+            }
+        }
         ErrorKind::DivisionByZero {
             col,
             row_count,
             expr_context: _,
-        } => Some(format!(
-            "컬럼 '{}' 에 0이 {} 개 포함되어 있습니다. → filter({} != 0) 또는 fillNull(\"{}\", 1) 등을 파이프라인에 추가하세요.",
-            col, row_count, col, col
-        )),
+        } => {
+            if ko {
+                Some(format!(
+                    "컬럼 '{}' 에 0이 {} 개 포함되어 있습니다. → filter({} != 0) 또는 fillNull(\"{}\", 1) 등을 파이프라인에 추가하세요.",
+                    col, row_count, col, col
+                ))
+            } else {
+                Some(format!(
+                    "Column '{}' contains {} zero values. → add filter({} != 0) or fillNull(\"{}\", 1) to the pipeline.",
+                    col, row_count, col, col
+                ))
+            }
+        }
         _ => None,
     }
 }
@@ -211,7 +268,11 @@ impl std::fmt::Display for CompileError {
             )?;
         }
         if let Some(ref suggestion) = self.ai_suggestion {
-            write!(f, "\n💡 AI Suggestion: {}", suggestion)?;
+            if is_korean() {
+                write!(f, "\n💡 제안: {}", suggestion)?;
+            } else {
+                write!(f, "\n💡 Suggestion: {}", suggestion)?;
+            }
         }
         Ok(())
     }
@@ -227,7 +288,8 @@ pub type CompileResult<T> = Result<T, CompileError>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::token::Span;
+use crate::i18n::{is_korean, tr};
+use crate::token::Span;
 
     #[test]
     fn test_error_ai_suggestion_display() {
@@ -242,8 +304,8 @@ mod tests {
         );
         let display = format!("{}", err);
         assert!(
-            display.contains("💡 AI Suggestion:"),
-            "AI Suggestion 출력 없음: {}",
+            display.contains("💡"),
+            "제안 없음: {}",
             display
         );
         assert!(display.contains("pm10"), "필드명 포함 안 됨: {}", display);
@@ -262,8 +324,8 @@ mod tests {
         );
         let display = format!("{}", err);
         assert!(
-            display.contains("💡 AI Suggestion:"),
-            "AI Suggestion 없음: {}",
+            display.contains("💡"),
+            "제안 없음: {}",
             display
         );
         assert!(
@@ -331,8 +393,8 @@ mod tests {
             display
         );
         assert!(
-            display.contains("💡 AI Suggestion:"),
-            "AI Suggestion 없음: {}",
+            display.contains("💡"),
+            "제안 없음: {}",
             display
         );
         assert!(display.contains("pm25"), "컬럼명 포함 안 됨: {}", display);
