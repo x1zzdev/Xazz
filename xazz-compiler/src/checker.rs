@@ -556,6 +556,17 @@ impl Analyzer {
                 }
                 PipelineOp::FillNull { col, value } => {
                     self.check_column(col, "fillNull", &cols);
+                    if let Some(t) = cols.get(col) {
+                        if !t.option && t.name != "unknown" {
+                            self.error(
+                                ErrorKind::Other("fillNull on non-nullable column".to_string()),
+                                format!(
+                                    "fillNull(\"{}\", ...) : 컬럼 '{}' 은 null을 허용하지 않는 타입으로 선언되어 있습니다. 스키마에서 '{}' 을(를) Option<{}> 으로 선언하거나, 이 연산을 제거하세요.",
+                                    col, col, col, t.name
+                                ),
+                            );
+                        }
+                    }
                     self.check_fill_value(col, value, &cols);
                     steps.push(ir::Step::Data(ir::DataOp::FillNull {
                         col: col.clone(),
@@ -1312,6 +1323,28 @@ mod tests {
         let err = &r.errors[0];
         assert_eq!(err.span.line, 0);
         assert_eq!(err.span.col, 0);
+    }
+
+    #[test]
+    fn fillnull_on_non_nullable_column_is_a_type_error() {
+        let r = check(
+            "type X = { temp: float };
+             v p = load(\"x.csv\") :: X |> fillNull(\"temp\", strategy: \"mean\");",
+        );
+        assert!(
+            r.errors.iter().any(|e| e.message.contains("Option")),
+            "non-Option 컬럼에 fillNull 은 스키마 수정을 제안하는 오류여야 함: {:?}",
+            r.errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn fillnull_on_nullable_column_is_ok() {
+        let r = check(
+            "type X = { temp: Option<float> };
+             v p = load(\"x.csv\") :: X |> fillNull(\"temp\", strategy: \"mean\");",
+        );
+        assert!(r.errors.is_empty(), "Option 컬럼에 fillNull 은 허용: {:?}", r.errors);
     }
 
     // ── IR 생성 검증 ──────────────────────────────────────────────────────────
