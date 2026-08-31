@@ -1,6 +1,5 @@
 mod cli;
 mod policy_cli;
-mod predict;
 mod project;
 mod schema;
 mod whoami;
@@ -22,7 +21,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             file,
             release,
             verbose,
-            predict,
             output,
             json,
         } => {
@@ -53,16 +51,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // 서브프로세스를 띄우기 전에 Policy-as-Code 정적 검사를 통과해야 한다.
             // 위반이 있으면 여기서 종료한다. (실행 엔진에도 동일한 게이트가 있다)
             policy_cli::gate_before_run(&source_path, json);
-
-            // ── --predict 분기: NQP 시맨틱 예측 모드 ───────────────────────
-            // predict는 Polars를 사용하지 않으므로 CLI에서 직접 처리한다.
-            if predict {
-                if let Err(e) = predict::run_predict(&source_path) {
-                    eprintln!("{}", e);
-                    std::process::exit(1);
-                }
-                return Ok(());
-            }
 
             if release {
                 println!("🚀  릴리즈 모드 (Polars 최적화 플래그 활성화)");

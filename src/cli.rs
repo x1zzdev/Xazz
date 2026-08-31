@@ -19,7 +19,6 @@ pub enum Commands {
     /// xazz 데이터 분석 코드를 실행합니다
     ///
     /// 예: xazz run examples/poc_script.xzz
-    /// 예: xazz run examples/poc_script.xzz --predict
     /// 예: xazz run examples/pipeline.xzz --output result.csv
     Run {
         /// 실행할 .xzz 소스 파일 경로
@@ -32,11 +31,6 @@ pub enum Commands {
         /// Verbose 모드: Lexer 토큰 스트림 및 AST 출력 활성화
         #[arg(short, long)]
         verbose: bool,
-
-        /// NQP (Neural Query Planner) 시맨틱 실행 예측 모드
-        /// — 코드를 실행하지 않고 NQP 모델을 통해 예측 결과를 반환합니다
-        #[arg(long)]
-        predict: bool,
 
         /// 실행 결과를 CSV 파일로 저장합니다
         ///
