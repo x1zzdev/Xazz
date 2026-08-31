@@ -7,6 +7,38 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [v0.3.1] — 2026-08-31
+
+> **정확성·보안·국제화 정비 릴리스.** 언어 자체의 동작 버그와 보안 하드닝, 그리고
+> 영어 기본 CLI 출력(XAZZ_LANG=ko 로 한국어 유지). README 예제가 이제 그대로 실행된다.
+
+### Fixed — 언어 동작
+
+- **`count()` 집계가 실제로 동작**: `groupBy("col") |> count()` 가 그룹별 행 수를,
+  단독 `count()` 는 전체 행 수를 반환 (IR `AggKind::Len` 신설, 체커의 집계 누락 오탐 제거)
+- **`select(["col", ...])` 문자열 리터럴 허용**: 컬럼 리스트에서 bare ident 와 문자열 모두 수용 — README 예제가 수정 없이 실행됨
+- **`Option<T>` 널 안전성 강제**: non-nullable 로 선언된 컬럼에 `fillNull` 을 쓰면 컴파일 타임 오류 (스키마 수정 제안 포함)
+- **Dropout 이 추론에서도 적용되던 버그**: `Mlp` 에 training 플래그를 두어 `predict()`/검증 경로에서 비활성화
+- did-you-mean 제안이 현재 파이프라인 스키마 기준으로 정확히 나오도록 개선 (available columns 가 비던 문제)
+
+### Security
+
+- **차트 HTML Stored XSS 방지**: 인라인 JSON의 `<` `>` `&` U+2028/29 를 `\uXXXX` 이스케이프 (`</script>` 탈출 차단, 테스트 추가)
+- **DP 노이즈 시드를 OS 엔트로피로**: 시간 기반 시드의 노이즈 역산 공격 차단 (`/dev/urandom`)
+- **`xazz-server` CORS를 루프백 오리진으로 제한** + 선택적 `XAZZ_SERVER_TOKEN` Bearer 인증 — 임의 웹페이지의 로컬 파일 탈취/실행 차단
+
+### Changed — 국제화 (i18n)
+
+- **CLI 출력이 기본 영어**: `xazz check/run/policy`, 컴파일러 진단, 런타임 로그, 정책 리포트 전반. `XAZZ_LANG=ko` 로 한국어 유지
+- README 스크린샷 4장을 영어 출력으로 재캡처 (`demo/capture.sh` 에 오타 감지 시나리오 추가, `demo/make_screenshots.py` 신규)
+- 문서: `SECURITY_GUARDRAIL.md`, `dp-spec.md` 영어화, 벤치마크 수치/방법론 공개 정비, README 예제 교정
+
+### Removed
+
+- 실행 시 실패하던 데드코드 제거: `xazz run --predict`(NQP) 플래그와 `predict.rs`
+
+---
+
 ## [v0.3.0] — 2026-08-29
 
 > **Typed IR 컴파일러 아키텍처 마일스톤.** 이번 릴리스는 "기능 추가"가 아니라

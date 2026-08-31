@@ -19,7 +19,7 @@
 [![Language: .xzz](https://img.shields.io/badge/Language-.xzz-orange.svg)]()
 [![Backend: Polars](https://img.shields.io/badge/Backend-Polars-red.svg)]()
 [![DL Engine: Burn](https://img.shields.io/badge/DL%20Engine-Burn-purple.svg)]()
-[![Version: v0.3.0](https://img.shields.io/badge/Version-v0.3.0-green.svg)](https://github.com/x1zzdev/Xazz/releases)
+[![Version: v0.3.1](https://img.shields.io/badge/Version-v0.3.1-green.svg)](https://github.com/x1zzdev/Xazz/releases)
 [![CI](https://github.com/x1zzdev/Xazz/actions/workflows/ci.yml/badge.svg)](https://github.com/x1zzdev/Xazz/actions/workflows/ci.yml)
 
 [English README](README.md)

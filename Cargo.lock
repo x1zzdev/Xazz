@@ -7224,7 +7224,7 @@ dependencies = [
 
 [[package]]
 name = "xazz"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -7239,7 +7239,7 @@ dependencies = [
 
 [[package]]
 name = "xazz-compiler"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -7248,14 +7248,14 @@ dependencies = [
 
 [[package]]
 name = "xazz-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "xazz-exec"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "burn",
  "burn-ndarray",
@@ -7269,7 +7269,7 @@ dependencies = [
 
 [[package]]
 name = "xazz-runner"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -7277,7 +7277,7 @@ dependencies = [
 
 [[package]]
 name = "xazz-server"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "axum",
  "chrono",
