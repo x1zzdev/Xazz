@@ -90,10 +90,10 @@ fn emit_block(report: &PolicyReport, source_path: &str, json: bool) {
     eprintln!();
     for v in &report.violations {
         eprintln!("  {} {} {}", "✖".red(), v.rule_id.bold(), v.rule_name);
-        eprintln!("    reason : {}", v.message);
-        eprintln!("    fix    : {}", v.remediation_hint);
+        eprintln!("    {} : {}", label_reason(), v.message);
+        eprintln!("    {}    : {}", label_fix(), v.remediation_hint);
         if let Some(src) = &v.source_ref {
-            eprintln!("    basis  : {}", src);
+            eprintln!("    {}  : {}", label_basis(), src);
         }
         eprintln!();
     }
@@ -157,6 +157,38 @@ fn origin_unknown() -> String {
     "unknown".to_string()
 }
 
+fn label_reason() -> &'static str {
+    if xazz_compiler::is_korean() {
+        "사유"
+    } else {
+        "reason"
+    }
+}
+
+fn label_fix() -> &'static str {
+    if xazz_compiler::is_korean() {
+        "보정"
+    } else {
+        "fix"
+    }
+}
+
+fn label_columns() -> &'static str {
+    if xazz_compiler::is_korean() {
+        "컬럼"
+    } else {
+        "columns"
+    }
+}
+
+fn label_basis() -> &'static str {
+    if xazz_compiler::is_korean() {
+        "근거"
+    } else {
+        "basis"
+    }
+}
+
 fn print_result(
     report: &PolicyReport,
     remediation: Option<&Remediation>,
@@ -198,13 +230,13 @@ fn print_result(
 
     for v in &report.violations {
         println!("  {} {} {}", "✖".red(), v.rule_id.bold(), v.rule_name);
-        println!("    reason : {}", v.message);
-        println!("    fix    : {}", v.remediation_hint);
+        println!("    {} : {}", label_reason(), v.message);
+        println!("    {}    : {}", label_fix(), v.remediation_hint);
         if !v.columns.is_empty() {
-            println!("    columns: {}", v.columns.join(", "));
+            println!("    {}: {}", label_columns(), v.columns.join(", "));
         }
         if let Some(src) = &v.source_ref {
-            println!("    basis  : {}", src);
+            println!("    {}  : {}", label_basis(), src);
         }
         println!();
     }

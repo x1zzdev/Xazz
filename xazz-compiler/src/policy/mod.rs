@@ -84,12 +84,20 @@ impl RiskLevel {
         }
     }
 
-    /// 한국어 표시 이름
+    /// 표시 이름
     pub fn label(&self) -> &'static str {
-        match self {
-            RiskLevel::Low => "저위험",
-            RiskLevel::Medium => "중위험",
-            RiskLevel::High => "고위험",
+        if is_korean() {
+            match self {
+                RiskLevel::Low => "저위험",
+                RiskLevel::Medium => "중위험",
+                RiskLevel::High => "고위험",
+            }
+        } else {
+            match self {
+                RiskLevel::Low => "low",
+                RiskLevel::Medium => "medium",
+                RiskLevel::High => "high",
+            }
         }
     }
 }

@@ -14,6 +14,7 @@
 use std::collections::HashMap;
 
 use crate::ast::{ChartConfig, DpArgs, PipelineOp, PipelineSource, Program, Stmt, StructField};
+use xazz_core::i18n::{is_korean, tr};
 
 use super::{
     ColumnClass, Policy, PolicyReport, RULE_AGGREGATE_WITHOUT_DP, RULE_DIRECT_IDENTIFIER,
@@ -143,10 +144,21 @@ fn check_source_path(
                 RULE_SENSITIVE_PATH,
                 severity,
                 format!(
-                    "시스템 민감 경로에 접근합니다: load(\"{}\"). 데이터 파이프라인은 인가된 데이터 디렉터리만 읽어야 합니다.",
-                    file_path
+                    "{}: load(\"{}\"). {}",
+                    tr(
+                        "accessing a system-sensitive path",
+                        "시스템 민감 경로에 접근합니다"
+                    ),
+                    file_path,
+                    tr(
+                        "a data pipeline should only read authorized data directories",
+                        "데이터 파이프라인은 인가된 데이터 디렉터리만 읽어야 합니다"
+                    )
                 ),
-                "데이터 파일을 프로젝트의 데이터 디렉터리로 옮기고 그 경로를 사용하세요.",
+                tr(
+                    "move the data file into the project's data directory and use that path",
+                    "데이터 파일을 프로젝트의 데이터 디렉터리로 옮기고 그 경로를 사용하세요"
+                ),
             )
             .at_stmt(index, var),
         );
@@ -162,10 +174,17 @@ fn check_source_path(
                 RULE_PATH_TRAVERSAL,
                 severity,
                 format!(
-                    "상위 디렉터리 탈출 경로를 사용합니다: load(\"{}\").",
+                    "{}: load(\"{}\").",
+                    tr(
+                        "using a parent-directory traversal path",
+                        "상위 디렉터리 탈출 경로를 사용합니다"
+                    ),
                     file_path
                 ),
-                "프로젝트 루트 기준의 상대 경로 또는 인가된 절대 경로를 사용하세요.",
+                tr(
+                    "use a project-root-relative path or an authorized absolute path",
+                    "프로젝트 루트 기준의 상대 경로 또는 인가된 절대 경로를 사용하세요"
+                ),
             )
             .at_stmt(index, var),
         );
@@ -331,9 +350,15 @@ fn judge(
             Violation::new(
                 RULE_UNRESOLVED_SCHEMA,
                 severity,
-                "스키마를 해석하지 못해 출력 컬럼을 확정할 수 없습니다. 개인정보 노출 여부를 정적으로 증명하지 못합니다."
-                    .to_string(),
-                "type 선언을 추가하거나 |> select([...]) 로 출력 컬럼을 명시하세요.",
+                tr(
+                    "schema could not be resolved, so output columns cannot be determined; PII exposure cannot be statically proven",
+                    "스키마를 해석하지 못해 출력 컬럼을 확정할 수 없습니다. 개인정보 노출 여부를 정적으로 증명하지 못합니다."
+                )
+                .to_string(),
+                tr(
+                    "add a type declaration or make the output columns explicit with |> select([...])",
+                    "type 선언을 추가하거나 |> select([...]) 로 출력 컬럼을 명시하세요"
+                ),
             )
             .at_stmt(index, var),
         );
@@ -352,14 +377,28 @@ fn judge(
             Violation::new(
                 RULE_DIRECT_IDENTIFIER,
                 severity,
-                format!(
-                    "직접 식별자 컬럼이 결과로 그대로 출력됩니다: {}. 개인을 특정할 수 있는 값은 파이프라인 밖으로 나갈 수 없습니다.",
-                    direct.join(", ")
-                ),
-                format!(
-                    "|> select([...]) 에서 {} 을(를) 제외하거나, groupBy + 집계로 통계만 남기세요.",
-                    direct.join(", ")
-                ),
+                if is_korean() {
+                    format!(
+                        "직접 식별자 컬럼이 결과로 그대로 출력됩니다: {}. 개인을 특정할 수 있는 값은 파이프라인 밖으로 나갈 수 없습니다.",
+                        direct.join(", ")
+                    )
+                } else {
+                    format!(
+                        "direct identifier columns are emitted as-is in the result: {}. Values that can identify an individual must not leave the pipeline.",
+                        direct.join(", ")
+                    )
+                },
+                if is_korean() {
+                    format!(
+                        "|> select([...]) 에서 {} 을(를) 제외하거나, groupBy + 집계로 통계만 남기세요.",
+                        direct.join(", ")
+                    )
+                } else {
+                    format!(
+                        "remove {} from |> select([...]), or keep only statistics via groupBy + aggregate.",
+                        direct.join(", ")
+                    )
+                },
             )
             .at_stmt(index, var)
             .with_columns(direct),
@@ -380,14 +419,28 @@ fn judge(
                 Violation::new(
                     RULE_SENSITIVE_ROW_LEVEL,
                     severity,
+                    if is_korean() {
                     format!(
                         "민감 속성이 집계 없이 행 단위로 출력됩니다: {}. 개별 레코드 단위 민감정보 조회는 허용되지 않습니다.",
                         sensitive.join(", ")
-                    ),
+                    )
+                } else {
+                    format!(
+                        "sensitive attributes are emitted row-wise without aggregation: {}. Row-level sensitive-data lookup is not allowed.",
+                        sensitive.join(", ")
+                    )
+                },
+                if is_korean() {
                     format!(
                         "|> groupBy(\"<범주형 컬럼>\") |> count(\"{}\") 형태의 집계로 바꾸고 |> withDp(...) 를 적용하세요.",
                         sensitive.first().cloned().unwrap_or_default()
-                    ),
+                    )
+                } else {
+                    format!(
+                        "convert to an aggregate like |> groupBy(\"<categorical column>\") |> count(\"{}\") and apply |> withDp(...).",
+                        sensitive.first().cloned().unwrap_or_default()
+                    )
+                },
                 )
                 .at_stmt(index, var)
                 .with_columns(sensitive),
@@ -414,13 +467,25 @@ fn judge(
             Violation::new(
                 RULE_QUASI_COMBINATION,
                 severity,
-                format!(
-                    "준식별자 {}개가 함께 출력되어 재식별 위험이 있습니다: {} (임계치 {}개).",
-                    quasi.len(),
-                    quasi.join(", "),
-                    policy.quasi_identifier_threshold
+                if is_korean() {
+                    format!(
+                        "준식별자 {}개가 함께 출력되어 재식별 위험이 있습니다: {} (임계치 {}개).",
+                        quasi.len(),
+                        quasi.join(", "),
+                        policy.quasi_identifier_threshold
+                    )
+                } else {
+                    format!(
+                        "{} quasi-identifiers are emitted together, creating re-identification risk: {} (threshold {}).",
+                        quasi.len(),
+                        quasi.join(", "),
+                        policy.quasi_identifier_threshold
+                    )
+                },
+                tr(
+                    "remove some quasi-identifiers or generalize via binning (e.g. age → age_band)",
+                    "준식별자 일부를 제거하거나 구간화(예: age → age_band)해 일반화하세요"
                 ),
-                "준식별자 일부를 제거하거나 구간화(예: age → age_band)해 일반화하세요.",
             )
             .at_stmt(index, var)
             .with_columns(quasi),
@@ -447,14 +512,28 @@ fn judge(
                 Violation::new(
                     RULE_AGGREGATE_WITHOUT_DP,
                     severity,
+                    if is_korean() {
                     format!(
                         "민감 속성({})에 대한 집계 결과에 차등 프라이버시가 적용되지 않았습니다. 소집단에서는 집계값만으로도 개인이 역추적될 수 있습니다.",
                         sensitive_keys.join(", ")
-                    ),
+                    )
+                } else {
+                    format!(
+                        "the aggregate over sensitive attribute(s) ({}) has no differential privacy applied. In small groups, aggregates alone can re-identify individuals.",
+                        sensitive_keys.join(", ")
+                    )
+                },
+                if is_korean() {
                     format!(
                         "파이프라인 끝에 |> withDp(epsilon: {}, mechanism: laplace, sensitivity: 1.0) 를 추가하세요.",
                         super::printer::print_f64(policy.remediation_epsilon)
-                    ),
+                    )
+                } else {
+                    format!(
+                        "append |> withDp(epsilon: {}, mechanism: laplace, sensitivity: 1.0) to the pipeline.",
+                        super::printer::print_f64(policy.remediation_epsilon)
+                    )
+                },
                 )
                 .at_stmt(index, var)
                 .with_columns(sensitive_keys),
@@ -474,15 +553,30 @@ fn judge(
                 Violation::new(
                     RULE_EPSILON_TOO_LARGE,
                     severity,
+                    if is_korean() {
                     format!(
                         "프라이버시 예산 ε={} 이 정책 상한(0 < ε ≤ {})을 벗어납니다. ε 이 클수록 노이즈가 작아져 보호 강도가 떨어집니다.",
                         super::printer::print_f64(dp.epsilon),
                         super::printer::print_f64(policy.max_epsilon)
-                    ),
+                    )
+                } else {
+                    format!(
+                        "privacy budget ε={} exceeds the policy cap (0 < ε ≤ {}). Larger ε means less noise and weaker protection.",
+                        super::printer::print_f64(dp.epsilon),
+                        super::printer::print_f64(policy.max_epsilon)
+                    )
+                },
+                if is_korean() {
                     format!(
                         "withDp(epsilon: {}) 이하로 낮추세요.",
                         super::printer::print_f64(policy.max_epsilon)
-                    ),
+                    )
+                } else {
+                    format!(
+                        "lower it to withDp(epsilon: {}) or below.",
+                        super::printer::print_f64(policy.max_epsilon)
+                    )
+                },
                 )
                 .at_stmt(index, var),
             );
@@ -498,12 +592,18 @@ pub fn apply_literal_rules(source: &str, policy: &Policy, report: &mut PolicyRep
         let (rule_id, hint) = if finding.kind.is_pii() {
             (
                 RULE_PII_LITERAL,
-                "개인정보 값을 소스에 직접 쓰지 말고, 비식별화된 키나 파라미터로 대체하세요.",
+                tr(
+                    "do not write PII values into source; replace them with de-identified keys or parameters",
+                    "개인정보 값을 소스에 직접 쓰지 말고, 비식별화된 키나 파라미터로 대체하세요"
+                ),
             )
         } else {
             (
                 RULE_HARDCODED_SECRET,
-                "자격증명을 소스에서 제거하고 환경변수·시크릿 저장소로 옮긴 뒤, 노출된 키는 즉시 폐기·재발급하세요.",
+                tr(
+                    "remove the credential from source and move it to env vars / a secret store; revoke and reissue any exposed key immediately",
+                    "자격증명을 소스에서 제거하고 환경변수·시크릿 저장소로 옮긴 뒤, 노출된 키는 즉시 폐기·재발급하세요"
+                ),
             )
         };
         let severity = policy.severity_for(rule_id, Severity::Block);
@@ -512,13 +612,23 @@ pub fn apply_literal_rules(source: &str, policy: &Policy, report: &mut PolicyRep
             Violation::new(
                 rule_id,
                 severity,
-                format!(
-                    "{} 값이 소스에 하드코딩되어 있습니다 ({}행 {}열, 값: {}).",
-                    finding.kind.label(),
-                    finding.line,
-                    finding.col,
-                    finding.redacted
-                ),
+                if is_korean() {
+                    format!(
+                        "{} 값이 소스에 하드코딩되어 있습니다 ({}행 {}열, 값: {}).",
+                        finding.kind.label(),
+                        finding.line,
+                        finding.col,
+                        finding.redacted
+                    )
+                } else {
+                    format!(
+                        "{} value is hardcoded in the source (line {} col {}, value: {}).",
+                        finding.kind.label(),
+                        finding.line,
+                        finding.col,
+                        finding.redacted
+                    )
+                },
                 hint,
             )
             .at_position(finding.line, finding.col),

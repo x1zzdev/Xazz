@@ -23,6 +23,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::ast::{DpArgs, DpMechanism, PipelineOp, Program, Stmt, StructField};
+use xazz_core::i18n::{is_korean, tr};
 
 use super::rules::{PipelineShape, chart_columns, infer_shape};
 use super::{
@@ -100,10 +101,11 @@ pub fn remediate(source: &str, policy: &Policy) -> Remediation {
             code: source.to_string(),
             applied: Vec::new(),
             residual: before.violations.clone(),
-            notes: vec![
-                "구문 오류가 있어 자동 보정을 적용하지 못했습니다. 먼저 구문을 고쳐야 합니다."
-                    .to_string(),
-            ],
+            notes: vec![tr(
+                "could not apply auto-remediation due to a syntax error; fix the syntax first",
+                "구문 오류가 있어 자동 보정을 적용하지 못했습니다. 먼저 구문을 고쳐야 합니다"
+            )
+            .to_string()],
             verified: false,
             report_after: before,
         };
@@ -115,7 +117,11 @@ pub fn remediate(source: &str, policy: &Policy) -> Remediation {
             code: source.to_string(),
             applied: Vec::new(),
             residual: before.violations.clone(),
-            notes: vec!["소스를 파싱하지 못해 자동 보정을 건너뛰었습니다.".to_string()],
+            notes: vec![tr(
+                "source could not be parsed, so auto-remediation was skipped",
+                "소스를 파싱하지 못해 자동 보정을 건너뛰었습니다"
+            )
+            .to_string()],
             verified: false,
             report_after: before,
         };
@@ -136,14 +142,20 @@ pub fn remediate(source: &str, policy: &Policy) -> Remediation {
     let mut notes: Vec<String> = Vec::new();
     if source.contains("//") {
         notes.push(
-            "보정 코드는 AST 에서 다시 생성되므로 원본 주석과 서식은 보존되지 않습니다."
-                .to_string(),
+            tr(
+                "remediated code is regenerated from the AST, so original comments and formatting are not preserved",
+                "보정 코드는 AST 에서 다시 생성되므로 원본 주석과 서식은 보존되지 않습니다"
+            )
+            .to_string(),
         );
     }
     if !residual.is_empty() {
         notes.push(
-            "자동 보정으로 해소할 수 없는 위반이 남아 있습니다. 하드코딩된 비밀값은 소스에서 제거하는 것만으로 끝나지 않으며, 노출된 자격증명은 즉시 폐기·재발급해야 합니다."
-                .to_string(),
+            tr(
+                "residual violations remain that auto-remediation cannot resolve. Hardcoded secrets are not fixed by merely deleting them from source — exposed credentials must be revoked and reissued immediately",
+                "자동 보정으로 해소할 수 없는 위반이 남아 있습니다. 하드코딩된 비밀값은 소스에서 제거하는 것만으로 끝나지 않으며, 노출된 자격증명은 즉시 폐기·재발급해야 합니다"
+            )
+            .to_string(),
         );
     }
 
@@ -316,11 +328,19 @@ fn rewrite_ops(
                 clamped.epsilon = policy.max_epsilon;
                 note(
                     RULE_EPSILON_TOO_LARGE,
-                    format!(
-                        "프라이버시 예산을 정책 상한으로 낮췄습니다: ε {} → {}",
-                        printer::print_f64(args.epsilon),
-                        printer::print_f64(policy.max_epsilon)
-                    ),
+                    if is_korean() {
+                        format!(
+                            "프라이버시 예산을 정책 상한으로 낮췄습니다: ε {} → {}",
+                            printer::print_f64(args.epsilon),
+                            printer::print_f64(policy.max_epsilon)
+                        )
+                    } else {
+                        format!(
+                            "clamped the privacy budget to the policy cap: ε {} → {}",
+                            printer::print_f64(args.epsilon),
+                            printer::print_f64(policy.max_epsilon)
+                        )
+                    },
                 );
                 new_ops.push(PipelineOp::WithDp(clamped));
                 continue;
@@ -340,7 +360,14 @@ fn rewrite_ops(
                 ColumnClass::SensitiveAttribute => RULE_SENSITIVE_ROW_LEVEL,
                 _ => RULE_QUASI_COMBINATION,
             };
-            note(rule_id, format!("출력에서 '{}' 컬럼을 제거했습니다.", name));
+            note(
+                rule_id,
+                if is_korean() {
+                    format!("출력에서 '{}' 컬럼을 제거했습니다.", name)
+                } else {
+                    format!("removed the '{}' column from output.", name)
+                },
+            );
         }
         new_ops.push(PipelineOp::Select(keep.clone()));
     }
@@ -348,10 +375,17 @@ fn rewrite_ops(
     if needs_dp {
         note(
             RULE_AGGREGATE_WITHOUT_DP,
-            format!(
-                "민감 속성 집계에 차등 프라이버시를 적용했습니다: withDp(epsilon: {}, mechanism: laplace).",
-                printer::print_f64(policy.remediation_epsilon)
-            ),
+            if is_korean() {
+                format!(
+                    "민감 속성 집계에 차등 프라이버시를 적용했습니다: withDp(epsilon: {}, mechanism: laplace).",
+                    printer::print_f64(policy.remediation_epsilon)
+                )
+            } else {
+                format!(
+                    "applied differential privacy to the sensitive aggregate: withDp(epsilon: {}, mechanism: laplace).",
+                    printer::print_f64(policy.remediation_epsilon)
+                )
+            },
         );
         new_ops.push(PipelineOp::WithDp(DpArgs {
             epsilon: policy.remediation_epsilon,

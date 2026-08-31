@@ -33,16 +33,29 @@ pub enum SecretKind {
 }
 
 impl SecretKind {
-    /// 한국어 표시 이름
+    /// 표시 이름
     pub fn label(&self) -> &'static str {
-        match self {
-            SecretKind::ResidentRegistrationNumber => "주민등록번호",
-            SecretKind::PhoneNumber => "전화번호",
-            SecretKind::Email => "이메일 주소",
-            SecretKind::CreditCard => "신용카드 번호",
-            SecretKind::ApiKey => "API 키",
-            SecretKind::PrivateKey => "개인키(PEM)",
-            SecretKind::GenericSecret => "자격증명",
+        use xazz_core::i18n::is_korean;
+        if is_korean() {
+            match self {
+                SecretKind::ResidentRegistrationNumber => "주민등록번호",
+                SecretKind::PhoneNumber => "전화번호",
+                SecretKind::Email => "이메일 주소",
+                SecretKind::CreditCard => "신용카드 번호",
+                SecretKind::ApiKey => "API 키",
+                SecretKind::PrivateKey => "개인키(PEM)",
+                SecretKind::GenericSecret => "자격증명",
+            }
+        } else {
+            match self {
+                SecretKind::ResidentRegistrationNumber => "resident registration number",
+                SecretKind::PhoneNumber => "phone number",
+                SecretKind::Email => "email address",
+                SecretKind::CreditCard => "credit card number",
+                SecretKind::ApiKey => "API key",
+                SecretKind::PrivateKey => "private key (PEM)",
+                SecretKind::GenericSecret => "credential",
+            }
         }
     }
 
