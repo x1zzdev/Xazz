@@ -17,6 +17,7 @@
 
 use polars::prelude::{Column, DataFrame, DataType};
 use xazz_compiler::ast::{DpArgs, DpMechanism};
+use xazz_core::i18n::tr;
 
 /// gaussian 메커니즘의 기본 δ (미지정 시)
 pub const DEFAULT_DELTA: f64 = 1e-5;
@@ -106,7 +107,9 @@ impl PrivacyBudget {
     ) -> Result<(), String> {
         if epsilon <= 0.0 {
             return Err(format!(
-                "DP 에러: epsilon 은 0보다 커야 합니다. 실제: {epsilon}"
+                "{}: {} {epsilon}",
+                tr("DP error", "DP 에러"),
+                tr("epsilon must be greater than 0", "epsilon 은 0보다 커야 합니다. 실제:")
             ));
         }
         let delta = match mechanism {
@@ -114,7 +117,9 @@ impl PrivacyBudget {
             DpMechanism::Gaussian => {
                 if !(0.0 < delta && delta < 1.0) {
                     return Err(format!(
-                        "DP 에러: gaussian 의 delta 는 (0, 1) 범위여야 합니다. 실제: {delta}"
+                        "{}: {} {delta}",
+                        tr("DP error", "DP 에러"),
+                        tr("gaussian delta must be in (0, 1)", "gaussian 의 delta 는 (0, 1) 범위여야 합니다. 실제:")
                     ));
                 }
                 delta
@@ -307,13 +312,17 @@ pub struct DpReport {
 pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), String> {
     if args.epsilon <= 0.0 {
         return Err(format!(
-            "DP 에러: epsilon 은 0보다 커야 합니다. 실제: {}",
+            "{}: {} {}",
+            tr("DP error", "DP 에러"),
+            tr("epsilon must be greater than 0", "epsilon 은 0보다 커야 합니다. 실제:"),
             args.epsilon
         ));
     }
     if args.sensitivity <= 0.0 {
         return Err(format!(
-            "DP 에러: sensitivity 는 0보다 커야 합니다. 실제: {}",
+            "{}: {} {}",
+            tr("DP error", "DP 에러"),
+            tr("sensitivity must be greater than 0", "sensitivity 는 0보다 커야 합니다. 실제:"),
             args.sensitivity
         ));
     }
@@ -321,7 +330,9 @@ pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), 
     let delta = args.delta.unwrap_or(DEFAULT_DELTA);
     if matches!(args.mechanism, DpMechanism::Gaussian) && !(0.0 < delta && delta < 1.0) {
         return Err(format!(
-            "DP 에러: gaussian 의 delta 는 (0, 1) 범위여야 합니다. 실제: {delta}"
+            "{}: {} {delta}",
+            tr("DP error", "DP 에러"),
+            tr("gaussian delta must be in (0, 1)", "gaussian 의 delta 는 (0, 1) 범위여야 합니다. 실제:")
         ));
     }
 
@@ -344,7 +355,13 @@ pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), 
     for name in &col_names {
         let column = df
             .column(name.as_str())
-            .map_err(|e| format!("DP 에러: 컬럼 '{name}' 접근 실패 — {e}"))?;
+            .map_err(|e| {
+            format!(
+                "{}: {} '{name}' — {e}",
+                tr("DP error", "DP 에러"),
+                tr("column access failed", "컬럼 접근 실패"),
+            )
+        })?;
 
         if !is_numeric_dtype(column.dtype()) {
             continue; // 그룹 키(문자열 등)는 원본 유지
@@ -353,10 +370,22 @@ pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), 
         // f64 로 승격 (int 컬럼도 노이즈 합산 후엔 실수가 됨)
         let casted = column
             .cast(&DataType::Float64)
-            .map_err(|e| format!("DP 에러: 컬럼 '{name}' float 캐스팅 실패 — {e}"))?;
+            .map_err(|e| {
+            format!(
+                "{}: {} '{name}' — {e}",
+                tr("DP error", "DP 에러"),
+                tr("float cast failed", "컬럼 float 캐스팅 실패")
+            )
+        })?;
         let ca = casted
             .f64()
-            .map_err(|e| format!("DP 에러: 컬럼 '{name}' f64 접근 실패 — {e}"))?;
+            .map_err(|e| {
+            format!(
+                "{}: {} '{name}' — {e}",
+                tr("DP error", "DP 에러"),
+                tr("f64 access failed", "컬럼 f64 접근 실패")
+            )
+        })?;
 
         let noised: Vec<Option<f64>> = ca
             .iter()
@@ -372,14 +401,25 @@ pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), 
             .collect();
 
         out.with_column(Column::new(name.as_str().into(), noised))
-            .map_err(|e| format!("DP 에러: 컬럼 '{name}' 치환 실패 — {e}"))?;
+            .map_err(|e| {
+            format!(
+                "{}: {} '{name}' — {e}",
+                tr("DP error", "DP 에러"),
+                tr("replacement failed", "컬럼 치환 실패")
+            )
+        })?;
         noised_columns.push(name.clone());
     }
 
     if noised_columns.is_empty() {
-        return Err("DP 에러: 노이즈를 적용할 숫자형 컬럼이 없습니다. \
-             withDp 는 집계 결과(count/sum/mean 등) 뒤에 사용하세요."
-            .to_string());
+        return Err(format!(
+            "{}: {}",
+            tr("DP error", "DP 에러"),
+            tr(
+                "no numeric columns to apply noise to. Use withDp after an aggregate (count/sum/mean etc).",
+                "노이즈를 적용할 숫자형 컬럼이 없습니다. withDp 는 집계 결과(count/sum/mean 등) 뒤에 사용하세요."
+            )
+        ));
     }
 
     let report = DpReport {

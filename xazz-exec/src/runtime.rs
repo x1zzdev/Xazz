@@ -13,6 +13,7 @@ use crate::chart::{build_chart_spec, df_to_json_array, write_chart_html};
 use xazz_compiler::ast::LayerKind;
 use xazz_compiler::ir::{ColType, MLOp, PipelineNode, Schema, SideOp, Source, Step as IrStep};
 use xazz_compiler::{Lexer, Parser};
+use xazz_core::i18n::{is_korean, tr};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ── 최상위 공개 진입점 ─────────────────────────────────────────────────────────
@@ -29,10 +30,20 @@ pub fn run_pipeline(
     optimize: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // ── STEP 1: 소스 파일 읽기 ───────────────────────────────────────────────
-    let source = fs::read_to_string(source_path)
-        .map_err(|e| format!("IO 에러: 파일 읽기 실패 '{}' — {}", source_path, e))?;
+    let source = fs::read_to_string(source_path).map_err(|e| {
+        if is_korean() {
+            format!("IO 에러: 파일 읽기 실패 '{}' — {}", source_path, e)
+        } else {
+            format!("IO error: failed to read file '{}' — {}", source_path, e)
+        }
+    })?;
 
-    eprintln!("[xazz] 입력: {}  ({} bytes)", source_path, source.len());
+    eprintln!(
+        "[xazz] {}: {}  ({} bytes)",
+        tr("input", "입력"),
+        source_path,
+        source.len()
+    );
 
     // ── STEP 2: Lexer — 토크나이징 ──────────────────────────────────────────
     let mut lexer = Lexer::new(&source);
@@ -40,7 +51,12 @@ pub fn run_pipeline(
         .tokenize()
         .map_err(|e| format!("[xazz LEXER ERROR] {}", e))?;
 
-    eprintln!("[xazz] Lexer 완료: {} 토큰", tokens.len());
+    eprintln!(
+        "[xazz] Lexer {}: {} {}",
+        tr("complete", "완료"),
+        tokens.len(),
+        tr("tokens", "토큰")
+    );
 
     if verbose {
         println!();
@@ -61,16 +77,24 @@ pub fn run_pipeline(
         .parse()
         .map_err(|e| format!("[xazz PARSER ERROR] {}", e))?;
 
-    eprintln!("[xazz] Parser 완료: {} AST 노드", program.stmts.len());
+    eprintln!(
+        "[xazz] Parser {}: {} AST {}",
+        tr("complete", "완료"),
+        program.stmts.len(),
+        tr("nodes", "노드")
+    );
 
     // ── STEP 3.5: 정적 의미 분석 (Type Checker) + Typed IR 생성 — 실행 전 결함 검출 ─
     // analyze_program 은 진단과 IR 을 **단일 순회**로 만들어 이중 추론을 제거한다.
     let (check, mut ir) = xazz_compiler::analyze_program(&program);
     if !check.errors.is_empty() || !check.warnings.is_empty() {
         eprintln!(
-            "[xazz] 정적 분석: 오류 {}건 / 경고 {}건",
+            "[xazz] {}: {} {} / {} {}",
+            tr("static analysis", "정적 분석"),
             check.errors.len(),
-            check.warnings.len()
+            tr("errors", "오류"),
+            check.warnings.len(),
+            tr("warnings", "경고")
         );
         for err in &check.errors {
             eprintln!("  [xazz DIAGNOSTIC ERROR] {}", err.message);
@@ -94,8 +118,12 @@ pub fn run_pipeline(
     // 일으키므로, 의미 오류가 있으면 실행을 중단한다. (경고는 비차단 유지)
     if !check.errors.is_empty() {
         return Err(format!(
-            "[xazz TYPECHECK ERROR] 정적 분석 오류 {}건 — 실행을 중단합니다. 첫 번째 오류: {}",
+            "[xazz TYPECHECK ERROR] {} {} {} — {}. {}: {}",
             check.errors.len(),
+            tr("static analysis errors", "정적 분석 오류"),
+            tr("aborting execution", "건"),
+            tr("execution stopped", "실행을 중단합니다"),
+            tr("first error", "첫 번째 오류"),
             check.errors[0].message
         )
         .into());
@@ -118,7 +146,8 @@ pub fn run_pipeline(
     emit_policy_marker(&policy_report);
 
     eprintln!(
-        "[xazz] 정적 가드레일: 정책 {} ({}) — {}",
+        "[xazz] {}: {} ({}) — {}",
+        tr("static guardrail", "정적 가드레일"),
         active.policy.id,
         active.origin,
         policy_report.summary()
@@ -130,11 +159,17 @@ pub fn run_pipeline(
     if !policy_report.safe_to_execute {
         for v in &policy_report.violations {
             eprintln!("  [xazz POLICY BLOCK] {} {}", v.rule_id, v.message);
-            eprintln!("                      보정: {}", v.remediation_hint);
+            eprintln!(
+                "                      {}: {}",
+                tr("remediation", "보정"),
+                v.remediation_hint
+            );
         }
         return Err(format!(
-            "[xazz POLICY ERROR] {}\n실행이 차단되었습니다. `xazz policy <file> --fix` 로 안전한 대체 코드를 확인하세요.",
-            policy_report.summary()
+            "[xazz POLICY ERROR] {}\n{} `xazz policy <file> --fix` {}.",
+            policy_report.summary(),
+            tr("execution blocked", "실행이 차단되었습니다"),
+            tr("to review a safe alternative", "로 안전한 대체 코드를 확인하세요")
         )
         .into());
     }
@@ -160,10 +195,12 @@ pub fn run_pipeline(
         ir = xazz_compiler::optimize_program(&ir);
         let after = ir.pipelines.iter().map(|p| p.steps.len()).sum::<usize>();
         eprintln!(
-            "[xazz] IR 최적화 적용 — 단계 {} → {} ({}개 축소)",
+            "[xazz] IR {}: {} → {} ({} {})",
+            tr("optimization applied", "최적화 적용"),
             before,
             after,
-            before.saturating_sub(after)
+            before.saturating_sub(after),
+            tr("steps reduced", "개 축소")
         );
     }
 
@@ -198,9 +235,10 @@ pub fn run_pipeline(
             Ok(Some(df)) => {
                 if let Some(vname) = &node.name {
                     eprintln!(
-                        "[xazz] Pipeline #{} '{}' 완료: {} 행 × {} 열",
+                        "[xazz] Pipeline #{} '{}' {}: {} × {}",
                         pipeline_count,
                         vname,
+                        tr("done", "완료"),
                         df.height(),
                         df.width()
                     );
@@ -208,8 +246,9 @@ pub fn run_pipeline(
                     symbol_table.insert(vname.clone(), df);
                 } else {
                     eprintln!(
-                        "[xazz] Pipeline #{} (ExprStmt) 완료: {} 행 × {} 열",
+                        "[xazz] Pipeline #{} (ExprStmt) {}: {} × {}",
                         pipeline_count,
+                        tr("done", "완료"),
                         df.height(),
                         df.width()
                     );
@@ -217,31 +256,43 @@ pub fn run_pipeline(
             }
             Ok(None) if node.yields_model => {
                 eprintln!(
-                    "[xazz] Pipeline #{} '{}' 완료: 학습 모델 생성",
-                    pipeline_count, name
+                    "[xazz] Pipeline #{} '{}' {}: {}",
+                    pipeline_count,
+                    name,
+                    tr("done", "완료"),
+                    tr("trained model created", "학습 모델 생성")
                 );
                 last_var_name = None;
             }
             Ok(None) => {
                 eprintln!(
-                    "[xazz] Pipeline #{} (TrainStmt) 완료: 학습 모델 생성 (바인딩 없음)",
-                    pipeline_count
+                    "[xazz] Pipeline #{} (TrainStmt) {}: {}",
+                    pipeline_count,
+                    tr("done", "완료"),
+                    tr("trained model created (no binding)", "학습 모델 생성 (바인딩 없음)")
                 );
             }
             Err(e) => {
                 eprintln!(
-                    "[xazz RUNTIME ERROR] Pipeline #{} ('{}') 실패: {}",
-                    pipeline_count, name, e
+                    "[xazz RUNTIME ERROR] Pipeline #{} ('{}') {}: {}",
+                    pipeline_count,
+                    name,
+                    tr("failed", "실패"),
+                    e
                 );
             }
         }
     }
 
     eprintln!(
-        "[xazz] 완료 — AST {} 개 / 타입 {} 개 / 파이프라인 {} 개",
+        "[xazz] {} — {} {} / {} {} / {} {}",
+        tr("done", "완료"),
         program.stmts.len(),
+        tr("AST", "AST"),
         ir.types.len(),
-        pipeline_count
+        tr("types", "타입"),
+        pipeline_count,
+        tr("pipelines", "파이프라인")
     );
 
     // ── STEP 6: 최종 DataFrame 자동 출력 (Top 5) ────────────────────────────
@@ -283,10 +334,14 @@ pub fn run_pipeline(
                 match save_df_as_csv(df, csv_path) {
                     Ok(_) => {
                         println!();
-                        println!("💾 [xazz] CSV 저장 완료: {}", csv_path);
+                        println!(
+                            "💾 [xazz] CSV {}: {}",
+                            tr("saved", "저장 완료"),
+                            csv_path
+                        );
                     }
                     Err(e) => {
-                        eprintln!("[xazz] ⚠️  CSV 저장 실패: {}", e);
+                        eprintln!("[xazz] ⚠️  CSV {}: {}", tr("save failed", "저장 실패"), e);
                     }
                 }
             }
@@ -303,12 +358,23 @@ fn save_df_as_csv(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use polars::prelude::{CsvWriter, SerWriter};
 
-    let mut file = std::fs::File::create(path)
-        .map_err(|e| format!("CSV 파일 생성 실패 '{}' — {}", path, e))?;
+    let mut file = std::fs::File::create(path).map_err(|e| {
+        if is_korean() {
+            format!("CSV 파일 생성 실패 '{}' — {}", path, e)
+        } else {
+            format!("failed to create CSV file '{}' — {}", path, e)
+        }
+    })?;
 
     CsvWriter::new(&mut file)
         .finish(&mut df.clone())
-        .map_err(|e| format!("CSV 쓰기 실패 — {}", e))?;
+        .map_err(|e| {
+            if is_korean() {
+                format!("CSV 쓰기 실패 — {}", e)
+            } else {
+                format!("CSV write failed — {}", e)
+            }
+        })?;
 
     Ok(())
 }
@@ -396,8 +462,10 @@ fn validate_schema_types(df: &polars::frame::DataFrame, label: &str, schema: &Sc
             }
             Err(_) => {
                 eprintln!(
-                    "[xazz WARN] 스키마 필드 '{}' 를 DataFrame에서 찾을 수 없음",
-                    field.name
+                    "[xazz WARN] {} '{}' {}",
+                    tr("schema field", "스키마 필드"),
+                    field.name,
+                    tr("not found in DataFrame", "를 DataFrame에서 찾을 수 없음")
                 );
             }
         }
@@ -409,8 +477,13 @@ fn load_csv_as_df(file_path: &str) -> Result<polars::frame::DataFrame, Box<dyn s
     use polars::prelude::{CsvParseOptions, CsvReadOptions, NullValues, SerReader};
     use std::io::Cursor;
 
-    let raw_bytes = std::fs::read(file_path)
-        .map_err(|e| format!("IO 에러: CSV 파일 읽기 실패 '{}' — {}", file_path, e))?;
+    let raw_bytes = std::fs::read(file_path).map_err(|e| {
+        if is_korean() {
+            format!("IO 에러: CSV 파일 읽기 실패 '{}' — {}", file_path, e)
+        } else {
+            format!("IO error: failed to read CSV file '{}' — {}", file_path, e)
+        }
+    })?;
 
     let utf8_string = match String::from_utf8(raw_bytes.clone()) {
         Ok(s) => s,
@@ -502,12 +575,18 @@ fn execute_node(
             IrStep::ML(MLOp::Train { model, config }) => {
                 let snapshot = lf.clone().collect()?;
                 let layers = model_registry.get(model.as_str()).cloned().ok_or_else(|| {
-                    format!(
-                        "모델 블록 '{model}' 을 찾을 수 없습니다. 먼저 `model {model} {{ ... }}` 로 선언하세요."
-                    )
+                    if is_korean() {
+                        format!(
+                            "모델 블록 '{model}' 을 찾을 수 없습니다. 먼저 `model {model} {{ ... }}` 로 선언하세요."
+                        )
+                    } else {
+                        format!(
+                            "model block '{model}' was not found. Declare it first with `model {model} {{ ... }}`."
+                        )
+                    }
                 })?;
                 let trained = crate::dl::train(&snapshot, model, &layers, config)
-                    .map_err(|e| format!("학습 실패: {e}"))?;
+                    .map_err(|e| format!("{}: {e}", tr("training failed", "학습 실패")))?;
                 print_train_report(&trained);
 
                 let source_var = node.name.clone().unwrap_or_else(|| match &node.source {
@@ -535,17 +614,26 @@ fn execute_node(
             }
             IrStep::ML(MLOp::Predict { model, as_col }) => {
                 let trained = model_table.get(model.as_str()).ok_or_else(|| {
-                    format!(
-                        "학습된 모델 변수 '{model}' 이 없습니다. 먼저 `v {model} = ... |> train(...)` 로 학습하세요."
-                    )
+                    if is_korean() {
+                        format!(
+                            "학습된 모델 변수 '{model}' 이 없습니다. 먼저 `v {model} = ... |> train(...)` 로 학습하세요."
+                        )
+                    } else {
+                        format!(
+                            "trained model variable '{model}' was not found. Train it first with `v {model} = ... |> train(...)`."
+                        )
+                    }
                 })?;
                 let snapshot = lf.clone().collect()?;
                 let out = crate::dl::predict(trained, &snapshot, as_col.as_deref())
-                    .map_err(|e| format!("예측 실패: {e}"))?;
+                    .map_err(|e| format!("{}: {e}", tr("prediction failed", "예측 실패")))?;
                 eprintln!(
-                    "[xazz] Predict '{}' 완료: 예측 컬럼 추가 ({} 행)",
+                    "[xazz] Predict '{}' {}: {} ({} {})",
                     model,
-                    out.height()
+                    tr("done", "완료"),
+                    tr("prediction column added", "예측 컬럼 추가"),
+                    out.height(),
+                    tr("rows", "행")
                 );
                 lf = out.lazy();
             }
@@ -572,7 +660,11 @@ fn execute_node(
                 let html_path = format!("{}_chart.html", safe_name);
                 match write_chart_html(&spec, &html_path) {
                     Ok(_) => {
-                        println!("[xazz] 📊 차트 HTML 생성: {}", html_path);
+                        println!(
+                            "[xazz] 📊 {} HTML: {}",
+                            tr("chart generated", "차트 HTML 생성"),
+                            html_path
+                        );
                         #[cfg(target_os = "windows")]
                         let _ = std::process::Command::new("cmd")
                             .args(["/c", "start", "", &html_path])
@@ -585,7 +677,11 @@ fn execute_node(
                             .spawn();
                     }
                     Err(e) => {
-                        eprintln!("[xazz] ⚠️  차트 HTML 생성 실패: {}", e);
+                        eprintln!(
+                            "[xazz] ⚠️  {}: {}",
+                            tr("chart HTML generation failed", "차트 HTML 생성 실패"),
+                            e
+                        );
                     }
                 }
 
@@ -626,7 +722,8 @@ fn execute_node(
                 }
                 println!("{}", dp_json);
                 eprintln!(
-                    "[xazz] DP 적용: {} (ε={}, δ={}, Δf={}, 노이즈 파라미터={:.4}) — 컬럼 {:?} | 예산 ε {:.2}/{:.2} · δ {:.2e}/{:.2e} 사용",
+                    "[xazz] DP {}: {} (ε={}, δ={}, Δf={}, {}={:.4}) — {} {:?} | {} ε {:.2}/{:.2} · δ {:.2e}/{:.2e}",
+                    tr("applied", "적용"),
                     report.mechanism,
                     report.epsilon,
                     report
@@ -634,8 +731,11 @@ fn execute_node(
                         .map(|d| format!("{d:.2e}"))
                         .unwrap_or_else(|| "0".to_string()),
                     report.sensitivity,
+                    tr("noise parameter", "노이즈 파라미터"),
                     report.noise_param,
+                    tr("columns", "컬럼"),
                     report.noised_columns,
+                    tr("budget", "예산"),
                     dp_budget.spent(),
                     dp_budget.total(),
                     dp_budget.spent_delta(),
@@ -658,7 +758,11 @@ fn handle_model_decl(name: &str, layers: &[LayerKind]) {
     println!();
     println!("🧠 [xazz Model Declaration: {}]", name);
     println!("{}", "─".repeat(60));
-    println!("  레이어 구성 ({} 개):", layers.len());
+    println!(
+        "  {} ({}):",
+        tr("layer configuration", "레이어 구성"),
+        layers.len()
+    );
     for (i, layer) in layers.iter().enumerate() {
         let layer_desc = match layer {
             LayerKind::Dense(n) => format!("Dense({})", n),
@@ -690,25 +794,32 @@ fn handle_model_decl(name: &str, layers: &[LayerKind]) {
 fn print_train_report(trained: &crate::dl::TrainedModel) {
     let report = &trained.report;
     println!("{}", "─".repeat(60));
-    println!("✅  학습 완료");
-    println!("  입력 차원  : {}", report.input_dim);
-    println!("  출력 차원  : {}", report.output_dim);
-    println!("  파라미터 수 : {}", report.num_params);
-    println!("  최종 손실(MSE) : {:.6}", report.final_train_loss);
+    println!("✅  {}", tr("training complete", "학습 완료"));
+    println!("  {}  : {}", tr("input dim", "입력 차원"), report.input_dim);
+    println!("  {}  : {}", tr("output dim", "출력 차원"), report.output_dim);
+    println!("  {} : {}", tr("parameters", "파라미터 수"), report.num_params);
+    println!(
+        "  {} : {:.6}",
+        tr("final loss (MSE)", "최종 손실(MSE)"),
+        report.final_train_loss
+    );
     if let Some(v) = report.final_val_loss {
-        println!("  검증 손실(MSE) : {:.6}", v);
+        println!("  {} : {:.6}", tr("validation loss (MSE)", "검증 손실(MSE)"), v);
     }
-    println!("  특성 컬럼  : {:?}", report.feature_names);
+    println!("  {}  : {:?}", tr("feature columns", "특성 컬럼"), report.feature_names);
     if !report.predictions.is_empty() {
-        println!("  샘플 예측  :");
+        println!("  {}  :", tr("sample predictions", "샘플 예측"));
         for i in 0..report.predictions.len().min(5) {
             println!(
-                "    [{i}] 예측 = {:.4}   실제 = {:.4}",
-                report.predictions[i], report.targets[i]
+                "    [{i}] {} = {:.4}   {} = {:.4}",
+                tr("predicted", "예측"),
+                report.predictions[i],
+                tr("actual", "실제"),
+                report.targets[i]
             );
         }
     }
-    println!("  체크포인트 : {}", report.checkpoint_path);
+    println!("  {} : {}", tr("checkpoint", "체크포인트"), report.checkpoint_path);
     println!();
 }
 
@@ -720,6 +831,10 @@ fn print_train_report(trained: &crate::dl::TrainedModel) {
 fn emit_policy_marker(report: &xazz_compiler::PolicyReport) {
     match serde_json::to_string(report) {
         Ok(json) => println!("[xazz:policy] {}", json),
-        Err(e) => eprintln!("[xazz] ⚠️ 정책 리포트 직렬화 실패: {}", e),
+        Err(e) => eprintln!(
+            "[xazz] ⚠️ {}: {}",
+            tr("policy report serialization failed", "정책 리포트 직렬화 실패"),
+            e
+        ),
     }
 }

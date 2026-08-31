@@ -119,10 +119,10 @@ fn filename_to_var_name(path: &str) -> std::string::String {
 pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
     // 1) 파일을 바이트로 읽음
     let mut file = fs::File::open(csv_path)
-        .with_context(|| format!("CSV 파일 '{}' 을 열 수 없습니다.", csv_path))?;
+        .with_context(|| format!("failed to open CSV file '{}'.", csv_path))?;
     let mut raw_bytes = Vec::new();
     file.read_to_end(&mut raw_bytes)
-        .with_context(|| format!("CSV 파일 '{}' 읽기 실패", csv_path))?;
+        .with_context(|| format!("failed to read CSV file '{}'", csv_path))?;
 
     // 2) EUC-KR(CP949) 감지 및 UTF-8 디코딩
     let content = if raw_bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
@@ -253,7 +253,7 @@ pub fn import_csv(file: &str) -> Result<()> {
     // main.xzz 읽기 (없으면 빈 파일로 처리)
     let current = if main_xzz_path.exists() {
         fs::read_to_string(&main_xzz_path)
-            .with_context(|| format!("{} 읽기 실패", main_xzz_path.display()))?
+            .with_context(|| format!("failed to read {}", main_xzz_path.display()))?
     } else {
         std::string::String::new()
     };
@@ -274,7 +274,7 @@ pub fn import_csv(file: &str) -> Result<()> {
     let updated = format!("{}\n\n{}\n", current.trim_end(), generated);
 
     fs::write(&main_xzz_path, &updated)
-        .with_context(|| format!("{} 쓰기 실패", main_xzz_path.display()))?;
+        .with_context(|| format!("failed to write {}", main_xzz_path.display()))?;
 
     println!(
         "✅  '{}' 스키마 추론 완료 → {} 에 추가되었습니다.",

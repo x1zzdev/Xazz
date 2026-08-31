@@ -79,7 +79,7 @@ pub fn hash_code(code: &str) -> String {
 /// 로그 파일 디렉터리를 생성하고 경로를 반환한다.
 fn ensure_log_dir() -> Result<std::path::PathBuf, String> {
     let path = std::path::PathBuf::from(AUDIT_LOG_DIR);
-    std::fs::create_dir_all(&path).map_err(|e| format!("감사 로그 디렉터리 생성 실패: {e}"))?;
+    std::fs::create_dir_all(&path).map_err(|e| format!("failed to create audit-log directory: {e}"))?;
     Ok(path)
 }
 
@@ -107,9 +107,9 @@ fn append_to_path(
     // 동시 append 의 read-modify-write 를 직렬화한다. (TOCTOU 방지)
     let _guard = APPEND_LOCK
         .lock()
-        .map_err(|_| "감사 로그 잠금 획득 실패 (poisoned)".to_string())?;
+        .map_err(|_| "failed to acquire audit-log lock (poisoned)".to_string())?;
 
-    let existing = read_all(file_path).map_err(|e| format!("감사 로그 읽기 실패: {e}"))?;
+    let existing = read_all(file_path).map_err(|e| format!("failed to read audit log: {e}"))?;
     let index = existing.len() as u64;
     let prev_hash = existing
         .last()
@@ -137,9 +137,9 @@ fn append_to_path(
         .create(true)
         .append(true)
         .open(file_path)
-        .map_err(|e| format!("감사 로그 파일 열기 실패: {e}"))?;
-    let line = serde_json::to_string(&record).map_err(|e| format!("JSON 직렬화 실패: {e}"))?;
-    writeln!(file, "{}", line).map_err(|e| format!("감사 로그 기록 실패: {e}"))?;
+        .map_err(|e| format!("failed to open audit-log file: {e}"))?;
+    let line = serde_json::to_string(&record).map_err(|e| format!("JSON serialization failed: {e}"))?;
+    writeln!(file, "{}", line).map_err(|e| format!("failed to write audit log: {e}"))?;
 
     Ok(record)
 }
@@ -154,7 +154,7 @@ fn read_all(file_path: &std::path::Path) -> Result<Vec<AuditRecord>, String> {
         return Ok(Vec::new());
     }
     let contents =
-        std::fs::read_to_string(file_path).map_err(|e| format!("감사 로그 읽기 실패: {e}"))?;
+        std::fs::read_to_string(file_path).map_err(|e| format!("failed to read audit log: {e}"))?;
     let mut records = Vec::new();
     for (i, line) in contents.lines().enumerate() {
         let trimmed = line.trim();
@@ -162,7 +162,7 @@ fn read_all(file_path: &std::path::Path) -> Result<Vec<AuditRecord>, String> {
             continue;
         }
         let rec: AuditRecord = serde_json::from_str(trimmed)
-            .map_err(|e| format!("감사 로그 파싱 실패 (line {}): {e}", i))?;
+            .map_err(|e| format!("audit-log parse failure (line {}): {e}", i))?;
         records.push(rec);
     }
     Ok(records)

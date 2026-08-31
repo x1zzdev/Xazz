@@ -23,7 +23,7 @@ fn active_policy() -> Result<(Policy, String), Box<PolicyReport>> {
 /// 소스 파일을 읽는다.
 fn read_source(file: &Path) -> Result<String, String> {
     std::fs::read_to_string(file)
-        .map_err(|e| format!("IO 에러: 파일 읽기 실패 '{}' — {}", file.display(), e))
+        .map_err(|e| format!("IO error: failed to read file '{}' — {}", file.display(), e))
 }
 
 /// `xazz run` 직전에 호출하는 게이트.
@@ -56,13 +56,13 @@ pub fn gate_before_run(source_path: &str, json: bool) {
     for w in &report.warnings {
         eprintln!(
             "{} {} {}",
-            "[정책 경고]".yellow().bold(),
+            "[policy warning]".yellow().bold(),
             w.rule_id,
             w.message
         );
     }
     if !report.warnings.is_empty() {
-        eprintln!("           정책: {} ({})", policy.id, origin);
+        eprintln!("           policy: {} ({})", policy.id, origin);
     }
 }
 
@@ -82,18 +82,18 @@ fn emit_block(report: &PolicyReport, source_path: &str, json: bool) {
     eprintln!();
     eprintln!(
         "{}",
-        "[xazz 보안 가드레일] 실행이 차단되었습니다".red().bold()
+        "[xazz security guardrail] execution blocked".red().bold()
     );
     eprintln!("─────────────────────────────────────────────");
-    eprintln!("소스   : {}", source_path);
-    eprintln!("정책   : {} v{}", report.policy_id, report.policy_version);
+    eprintln!("source : {}", source_path);
+    eprintln!("policy : {} v{}", report.policy_id, report.policy_version);
     eprintln!();
     for v in &report.violations {
         eprintln!("  {} {} {}", "✖".red(), v.rule_id.bold(), v.rule_name);
-        eprintln!("    사유 : {}", v.message);
-        eprintln!("    보정 : {}", v.remediation_hint);
+        eprintln!("    reason : {}", v.message);
+        eprintln!("    fix    : {}", v.remediation_hint);
         if let Some(src) = &v.source_ref {
-            eprintln!("    근거 : {}", src);
+            eprintln!("    basis  : {}", src);
         }
         eprintln!();
     }
@@ -136,11 +136,15 @@ pub fn run_policy_command(file: &Path, json: bool, fix: bool, out: Option<&Path>
     // --out 이 주어지면 보정 코드를 파일로 저장한다.
     if let (Some(path), Some(rem)) = (out, remediation.as_ref()) {
         if let Err(e) = std::fs::write(path, &rem.code) {
-            eprintln!("IO 에러: 보정 코드 저장 실패 '{}' — {}", path.display(), e);
+            eprintln!(
+                "IO error: failed to save remediation code '{}' — {}",
+                path.display(),
+                e
+            );
             return 1;
         }
         if !json {
-            println!("보정 코드를 저장했습니다: {}", path.display());
+            println!("remediation code saved to: {}", path.display());
         }
     }
 
@@ -172,14 +176,14 @@ fn print_result(
 
     println!();
     println!(
-        "{}  정책 {} v{}  ({})",
+        "{}  policy {} v{}  ({})",
         "⛨ Policy-as-Code".bold(),
         report.policy_id,
         report.policy_version,
         origin
     );
     println!(
-        "   도메인 {} · 위험도 {}",
+        "   domain {} · risk {}",
         report.domain,
         report.risk_level.label()
     );
@@ -194,13 +198,13 @@ fn print_result(
 
     for v in &report.violations {
         println!("  {} {} {}", "✖".red(), v.rule_id.bold(), v.rule_name);
-        println!("    사유 : {}", v.message);
-        println!("    보정 : {}", v.remediation_hint);
+        println!("    reason : {}", v.message);
+        println!("    fix    : {}", v.remediation_hint);
         if !v.columns.is_empty() {
-            println!("    컬럼 : {}", v.columns.join(", "));
+            println!("    columns: {}", v.columns.join(", "));
         }
         if let Some(src) = &v.source_ref {
-            println!("    근거 : {}", src);
+            println!("    basis  : {}", src);
         }
         println!();
     }
@@ -213,14 +217,14 @@ fn print_result(
     };
 
     println!();
-    println!("{}", "── 자동 보정 제안 ───────────────────────────".bold());
-    println!("전략   : {}", rem.strategy);
+    println!("{}", "── remediation proposal ───────────────".bold());
+    println!("strategy : {}", rem.strategy);
     println!(
-        "검증   : {}",
+        "verified : {}",
         if rem.verified {
-            "통과 — 보정 코드가 정책을 만족합니다".green().to_string()
+            "passed — remediated code satisfies the policy".green().to_string()
         } else {
-            "미통과 — 사람이 처리해야 할 위반이 남아 있습니다"
+            "not verified — manual review required"
                 .red()
                 .to_string()
         }
@@ -233,7 +237,7 @@ fn print_result(
     }
     for residual in &rem.residual {
         println!(
-            "  {} [{}] {} — 자동 보정 불가",
+            "  {} [{}] {} — cannot auto-remediate",
             "✖".red(),
             residual.rule_id,
             residual.message
@@ -241,7 +245,7 @@ fn print_result(
     }
     if !rem.applied.is_empty() {
         println!();
-        println!("{}", "── 보정된 코드 ──────────────────────────────".bold());
+        println!("{}", "── remediated code ──────────────────────".bold());
         println!("{}", rem.code);
     }
 }

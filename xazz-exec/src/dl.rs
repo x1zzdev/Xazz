@@ -26,6 +26,7 @@ use burn::{
 use burn_ndarray::NdArray;
 use polars::prelude::{Column, DataFrame};
 use xazz_compiler::ast::{LayerKind, TrainConfig};
+use xazz_core::i18n::tr;
 
 use crate::tensor_bridge::{extract_data, series_to_f32};
 
@@ -111,7 +112,11 @@ fn build_mlp<B: Backend>(
                 cur = *n;
             }
             LayerKind::Dense(_) => {
-                return Err("Dense 레이어의 유닛 수는 1 이상이어야 합니다.".into());
+                return Err(tr(
+                    "Dense layer unit count must be >= 1.",
+                    "Dense 레이어의 유닛 수는 1 이상이어야 합니다.",
+                )
+                .into());
             }
             LayerKind::ReLU => set_activation(&mut activations, Activation::ReLU),
             LayerKind::Sigmoid => set_activation(&mut activations, Activation::Sigmoid),
@@ -124,7 +129,11 @@ fn build_mlp<B: Backend>(
     }
 
     if linears.is_empty() {
-        return Err("모델에 Dense 레이어가 하나도 없습니다.".into());
+        return Err(tr(
+            "The model has no Dense layers.",
+            "모델에 Dense 레이어가 하나도 없습니다.",
+        )
+        .into());
     }
     Ok(Mlp {
         layers: linears,
@@ -194,10 +203,14 @@ pub fn train(
     let n = features.len();
     let input_dim = feature_names.len();
     if input_dim == 0 {
-        return Err("학습 가능한 숫자형 특성(컬럼)이 없습니다.".into());
+        return Err(tr(
+            "No numeric feature columns available for training.",
+            "학습 가능한 숫자형 특성(컬럼)이 없습니다.",
+        )
+        .into());
     }
     if n == 0 {
-        return Err("학습 데이터가 비어 있습니다.".into());
+        return Err(tr("Training data is empty.", "학습 데이터가 비어 있습니다.").into());
     }
 
     // ── 특성 표준화 통계 (NaN → 평균 대체) ─────────────────────────────────
@@ -385,14 +398,18 @@ pub fn train(
 
     // ── 체크포인트 저장 ────────────────────────────────────────────────────
     let ckpt_dir = "checkpoints";
-    std::fs::create_dir_all(ckpt_dir)
-        .map_err(|e| format!("checkpoints/ 디렉토리 생성 실패: {e}"))?;
+    std::fs::create_dir_all(ckpt_dir).map_err(|e| {
+        format!(
+            "{}: {e}",
+            tr("failed to create checkpoints/ directory", "checkpoints/ 디렉토리 생성 실패")
+        )
+    })?;
     let ckpt = format!("{ckpt_dir}/{model_name}");
     let recorder = PrettyJsonFileRecorder::<FullPrecisionSettings>::new();
     valid_model
         .clone()
         .save_file(&ckpt, &recorder)
-        .map_err(|e| format!("체크포인트 저장 실패: {e}"))?;
+        .map_err(|e| format!("{}: {e}", tr("checkpoint save failed", "체크포인트 저장 실패")))?;
 
     let report = TrainReport {
         model_name: model_name.to_string(),
@@ -432,10 +449,14 @@ pub fn predict(
     let feature_count = trained.feature_names.len();
     let n = df.height();
     if feature_count == 0 {
-        return Err("모델에 특성 정보가 없습니다. 먼저 train()으로 학습하세요.".into());
+        return Err(tr(
+            "The model has no feature information. Train it first with train().",
+            "모델에 특성 정보가 없습니다. 먼저 train()으로 학습하세요.",
+        )
+        .into());
     }
     if n == 0 {
-        return Err("예측할 데이터가 비어 있습니다.".into());
+        return Err(tr("No data to predict on.", "예측할 데이터가 비어 있습니다.").into());
     }
 
     let mut col_vecs: Vec<Vec<f32>> = Vec::with_capacity(feature_count);
@@ -443,7 +464,7 @@ pub fn predict(
         let name = &trained.feature_names[j];
         let col = df
             .column(name.as_str())
-            .map_err(|e| format!("예측 특성 컬럼 '{name}' 접근 실패: {e}"))?;
+            .map_err(|e| format!("{} '{name}': {e}", tr("prediction feature column access failed", "예측 특성 컬럼")))?;
         col_vecs.push(series_to_f32(col));
     }
 
@@ -473,7 +494,7 @@ pub fn predict(
 
     let mut out = df.clone();
     out.with_column(Column::new(out_col.into(), pred_f64))
-        .map_err(|e| format!("예측 컬럼 추가 실패: {e}"))?;
+        .map_err(|e| format!("{}: {e}", tr("prediction column add failed", "예측 컬럼 추가 실패")))?;
     Ok(out)
 }
 

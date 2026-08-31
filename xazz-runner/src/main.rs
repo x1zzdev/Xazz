@@ -51,9 +51,9 @@ fn main() {
 
     if args.is_empty() {
         eprintln!(
-            "[xazz-runner] 사용법: xazz-runner <file.xzz|file.csv> [--verbose] [--output <path.csv>]"
+            "[xazz-runner] usage: xazz-runner <file.xzz|file.csv> [--verbose] [--output <path.csv>]"
         );
-        eprintln!("[xazz-runner] 도우미: --version | --help | --check-engine");
+        eprintln!("[xazz-runner] helpers: --version | --help | --check-engine");
         std::process::exit(1);
     }
 
@@ -78,12 +78,12 @@ fn main() {
         .spawn()
         .unwrap_or_else(|e| {
             eprintln!(
-                "[xazz-runner] ERROR: xazz-exec 실행 엔진을 시작할 수 없습니다."
+                "[xazz-runner] ERROR: could not start the xazz-exec execution engine."
             );
-            eprintln!("[xazz-runner] 경로: {}", exec_path.display());
-            eprintln!("[xazz-runner] 원인: {}", e);
+            eprintln!("[xazz-runner] path  : {}", exec_path.display());
+            eprintln!("[xazz-runner] cause : {}", e);
             eprintln!(
-                "[xazz-runner] xazz-exec 바이너리가 xazz-runner와 같은 디렉터리에 있는지 확인하세요."
+                "[xazz-runner] check that the xazz-exec binary is in the same directory as xazz-runner."
             );
             std::process::exit(1);
         });
@@ -103,15 +103,17 @@ fn main() {
                     let _ = child.kill();
                     let _ = child.wait();
                     eprintln!(
-                        "[xazz-runner] ERROR: 실행 시간이 {timeout_secs}초를 초과해 실행 엔진을 종료했습니다. \
-                         (XAZZ_EXEC_TIMEOUT_SECS 환경변수로 조정 가능)"
+                        "[xazz-runner] ERROR: execution exceeded {timeout_secs}s — engine terminated. \
+                         (adjustable via the XAZZ_EXEC_TIMEOUT_SECS environment variable)"
                     );
                     std::process::exit(1);
                 }
                 std::thread::sleep(Duration::from_millis(100));
             }
             Err(e) => {
-                eprintln!("[xazz-runner] ERROR: 실행 엔진 상태 확인 실패: {e}");
+                eprintln!(
+                    "[xazz-runner] ERROR: failed to check execution engine status: {e}"
+                );
                 std::process::exit(1);
             }
         }
@@ -122,14 +124,14 @@ fn main() {
 }
 
 fn print_usage() {
-    println!("xazz-runner {} — Xazz 실행 엔진 IPC 브리지", VERSION);
+    println!("xazz-runner {} — Xazz execution-engine IPC bridge", VERSION);
     println!();
-    println!("사용법:");
+    println!("usage:");
     println!("  xazz-runner <file.xzz|file.csv> [--verbose] [--output <path.csv>]");
     println!();
-    println!("  --version, -V        버전 출력");
-    println!("  --help, -h           이 도움말");
-    println!("  --check-engine       실행 엔진(xazz-exec) 가용성 진단");
+    println!("  --version, -V        print version");
+    println!("  --help, -h           show this help");
+    println!("  --check-engine       diagnose availability of the execution engine (xazz-exec)");
 }
 
 /// xazz-exec 실행 엔진의 존재와 실행 가능 여부를 진단한다.
@@ -137,26 +139,26 @@ fn print_usage() {
 /// 종료 코드: 0 = 정상, 1 = 엔진 누락/실행 불가
 fn check_engine() {
     let mut ok = true;
-    println!("[xazz-runner] 실행 엔진 진단");
+    println!("[xazz-runner] execution-engine diagnostics");
 
     let exec_path = match resolve_exec_binary() {
         Ok(p) => {
-            println!("  엔진 경로 : {}", p.display());
+            println!("  engine path : {}", p.display());
             p
         }
         Err(msg) => {
-            eprintln!("  오류     : {}", msg);
+            eprintln!("  error      : {}", msg);
             eprintln!(
-                "[xazz-runner] 진단 실패 — xazz-exec 를 xazz-runner 와 같은 디렉터리에 배치하거나 XAZZ_EXEC_PATH 를 설정하세요."
+                "[xazz-runner] diagnostics failed — place xazz-exec in the same directory as xazz-runner, or set XAZZ_EXEC_PATH."
             );
             std::process::exit(1);
         }
     };
 
     if exec_path.exists() {
-        println!("  존재     : 예");
+        println!("  exists     : yes");
     } else {
-        println!("  존재     : 아니오");
+        println!("  exists     : no");
         ok = false;
     }
 
@@ -166,12 +168,12 @@ fn check_engine() {
             Ok(out) => {
                 let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 println!(
-                    "  실행     : 예 ({}{})",
+                    "  runnable   : yes ({}{})",
                     ver,
                     if out.status.success() {
                         ""
                     } else {
-                        " [비정상 종료]"
+                        " [abnormal exit]"
                     }
                 );
                 if !out.status.success() {
@@ -179,17 +181,17 @@ fn check_engine() {
                 }
             }
             Err(e) => {
-                println!("  실행     : 아니오 ({})", e);
+                println!("  runnable   : no ({})", e);
                 ok = false;
             }
         }
     }
 
     if ok {
-        println!("[xazz-runner] 진단 통과 — 실행 엔진 사용 가능");
+        println!("[xazz-runner] diagnostics passed — execution engine available");
     } else {
         eprintln!(
-            "[xazz-runner] 진단 실패 — xazz-exec 를 xazz-runner 와 같은 디렉터리에 배치하거나 XAZZ_EXEC_PATH 를 설정하세요."
+            "[xazz-runner] diagnostics failed — place xazz-exec in the same directory as xazz-runner, or set XAZZ_EXEC_PATH."
         );
     }
     std::process::exit(if ok { 0 } else { 1 });

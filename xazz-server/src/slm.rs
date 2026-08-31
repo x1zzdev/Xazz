@@ -77,25 +77,25 @@ pub fn build_prompt(code: &str, report: &PolicyReport) -> String {
     let mut violations = String::new();
     for v in &report.violations {
         violations.push_str(&format!(
-            "- [{}] {}: {}\n  보정 방향: {}\n",
+            "- [{}] {}: {}\n  fix direction: {}\n",
             v.rule_id, v.rule_name, v.message, v.remediation_hint
         ));
     }
 
     format!(
-        "당신은 Xazz DSL(.xzz) 보안 코드 보정기입니다.\n\
-         아래 코드는 Policy-as-Code 정적 가드레일에 차단되었습니다.\n\
-         위반을 모두 해소하되 분석 의도는 최대한 보존하는 안전한 코드로 다시 작성하세요.\n\n\
-         규칙:\n\
-         1. 직접 식별자(이름·환자번호·연락처 등)는 출력하지 않습니다.\n\
-         2. 민감 속성은 행 단위로 내보내지 말고 groupBy + 집계로 바꿉니다.\n\
-         3. 민감 속성 집계에는 |> withDp(epsilon: ..., mechanism: laplace) 를 붙입니다.\n\
-         4. 준식별자는 구간화(예: age → age_band)해 일반화합니다.\n\
-         5. 하드코딩된 개인정보·비밀키는 코드에서 제거합니다.\n\
-         6. 설명 없이 .xzz 코드만 출력합니다.\n\n\
-         === 위반 내역 ===\n{}\n\
-         === 원본 코드 ===\n{}\n\n\
-         === 보정된 코드 ===\n",
+        "You are a security remediation assistant for the Xazz DSL (.xzz).\n\
+         The code below was blocked by the Policy-as-Code static guardrail.\n\
+         Rewrite it as safe code that resolves every violation while preserving the analysis intent as much as possible.\n\n\
+         Rules:\n\
+         1. Do not output direct identifiers (names, patient numbers, contact info, etc.).\n\
+         2. Do not export sensitive attributes row-wise; convert them to groupBy + aggregates.\n\
+         3. Attach |> withDp(epsilon: ..., mechanism: laplace) to sensitive aggregates.\n\
+         4. Generalize quasi-identifiers via binning (e.g. age -> age_band).\n\
+         5. Remove hardcoded personal data and secrets from the code.\n\
+         6. Output only .xzz code, no explanation.\n\n\
+         === Violations ===\n{}\n\
+         === Original code ===\n{}\n\n\
+         === Remediated code ===\n",
         violations, code
     )
 }

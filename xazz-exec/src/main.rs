@@ -18,6 +18,7 @@
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    let usage = "[xazz-exec] usage: xazz-exec <file.xzz|file.csv> [--verbose] [--output <path.csv>] [--opt]";
 
     // ── 도우미 플래그 ───────────────────────────────────────────────────────
     if args.iter().any(|a| a == "--version" || a == "-V") {
@@ -25,17 +26,13 @@ fn main() {
         return;
     }
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!(
-            "[xazz-exec] 사용법: xazz-exec <file.xzz|file.csv> [--verbose] [--output <path.csv>] [--opt]"
-        );
-        println!("[xazz-exec] 도우미: --version | --help");
+        println!("{usage}");
+        println!("[xazz-exec] helpers: --version | --help");
         return;
     }
 
     if args.len() < 2 {
-        eprintln!(
-            "[xazz-exec] 사용법: xazz-exec <file.xzz|file.csv> [--verbose] [--output <path.csv>] [--opt]"
-        );
+        eprintln!("{usage}");
         std::process::exit(1);
     }
 
@@ -137,7 +134,7 @@ v filled = raw
 
     if let Err(e) = std::fs::write(&tmp_xzz_path, &xzz_source) {
         eprintln!(
-            "[xazz-exec] ERROR: 임시 .xzz 파일 생성 실패: {} — {}",
+            "[xazz-exec] ERROR: failed to write temporary .xzz file: {} — {}",
             tmp_xzz_path.display(),
             e
         );

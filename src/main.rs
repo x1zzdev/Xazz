@@ -28,8 +28,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(p) => p.to_owned(),
                 None => {
                     eprintln!(
-                        "IO 에러: 파일 경로를 UTF-8 문자열로 변환할 수 없습니다.\n\
-                         경로에 유효하지 않은 문자가 포함되어 있는지 확인하세요."
+                        "IO error: file path is not valid UTF-8.\n\
+                         Check that the path does not contain invalid characters."
                     );
                     std::process::exit(1);
                 }
@@ -37,11 +37,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if !file.exists() {
                 eprintln!(
-                    "[xazz IO 에러]\n\
+                    "[xazz IO error]\n\
                      ─────────────────────────────────────────────\n\
-                     Cause   : 소스 파일을 찾을 수 없습니다.\n\
-                     Detail  : '{}' 경로에 파일이 존재하지 않습니다.\n\
-                     → 경로를 다시 확인하거나 .xzz 파일을 먼저 생성하세요.",
+                     Cause   : source file not found.\n\
+                     Detail  : no file exists at '{}'.\n\
+                     → check the path or create the .xzz file first.",
                     source_path
                 );
                 std::process::exit(1);
@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             policy_cli::gate_before_run(&source_path, json);
 
             if release {
-                println!("🚀  릴리즈 모드 (Polars 최적화 플래그 활성화)");
+                println!("🚀  release mode (Polars optimization flags enabled)");
                 println!();
             }
 
@@ -78,8 +78,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if json {
                 let output = cmd.output().map_err(|e| {
                     format!(
-                        "xazz-runner 실행 실패: {}\n\
-                         → 'xazz-runner' 바이너리가 PATH 또는 xazz 실행 파일과 같은 디렉토리에 있는지 확인하세요.",
+                        "failed to run xazz-runner: {}\n\
+                         → check that the xazz-runner binary is on PATH or in the same directory as the xazz executable.",
                         e
                     )
                 })?;
@@ -133,8 +133,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let status = cmd.status().map_err(|e| {
                 format!(
-                    "xazz-runner 실행 실패: {}\n\
-                     → 'xazz-runner' 바이너리가 PATH 또는 xazz 실행 파일과 같은 디렉토리에 있는지 확인하세요.",
+                    "failed to run xazz-runner: {}\n\
+                     → check that the xazz-runner binary is on PATH or in the same directory as the xazz executable.",
                     e
                 )
             })?;
@@ -154,10 +154,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             if !file.exists() {
                 eprintln!(
-                    "[xazz IO 에러]\n\
+                    "[xazz IO error]\n\
                      ─────────────────────────────────────────────\n\
-                     Cause   : 소스 파일을 찾을 수 없습니다.\n\
-                     Detail  : '{}' 경로에 파일이 존재하지 않습니다.",
+                     Cause   : source file not found.\n\
+                     Detail  : no file exists at '{}'.",
                     file.display()
                 );
                 std::process::exit(1);
@@ -174,18 +174,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let source_path = match file.to_str() {
                 Some(p) => p.to_owned(),
                 None => {
-                    eprintln!("IO 에러: 파일 경로를 UTF-8 문자열로 변환할 수 없습니다.");
+                    eprintln!("IO error: file path is not valid UTF-8.");
                     std::process::exit(1);
                 }
             };
 
             if !file.exists() {
                 eprintln!(
-                    "[xazz IO 에러]\n\
+                    "[xazz IO error]\n\
                      ─────────────────────────────────────────────\n\
-                     Cause   : 소스 파일을 찾을 수 없습니다.\n\
-                     Detail  : '{}' 경로에 파일이 존재하지 않습니다.\n\
-                     → 경로를 다시 확인하거나 .xzz 파일을 먼저 생성하세요.",
+                     Cause   : source file not found.\n\
+                     Detail  : no file exists at '{}'.\n\
+                     → check the path or create the .xzz file first.",
                     source_path
                 );
                 std::process::exit(1);
@@ -196,7 +196,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let out_path = out.as_ref().and_then(|p| p.to_str()).map(String::from);
 
                     println!(
-                        "⚙  xazz emit rust  │  소스: {}  │  출력: {}",
+                        "⚙  xazz emit rust  │  source: {}  │  output: {}",
                         source_path,
                         out_path.as_deref().unwrap_or("stdout")
                     );
@@ -211,10 +211,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 unknown => {
                     eprintln!(
-                        "[xazz emit 에러]\n\
+                        "[xazz emit error]\n\
                          ─────────────────────────────────────────────\n\
-                         Cause   : 지원하지 않는 출력 형식입니다.\n\
-                         Detail  : '{}' 는 유효한 emit 형식이 아닙니다.\n\
+                         Cause   : unsupported output format.\n\
+                         Detail  : '{}' is not a valid emit format.\n\
                          Available: rust\n\
                          → Did you mean: xazz emit rust {}",
                         unknown, source_path
@@ -229,7 +229,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let source = match std::fs::read_to_string(&file) {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!("IO 에러: 파일 읽기 실패 '{}' — {}", file.display(), e);
+                    eprintln!(
+                        "IO error: failed to read file '{}' — {}",
+                        file.display(),
+                        e
+                    );
                     std::process::exit(1);
                 }
             };
@@ -280,19 +284,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
 
-            println!("═══ xazz check: 정적 의미 분석 ═══");
-            println!("파일     : {}", file.display());
-            println!("오류     : {}건", result.errors.len());
-            println!("경고     : {}건", result.warnings.len());
+            println!("═══ xazz check: static semantic analysis ═══");
+            println!("file      : {}", file.display());
+            println!("errors    : {}", result.errors.len());
+            println!("warnings  : {}", result.warnings.len());
             println!();
 
             for err in &result.errors {
                 let loc = if err.span.line > 0 {
-                    format!(" [{}행:{}열]", err.span.line, err.span.col)
+                    format!(" [line {}: col {}]", err.span.line, err.span.col)
                 } else {
                     String::new()
                 };
-                println!("❌ [오류{}] {}", loc, err.message);
+                println!("❌ [error{}] {}", loc, err.message);
                 if let Some(s) = &err.ai_suggestion {
                     println!("   💡 {}", s);
                 }
@@ -300,32 +304,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             for warn in &result.warnings {
                 let loc = if warn.span.line > 0 {
-                    format!(" [{}행:{}열]", warn.span.line, warn.span.col)
+                    format!(" [line {}: col {}]", warn.span.line, warn.span.col)
                 } else {
                     String::new()
                 };
-                println!("⚠️  [경고{}] {}", loc, warn.message);
+                println!("⚠️  [warning{}] {}", loc, warn.message);
             }
 
             if result.is_err() {
                 println!();
                 eprintln!(
-                    "[xazz check] 정적 분석에서 {}건의 오류를 발견했습니다.",
+                    "[xazz check] found {} error(s) in the static analysis.",
                     result.errors.len()
                 );
                 std::process::exit(1);
             }
             println!();
-            println!("✅ 정적 분석 통과 — 실행 전 결함 없음");
+            println!("✅ static analysis passed — no defects before execution");
         }
 
         // ── sde: 합성 데이터 생성 ────────────────────────────────────────────
         Commands::Sde { rows, output } => {
             println!("[Preview] xazz sde — Synthetic Data Engine");
-            println!("  이 기능은 현재 Preview 상태입니다. CLI 통합이 진행 중입니다.");
+            println!("  This feature is currently in Preview. CLI integration is in progress.");
             println!();
             println!("  rows: {}  │  output: {}", rows, output.display());
-            println!("  xazz-sde 엔진 연동 예정.");
+            println!("  xazz-sde engine integration planned.");
         }
 
         // ── new: 새 프로젝트 생성 ─────────────────────────────────────────────
@@ -382,8 +386,8 @@ fn find_runner() -> Result<std::path::PathBuf, String> {
     }
 
     Err(
-        "실행기 xazz-runner 를 찾을 수 없습니다 (PATH 폴백은 보안상 비활성화됨). \
-         XAZZ_RUNNER_PATH 로 절대 경로를 지정하거나 xazz-runner 를 xazz 와 같은 디렉터리에 배치하세요."
+        "xazz-runner not found (PATH fallback is disabled for security). \
+         Set XAZZ_RUNNER_PATH to an absolute path or place xazz-runner next to the xazz binary."
             .to_string(),
     )
 }

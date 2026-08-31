@@ -13,6 +13,7 @@ use polars::prelude::{IntoLazy, JoinArgs, JoinType, LazyFrame, SortMultipleOptio
 
 use xazz_compiler::ast::BinOpKind;
 use xazz_compiler::ir::{AggKind, DataOp, FillValue, TypedExpr, TypedExprKind};
+use xazz_core::i18n::tr;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 표현식 lowering
@@ -111,7 +112,7 @@ pub fn lower_data(
         }
         DataOp::Limit(n) => {
             if *n <= 0 {
-                return Err("take() 의 n 은 0보다 커야 합니다.".into());
+                return Err(tr("take() n must be greater than 0.", "take() 의 n 은 0보다 커야 합니다.").into());
             }
             *lf = lf.clone().limit(*n as u32);
         }
@@ -158,8 +159,11 @@ pub fn lower_data(
             }
             None => {
                 return Err(format!(
-                    "런타임 에러: join() 대상 변수 '{}' 가 심볼 테이블에 없습니다.",
-                    other
+                    "{}: {} '{}' {}",
+                    tr("runtime error", "런타임 에러"),
+                    tr("join() target variable", "join() 대상 변수"),
+                    other,
+                    tr("is not in the symbol table", "가 심볼 테이블에 없습니다")
                 )
                 .into());
             }
@@ -177,8 +181,11 @@ pub fn lower_data(
                 "bool" => DataType::Boolean,
                 other => {
                     return Err(format!(
-                        "런타임 에러: cast() 에 알 수 없는 타입 '{}'. 지원 타입: \"float\", \"int\", \"str\", \"bool\"",
-                        other
+                        "{}: cast() {} '{}'. {}: \"float\", \"int\", \"str\", \"bool\"",
+                        tr("runtime error", "런타임 에러"),
+                        tr("unknown type", "에 알 수 없는 타입"),
+                        other,
+                        tr("supported types", "지원 타입")
                     )
                     .into());
                 }
@@ -209,6 +216,7 @@ mod tests {
     use super::*;
     use polars::prelude::df;
     use xazz_compiler::ir::{DataOp, TypedExpr, TypedExprKind};
+    use xazz_core::i18n::{Lang, reset_lang, set_lang};
 
     fn collect_pipeline(
         initial: DataFrame,
@@ -270,8 +278,15 @@ mod tests {
     #[test]
     fn limit_rejects_non_positive() {
         let frame = df!("a" => [1i64]).unwrap();
-        let err = collect_pipeline(frame, &[DataOp::Limit(0)]).unwrap_err();
-        assert!(err.to_string().contains("0보다 커야"));
+        let err = collect_pipeline(frame.clone(), &[DataOp::Limit(0)]).unwrap_err();
+        assert!(
+            err.to_string().contains("greater than 0"),
+            "영어 기본이어야 함: {err}"
+        );
+        set_lang(Lang::Ko);
+        let err2 = collect_pipeline(frame, &[DataOp::Limit(0)]).unwrap_err();
+        reset_lang();
+        assert!(err2.to_string().contains("0보다 커야"), "한국어 메시지: {err2}");
     }
 
     #[test]

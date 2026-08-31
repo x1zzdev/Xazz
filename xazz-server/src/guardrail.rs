@@ -65,7 +65,7 @@ pub fn gate(code: &str) -> Decision {
     let (policy, origin) = match load_policy() {
         Ok(v) => v,
         Err(report) => {
-            eprintln!("[xazz] ⛔ 정책 로딩 실패 — 모든 실행을 거부합니다.");
+            eprintln!("[xazz] ⛔ policy load failed — refusing all executions.");
             return Decision::Reject { report: *report };
         }
     };
@@ -74,8 +74,9 @@ pub fn gate(code: &str) -> Decision {
     if report.safe_to_execute {
         if !report.warnings.is_empty() {
             eprintln!(
-                "[xazz] ⚠️ 정책 경고 {}건 (정책 {} / {})",
+                "[xazz] ⚠️ {} {} (policy {} / {})",
                 report.warnings.len(),
+                "policy warning(s)",
                 policy.id,
                 origin
             );
@@ -83,7 +84,8 @@ pub fn gate(code: &str) -> Decision {
         Decision::Allow { report }
     } else {
         eprintln!(
-            "[xazz] ⛔ 정책 위반으로 실행 거부 (정책 {} / {}): {}",
+            "[xazz] ⛔ {} (policy {} / {}): {}",
+            "execution rejected due to policy violation",
             policy.id,
             origin,
             report.summary()
@@ -114,7 +116,7 @@ pub async fn remediate_with_slm(code: &str, policy: &Policy, cfg: &SlmConfig) ->
         Ok(text) => text,
         Err(e) => {
             deterministic.notes.push(format!(
-                "sLM 을 사용하지 못해 결정적 보정을 적용했습니다: {}",
+                "sLM unavailable; applied deterministic remediation: {}",
                 e
             ));
             return deterministic;
@@ -128,7 +130,7 @@ pub async fn remediate_with_slm(code: &str, policy: &Policy, cfg: &SlmConfig) ->
         applied.push(xazz_compiler::policy::AppliedFix {
             rule_id: "SLM".to_string(),
             description: format!(
-                "온프레미스 sLM({})이 제안한 코드가 정책 재검증을 통과해 채택되었습니다.",
+                "on-premise sLM ({}) proposal passed policy re-verification and was adopted.",
                 cfg.model
             ),
             statement_index: None,
@@ -140,7 +142,7 @@ pub async fn remediate_with_slm(code: &str, policy: &Policy, cfg: &SlmConfig) ->
             applied,
             residual: deterministic.residual.clone(),
             notes: vec![format!(
-                "sLM 제안은 생성 직후 동일한 정책 엔진으로 재파싱·재검증되었습니다 (모델: {}).",
+                "sLM proposal was re-parsed and re-verified by the same policy engine before adoption (model: {}).",
                 cfg.model
             )],
             verified: deterministic.residual.is_empty(),
@@ -148,7 +150,7 @@ pub async fn remediate_with_slm(code: &str, policy: &Policy, cfg: &SlmConfig) ->
         }
     } else {
         deterministic.notes.push(format!(
-            "sLM({}) 제안이 정책 재검증에 실패해 폐기하고 결정적 보정을 적용했습니다: {}",
+            "sLM ({}) proposal failed policy re-verification; discarded in favor of deterministic remediation: {}",
             cfg.model,
             verified.summary()
         ));
@@ -220,7 +222,7 @@ v out = load(\"data/p.csv\") :: Patient |> groupBy(\"age_band\") |> count(\"pati
     fn allows_safe_code() {
         match gate(SAFE) {
             Decision::Allow { report, .. } => assert!(report.safe_to_execute),
-            Decision::Reject { report } => panic!("안전한 코드가 거부됨: {}", report.render()),
+            Decision::Reject { report } => panic!("safe code rejected: {}", report.render()),
         }
     }
 
@@ -254,7 +256,7 @@ v out = load(\"data/p.csv\") :: Patient |> groupBy(\"age_band\") |> count(\"pati
         assert_eq!(rem.strategy, "deterministic");
         assert!(
             rem.notes.iter().any(|n| n.contains("sLM")),
-            "sLM 실패 사실이 기록되지 않음: {:?}",
+            "sLM failure not recorded: {:?}",
             rem.notes
         );
     }

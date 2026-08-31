@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ast::Program;
 use crate::{Lexer, Parser};
+use xazz_core::i18n::{is_korean, tr};
 
 pub use patterns::{LiteralFinding, SecretKind};
 pub use printer::print_program;
@@ -287,17 +288,29 @@ impl PolicyReport {
     pub fn summary(&self) -> String {
         if self.safe_to_execute {
             if self.warnings.is_empty() {
-                "정책 검사 통과 — 위반 없음".to_string()
+                tr("policy check passed — no violations", "정책 검사 통과 — 위반 없음").to_string()
             } else {
-                format!("정책 검사 통과 — 경고 {}건", self.warnings.len())
+                if is_korean() {
+                    format!("정책 검사 통과 — 경고 {}건", self.warnings.len())
+                } else {
+                    format!("policy check passed — {} warning(s)", self.warnings.len())
+                }
             }
         } else {
             let ids: Vec<&str> = self.violations.iter().map(|v| v.rule_id.as_str()).collect();
-            format!(
-                "정책 위반 {}건으로 실행이 차단되었습니다 [{}]",
-                self.violations.len(),
-                ids.join(", ")
-            )
+            if is_korean() {
+                format!(
+                    "정책 위반 {}건으로 실행이 차단되었습니다 [{}]",
+                    self.violations.len(),
+                    ids.join(", ")
+                )
+            } else {
+                format!(
+                    "execution blocked by {} policy violation(s) [{}]",
+                    self.violations.len(),
+                    ids.join(", ")
+                )
+            }
         }
     }
 

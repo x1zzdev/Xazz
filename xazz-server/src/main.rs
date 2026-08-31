@@ -215,7 +215,7 @@ async fn handle_execute(
         guardrail::Decision::Reject { report } => {
             // 차단 역시 감사 대상이다 — 무엇이 왜 막혔는지 영구 기록에 남긴다.
             if let Err(e) = audit_log::append_with_outcome(&payload.code, Some("blocked")) {
-                eprintln!("[xazz] ⚠️ 차단 감사 기록 실패: {}", e);
+                eprintln!("[xazz] ⚠️ failed to record block in audit log: {}", e);
             }
             let logs = report
                 .violations

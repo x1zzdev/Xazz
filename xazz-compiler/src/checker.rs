@@ -23,6 +23,7 @@ use crate::ast::{
     Stmt, StructField, TrainConfig,
 };
 use crate::error::{CompileError, ErrorKind};
+use xazz_core::i18n::is_korean;
 use crate::ir;
 
 /// 컬럼 타입 정보 (canonical name + nullable 여부)
@@ -252,10 +253,17 @@ impl Analyzer {
         if self.schemas.contains_key(name) {
             self.error(
                 ErrorKind::Other("중복된 스키마 선언".to_string()),
-                format!(
-                    "스키마 '{}' 가 두 번 선언되었습니다. 이름을 다르게 지정하거나 중복을 제거하세요.",
-                    name
-                ),
+                if is_korean() {
+                    format!(
+                        "스키마 '{}' 가 두 번 선언되었습니다. 이름을 다르게 지정하거나 중복을 제거하세요.",
+                        name
+                    )
+                } else {
+                    format!(
+                        "Schema '{}' is declared twice. Rename it or remove the duplicate.",
+                        name
+                    )
+                },
             );
             return;
         }
@@ -270,10 +278,14 @@ impl Analyzer {
         if self.models.contains_key(name) {
             self.error(
                 ErrorKind::Other("중복된 모델 선언".to_string()),
-                format!(
-                    "모델 '{}' 이 두 번 선언되었습니다. 이름을 다르게 지정하세요.",
-                    name
-                ),
+                if is_korean() {
+                    format!(
+                        "모델 '{}' 이 두 번 선언되었습니다. 이름을 다르게 지정하세요.",
+                        name
+                    )
+                } else {
+                    format!("Model '{}' is declared twice. Choose a different name.", name)
+                },
             );
             return;
         }
@@ -283,10 +295,17 @@ impl Analyzer {
         if !has_dense {
             self.error(
                 ErrorKind::Other("Dense 레이어 없음".to_string()),
-                format!(
-                    "모델 '{}' 에 유효한 Dense 레이어가 없습니다. 최소 하나의 Dense(units) 레이어가 필요합니다.",
-                    name
-                ),
+                if is_korean() {
+                    format!(
+                        "모델 '{}' 에 유효한 Dense 레이어가 없습니다. 최소 하나의 Dense(units) 레이어가 필요합니다.",
+                        name
+                    )
+                } else {
+                    format!(
+                        "Model '{}' has no valid Dense layer. At least one Dense(units) layer is required.",
+                        name
+                    )
+                },
             );
         }
         self.models.insert(name.to_string(), layers.to_vec());
@@ -300,10 +319,17 @@ impl Analyzer {
         if self.vars.contains_key(var_name) || self.trained_vars.contains(var_name) {
             self.error(
                 ErrorKind::Other("중복된 변수 선언".to_string()),
-                format!(
-                    "변수 '{}' 가 이미 선언되어 있습니다. 이름을 다르게 지정하세요.",
-                    var_name
-                ),
+                if is_korean() {
+                    format!(
+                        "변수 '{}' 가 이미 선언되어 있습니다. 이름을 다르게 지정하세요.",
+                        var_name
+                    )
+                } else {
+                    format!(
+                        "Variable '{}' is already declared. Choose a different name.",
+                        var_name
+                    )
+                },
             );
             return;
         }
@@ -317,20 +343,34 @@ impl Analyzer {
         if !self.vars.contains_key(source_var) {
             self.error(
                 ErrorKind::UndeclaredVariable(source_var.to_string()),
-                format!(
-                    "run {} : 데이터 소스 변수 '{}' 가 선언되지 않았습니다.",
-                    source_var, source_var
-                ),
+                if is_korean() {
+                    format!(
+                        "run {} : 데이터 소스 변수 '{}' 가 선언되지 않았습니다.",
+                        source_var, source_var
+                    )
+                } else {
+                    format!(
+                        "run {} : data source variable '{}' is not declared.",
+                        source_var, source_var
+                    )
+                },
             );
             return;
         }
         if !self.models.contains_key(model_name) {
             self.error(
                 ErrorKind::Other("미선언 모델".to_string()),
-                format!(
-                    "run |> train({}) : 모델 '{}' 이 선언되지 않았습니다. 먼저 `model {} {{ ... }}` 로 선언하세요.",
-                    model_name, model_name, model_name
-                ),
+                if is_korean() {
+                    format!(
+                        "run |> train({}) : 모델 '{}' 이 선언되지 않았습니다. 먼저 `model {} {{ ... }}` 로 선언하세요.",
+                        model_name, model_name, model_name
+                    )
+                } else {
+                    format!(
+                        "run |> train({}) : model '{}' is not declared. Declare it first with `model {} {{ ... }}`.",
+                        model_name, model_name, model_name
+                    )
+                },
             );
             return;
         }
@@ -342,18 +382,32 @@ impl Analyzer {
                         schema: source_var.to_string(),
                         available: sorted_keys(&var.columns),
                     },
-                    format!(
-                        "run |> train({}) : 타겟 컬럼 '{}' 이 소스 변수 '{}' 의 스키마에 없습니다.",
-                        model_name, config.target, source_var
-                    ),
+                    if is_korean() {
+                        format!(
+                            "run |> train({}) : 타겟 컬럼 '{}' 이 소스 변수 '{}' 의 스키마에 없습니다.",
+                            model_name, config.target, source_var
+                        )
+                    } else {
+                        format!(
+                            "run |> train({}) : target column '{}' is not in the schema of source variable '{}'.",
+                            model_name, config.target, source_var
+                        )
+                    },
                 );
             } else if let Some(t) = var.columns.get(&config.target)
                 && !t.is_numeric()
             {
-                self.warning(format!(
-                    "타겟 컬럼 '{}' 이 숫자형이 아니어서 학습 입력이 될 수 없습니다. 학습은 숫자형 타겟을 요구합니다.",
-                    config.target
-                ));
+                self.warning(if is_korean() {
+                    format!(
+                        "타겟 컬럼 '{}' 이 숫자형이 아니어서 학습 입력이 될 수 없습니다. 학습은 숫자형 타겟을 요구합니다.",
+                        config.target
+                    )
+                } else {
+                    format!(
+                        "Target column '{}' is not numeric, so it cannot be a training target. Training requires a numeric target.",
+                        config.target
+                    )
+                });
             }
         }
 
@@ -410,10 +464,17 @@ impl Analyzer {
                     None => {
                         self.error(
                             ErrorKind::UndeclaredType(schema_name.to_string()),
-                            format!(
-                                "load(...) :: {} : 스키마 '{}' 이(가) 선언되지 않았습니다. `type {} = {{ ... }}` 로 먼저 선언하세요.",
-                                schema_name, schema_name, schema_name
-                            ),
+                            if is_korean() {
+                                format!(
+                                    "load(...) :: {} : 스키마 '{}' 이(가) 선언되지 않았습니다. `type {} = {{ ... }}` 로 먼저 선언하세요.",
+                                    schema_name, schema_name, schema_name
+                                )
+                            } else {
+                                format!(
+                                    "load(...) :: {} : schema '{}' is not declared. Declare it first with `type {} = {{ ... }}`.",
+                                    schema_name, schema_name, schema_name
+                                )
+                            },
                         );
                     }
                 }
@@ -426,20 +487,34 @@ impl Analyzer {
                 if self.trained_vars.contains(name) {
                     self.error(
                         ErrorKind::UndeclaredVariable(name.to_string()),
-                        format!(
-                            "변수 '{}' 은 학습된 모델입니다. DataFrame 파이프라인 소스로 사용할 수 없습니다.",
-                            name
-                        ),
+                        if is_korean() {
+                            format!(
+                                "변수 '{}' 은 학습된 모델입니다. DataFrame 파이프라인 소스로 사용할 수 없습니다.",
+                                name
+                            )
+                        } else {
+                            format!(
+                                "Variable '{}' is a trained model and cannot be used as a DataFrame pipeline source.",
+                                name
+                            )
+                        },
                     );
                 } else if let Some(var) = self.vars.get(name) {
                     columns = Some(var.columns.clone());
                 } else {
                     self.error(
                         ErrorKind::UndeclaredVariable(name.to_string()),
-                        format!(
-                            "변수 '{}' 이(가) 선언되지 않았습니다. 이 변수를 이전 파이프라인에서 먼저 선언하세요.",
-                            name
-                        ),
+                        if is_korean() {
+                            format!(
+                                "변수 '{}' 이(가) 선언되지 않았습니다. 이 변수를 이전 파이프라인에서 먼저 선언하세요.",
+                                name
+                            )
+                        } else {
+                            format!(
+                                "Variable '{}' is not declared. Declare it in an earlier pipeline first.",
+                                name
+                            )
+                        },
                     );
                 }
                 ir::Source::Ref { var: name.clone() }
@@ -456,10 +531,17 @@ impl Analyzer {
                     if !self.models.contains_key(model_name) {
                         self.error(
                             ErrorKind::Other("미선언 모델".to_string()),
-                            format!(
-                                "train({}) : 모델 '{}' 은(는) 선언되지 않았습니다. 먼저 `model {} {{ ... }}` 로 선언하세요.",
-                                model_name, model_name, model_name
-                            ),
+                            if is_korean() {
+                                format!(
+                                    "train({}) : 모델 '{}' 은(는) 선언되지 않았습니다. 먼저 `model {} {{ ... }}` 로 선언하세요.",
+                                    model_name, model_name, model_name
+                                )
+                            } else {
+                                format!(
+                                    "train({}) : model '{}' is not declared. Declare it first with `model {} {{ ... }}`.",
+                                    model_name, model_name, model_name
+                                )
+                            },
                         );
                     }
                     steps.push(ir::Step::ML(ir::MLOp::Train {
@@ -473,10 +555,17 @@ impl Analyzer {
                     if !self.trained_vars.contains(model_var) {
                         self.error(
                             ErrorKind::UndeclaredVariable(model_var.to_string()),
-                            format!(
-                                "predict({}) : 변수 '{}' 은(는) 학습된 모델이 아닙니다. 먼저 `v {} = ... |> train(...)` 으로 학습하세요.",
-                                model_var, model_var, model_var
-                            ),
+                            if is_korean() {
+                                format!(
+                                    "predict({}) : 변수 '{}' 은(는) 학습된 모델이 아닙니다. 먼저 `v {} = ... |> train(...)` 으로 학습하세요.",
+                                    model_var, model_var, model_var
+                                )
+                            } else {
+                                format!(
+                                    "predict({}) : variable '{}' is not a trained model. Train it first with `v {} = ... |> train(...)`.",
+                                    model_var, model_var, model_var
+                                )
+                            },
                         );
                     }
                     if let Some(name) = as_col {
@@ -498,7 +587,7 @@ impl Analyzer {
                         if let Some(t) = cols.get(c) {
                             next.insert(c.clone(), t.clone());
                         } else {
-                            self.column_missing(c, "select");
+                            self.column_missing_with_available(c, "select", &cols);
                         }
                     }
                     cols = next;
@@ -560,10 +649,17 @@ impl Analyzer {
                         if !t.option && t.name != "unknown" {
                             self.error(
                                 ErrorKind::Other("fillNull on non-nullable column".to_string()),
-                                format!(
-                                    "fillNull(\"{}\", ...) : 컬럼 '{}' 은 null을 허용하지 않는 타입으로 선언되어 있습니다. 스키마에서 '{}' 을(를) Option<{}> 으로 선언하거나, 이 연산을 제거하세요.",
-                                    col, col, col, t.name
-                                ),
+                                if is_korean() {
+                                    format!(
+                                        "fillNull(\"{}\", ...) : 컬럼 '{}' 은 null을 허용하지 않는 타입으로 선언되어 있습니다. 스키마에서 '{}' 을(를) Option<{}> 으로 선언하거나, 이 연산을 제거하세요.",
+                                        col, col, col, t.name
+                                    )
+                                } else {
+                                    format!(
+                                        "fillNull(\"{}\", ...) : column '{}' is declared as a non-nullable type. Declare '{}' as Option<{}> in the schema, or remove this operation.",
+                                        col, col, col, t.name
+                                    )
+                                },
                             );
                         }
                     }
@@ -585,7 +681,11 @@ impl Analyzer {
                     if self.trained_vars.contains(other) {
                         self.error(
                             ErrorKind::UndeclaredVariable(other.to_string()),
-                            format!("join() 대상 변수 '{}' 은 학습된 모델입니다.", other),
+                            if is_korean() {
+                                format!("join() 대상 변수 '{}' 은 학습된 모델입니다.", other)
+                            } else {
+                                format!("join() target variable '{}' is a trained model.", other)
+                            },
                         );
                     } else if let Some(var) = self.vars.get(other) {
                         let right_cols: HashMap<String, ColType> = var.columns.clone();
@@ -595,7 +695,11 @@ impl Analyzer {
                     } else {
                         self.error(
                             ErrorKind::UndeclaredVariable(other.to_string()),
-                            format!("join() 대상 변수 '{}' 이(가) 선언되지 않았습니다.", other),
+                            if is_korean() {
+                                format!("join() 대상 변수 '{}' 이(가) 선언되지 않았습니다.", other)
+                            } else {
+                                format!("join() target variable '{}' is not declared.", other)
+                            },
                         );
                     }
                     steps.push(ir::Step::Data(ir::DataOp::Join {
@@ -623,10 +727,17 @@ impl Analyzer {
                     if !matches!(to_type.as_str(), "float" | "int" | "str" | "bool") {
                         self.error(
                             ErrorKind::Other("알 수 없는 cast 타입".to_string()),
-                            format!(
-                                "cast(\"{}\", \"{}\") : 알 수 없는 타입 '{}'. 지원 타입: \"float\", \"int\", \"str\", \"bool\"",
-                                col, to_type, to_type
-                            ),
+                            if is_korean() {
+                                format!(
+                                    "cast(\"{}\", \"{}\") : 알 수 없는 타입 '{}'. 지원 타입: \"float\", \"int\", \"str\", \"bool\"",
+                                    col, to_type, to_type
+                                )
+                            } else {
+                                format!(
+                                    "cast(\"{}\", \"{}\") : unknown type '{}'. Supported types: \"float\", \"int\", \"str\", \"bool\"",
+                                    col, to_type, to_type
+                                )
+                            },
                         );
                     }
                     self.check_column(col, "cast", &cols);
@@ -667,10 +778,17 @@ impl Analyzer {
                         }
                     }
                     if args.epsilon > 10.0 {
-                        self.warning(format!(
-                            "withDp(epsilon: {}) : ε 이 10을 초과하면 프라이버시 보호 효과가 사실상 없습니다. 1.0 이하 권장.",
-                            args.epsilon
-                        ));
+                        self.warning(if is_korean() {
+                            format!(
+                                "withDp(epsilon: {}) : ε 이 10을 초과하면 프라이버시 보호 효과가 사실상 없습니다. 1.0 이하 권장.",
+                                args.epsilon
+                            )
+                        } else {
+                            format!(
+                                "withDp(epsilon: {}) : ε above 10 provides effectively no privacy protection. 1.0 or less is recommended.",
+                                args.epsilon
+                            )
+                        });
                     }
                     steps.push(ir::Step::Side(ir::SideOp::WithDp(args.clone())));
                 }
@@ -680,10 +798,17 @@ impl Analyzer {
         if let Some(g) = pending_group {
             self.error(
                 ErrorKind::Other("groupBy 후 집계 누락".to_string()),
-                format!(
-                    "groupBy(\"{}\") 뒤에 sum/mean/min/max/count 등 집계 연산이 없습니다. 파이프라인이 그룹된 상태로 종료될 수 없습니다.",
-                    g
-                ),
+                if is_korean() {
+                    format!(
+                        "groupBy(\"{}\") 뒤에 sum/mean/min/max/count 등 집계 연산이 없습니다. 파이프라인이 그룹된 상태로 종료될 수 없습니다.",
+                        g
+                    )
+                } else {
+                    format!(
+                        "groupBy(\"{}\") is missing an aggregate (sum/mean/min/max/count) after it. A pipeline cannot end while still grouped.",
+                        g
+                    )
+                },
             );
         }
 
@@ -708,12 +833,25 @@ impl Analyzer {
     fn check_agg_column(&mut self, col: &str, cols: &HashMap<String, ColType>) {
         match cols.get(col) {
             Some(t) if !t.is_numeric() => {
-                self.warning(format!(
-                    "집계 컬럼 '{}' 이 숫자형이 아닙니다. 집계(sum/mean/min/max)는 숫자형 컬럼에만 의미가 있습니다.",
-                    col
-                ));
+                self.warning(if is_korean() {
+                    format!(
+                        "집계 컬럼 '{}' 이 숫자형이 아닙니다. 집계(sum/mean/min/max)는 숫자형 컬럼에만 의미가 있습니다.",
+                        col
+                    )
+                } else {
+                    format!(
+                        "Aggregate column '{}' is not numeric. Aggregates (sum/mean/min/max) only make sense on numeric columns.",
+                        col
+                    )
+                });
             }
-            None => self.column_missing(col, "집계"),
+            None => {
+                self.column_missing_with_available(
+                    col,
+                    if is_korean() { "집계" } else { "aggregate" },
+                    cols,
+                );
+            }
             _ => {}
         }
     }
@@ -727,15 +865,29 @@ impl Analyzer {
         if let Some(t) = cols.get(col) {
             let is_str_fill = matches!(value, FillNullValue::Str(_));
             if is_str_fill && t.is_numeric() {
-                self.warning(format!(
-                    "fillNull(\"{}\", <문자열>) : 숫자형 컬럼 '{}' 을 문자열로 채우면 타입이 바뀔 수 있습니다.",
-                    col, col
-                ));
+                self.warning(if is_korean() {
+                    format!(
+                        "fillNull(\"{}\", <문자열>) : 숫자형 컬럼 '{}' 을 문자열로 채우면 타입이 바뀔 수 있습니다.",
+                        col, col
+                    )
+                } else {
+                    format!(
+                        "fillNull(\"{}\", <string>) : filling numeric column '{}' with a string may change its type.",
+                        col, col
+                    )
+                });
             } else if !is_str_fill && !t.is_numeric() && t.name != "unknown" {
-                self.warning(format!(
-                    "fillNull(\"{}\", <숫자>) : 문자열 컬럼 '{}' 에 숫자 값을 채우면 타입이 바뀔 수 있습니다.",
-                    col, col
-                ));
+                self.warning(if is_korean() {
+                    format!(
+                        "fillNull(\"{}\", <숫자>) : 문자열 컬럼 '{}' 에 숫자 값을 채우면 타입이 바뀔 수 있습니다.",
+                        col, col
+                    )
+                } else {
+                    format!(
+                        "fillNull(\"{}\", <number>) : filling string column '{}' with a number may change its type.",
+                        col, col
+                    )
+                });
             }
         }
     }
@@ -753,7 +905,7 @@ impl Analyzer {
     fn check_expr_columns(&mut self, expr: &Expr, cols: &HashMap<String, ColType>) {
         match expr {
             Expr::Ident(c) => {
-                self.check_column(c, "표현식", cols);
+                self.check_column(c, if is_korean() { "표현식" } else { "expression" }, cols);
             }
             Expr::BinOp { lhs, rhs, .. } => {
                 self.check_expr_columns(lhs, cols);
@@ -770,8 +922,11 @@ impl Analyzer {
         match expr {
             Expr::BinOp { lhs, op, rhs } => {
                 if *op == BinOpKind::Div && is_zero_literal(rhs.as_ref()) {
-                    let message =
-                        "0으로 나누기 감지 — DivisionByZero. 필터/치환으로 분모 0 을 처리하세요.";
+                    let message = if is_korean() {
+                        "0으로 나누기 감지 — DivisionByZero. 필터/치환으로 분모 0 을 처리하세요."
+                    } else {
+                        "Division by zero detected — DivisionByZero. Handle zero denominators with a filter or replacement."
+                    };
                     let span = self.resolve_span(message);
                     self.warnings.push(CompileError::new(
                         ErrorKind::DivisionByZero {
@@ -792,23 +947,43 @@ impl Analyzer {
 
     fn check_column(&mut self, col: &str, ctx: &str, cols: &HashMap<String, ColType>) {
         if !cols.contains_key(col) {
-            self.column_missing(col, ctx);
+            self.column_missing_with_available(col, ctx, cols);
         }
     }
 
     fn column_missing(&mut self, col: &str, ctx: &str) {
-        let available: Vec<String> = self
-            .vars
-            .values()
-            .flat_map(|v| v.columns.keys().cloned())
-            .collect();
+        self.column_missing_with_available(col, ctx, &HashMap::new())
+    }
+
+    /// 컬럼 존재 검사 실패 시 did-you-mean 힌트를 포함한 오류를 남긴다.
+    /// `cols` 는 현재 파이프라인의 스키마 컬럼(비어 있으면 다른 변수들의 컬럼으로 폴백).
+    fn column_missing_with_available(
+        &mut self,
+        col: &str,
+        ctx: &str,
+        cols: &HashMap<String, ColType>,
+    ) {
+        let mut available: Vec<String> = cols.keys().cloned().collect();
+        if available.is_empty() {
+            available = self
+                .vars
+                .values()
+                .flat_map(|v| v.columns.keys().cloned())
+                .collect();
+        }
+        available.sort();
+        available.dedup();
         self.error(
             ErrorKind::SafeLoadViolation {
                 col: col.to_string(),
                 schema: ctx.to_string(),
                 available,
             },
-            format!("{}: 스키마에 '{}' 컬럼이 존재하지 않습니다.", ctx, col),
+            if is_korean() {
+                format!("{}: 스키마에 '{}' 컬럼이 존재하지 않습니다.", ctx, col)
+            } else {
+                format!("{}: column '{}' does not exist in the schema.", ctx, col)
+            },
         );
     }
 
@@ -1064,6 +1239,7 @@ mod tests {
     use super::*;
     use crate::Lexer;
     use crate::parser::Parser;
+    use xazz_core::i18n::{Lang, set_lang, reset_lang};
 
     fn check(src: &str) -> CheckResult {
         let tokens = Lexer::new(src).tokenize().unwrap();
@@ -1214,10 +1390,12 @@ mod tests {
 
     #[test]
     fn aggregation_on_string_warns() {
+        set_lang(Lang::Ko);
         let r = check(
             "type X = { station: string, pm10: float };
              v p = load(\"x.csv\") :: X |> groupBy(\"station\") |> sum(\"station\");",
         );
+        reset_lang();
         assert!(r.is_ok());
         assert!(
             r.warnings.iter().any(|w| w.message.contains("숫자형")),

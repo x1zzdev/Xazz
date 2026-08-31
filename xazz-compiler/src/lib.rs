@@ -29,6 +29,9 @@ pub mod token; // xazz-core::token 재노출
 // ── token 상위 노출 ──────────────────────────────────────────────────────────
 pub use token::{Span, Token, TokenKind};
 
+// ── i18n 상위 노출 ───────────────────────────────────────────────────────────
+pub use xazz_core::i18n::{is_korean, tr};
+
 // ── ast 상위 노출 ────────────────────────────────────────────────────────────
 pub use ast::{
     BinOpKind, ChartConfig, ChartType, Expr, FillNullValue, PipelineOp, PipelineSource, Program,
