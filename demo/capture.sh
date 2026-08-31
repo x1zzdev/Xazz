@@ -22,6 +22,19 @@ cap() { local name=$1; shift; { "$@" || true; } > "$OUT/$name.txt" 2>&1; printf 
 
 echo "캡처 중…"
 cap check        "$XAZZ" check demo/deep_learning.xzz
+
+# 오타 감지 시연 — did-you-mean 제안이 나오는 check 출력 (README demo_check.png 용)
+cat > "$OUT/typo_scene.xzz" <<'EOF'
+type AirData = {
+    temperature_c: float,
+    pm25:          Option<float>,
+}
+
+v d = load("air_data.csv") :: AirData
+    |> filter(temperture_c > 20)
+EOF
+cap check_typo    "$XAZZ" check "$OUT/typo_scene.xzz"
+
 cap emit         "$XAZZ" emit rust demo/deep_learning.xzz
 cap preprocess   "$XAZZ" run demo/preprocess_chart.xzz
 cap train        "$XAZZ" run demo/deep_learning.xzz

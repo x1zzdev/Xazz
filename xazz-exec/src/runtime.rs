@@ -686,9 +686,10 @@ fn execute_node(
                 }
 
                 eprintln!(
-                    "[xazz] Chart '{}' 생성 완료: {} 행",
+                    "[xazz] Chart '{}' done: {} {}",
                     config.chart_type.as_str(),
-                    snapshot.height()
+                    snapshot.height(),
+                    tr("rows", "행")
                 );
                 lf = snapshot.lazy();
             }

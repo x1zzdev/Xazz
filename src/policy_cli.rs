@@ -101,7 +101,12 @@ fn emit_block(report: &PolicyReport, source_path: &str, json: bool) {
         eprintln!("  {} {} {}", "!".yellow(), w.rule_id, w.message);
     }
     eprintln!(
-        "→ 안전한 대체 코드를 보려면: {}",
+        "→ {}: {}",
+        if xazz_compiler::is_korean() {
+            "안전한 대체 코드를 보려면"
+        } else {
+            "to review a safe alternative, run"
+        },
         format!("xazz policy {} --fix", source_path).cyan()
     );
 }
