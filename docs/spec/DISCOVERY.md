@@ -57,9 +57,8 @@ Burn 학습·Policy-as-Code·DP·sLM·영구 감사 로그는 현재 사용자�
 4. Policy-as-Code, DP, 온프레미스 sLM, data-flow sandbox는 현재 저장소에서 제품 기능으로
    확인되지 않는다.
 5. `/security/audit`와 `/security/verify`는 hash 계산·비교일 뿐 영구 이력 저장이 아니다.
-6. README의 Releases·Visual IDE 링크는 `xazzdev` 소유자를 가리키며 실제 저장소 소유자
-   `x1zzdev`와 다르다 (`README_kr.md:22,174-177,202`). 원격 tag도 0개라 다운로드 CTA를
-   현재 랜딩의 주 CTA로 쓰기 어렵다.
+6. README의 Releases·Visual IDE 링크는 `xazzdev` 소유자를 가리킨다. 원격 tag가
+   초기엔 0개라 다운로드 CTA를 현재 랜딩의 주 CTA로 쓰기 어려웠다.
 
 디자인은 위 간극을 숨기는 장식이 아니라 **Available / Beta / Demo / Research / Planned를
 일관되게 보여주는 truth layer**를 포함해야 한다.

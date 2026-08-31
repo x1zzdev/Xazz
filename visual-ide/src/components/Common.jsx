@@ -74,7 +74,7 @@ export function GitHubLink({ inverse = false }) {
   return (
     <a
       className={`button button--quiet ${inverse ? 'button--inverse' : ''}`}
-      href="https://github.com/x1zzdev/Xazz"
+      href="https://github.com/xazzdev/Xazz"
       target="_blank"
       rel="noreferrer"
     >

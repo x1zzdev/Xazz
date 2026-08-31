@@ -109,7 +109,7 @@
     {
       "id": "E-112",
       "type": "observation",
-      "source_id": "x1zzdev/x1zzLang-visual-ide/frontend/src/transpiler/stdoutParser.js",
+      "source_id": "xazzdev/Xazz-visual-ide/frontend/src/transpiler/stdoutParser.js",
       "summary": "The separate Visual IDE repository still parses [x1zz:chart] and [x1zz:error] only, so it is behind both the xazz rename and the train/model markers. Reported to the team; out of scope for this repository."
     }
   ],

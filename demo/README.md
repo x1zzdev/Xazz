@@ -101,7 +101,7 @@ bash demo/add_voice.sh narration.mp3   # → demo/xazz_demo_voiced.mp4
 | 감추는 것 | 이유 |
 |---|---|
 | `[xazz] …` | 내부 진행 로그(stderr). 파이프라인 단계 카운터 등 |
-| `[xazz WARN] 스키마 필드 … 찾을 수 없음` | 집계 파이프라인에서 스키마 검증이 결과 프레임을 대상으로 도는 기존 버그([#15](https://github.com/x1zzdev/Xazz/issues/15)). 이번 데모 논지와 무관한 잡음 |
+| `[xazz WARN] 스키마 필드 … 찾을 수 없음` | 집계 파이프라인에서 스키마 검증이 결과 프레임을 대상으로 도는 기존 버그([#15](https://github.com/xazzdev/Xazz/issues/15)). 이번 데모 논지와 무관한 잡음 |
 | `[xazz:result] {…}` · `[xazz:train] {…}` | 프런트엔드용 한 줄짜리 대용량 JSON. 같은 내용이 바로 위에 사람이 읽는 표·로그로 이미 나와 있음 |
 
 `[xazz:policy]` 판정과 `[xazz:dp]` 예산 리포트는 **감추지 않는다** — 데모가 증명하려는 대상이다.
