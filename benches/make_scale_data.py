@@ -39,6 +39,13 @@ GROUPS = {
 
 def load_frame(path: Path) -> pd.DataFrame:
     """EUC-KR 원본(또는 UTF-8 정규본)을 읽어 표준 4컬럼으로 정규화한다."""
+    if not path.exists():
+        raise FileNotFoundError(
+            f"소스 데이터가 없습니다: {path}\n"
+            "원본 예제 데이터는 Git LFS 로 관리됩니다. 먼저 실행하세요:\n"
+            "    git lfs pull\n"
+            "그런 다음 이 스크립트를 다시 실행하세요."
+        )
     df = pd.read_csv(path, encoding="euc-kr", low_memory=False)
     cols = [c for c in RENAME if c in df.columns]
     if cols:

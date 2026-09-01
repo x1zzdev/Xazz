@@ -229,7 +229,8 @@ Same 4-stage pipeline (drop nulls → dual filter → group-by aggregates → fi
 <img src="docs/assets/benchmark_chart.png" alt="Benchmark: latency scaling across 228K/912K/4.09M rows and speedup bars — 2.62x, 2.55x, 1.93x vs pandas" width="94%">
 </div>
 
-- **Up to 2.62× faster** than an equivalent pandas pipeline at 228K rows (277 ms vs 726 ms); **1.93× at 4.09M rows** (2,324 ms vs 4,489 ms). The gap narrows as the data grows, so the small-scale figure includes a pandas interpreter-boot penalty — treat 1.93× at 4.09M rows as the robust number.
+- **Up to 2.62× faster** than an equivalent pandas pipeline at 228K rows (277 ms vs 726 ms); **1.93× at 4.09M rows** (2,324 ms vs 4,489 ms). The gap narrows as the data grows.
+- Both sides are measured as **pipeline execution only** — the Python interpreter boot (~0.3–0.7 s) is excluded from pandas, and Xazz reports its own `[xazz:timing]` pipeline marker, so the comparison is apples-to-apples. Peak RSS uses the process tree for both engines.
 - Source comes from Apache Arrow columnar memory + Polars LazyFrame query optimization + multithreaded native execution.
 - Honest footnote: Polars' multithreading trades higher peak RSS for latency — pandas holds more rows per thread, Polars parallelizes across them. Note the benchmark data itself is not committed (it is built from the Seoul air-quality sources). Reproduce it yourself:
 

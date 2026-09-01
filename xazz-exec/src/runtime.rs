@@ -212,6 +212,10 @@ pub fn run_pipeline(
 
     // ── STEP 5: 런타임 엔진 (Typed IR 소비) ─────────────────────────────────
 
+    // 파이프라인 실행만의 지연을 측정한다 — 프로세스 부팅·렉서·파서·체커는 제외.
+    // 벤치마크가 [xazz:timing] 마커를 파싱해 "파이프라인 실행 시간"만 비교할 수 있다.
+    let timing_start = std::time::Instant::now();
+
     // 5-A: ModelRegistry 구축 — ModelDecl 수집 + 로깅 (선언 순서와 무관하게 사용 가능)
     let mut model_registry: HashMap<String, Vec<LayerKind>> = HashMap::new();
     for m in &ir.models {
@@ -302,6 +306,13 @@ pub fn run_pipeline(
         tr("types", "타입"),
         pipeline_count,
         tr("pipelines", "파이프라인")
+    );
+
+    // ── [xazz:timing] 마커 — 벤치마크/모니터링용 파이프라인 실행 지연(ms) ──
+    let pipeline_ms = timing_start.elapsed().as_secs_f64() * 1000.0;
+    println!(
+        "[xazz:timing] {}",
+        serde_json::json!({ "pipeline_ms": pipeline_ms }).to_string()
     );
 
     // ── STEP 6: 최종 DataFrame 자동 출력 (Top 5) ────────────────────────────
