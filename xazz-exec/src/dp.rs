@@ -1,19 +1,22 @@
-//! xazz-exec/src/dp.rs — 차등 프라이버시(DP) 노이즈 주입 엔진 (v0.6)
+//! xazz-exec/src/dp.rs — differential privacy (DP) noise injection engine (v0.6)
 //!
-//! `.xzz` 파이프라인의 `|> withDp(epsilon: 1.0, ...)` 연산을 실행한다.
-//! 집계 결과 DataFrame의 숫자형 컬럼에 보정된 노이즈를 더해,
-//! 결과 통계치의 유용성은 유지하되 개인 단위 기여 여부의 역추적을 수학적으로 차단한다.
+//! Executes the `|> withDp(epsilon: 1.0, ...)` operator of a `.xzz` pipeline.
+//! Adds calibrated noise to the numeric columns of aggregate-result DataFrames,
+//! preserving the usefulness of the reported statistics while mathematically
+//! preventing the re-identification of individual contributions.
 //!
-//! 지원 메커니즘:
-//!   - Laplace  : ε-DP.       noise ~ Lap(0, Δf/ε)          (기본값)
+//! Supported mechanisms:
+//!   - Laplace  : ε-DP.       noise ~ Lap(0, Δf/ε)          (default)
 //!   - Gaussian : (ε, δ)-DP.  noise ~ N(0, σ²), σ = Δf·√(2·ln(1.25/δ))/ε
 //!
-//! 세션 프라이버시 예산(ε-budget):
-//!   실행 세션마다 누적 ε 소모량을 추적하고, 총 예산 초과 시 실행을 거부한다.
-//!   (겹치는 집계쿼리 대량 반복 → 연립방정식 원본 복원 공격 방어. RULE_010 계열)
+//! Session privacy budget (ε-budget):
+//!   Tracks the cumulative ε spent per execution session and refuses runs that
+//!   would exceed the total budget. (Defends against reconstruction attacks
+//!   that average noise across repeated overlapping aggregate queries.)
 //!
-//! 난수: 외부 crate 의존 없이 SplitMix64 + 역CDF/Box-Muller로 자체 구현.
-//!   seed 지정 시 완전 결정적(감사·테스트 재현), 미지정 시 OS 엔트로피(/dev/urandom) 기반.
+//! Randomness: self-contained SplitMix64 + inverse-CDF/Box-Muller, no external
+//! crate dependency. A seed makes it fully deterministic (audit/test replay);
+//! without one it is seeded from OS entropy (/dev/urandom).
 
 use polars::prelude::{Column, DataFrame, DataType};
 use xazz_compiler::ast::{DpArgs, DpMechanism};

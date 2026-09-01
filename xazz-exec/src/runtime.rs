@@ -1,11 +1,11 @@
-/// xazz-exec/src/runtime.rs — 런타임 실행 엔진 (v0.18)
+/// xazz-exec/src/runtime.rs — runtime execution engine (v0.18)
 ///
-/// .xzz 소스 파일을 받아 전체 컴파일 파이프라인을 실행하는 라이브러리 모듈.
+/// Library module that runs the full compile pipeline for a .xzz source file.
 ///
-/// ⚠️  이 모듈은 xazz-exec 크레이트에만 존재합니다.
-///     xazz-compiler 에는 Polars 의존성이 없으므로 이 모듈이 없습니다.
-///     CLI(xazz)는 이 모듈을 직접 링크하지 않고,
-///     xazz-runner 서브프로세스를 통해 간접 실행합니다.
+/// ⚠️  This module exists only in the xazz-exec crate.
+///     xazz-compiler has no Polars dependency, so this module is not there.
+///     The CLI (xazz) does not link this module directly; it runs it
+///     indirectly through the xazz-runner subprocess.
 use std::collections::HashMap;
 use std::fs;
 

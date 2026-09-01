@@ -1,20 +1,20 @@
-// xazz-compiler/src/checker.rs — 정적 의미 분석기 (Type Checker)
+// xazz-compiler/src/checker.rs — static semantic analyzer (Type Checker)
 //
-// Parser 가 만든 Program AST 를 순회하며, 런타임 전에 잡아낼 수 있는
-// 의미(semantic) 오류를 컴파일 시점에 검출한다.
+// Walks the Program AST produced by the parser and detects semantic errors
+// at compile time that could not be caught before runtime.
 //
-// 검사 대상:
-//   - 미선언 / 사용전-선언 변수, 모델, 스키마 참조
-//   - 중복 선언 (스키마 / 모델 / 변수)
-//   - 스키마 기반 컬럼 존재성 검증 (SafeLoadViolation + Did-you-mean)
-//   - join 대상 변수 존재성
-//   - cast() 대상 타입 유효성
-//   - groupBy 후 집계 누락, 문자열 컬럼 집계 경고
-//   - train() / predict() 모델·변수 참조 검증
+// Checks performed:
+//   - references to undeclared / use-before-declaration variables, models, schemas
+//   - duplicate declarations (schema / model / variable)
+//   - schema-based column existence validation (SafeLoadViolation + did-you-mean)
+//   - join target variable existence
+//   - cast() target type validity
+//   - missing aggregate after groupBy, string-column aggregate warnings
+//   - train() / predict() model and variable reference validation
 //
-// AST 노드에 span 이 없으므로 오류는 span(0,0) 으로 생성되며,
-// CompileError::Display 는 이 경우 line 을 생략한다. AI 수정 제안은
-// ErrorKind::generate_suggestion() 를 통해 자동 부여된다.
+// Since AST nodes carry no spans, errors are created with span(0,0) and
+// CompileError::Display omits the line in that case. Fix suggestions are
+// provided automatically via ErrorKind::generate_suggestion().
 
 use std::collections::{HashMap, HashSet};
 

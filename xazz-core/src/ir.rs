@@ -1,15 +1,15 @@
-/// xazz-core/src/ir.rs — Typed IR (정적 타입이 부착된 의미 표현) v0.3
+/// xazz-core/src/ir.rs — Typed IR (semantic representation with static types) v0.3
 ///
-/// AST(구문)와 백엔드(Polars/Burn) 사이의 중간 계층.
-/// 타입체커(semantic analysis)가 AST를 검사하며 이 IR을 생성하고,
-/// 실행 엔진은 raw AST 대신 이 IR을 1회 소비하여 백엔드를 lowering 한다.
+/// The intermediate layer between the AST (syntax) and the backends (Polars/Burn).
+/// The type checker builds this IR while validating the AST, and the execution
+/// engine consumes this IR (not the raw AST) exactly once to lower to a backend.
 ///
-/// 설계 원칙:
-///   - 무거운 의존성 없이 순수 Rust 타입만 사용한다. (xazz-core 공유 커널)
-///   - 모든 표현식(TypedExpr)은 결과 컬럼 타입(ColType)을 가진다.
-///   - 데이터/ML/부수 연산을 도메인별 enum(DataOp/MLOp/SideOp)으로 분리하되,
-///     파이프라인의 **순서 보존**을 위해 `Step` 태그로 감싼 순차 시퀀스로 저장한다.
-///     (예: `filter |> withDp |> select` 와 `filter |> select |> withDp` 는 의미가 다르다.)
+/// Design principles:
+///   - Only plain Rust types, no heavy dependencies. (xazz-core shared kernel)
+///   - Every expression (TypedExpr) carries its result column type (ColType).
+///   - Data/ML/side effects are split into domain enums (DataOp/MLOp/SideOp), but
+///     stored as a sequential `Step`-tagged sequence to **preserve pipeline order**.
+///     (e.g. `filter |> withDp |> select` and `filter |> select |> withDp` differ.)
 use crate::ast::{BinOpKind, ChartConfig, DpArgs, JoinHow, LayerKind, TrainConfig};
 
 // ─────────────────────────────────────────────────────────────────────────────

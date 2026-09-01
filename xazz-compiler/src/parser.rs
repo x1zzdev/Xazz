@@ -1,4 +1,4 @@
-/// xazzLang - 재귀 하강 파서 (v0.16 완전 구현)
+/// xazzLang - recursive-descent parser (v0.16, complete implementation)
 ///
 /// BNF:
 ///   program        = stmt* EOF
@@ -10,7 +10,7 @@
 ///   var_stmt       = "mut"? "v" IDENT "=" pipeline_expr ";"?
 ///   pipeline_expr  = (load_expr | var_ref_expr) ("|>" pipeline_op)*
 ///   load_expr      = "load" "(" STRING_LIT ")" "::" IDENT
-///   var_ref_expr   = IDENT  (기존 변수 참조)
+///   var_ref_expr   = IDENT  (existing variable reference)
 ///   pipeline_op    = "filter" "(" expr ")"
 ///                  | "select" "(" "[" ident_list "]" ")"
 ///                  | "count" ("(" STRING_LIT ")")?
@@ -35,14 +35,14 @@
 ///                  | "(" expr ")"
 ///   cmp_op         = "==" | "!=" | "<" | ">" | "<=" | ">="
 ///
-/// [v0.16 변경사항]
-///   - col("col_name") 표현식 지원: col("x") → Expr::Ident("x")
-///   - true / false 불리언 리터럴 지원
-///   - Count(None) / Count(Some(col)) 구분
-///   - 9종 신규 파이프라인 연산자 파싱
-///   - join() 연산자: on: / how: 명명 인수 파싱
-///   - withColumn() 연산자 파싱
-///   - 산술 표현식 우선순위: * / > + - > 비교 연산자
+/// [v0.16 changes]
+///   - col("col_name") expression support: col("x") → Expr::Ident("x")
+///   - true / false boolean literal support
+///   - Count(None) / Count(Some(col)) distinction
+///   - parsing of 9 new pipeline operators
+///   - join() operator: on: / how: named-argument parsing
+///   - withColumn() operator parsing
+///   - arithmetic precedence: * / > + - > comparison operators
 use crate::ast::{
     BinOpKind, ChartConfig, ChartType, DpArgs, DpMechanism, Expr, FillNullValue, JoinHow,
     LayerKind, PipelineOp, PipelineSource, Program, Stmt, StructField, TrainConfig,

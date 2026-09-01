@@ -1,16 +1,16 @@
-/// xazzLang - 렉서 (Peekable<Chars> 상태 머신 완전 구현)
+/// xazzLang - lexer (complete Peekable<Chars> state machine)
 ///
-/// 모든 필드를 실제로 사용하여 dead_code 경고 없음:
-///   source  - byte 오프셋 경계 확인용 (is_at_end)
-///   chars   - 상태 머신 이터레이터
-///   pos     - 현재 바이트 오프셋 (UTF-8 len_utf8 누적)
-///   line/col- 소스 위치 추적
+/// Every field is actually used so there are no dead_code warnings:
+///   source  - byte-offset boundary checks (is_at_end)
+///   chars   - state-machine iterator
+///   pos     - current byte offset (accumulated via UTF-8 len_utf8)
+///   line/col- source-position tracking
 ///
-/// [v0.16 변경사항]
-///   - 숫자 리터럴 underscore 지원: 1_200_000 → 1200000
-///   - 새 키워드: groupBy, sum, mean, min, max, orderBy, take, dropNull, fillNull
-///   - 불리언 키워드: true, false
-///   - 정렬 방향 키워드: desc
+/// [v0.16 changes]
+///   - underscore in numeric literals: 1_200_000 → 1200000
+///   - new keywords: groupBy, sum, mean, min, max, orderBy, take, dropNull, fillNull
+///   - boolean keywords: true, false
+///   - sort-direction keyword: desc
 use crate::error::{CompileError, CompileResult, ErrorKind};
 use crate::token::{Span, Token, TokenKind};
 
