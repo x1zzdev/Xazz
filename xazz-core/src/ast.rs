@@ -1,22 +1,22 @@
-/// Xazz - AST 노드 정의 (v0.3)
+/// Xazz - AST node definitions (v0.3)
 ///
-/// Polars / Tokio 등 무거운 의존성 없이 순수 Rust 타입만 사용한다.
-/// v0.3: Burn 딥러닝 모델 선언(ModelDecl) 및 학습(TrainStmt) AST 추가
+/// Uses only plain Rust types, with no heavy dependencies such as Polars / Tokio.
+/// v0.3: Added Burn deep-learning model declaration (ModelDecl) and training (TrainStmt) AST
 
-/// 표현식 노드
+/// Expression node
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    /// 식별자 참조 (변수명 또는 컬럼명)
+    /// Identifier reference (variable name or column name)
     Ident(String),
-    /// 문자열 리터럴
+    /// String literal
     StringLit(String),
-    /// 정수 리터럴
+    /// Integer literal
     IntLit(i64),
-    /// 부동소수 리터럴
+    /// Floating-point literal
     FloatLit(f64),
-    /// 불리언 리터럴 (true / false)
+    /// Boolean literal (true / false)
     BoolLit(bool),
-    /// 이항 연산 (lhs op rhs) — 비교 및 산술 연산 포함
+    /// Binary operation (lhs op rhs) — includes comparison and arithmetic operations
     BinOp {
         lhs: Box<Expr>,
         op: BinOpKind,
@@ -24,41 +24,41 @@ pub enum Expr {
     },
 }
 
-/// 이항 연산자 종류 (비교 + 산술)
+/// Binary operator kinds (comparison + arithmetic)
 #[derive(Debug, Clone, PartialEq)]
 pub enum BinOpKind {
-    // ── 비교 연산자 ──────────────────────
+    // ── Comparison operators ──────────────────────
     Eq,
     NotEq,
     Lt,
     Gt,
     LtEq,
     GtEq,
-    // ── 산술 연산자 (v0.16+) ─────────────
+    // ── Arithmetic operators (v0.16+) ─────────────
     Add,
     Sub,
     Mul,
     Div,
 }
 
-/// fillNull 채우기 값 종류
+/// fillNull fill value kinds
 #[derive(Debug, Clone, PartialEq)]
 pub enum FillNullValue {
-    /// 정수 채우기 값
+    /// Integer fill value
     Int(i64),
-    /// 부동소수 채우기 값
+    /// Floating-point fill value
     Float(f64),
-    /// 문자열 채우기 값
+    /// String fill value
     Str(String),
-    /// 평균 채우기 전략 (strategy: "mean")
+    /// Mean fill strategy (strategy: "mean")
     Mean,
-    /// 중앙값 채우기 전략 (strategy: "median")
+    /// Median fill strategy (strategy: "median")
     Median,
-    /// 0으로 채우기 전략 (strategy: "zero")
+    /// Zero fill strategy (strategy: "zero")
     Zero,
 }
 
-/// join 방식
+/// join methods
 #[derive(Debug, Clone, PartialEq)]
 pub enum JoinHow {
     Inner,
@@ -74,7 +74,7 @@ impl Default for JoinHow {
 }
 
 impl JoinHow {
-    /// 소문자 문자열에서 파싱
+    /// Parse from a lowercase string
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "inner" => Some(JoinHow::Inner),
@@ -95,9 +95,9 @@ impl JoinHow {
     }
 }
 
-// ── v0.19 시각화 타입 ──────────────────────────────────────────────────────────
+// ── v0.19 visualization types ──────────────────────────────────────────────────────────
 
-/// 차트 종류 (MVP: bar / line / pie / scatter)
+/// Chart types (MVP: bar / line / pie / scatter)
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChartType {
     Bar,
@@ -107,7 +107,7 @@ pub enum ChartType {
 }
 
 impl ChartType {
-    /// 식별자 문자열에서 파싱
+    /// Parse from an identifier string
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "bar" => Some(ChartType::Bar),
@@ -128,47 +128,47 @@ impl ChartType {
     }
 }
 
-/// chart { ... } 블록 설정값
+/// chart { ... } block settings
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChartConfig {
     pub chart_type: ChartType,
     pub title: Option<String>,
-    /// x축 컬럼명 (bar, line, scatter 용)
+    /// x-axis column name (for bar, line, scatter)
     pub x: Option<String>,
-    /// y축 컬럼명 (bar, line, scatter 용)
+    /// y-axis column name (for bar, line, scatter)
     pub y: Option<String>,
-    /// 레이블 컬럼명 (pie 용)
+    /// label column name (for pie)
     pub label: Option<String>,
-    /// 값 컬럼명 (pie 용)
+    /// value column name (for pie)
     pub value: Option<String>,
 }
 
-/// 파이프라인 연산 단계
+/// Pipeline operation step
 #[derive(Debug, Clone, PartialEq)]
 pub enum PipelineOp {
-    /// filter(<조건식>)
+    /// filter(<condition>)
     Filter(Expr),
     /// select([col1, col2, ...])
     Select(Vec<String>),
-    /// count  (None: 전체 행 수용 플래그) / count("col")  (Some: 그룹 집계)
+    /// count  (None: flag to count all rows) / count("col")  (Some: group aggregation)
     Count(Option<String>),
-    /// groupBy("col")  — 이후 Sum/Mean/Min/Max/Count(Some) 와 쌍으로 사용
+    /// groupBy("col")  — used in pairs with Sum/Mean/Min/Max/Count(Some) afterwards
     GroupBy(String),
-    /// sum("col")  — 단독 또는 groupBy 뒤에 사용
+    /// sum("col")  — used standalone or after groupBy
     Sum(String),
-    /// mean("col")  — 단독 또는 groupBy 뒤에 사용
+    /// mean("col")  — used standalone or after groupBy
     Mean(String),
-    /// min("col")  — 단독 또는 groupBy 뒤에 사용
+    /// min("col")  — used standalone or after groupBy
     Min(String),
-    /// max("col")  — 단독 또는 groupBy 뒤에 사용
+    /// max("col")  — used standalone or after groupBy
     Max(String),
     /// orderBy("col", desc: true/false)
     OrderBy { col: String, desc: bool },
-    /// take(n)  — 상위 n 행만 유지
+    /// take(n)  — keep only the top n rows
     Take(i64),
-    /// dropNull("col")  — 해당 컬럼이 null인 행 제거
+    /// dropNull("col")  — remove rows where the column is null
     DropNull(String),
-    /// fillNull("col", value)  — 해당 컬럼의 null을 value로 채우기
+    /// fillNull("col", value)  — fill nulls in the column with value
     FillNull { col: String, value: FillNullValue },
     /// join(other_var, left_on/right_on, how)
     Join {
@@ -177,43 +177,43 @@ pub enum PipelineOp {
         right_on: Vec<String>,
         how: JoinHow,
     },
-    /// withColumn("new_col", expr)  — 새로운 컬럼 추가/변환
+    /// withColumn("new_col", expr)  — add/transform a new column
     WithColumn { name: String, expr: Expr },
-    /// chart { type: ..., x: ..., y: ..., title: "..." }  — 파이프라인 시각화 (v0.19)
+    /// chart { type: ..., x: ..., y: ..., title: "..." }  — pipeline visualization (v0.19)
     Chart(ChartConfig),
-    /// cast("col", "float")  — 컬럼 타입을 DSL 레벨에서 명시적으로 캐스팅 (v0.20)
+    /// cast("col", "float")  — explicitly cast the column type at the DSL level (v0.20)
     Cast { col: String, to_type: String },
-    /// rename("old_name", "new_name") — 컬럼 이름 변경 (v0.21)
+    /// rename("old_name", "new_name") — rename a column (v0.21)
     Rename { old_name: String, new_name: String },
-    /// replace("col", ".", "") — 문자열 치환 (v0.21)
+    /// replace("col", ".", "") — string replacement (v0.21)
     Replace {
         col: String,
         from: String,
         to: String,
     },
-    /// sample(n) / sample(n, seed: 42) — 무작위 샘플링 (v0.22)
+    /// sample(n) / sample(n, seed: 42) — random sampling (v0.22)
     Sample { n: i64, seed: Option<i64> },
-    /// median("col") — 중앙값 집계 (v0.22)
+    /// median("col") — median aggregation (v0.22)
     Median(String),
-    /// variance("col") — 분산 집계 (v0.22)
+    /// variance("col") — variance aggregation (v0.22)
     Variance(String),
-    /// std("col") — 표준편차 집계 (v0.22)
+    /// std("col") — standard deviation aggregation (v0.22)
     Std(String),
-    /// train(ModelName, target: "col", epochs: N, lr: F) — 학습 연산자 (v0.5)
+    /// train(ModelName, target: "col", epochs: N, lr: F) — training operator (v0.5)
     Train {
         model_name: String,
         config: TrainConfig,
     },
-    /// predict(model_var, as: "col") — 학습 모델 예측 연산자 (v0.5)
+    /// predict(model_var, as: "col") — prediction operator for a trained model (v0.5)
     Predict {
         model_var: String,
         as_col: Option<String>,
     },
-    /// withDp(epsilon: 1.0, mechanism: laplace, ...) — 차등 프라이버시 노이즈 주입 (v0.6)
+    /// withDp(epsilon: 1.0, mechanism: laplace, ...) — differential privacy noise injection (v0.6)
     WithDp(DpArgs),
 }
 
-/// 차등 프라이버시 노이즈 메커니즘 종류 (v0.6)
+/// Differential privacy noise mechanism kinds (v0.6)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DpMechanism {
     /// Laplace Mechanism — ε-DP. scale b = sensitivity / ε
@@ -223,7 +223,7 @@ pub enum DpMechanism {
 }
 
 impl DpMechanism {
-    /// 식별자/문자열에서 파싱
+    /// Parse from an identifier/string
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "laplace" => Some(DpMechanism::Laplace),
@@ -240,13 +240,13 @@ impl DpMechanism {
     }
 }
 
-/// withDp(...) 연산자 인수 (v0.6)
+/// withDp(...) operator arguments (v0.6)
 ///
-/// - `epsilon`     : 프라이버시 예산 ε (필수, > 0). 작을수록 강한 보호·큰 노이즈.
-/// - `mechanism`   : laplace(기본) | gaussian
-/// - `sensitivity` : 쿼리 민감도 Δf (기본 1.0)
-/// - `delta`       : gaussian 전용 δ (기본 1e-5)
-/// - `seed`        : 노이즈 재현용 시드 (감사/테스트용. 미지정 시 비결정적)
+/// - `epsilon`     : privacy budget ε (required, > 0). Smaller means stronger protection and more noise.
+/// - `mechanism`   : laplace (default) | gaussian
+/// - `sensitivity` : query sensitivity Δf (default 1.0)
+/// - `delta`       : gaussian-only δ (default 1e-5)
+/// - `seed`        : seed for noise reproducibility (for auditing/testing; non-deterministic if unspecified)
 #[derive(Debug, Clone, PartialEq)]
 pub struct DpArgs {
     pub epsilon: f64,
@@ -268,26 +268,26 @@ impl Default for DpArgs {
     }
 }
 
-/// 파이프라인의 소스 (데이터 원천)
+/// Pipeline source (data origin)
 #[derive(Debug, Clone, PartialEq)]
 pub enum PipelineSource {
-    /// load("파일경로") :: SchemaName
+    /// load("file_path") :: SchemaName
     Load {
         file_path: String,
         schema_name: String,
     },
-    /// 이미 선언된 변수를 참조
+    /// Reference to an already-declared variable
     VarRef(String),
 }
 
-/// 타입 선언의 필드 하나
+/// A single field of a type declaration
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructField {
     pub name: String,
     pub field_type: String,
 }
 
-/// 딥러닝 레이어 종류 (Burn 매핑)
+/// Deep-learning layer kinds (Burn mapping)
 #[derive(Debug, Clone, PartialEq)]
 pub enum LayerKind {
     /// Dense(units) — fully connected layer
@@ -307,7 +307,7 @@ pub enum LayerKind {
 }
 
 impl LayerKind {
-    /// Burn 코드 생성용 문자열 반환 (입력 차원은 데이터셋 스키마에서 결정되므로 함수 인자로 받는다).
+    /// Returns the string for Burn code generation (the input dimension is determined by the dataset schema, so it is passed as a function argument).
     pub fn to_burn_str(&self) -> String {
         match self {
             LayerKind::Dense(n) => format!("nn::LinearConfig::new(<in_dim>, {})", n),
@@ -321,18 +321,18 @@ impl LayerKind {
     }
 }
 
-/// 학습 하이퍼파라미터 설정
+/// Training hyperparameter configuration
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrainConfig {
-    /// 학습 대상 컬럼 (target)
+    /// Column to train on (target)
     pub target: String,
-    /// 에폭 수
+    /// Number of epochs
     pub epochs: usize,
-    /// 학습률 (learning rate)
+    /// Learning rate
     pub learning_rate: f64,
-    /// 배치 크기 (None: 전체 데이터)
+    /// Batch size (None: all data)
     pub batch_size: Option<usize>,
-    /// 검증 데이터 비율 (0.0 ~ 1.0)
+    /// Validation data ratio (0.0 ~ 1.0)
     pub validation_split: Option<f64>,
 }
 
@@ -348,7 +348,7 @@ impl Default for TrainConfig {
     }
 }
 
-/// 최상위 구문 노드
+/// Top-level statement node
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     /// type <Name> = { <fields> }
@@ -363,7 +363,7 @@ pub enum Stmt {
         source: PipelineSource,
         ops: Vec<PipelineOp>,
     },
-    /// expression statement: 변수에 할당하지 않고 파이프라인 실행 (결과 버림)
+    /// expression statement: run the pipeline without assigning to a variable (result discarded)
     ExprStmt {
         source: PipelineSource,
         ops: Vec<PipelineOp>,
@@ -381,7 +381,7 @@ pub enum Stmt {
     },
 }
 
-/// 컴파일 단위 — 파일 전체 AST
+/// Compilation unit — the whole-file AST
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub stmts: Vec<Stmt>,
@@ -399,15 +399,15 @@ impl Default for Program {
     }
 }
 
-// ── AST 유닛 테스트 ───────────────────────────────────────────────────────────
+// ── AST unit tests ───────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // ── JoinHow 테스트 ────────────────────────────────────────────────────────
+    // ── JoinHow tests ────────────────────────────────────────────────────────
 
-    /// JoinHow::from_str — 유효한 문자열 4종
+    /// JoinHow::from_str — four valid strings
     #[test]
     fn test_join_how_from_str_valid() {
         assert_eq!(JoinHow::from_str("inner"), Some(JoinHow::Inner));
@@ -416,11 +416,11 @@ mod tests {
         assert_eq!(JoinHow::from_str("cross"), Some(JoinHow::Cross));
     }
 
-    /// JoinHow::from_str — 유효하지 않은 문자열 → None
+    /// JoinHow::from_str — invalid strings → None
     #[test]
     fn test_join_how_from_str_invalid() {
         assert_eq!(JoinHow::from_str("hash"), None);
-        assert_eq!(JoinHow::from_str("INNER"), None); // 대소문자 구분
+        assert_eq!(JoinHow::from_str("INNER"), None); // case-sensitive
         assert_eq!(JoinHow::from_str(""), None);
         assert_eq!(JoinHow::from_str("full"), None);
     }
@@ -431,7 +431,7 @@ mod tests {
         assert_eq!(JoinHow::default(), JoinHow::Inner);
     }
 
-    /// JoinHow::as_polars_str — Polars 타입 문자열 매핑 검증
+    /// JoinHow::as_polars_str — verify the Polars type string mapping
     #[test]
     fn test_join_how_as_polars_str() {
         assert_eq!(JoinHow::Inner.as_polars_str(), "JoinType::Inner");
@@ -440,9 +440,9 @@ mod tests {
         assert_eq!(JoinHow::Cross.as_polars_str(), "JoinType::Cross");
     }
 
-    // ── ChartType 테스트 ──────────────────────────────────────────────────────
+    // ── ChartType tests ──────────────────────────────────────────────────────
 
-    /// ChartType::from_str — 유효한 문자열 4종
+    /// ChartType::from_str — four valid strings
     #[test]
     fn test_chart_type_from_str_valid() {
         assert_eq!(ChartType::from_str("bar"), Some(ChartType::Bar));
@@ -451,16 +451,16 @@ mod tests {
         assert_eq!(ChartType::from_str("scatter"), Some(ChartType::Scatter));
     }
 
-    /// ChartType::from_str — 유효하지 않은 문자열 → None
+    /// ChartType::from_str — invalid strings → None
     #[test]
     fn test_chart_type_from_str_invalid() {
         assert_eq!(ChartType::from_str("heatmap"), None);
-        assert_eq!(ChartType::from_str("Bar"), None); // 대소문자 구분
+        assert_eq!(ChartType::from_str("Bar"), None); // case-sensitive
         assert_eq!(ChartType::from_str(""), None);
         assert_eq!(ChartType::from_str("radar"), None);
     }
 
-    /// ChartType::as_str — 소문자 문자열 반환 검증
+    /// ChartType::as_str — verify it returns a lowercase string
     #[test]
     fn test_chart_type_as_str() {
         assert_eq!(ChartType::Bar.as_str(), "bar");
@@ -469,7 +469,7 @@ mod tests {
         assert_eq!(ChartType::Scatter.as_str(), "scatter");
     }
 
-    /// ChartType from_str / as_str 왕복 변환 검증
+    /// ChartType from_str / as_str round-trip verification
     #[test]
     fn test_chart_type_roundtrip() {
         for s in &["bar", "line", "pie", "scatter"] {
@@ -478,9 +478,9 @@ mod tests {
         }
     }
 
-    // ── Program 테스트 ────────────────────────────────────────────────────────
+    // ── Program tests ────────────────────────────────────────────────────────
 
-    /// Program::new() → stmts 비어 있음
+    /// Program::new() → stmts is empty
     #[test]
     fn test_program_new_is_empty() {
         let p = Program::new();
@@ -493,9 +493,9 @@ mod tests {
         assert_eq!(Program::default(), Program::new());
     }
 
-    // ── FillNullValue 테스트 ──────────────────────────────────────────────────
+    // ── FillNullValue tests ──────────────────────────────────────────────────
 
-    /// FillNullValue PartialEq — 같은 값 비교
+    /// FillNullValue PartialEq — equal value comparison
     #[test]
     fn test_fill_null_value_eq() {
         assert_eq!(FillNullValue::Int(0), FillNullValue::Int(0));
@@ -510,9 +510,9 @@ mod tests {
         );
     }
 
-    // ── Expr Debug / Clone 테스트 ─────────────────────────────────────────────
+    // ── Expr Debug / Clone tests ─────────────────────────────────────────────
 
-    /// Expr::Ident Debug 출력 검증
+    /// Expr::Ident Debug output verification
     #[test]
     fn test_expr_ident_debug() {
         let e = Expr::Ident("pm10".into());
@@ -520,7 +520,7 @@ mod tests {
         assert!(debug.contains("pm10"), "Debug 출력에 pm10 없음: {}", debug);
     }
 
-    /// Expr::BinOp Clone 검증
+    /// Expr::BinOp Clone verification
     #[test]
     fn test_expr_binop_clone() {
         let e = Expr::BinOp {

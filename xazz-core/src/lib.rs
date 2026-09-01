@@ -1,16 +1,16 @@
-/// xazz-core — Xazz 공유 핵심 타입 (v0.3)
+/// xazz-core — Xazz shared core types (v0.3)
 ///
-/// 모든 크레이트가 공유하는 AST, 토큰, 에러 타입을 정의한다.
-/// 이 크레이트는 Polars / Tokio / Rayon 등 무거운 의존성을 포함하지 않는다.
+/// Defines the AST, token, and error types shared by all crates.
+/// This crate does not include heavy dependencies such as Polars / Tokio / Rayon.
 ///
-/// v0.3: 딥러닝 모델 선언(ModelDecl), 학습(TrainStmt), 레이어(LayerKind) 추가
+/// v0.3: Added deep-learning model declarations (ModelDecl), training (TrainStmt), and layers (LayerKind)
 pub mod ast;
 pub mod error;
 pub mod i18n;
 pub mod ir;
 pub mod token;
 
-// ── 상위 노출 ────────────────────────────────────────────────────────────────
+// ── Top-level exports ────────────────────────────────────────────────────────
 
 // i18n
 pub use i18n::{Lang, tr};

@@ -1,52 +1,52 @@
-/// xazzLang - 컴파일러/런타임 에러 타입 정의 (v0.16)
-/// Diagnostic Engine: Line/Col 정확 추적 + 친화적 메시지 포맷
-/// + AI Suggestion: ai_suggestion 필드 + SafeLoadViolation
+/// xazzLang - compiler/runtime error type definitions (v0.16)
+/// Diagnostic Engine: precise Line/Col tracking + friendly message formatting
+/// + AI Suggestion: ai_suggestion field + SafeLoadViolation
 use crate::i18n::{is_korean, tr};
 use crate::token::Span;
 
-/// 컴파일 에러 종류 (ErrorKind 고도화)
+/// Compile error kinds (refined ErrorKind)
 #[derive(Debug, Clone, PartialEq)]
 pub enum ErrorKind {
-    /// 렉서: 알 수 없는 문자
+    /// Lexer: unknown character
     UnexpectedChar(char),
-    /// 파서: 예상치 못한 토큰
+    /// Parser: unexpected token
     UnexpectedToken(String),
-    /// 파서: 예상 토큰 미등장
+    /// Parser: expected token not found
     ExpectedToken(String),
-    /// 코드젠/런타임: 미선언 타입 참조
+    /// Codegen/runtime: reference to an undeclared type
     UndeclaredType(String),
-    /// 런타임: 미선언 변수 참조
+    /// Runtime: reference to an undeclared variable
     UndeclaredVariable(String),
-    /// 런타임: 타입 불일치 (선언 타입, 실제 타입)
+    /// Runtime: type mismatch (declared type, actual type)
     TypeMismatch {
         expected: String,
         found: String,
         field: String,
     },
-    /// 런타임: 필수 필드에 null 발생
+    /// Runtime: null in a required field
     NullViolation { field: String, schema: String },
-    /// 런타임: 파일 입출력 오류
+    /// Runtime: file I/O error
     IoError(String),
-    /// 런타임: CSV 스키마 매핑 실패
+    /// Runtime: CSV schema mapping failed
     SchemaMappingFailed { schema: String, reason: String },
-    /// Safe-Load 위반: 스키마에 없는 컬럼 참조
+    /// Safe-Load violation: reference to a column not in the schema
     SafeLoadViolation {
         col: String,
         schema: String,
         available: Vec<String>,
     },
-    /// DivisionByZero: 0으로 나누기 감지
+    /// DivisionByZero: division by zero detected
     DivisionByZero {
         col: String,
         row_count: usize,
         expr_context: String,
     },
-    /// 기타
+    /// Other
     Other(String),
 }
 
 impl ErrorKind {
-    /// 에러 종류의 카테고리 레이블 반환
+    /// Returns the category label for an error kind
     pub fn category(&self) -> &'static str {
         match self {
             ErrorKind::UnexpectedChar(_) => tr("lexer error", "렉서 에러"),
@@ -65,13 +65,13 @@ impl ErrorKind {
     }
 }
 
-/// 컴파일 에러 구조체
+/// Compile error struct
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompileError {
     pub kind: ErrorKind,
     pub span: Span,
     pub message: String,
-    /// AI 기반 수정 제안 (있는 경우)
+    /// AI-based fix suggestion (if any)
     pub ai_suggestion: Option<String>,
 }
 
@@ -87,7 +87,7 @@ impl CompileError {
         }
     }
 
-    /// span이 없는 에러 생성 (런타임 에러용)
+    /// Create an error without a span (for runtime errors)
     pub fn runtime(kind: ErrorKind, message: impl Into<String>) -> Self {
         let message = message.into();
         let ai_suggestion = generate_suggestion(&kind);
@@ -99,7 +99,7 @@ impl CompileError {
         }
     }
 
-    /// ai_suggestion을 직접 지정하여 에러 생성
+    /// Create an error with ai_suggestion set directly
     pub fn with_suggestion(
         kind: ErrorKind,
         span: Span,
@@ -115,7 +115,7 @@ impl CompileError {
     }
 }
 
-/// ErrorKind에서 AI 수정 제안 자동 생성
+/// Auto-generate an AI fix suggestion from an ErrorKind
 fn generate_suggestion(kind: &ErrorKind) -> Option<String> {
     let ko = crate::i18n::is_korean();
     match kind {
@@ -222,7 +222,7 @@ fn generate_suggestion(kind: &ErrorKind) -> Option<String> {
     }
 }
 
-/// Levenshtein 편집 거리 기반 가장 가까운 후보 반환
+/// Return the closest candidate based on Levenshtein edit distance
 pub fn find_closest<'a>(name: &str, candidates: &'a [String]) -> Option<&'a str> {
     candidates
         .iter()
@@ -280,10 +280,10 @@ impl std::fmt::Display for CompileError {
 
 impl std::error::Error for CompileError {}
 
-/// 컴파일 결과 타입 별칭
+/// Compile result type alias
 pub type CompileResult<T> = Result<T, CompileError>;
 
-// ── 에러 모듈 테스트 ─────────────────────────────────────────────────────────
+// ── Error module tests ─────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {

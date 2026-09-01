@@ -1,17 +1,17 @@
-//! i18n — 최소 다국어 지원 (영어 기본 + 한국어 유지)
+//! i18n — minimal multilingual support (English default + Korean retained)
 //!
-//! 언어 선택 규칙:
-//!   1. 테스트/코드에서 `set_lang()` 으로 스레드 로컬 오버라이드 (테스트 병렬 안전)
-//!   2. `XAZZ_LANG=ko` (또는 `ko_KR`, `kr`) 환경변수 → 한국어
-//!   3. 그 외 → 영어 (기본)
+//! Language selection rules:
+//!   1. Thread-local override via `set_lang()` in tests/code (parallel-test safe)
+//!   2. `XAZZ_LANG=ko` (or `ko_KR`, `kr`) environment variable → Korean
+//!   3. Otherwise → English (default)
 //!
-//! 사용 예:
+//! Usage example:
 //!   let msg = tr("column", "컬럼");
 //!   format!("{} '{}' 을 찾을 수 없습니다", tr("column", "컬럼"), name);
 
 use std::cell::Cell;
 
-/// 지원 언어.
+/// Supported languages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lang {
     En,
@@ -22,7 +22,7 @@ thread_local! {
     static OVERRIDE: Cell<Option<Lang>> = const { Cell::new(None) };
 }
 
-/// 현재 언어 결정 — 스레드 로컬 오버라이드 → 환경변수 → 기본(영어).
+/// Determine the current language — thread-local override → environment variable → default (English).
 pub fn current() -> Lang {
     if let Some(lang) = OVERRIDE.with(Cell::get) {
         return lang;
@@ -39,17 +39,17 @@ pub fn current() -> Lang {
     }
 }
 
-/// 스레드 로컬 언어 오버라이드 (주로 테스트에서 사용 — 병렬 테스트 안전).
+/// Thread-local language override (mainly used in tests — parallel-test safe).
 pub fn set_lang(lang: Lang) {
     OVERRIDE.with(|c| c.set(Some(lang)));
 }
 
-/// 스레드 로컬 언어 오버라이드 해제.
+/// Clear the thread-local language override.
 pub fn reset_lang() {
     OVERRIDE.with(|c| c.set(None));
 }
 
-/// (영어, 한국어) 쌍에서 현재 언어의 문자열을 반환한다.
+/// Returns the string for the current language from an (English, Korean) pair.
 pub fn tr(en: &'static str, ko: &'static str) -> &'static str {
     match current() {
         Lang::En => en,
@@ -57,7 +57,7 @@ pub fn tr(en: &'static str, ko: &'static str) -> &'static str {
     }
 }
 
-/// 현재 언어가 한국어인지 여부.
+/// Whether the current language is Korean.
 pub fn is_korean() -> bool {
     current() == Lang::Ko
 }
@@ -76,7 +76,7 @@ mod tests {
     #[test]
     fn env_var_selects_korean() {
         reset_lang();
-        // Rust 2024: env 조작은 unsafe 로 표시된다 (병렬 테스트 안전성).
+        // Rust 2024: manipulating env is marked unsafe (parallel-test safety).
         unsafe { std::env::set_var("XAZZ_LANG", "ko") };
         assert_eq!(current(), Lang::Ko);
         assert_eq!(tr("row", "행"), "행");

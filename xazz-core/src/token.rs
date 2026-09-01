@@ -1,5 +1,5 @@
 /// xazzLang - Token definitions
-/// Span: 소스 위치 정보
+/// Span: source location information
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Span {
@@ -15,7 +15,7 @@ impl Span {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
-    // ── 연산자 ──────────────────────────────────────
+    // ── Operators ──────────────────────────────────────
     /// |>
     Pipeline,
     /// ::
@@ -47,7 +47,7 @@ pub enum TokenKind {
     /// .
     Dot,
 
-    // ── 구분자 ──────────────────────────────────────
+    // ── Delimiters ──────────────────────────────────────
     /// {
     LBrace,
     /// }
@@ -64,10 +64,10 @@ pub enum TokenKind {
     Comma,
     /// ;
     Semicolon,
-    /// :  (단일 콜론 — 필드 타입 구분자)
+    /// :  (single colon — field type separator)
     Colon,
 
-    // ── 키워드 ──────────────────────────────────────
+    // ── Keywords ──────────────────────────────────────
     /// type
     Type,
     /// load
@@ -100,74 +100,74 @@ pub enum TokenKind {
     Join,
     /// withColumn
     WithColumn,
-    /// on   (join 의 명명 인수)
+    /// on   (named argument of join)
     On,
-    /// how  (join 의 명명 인수)
+    /// how  (named argument of join)
     How,
-    /// v  (불변 변수 선언)
+    /// v  (immutable variable declaration)
     V,
     /// mut
     Mut,
-    /// Option  (Option<T> 타입 키워드)
+    /// Option  (Option<T> type keyword)
     OptionKw,
-    /// true (불리언 리터럴)
+    /// true (boolean literal)
     True,
-    /// false (불리언 리터럴)
+    /// false (boolean literal)
     False,
-    /// desc  (orderBy 내 정렬 방향 키워드)
+    /// desc  (sort-direction keyword in orderBy)
     Desc,
-    /// chart  (파이프라인 시각화 연산)
+    /// chart  (pipeline visualization operation)
     Chart,
-    /// cast  (타입 캐스팅 연산 — cast("col", "float"))
+    /// cast  (type-casting operation — cast("col", "float"))
     Cast,
-    /// rename  (컬럼 이름 변경 — rename("old", "new"))
+    /// rename  (column rename — rename("old", "new"))
     Rename,
-    /// replace  (문자열 치환 연산 — replace("col", ".", ""))
+    /// replace  (string replacement operation — replace("col", ".", ""))
     Replace,
-    /// left_on  (join 의 left 키 명명 인수)
+    /// left_on  (left-key named argument of join)
     LeftOn,
-    /// right_on  (join 의 right 키 명명 인수)
+    /// right_on  (right-key named argument of join)
     RightOn,
-    /// sample  (샘플링 연산 — sample(n) / sample(n, seed: 42))
+    /// sample  (sampling operation — sample(n) / sample(n, seed: 42))
     Sample,
-    /// median  (중앙값 집계)
+    /// median  (median aggregation)
     Median,
-    /// variance  (분산 집계)
+    /// variance  (variance aggregation)
     Variance,
-    /// std  (표준편차 집계)
+    /// std  (standard deviation aggregation)
     Std,
-    /// seed  (sample 의 명명 인수)
+    /// seed  (named argument of sample)
     Seed,
 
-    // ── 딥러닝 키워드 (v0.3) ─────────────────────────
-    /// model  (모델 선언)
+    // ── Deep-learning keywords (v0.3) ─────────────────────────
+    /// model  (model declaration)
     Model,
-    /// run  (학습 실행)
+    /// run  (run training)
     Run,
-    /// train  (학습 연산)
+    /// train  (training operation)
     Train,
-    /// epochs  (train 명명 인수)
+    /// epochs  (named argument of train)
     Epochs,
-    /// lr  (train 명명 인수 — learning rate)
+    /// lr  (named argument of train — learning rate)
     Lr,
-    /// target  (train 명명 인수)
+    /// target  (named argument of train)
     Target,
-    /// strategy  (fillNull 명명 인수)
+    /// strategy  (named argument of fillNull)
     Strategy,
-    /// ->  (레이어 체이닝 연산자)
+    /// ->  (layer-chaining operator)
     Arrow,
 
-    // ── 리터럴 / 식별자 ─────────────────────────────
-    /// 일반 식별자
+    // ── Literals / identifiers ─────────────────────────────
+    /// Generic identifier
     Ident(String),
-    /// 문자열 리터럴
+    /// String literal
     StringLit(String),
-    /// 정수 리터럴
+    /// Integer literal
     IntLit(i64),
-    /// 부동소수 리터럴
+    /// Floating-point literal
     FloatLit(f64),
 
-    // ── 파일 끝 ─────────────────────────────────────
+    // ── End of file ─────────────────────────────────────
     Eof,
 }
 

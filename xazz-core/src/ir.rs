@@ -13,29 +13,29 @@
 use crate::ast::{BinOpKind, ChartConfig, DpArgs, JoinHow, LayerKind, TrainConfig};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 컬럼 타입 / 스키마
+// Column types / schema
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 컬럼의 정규화된 타입 (스키마 선언과 표현식 추론 결과에 공통으로 사용).
+/// Canonical type of a column (used for both schema declarations and expression type inference).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ColType {
     String,
     Int,
     Float,
     Bool,
-    /// 타입을 결정할 수 없는 컬럼 (예: 미선언 스키마 경유).
+    /// Column whose type cannot be determined (e.g. via an undeclared schema).
     Unknown,
-    /// 널 허용 컬럼. `Option<T>` 의 T 를 감싼다.
+    /// Nullable column. Wraps the `T` of `Option<T>`.
     Nullable(Box<ColType>),
 }
 
 impl ColType {
-    /// nullable 여부.
+    /// Whether the type is nullable.
     pub fn is_option(&self) -> bool {
         matches!(self, ColType::Nullable(_))
     }
 
-    /// nullable 을 벗겨낸 내부 타입.
+    /// The inner type with nullable stripped off.
     pub fn inner(&self) -> &ColType {
         match self {
             ColType::Nullable(t) => t.inner(),
@@ -43,12 +43,12 @@ impl ColType {
         }
     }
 
-    /// 숫자형(int/float)인지 여부.
+    /// Whether it is numeric (int/float).
     pub fn is_numeric(&self) -> bool {
         matches!(self.inner(), ColType::Int | ColType::Float)
     }
 
-    /// canonical 타입명 문자열.
+    /// Canonical type name string.
     pub fn name(&self) -> &'static str {
         match self.inner() {
             ColType::String => "string",
@@ -61,7 +61,7 @@ impl ColType {
     }
 }
 
-/// 스키마의 필드 하나 (이름 + 컬럼 타입).
+/// A single field of a schema (name + column type).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SchemaField {
     pub name: String,
@@ -77,7 +77,7 @@ impl SchemaField {
     }
 }
 
-/// 이름 없는 컬럼 스키마 (파이프라인 입력/출력 타입 표현).
+/// An unnamed column schema (represents pipeline input/output types).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Schema {
     pub fields: Vec<SchemaField>,
@@ -88,27 +88,27 @@ impl Schema {
         Schema { fields }
     }
 
-    /// 컬럼명으로 필드를 찾는다.
+    /// Find a field by column name.
     pub fn find(&self, name: &str) -> Option<&SchemaField> {
         self.fields.iter().find(|f| f.name == name)
     }
 
-    /// 컬럼명으로 컬럼 타입을 찾는다.
+    /// Find the column type by column name.
     pub fn ty_of(&self, name: &str) -> Option<&ColType> {
         self.find(name).map(|f| &f.ty)
     }
 
-    /// 컬럼명 목록.
+    /// List of column names.
     pub fn names(&self) -> Vec<&str> {
         self.fields.iter().map(|f| f.name.as_str()).collect()
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 타입이 붙은 표현식
+// Typed expressions
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 타입이 부착된 표현식. `ty` 는 이 표현식이 평가되어 만들어내는 컬럼/값의 타입.
+/// An expression with an attached type. `ty` is the type of the column/value produced by evaluating this expression.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedExpr {
     pub kind: TypedExprKind,
@@ -123,7 +123,7 @@ impl TypedExpr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedExprKind {
-    /// 컬럼 참조.
+    /// Column reference.
     Column(String),
     Int(i64),
     Float(f64),
@@ -137,10 +137,10 @@ pub enum TypedExprKind {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 데이터 연산 (Data IR — Polars lowering 대상)
+// Data operations (Data IR — lowered to Polars)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// fillNull 채우기 값 (전략형/리터럴).
+/// fillNull fill value (strategy/literal).
 #[derive(Debug, Clone, PartialEq)]
 pub enum FillValue {
     Int(i64),
@@ -151,11 +151,11 @@ pub enum FillValue {
     Zero,
 }
 
-/// 집계 종류.
+/// Aggregation kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AggKind {
     Count,
-    /// count() (인수 없음) — 행 수. 그룹 집계 시 그룹별 행 수.
+    /// count() (no arguments) — row count; counts rows per group for grouped aggregation.
     Len,
     Sum,
     Mean,
@@ -166,13 +166,13 @@ pub enum AggKind {
     Std,
 }
 
-/// 데이터 계층 연산. Polars LazyFrame 으로 lowering 되는 대상.
+/// Data-layer operations. Lowered to a Polars LazyFrame.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataOp {
     Filter(TypedExpr),
     Select(Vec<String>),
     GroupBy(String),
-    /// 집계 (선행 GroupBy 가 있으면 그룹 집계, 없으면 전역 집계).
+    /// Aggregation (grouped if a preceding GroupBy exists, global otherwise).
     Aggregate {
         kind: AggKind,
         col: String,
@@ -217,7 +217,7 @@ pub enum DataOp {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ML 연산 (ML IR — Burn lowering 대상)
+// ML operations (ML IR — lowered to Burn)
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
@@ -233,7 +233,7 @@ pub enum MLOp {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 부수 연산 (시각화 / 프라이버시 — 별도 하위시스템)
+// Side operations (visualization / privacy — separate subsystem)
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
@@ -243,10 +243,10 @@ pub enum SideOp {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 파이프라인 단계 / 노드
+// Pipeline steps / nodes
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 파이프라인의 한 단계. 도메인별 enum 을 태그로 감싸 순서를 보존한다.
+/// A single step of a pipeline. Wraps domain-specific enums in a tag to preserve order.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
     Data(DataOp),
@@ -254,55 +254,55 @@ pub enum Step {
     Side(SideOp),
 }
 
-/// 파이프라인의 소스 (데이터 원천).
+/// Pipeline source (data origin).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Source {
     Load {
         file_path: String,
-        /// `:: SchemaName` 으로 바인딩된 스키마 (없으면 None).
+        /// Schema bound via `:: SchemaName` (None if absent).
         schema: Option<Schema>,
     },
-    /// 이미 선언된 변수를 참조.
+    /// Reference to an already-declared variable.
     Ref { var: String },
 }
 
-/// 하나의 파이프라인(변수 선언)에 대응하는 타입이 붙은 노드.
+/// A typed node corresponding to a single pipeline (variable declaration).
 #[derive(Debug, Clone, PartialEq)]
 pub struct PipelineNode {
-    /// 프로그램 내 순번 (0-based).
+    /// Sequential index within the program (0-based).
     pub id: usize,
-    /// 변수명 (ExprStmt 는 None).
+    /// Variable name (None for ExprStmt).
     pub name: Option<String>,
     pub source: Source,
-    /// 파이프라인 시작 시점의 스키마 (결정 불가 시 None).
+    /// Schema at the start of the pipeline (None if undeterminable).
     pub input_schema: Option<Schema>,
-    /// 파이프라인 종료 시점의 스키마.
+    /// Schema at the end of the pipeline.
     pub output_schema: Schema,
-    /// 순서 보존된 단계 시퀀스.
+    /// Order-preserving sequence of steps.
     pub steps: Vec<Step>,
-    /// train() 으로 끝나 모델 변수가 되는지 여부.
+    /// Whether the pipeline ends with train() and becomes a model variable.
     pub yields_model: bool,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 프로그램 전체
+// Whole program
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 이름 있는 타입 선언 (`type Name = { ... }`).
+/// A named type declaration (`type Name = { ... }`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeDecl {
     pub name: String,
     pub schema: Schema,
 }
 
-/// 모델 선언 (`model Name { ... }`) — Burn 으로 lowering 되는 ML 그래프.
+/// Model declaration (`model Name { ... }`) — an ML graph lowered to Burn.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModelGraph {
     pub name: String,
     pub layers: Vec<LayerKind>,
 }
 
-/// 컴파일 단위 전체의 타입이 붙은 프로그램.
+/// The typed program of the whole compilation unit.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TypedProgram {
     pub types: Vec<TypeDecl>,
@@ -315,19 +315,19 @@ impl TypedProgram {
         TypedProgram::default()
     }
 
-    /// 이름으로 타입 선언을 찾는다.
+    /// Find a type declaration by name.
     pub fn type_decl(&self, name: &str) -> Option<&TypeDecl> {
         self.types.iter().find(|t| t.name == name)
     }
 
-    /// 이름으로 모델을 찾는다.
+    /// Find a model by name.
     pub fn model(&self, name: &str) -> Option<&ModelGraph> {
         self.models.iter().find(|m| m.name == name)
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 테스트
+// Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
