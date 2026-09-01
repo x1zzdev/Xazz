@@ -878,84 +878,17 @@ impl Parser {
                         TokenKind::On => {
                             self.advance();
                             self.expect(&TokenKind::Colon)?;
-                            // on 값: 단일 문자열 또는 [ ... ] 리스트
-                            on_keys = if matches!(self.current_kind(), TokenKind::LBracket) {
-                                self.advance();
-                                let mut keys = Vec::new();
-                                loop {
-                                    if matches!(
-                                        self.current_kind(),
-                                        TokenKind::RBracket | TokenKind::Eof
-                                    ) {
-                                        break;
-                                    }
-                                    keys.push(self.expect_string_lit()?);
-                                    if !self.eat(&TokenKind::Comma) {
-                                        break;
-                                    }
-                                    if matches!(self.current_kind(), TokenKind::RBracket) {
-                                        break;
-                                    }
-                                }
-                                self.expect(&TokenKind::RBracket)?;
-                                keys
-                            } else {
-                                vec![self.expect_string_lit()?]
-                            };
+                            on_keys = self.expect_string_list()?;
                         }
                         TokenKind::LeftOn => {
                             self.advance();
                             self.expect(&TokenKind::Colon)?;
-                            left_on_keys = if matches!(self.current_kind(), TokenKind::LBracket) {
-                                self.advance();
-                                let mut keys = Vec::new();
-                                loop {
-                                    if matches!(
-                                        self.current_kind(),
-                                        TokenKind::RBracket | TokenKind::Eof
-                                    ) {
-                                        break;
-                                    }
-                                    keys.push(self.expect_string_lit()?);
-                                    if !self.eat(&TokenKind::Comma) {
-                                        break;
-                                    }
-                                    if matches!(self.current_kind(), TokenKind::RBracket) {
-                                        break;
-                                    }
-                                }
-                                self.expect(&TokenKind::RBracket)?;
-                                keys
-                            } else {
-                                vec![self.expect_string_lit()?]
-                            };
+                            left_on_keys = self.expect_string_list()?;
                         }
                         TokenKind::RightOn => {
                             self.advance();
                             self.expect(&TokenKind::Colon)?;
-                            right_on_keys = if matches!(self.current_kind(), TokenKind::LBracket) {
-                                self.advance();
-                                let mut keys = Vec::new();
-                                loop {
-                                    if matches!(
-                                        self.current_kind(),
-                                        TokenKind::RBracket | TokenKind::Eof
-                                    ) {
-                                        break;
-                                    }
-                                    keys.push(self.expect_string_lit()?);
-                                    if !self.eat(&TokenKind::Comma) {
-                                        break;
-                                    }
-                                    if matches!(self.current_kind(), TokenKind::RBracket) {
-                                        break;
-                                    }
-                                }
-                                self.expect(&TokenKind::RBracket)?;
-                                keys
-                            } else {
-                                vec![self.expect_string_lit()?]
-                            };
+                            right_on_keys = self.expect_string_list()?;
                         }
                         TokenKind::How => {
                             self.advance();
@@ -1554,6 +1487,30 @@ impl Parser {
                 self.current_span(),
                 format!("문자열 리터럴이 필요합니다. 실제: {:?}", other),
             )),
+        }
+    }
+
+    /// join 의 on/left_on/right_on 값 파싱 — 단일 문자열 또는 `["a", "b"]` 리스트.
+    fn expect_string_list(&mut self) -> CompileResult<Vec<String>> {
+        if matches!(self.current_kind(), TokenKind::LBracket) {
+            self.advance();
+            let mut keys = Vec::new();
+            loop {
+                if matches!(self.current_kind(), TokenKind::RBracket | TokenKind::Eof) {
+                    break;
+                }
+                keys.push(self.expect_string_lit()?);
+                if !self.eat(&TokenKind::Comma) {
+                    break;
+                }
+                if matches!(self.current_kind(), TokenKind::RBracket) {
+                    break;
+                }
+            }
+            self.expect(&TokenKind::RBracket)?;
+            Ok(keys)
+        } else {
+            Ok(vec![self.expect_string_lit()?])
         }
     }
 
