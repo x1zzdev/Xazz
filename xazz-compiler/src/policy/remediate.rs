@@ -1,22 +1,22 @@
-// xazz-compiler/src/policy/remediate.rs — 결정적(deterministic) 자동 보정 (issue #2)
+// xazz-compiler/src/policy/remediate.rs — deterministic auto-remediation (issue #2)
 //
-// 가드레일은 "차단"에서 끝나지 않는다. 위반이 확인되면 **안전한 대체 코드**를
-// 함께 제시해야 개발자가 다음 행동을 할 수 있다.
+// The guardrail does not end at "blocking". Once a violation is confirmed, a **safe
+// replacement snippet** must be offered so the developer has a next step.
 //
-// 보정은 두 층으로 이뤄진다.
+// Remediation has two layers.
 //
-//   1. 이 모듈 — AST 를 직접 고쳐 쓰는 결정적 보정. 항상 동작하고, 항상 같은
-//      결과를 내며, 모델도 네트워크도 필요 없다.
-//   2. sLM(Qwen2.5-Coder) — 더 자연스러운 재작성을 제안한다. 다만 생성 결과는
-//      **반드시 이 엔진으로 재검증**되며, 통과하지 못하면 1번 결과로 되돌린다.
+//   1. This module — deterministic remediation that rewrites the AST directly. Always
+//      works, always produces the same result, and needs neither a model nor a network.
+//   2. sLM (Qwen2.5-Coder) — suggests a more natural rewrite. However, its output is
+//      **always re-validated by this engine**, and on failure it falls back to layer 1.
 //      (xazz-server/src/slm.rs)
 //
-// 안전 원칙
-//   · 코드를 문자열로 자르지 않는다 — AST 를 고치고 printer 로 다시 찍는다.
-//   · 자동으로 고칠 수 없는 위반(하드코딩된 비밀키 등)은 조용히 넘어가지 않고
-//     `residual` 로 남겨 사람이 처리하도록 한다.
-//   · 보정 결과는 다시 분석되어 `verified` 로 증명된다. 증명되지 않은 코드는
-//     "안전하다"고 말하지 않는다.
+// Safety principles
+//   · Code is never edited as strings — the AST is modified and re-printed via the printer.
+//   · Violations that cannot be fixed automatically (e.g. hardcoded secrets) are not
+//     silently skipped; they are left in `residual` for a human to handle.
+//   · Remediation results are re-analyzed and proven via `verified`. Unproven code is
+//     never called "safe".
 
 use std::collections::HashMap;
 
@@ -32,12 +32,12 @@ use super::{
     printer,
 };
 
-/// 적용된 보정 하나.
+/// One applied fix.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppliedFix {
-    /// 이 보정이 해소한 규칙 ID
+    /// Rule ID resolved by this fix
     pub rule_id: String,
-    /// 무엇을 했는지 (한국어)
+    /// What was done (in Korean)
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub statement_index: Option<usize>,
@@ -45,27 +45,27 @@ pub struct AppliedFix {
     pub variable: Option<String>,
 }
 
-/// 자동 보정 결과.
+/// Result of auto-remediation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Remediation {
-    /// 어떤 엔진이 만들었는지 — `deterministic` | `slm` | `slm-rejected`
+    /// Which engine produced it — `deterministic` | `slm` | `slm-rejected`
     pub strategy: String,
-    /// 보정된 `.xzz` 소스
+    /// The remediated `.xzz` source
     pub code: String,
-    /// 적용된 보정 목록
+    /// The list of applied fixes
     pub applied: Vec<AppliedFix>,
-    /// 자동으로 고칠 수 없어 사람이 처리해야 하는 위반
+    /// Violations that cannot be auto-fixed and need a human
     pub residual: Vec<Violation>,
-    /// 보정 과정에서 개발자가 알아야 할 부수 효과 (예: 주석 미보존)
+    /// Side effects the developer should know about during remediation (e.g. comments not preserved)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
-    /// 보정 결과가 정책을 통과했는지 — 이 값이 false 면 안전하다고 말하지 않는다.
+    /// Whether the remediation result passes the policy — if false, never call it safe.
     pub verified: bool,
-    /// 보정 후 재분석 리포트
+    /// The re-analysis report after remediation
     pub report_after: PolicyReport,
 }
 
-/// 자동으로 보정할 수 없는 규칙 — 값 자체를 지워야 하므로 사람이 판단해야 한다.
+/// Rules that cannot be auto-fixed — the value itself must be deleted, so a human must decide.
 fn is_auto_fixable(rule_id: &str) -> bool {
     matches!(
         rule_id,
@@ -77,9 +77,9 @@ fn is_auto_fixable(rule_id: &str) -> bool {
     )
 }
 
-/// 위반이 확인된 소스에 대해 결정적 보정을 수행한다.
+/// Performs deterministic remediation on source with confirmed violations.
 ///
-/// 원본이 이미 안전하면 원본을 그대로 돌려준다.
+/// If the original is already safe, it is returned unchanged.
 pub fn remediate(source: &str, policy: &Policy) -> Remediation {
     let before = analyze(source, policy);
     if before.safe_to_execute {
@@ -94,7 +94,7 @@ pub fn remediate(source: &str, policy: &Policy) -> Remediation {
         };
     }
 
-    // 파싱조차 되지 않으면 AST 를 고칠 수 없다.
+    // If it cannot even be parsed, the AST cannot be fixed.
     if before.parse_error.is_some() {
         return Remediation {
             strategy: "deterministic".to_string(),
@@ -135,7 +135,7 @@ pub fn remediate(source: &str, policy: &Policy) -> Remediation {
     let code = printer::print_program(&fixed_program);
     let report_after = analyze(&code, policy);
 
-    // 자동 보정 대상이 아니었던 위반은 그대로 남는다.
+    // Violations not eligible for auto-remediation remain as-is.
     let residual: Vec<Violation> = before
         .violations
         .iter()
@@ -163,7 +163,7 @@ pub fn remediate(source: &str, policy: &Policy) -> Remediation {
         );
     }
 
-    // 사람이 처리해야 할 위반이 남아 있으면 "안전하다"고 말하지 않는다.
+    // If violations remain that a human must handle, do not call it "safe".
     let verified = report_after.safe_to_execute && residual.is_empty();
 
     Remediation {
@@ -186,7 +186,7 @@ fn parse_program(source: &str) -> Result<Program, String> {
         .map_err(|e| e.to_string())
 }
 
-// ── 프로그램 재작성 ──────────────────────────────────────────────────────────
+// ── Program rewriting ──────────────────────────────────────────────────────────
 
 fn rewrite_program(program: &Program, policy: &Policy) -> (Program, Vec<AppliedFix>) {
     let mut schemas: HashMap<String, Vec<StructField>> = HashMap::new();
@@ -234,7 +234,7 @@ fn rewrite_program(program: &Program, policy: &Policy) -> (Program, Vec<AppliedF
     (Program { stmts: out_stmts }, applied)
 }
 
-// ── 파이프라인 재작성 ────────────────────────────────────────────────────────
+// ── Pipeline rewriting ────────────────────────────────────────────────────────
 
 fn rewrite_ops(
     ops: &[PipelineOp],
@@ -244,7 +244,7 @@ fn rewrite_ops(
     var: Option<&str>,
     applied: &mut Vec<AppliedFix>,
 ) -> Vec<PipelineOp> {
-    // 컬럼 집합을 확정하지 못했다면 손대지 않는다 — 추측으로 코드를 바꾸지 않는다.
+    // If the column set could not be determined, leave it alone — do not change code by guessing.
     if !shape.columns_known {
         return ops.to_vec();
     }
@@ -258,7 +258,7 @@ fn rewrite_ops(
         });
     };
 
-    // ── 1) 제거해야 할 컬럼 결정 ───────────────────────────────────────────
+    // ── 1) Decide which columns to drop ───────────────────────────────────────────
     let mut drop: Vec<String> = Vec::new();
     let mut quasi_seen = 0usize;
 
@@ -268,7 +268,7 @@ fn rewrite_ops(
             ColumnClass::SensitiveAttribute if !shape.aggregated => drop.push(col.name.clone()),
             ColumnClass::QuasiIdentifier => {
                 quasi_seen += 1;
-                // 임계치 미만까지만 남기고 나머지는 제거한다.
+                // Keep only below the threshold and drop the rest.
                 if !shape.aggregated && quasi_seen >= policy.quasi_identifier_threshold {
                     drop.push(col.name.clone());
                 }
@@ -284,7 +284,7 @@ fn rewrite_ops(
         .map(|c| c.name.clone())
         .collect();
 
-    // 차트가 제거 대상 컬럼을 참조하면 투영으로 고칠 수 없다 — 원본을 유지한다.
+    // If a chart references a column being dropped, projection cannot fix it — keep the original.
     let chart_refs: Vec<String> = ops
         .iter()
         .filter_map(|op| match op {
@@ -297,7 +297,7 @@ fn rewrite_ops(
 
     let projection_possible = !drop.is_empty() && !keep.is_empty() && !chart_conflict;
 
-    // ── 2) 차등 프라이버시 보정 판단 ───────────────────────────────────────
+    // ── 2) Decide differential-privacy remediation ───────────────────────────────────────
     let sensitive_aggregate = shape.aggregated
         && shape
             .columns
@@ -306,8 +306,8 @@ fn rewrite_ops(
     let needs_dp =
         sensitive_aggregate && shape.dp.is_none() && policy.require_dp_for_sensitive_aggregate;
 
-    // ── 3) 새 연산자 목록 구성 ─────────────────────────────────────────────
-    // 차트는 항상 마지막에 남기고, 투영과 DP 는 차트 앞에 삽입한다.
+    // ── 3) Build the new operator list ─────────────────────────────────────────────
+    // Keep the chart always last; insert projection and DP before it.
     let split_at = ops
         .iter()
         .position(|op| matches!(op, PipelineOp::Chart(_)))
@@ -315,8 +315,8 @@ fn rewrite_ops(
 
     let mut new_ops: Vec<PipelineOp> = Vec::with_capacity(ops.len() + 2);
     for op in &ops[..split_at] {
-        // ε 상한 초과는 그 자리에서 클램프한다.
-        // NaN 도 "상한 위반"으로 다룬다 — 비교만으로는 걸러지지 않는다.
+        // Clamp ε over the cap in place.
+        // NaN is also treated as a "cap violation" — it is not caught by comparison alone.
         if let Some(args) = match op {
             PipelineOp::WithDp(args)
                 if !args.epsilon.is_finite()
@@ -354,7 +354,7 @@ fn rewrite_ops(
     }
 
     if projection_possible {
-        // 마지막 연산이 이미 select 라면 중복 투영을 쌓지 않고 교체한다.
+        // If the last op is already a select, replace it rather than stacking a duplicate projection.
         if matches!(new_ops.last(), Some(PipelineOp::Select(_))) {
             new_ops.pop();
         }
@@ -404,7 +404,7 @@ fn rewrite_ops(
     new_ops
 }
 
-// ── 유닛 테스트 ──────────────────────────────────────────────────────────────
+// ── Unit tests ──────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -426,12 +426,12 @@ mod tests {
         remediate(&src, &Policy::builtin())
     }
 
-    /// 직접 식별자를 제거하고 검증까지 통과한다.
+    /// Removes the direct identifier and passes verification.
     #[test]
     fn removes_direct_identifier_and_verifies() {
         let r = fix("v out = load(\"data/p.csv\") :: Patient |> select([name, age_band]);");
         assert!(r.verified, "보정 후 검증 실패: {}", r.report_after.render());
-        // 스키마 선언에는 name 필드가 남아 있어도 되지만, 파이프라인 투영에서는 빠져야 한다.
+        // The name field may remain in the schema declaration, but must be absent from the pipeline projection.
         assert!(
             r.code.contains("select([age_band])"),
             "안전한 투영이 생성되지 않음:\n{}",
@@ -445,7 +445,7 @@ mod tests {
         assert!(!r.applied.is_empty());
     }
 
-    /// 보정된 코드는 반드시 다시 파싱된다 (구문 무결성).
+    /// The remediated code must re-parse (syntactic integrity).
     #[test]
     fn remediated_code_reparses() {
         let r = fix("v out = load(\"data/p.csv\") :: Patient |> filter(age > 30);");
@@ -456,7 +456,7 @@ mod tests {
         );
     }
 
-    /// 민감 속성 집계에는 withDp 가 자동 삽입된다.
+    /// withDp is auto-inserted for sensitive-attribute aggregates.
     #[test]
     fn injects_with_dp_for_sensitive_aggregate() {
         let r = fix("v out = load(\"data/p.csv\") :: Patient
@@ -471,7 +471,7 @@ mod tests {
         );
     }
 
-    /// ε 상한 초과는 상한값으로 클램프된다.
+    /// ε over the cap is clamped to the cap value.
     #[test]
     fn clamps_excessive_epsilon() {
         let r = fix("v out = load(\"data/p.csv\") :: Patient
@@ -482,14 +482,14 @@ mod tests {
         assert!(r.code.contains("epsilon: 3"), "클램프 실패:\n{}", r.code);
     }
 
-    /// 준식별자 결합은 임계치 미만으로 줄인다.
+    /// Quasi-identifier combinations are reduced below the threshold.
     #[test]
     fn reduces_quasi_identifier_combination() {
         let r = fix("v out = load(\"data/p.csv\") :: Patient |> select([age, gender, zip_code]);");
         assert!(r.verified, "{}", r.report_after.render());
     }
 
-    /// 하드코딩된 비밀키는 자동 보정하지 않고 residual 로 남긴다.
+    /// Hardcoded secrets are not auto-fixed and are left as residual.
     #[test]
     fn hardcoded_secret_is_left_as_residual() {
         let r = fix("// AKIAIOSFODNN7EXAMPLE
@@ -501,7 +501,7 @@ v out = load(\"data/p.csv\") :: Patient |> select([age_band]);");
         );
     }
 
-    /// 이미 안전한 코드는 그대로 반환된다.
+    /// Already-safe code is returned unchanged.
     #[test]
     fn safe_code_is_returned_unchanged() {
         let src = format!(
@@ -514,7 +514,7 @@ v out = load(\"data/p.csv\") :: Patient |> select([age_band]);");
         assert!(r.applied.is_empty());
     }
 
-    /// 남길 컬럼이 하나도 없으면 투영으로 고치지 않는다 (거짓 안전 방지).
+    /// If no column remains, it is not fixed with a projection (prevents false safety).
     #[test]
     fn does_not_fabricate_empty_projection() {
         let r = fix("v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id]);");
@@ -522,7 +522,7 @@ v out = load(\"data/p.csv\") :: Patient |> select([age_band]);");
         assert!(!r.verified, "고칠 수 없는데 안전하다고 판정됨");
     }
 
-    /// 차트가 제거 대상 컬럼을 참조하면 코드를 망가뜨리지 않는다.
+    /// A chart referencing a dropped column does not break the code.
     #[test]
     fn does_not_break_chart_referencing_dropped_column() {
         let r = fix("v out = load(\"data/p.csv\") :: Patient
@@ -540,7 +540,7 @@ v out = load(\"data/p.csv\") :: Patient |> select([age_band]);");
         assert!(!r.verified, "차트가 식별자를 그리는데 안전하다고 판정됨");
     }
 
-    /// 정상 파이프라인에 대해서는 아무것도 바꾸지 않는다.
+    /// Nothing is changed for a normal pipeline.
     #[test]
     fn leaves_clean_air_quality_pipeline_untouched() {
         let src = "type AQ = { station: string, pm10: Option<float> };

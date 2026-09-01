@@ -1,48 +1,49 @@
 /// Xazz Compiler Library
 ///
-/// 포함된 모듈:
-///   - token   → xazz-core::token 재노출 (Span, Token, TokenKind)
-///   - ast     → xazz-core::ast 재노출 (Expr, Stmt, Program, PipelineOp, ...)
-///   - error   → xazz-core::error 재노출 (CompileError, ErrorKind, ...)
-///   - lexer   → Lexer (소스 문자열 → Token 배열)
-///   - parser  → Parser (Token 배열 → Program AST)
-///   - codegen → Codegen (AST → Polars 흐름 매핑 문자열)
-///   - checker → 정적 의미 분석기 (Type Checker)
-///   - policy  → Policy-as-Code 정적 보안 가드레일 (issue #2)
-///   - emitter → emit_rust (AST → 독립 Rust 소스 파일 생성)
+/// Included modules:
+///   - token   → re-exports xazz-core::token (Span, Token, TokenKind)
+///   - ast     → re-exports xazz-core::ast (Expr, Stmt, Program, PipelineOp, ...)
+///   - error   → re-exports xazz-core::error (CompileError, ErrorKind, ...)
+///   - lexer   → Lexer (source string → Token array)
+///   - parser  → Parser (Token array → Program AST)
+///   - codegen → Codegen (AST → Polars flow mapping strings)
+///   - checker → static semantic analyzer (Type Checker)
+///   - policy  → Policy-as-Code static security guardrail (issue #2)
+///   - emitter → emit_rust (AST → standalone Rust source file generation)
 ///
-/// ⚠️  런타임 실행 엔진 (run_pipeline / Polars LazyFrame)은
-///      xazz-exec 크레이트로 분리되었습니다.
-///      CLI 바이너리의 Polars 의존성을 제거하기 위한 아키텍처 격리입니다.
-pub mod ast; // xazz-core::ast 재노출
+/// ⚠️  The runtime execution engine (run_pipeline / Polars LazyFrame) has been
+///      separated into the xazz-exec crate.
+///      This is an architectural isolation to remove the Polars dependency from the
+///      CLI binary.
+pub mod ast; // re-exports xazz-core::ast
 pub mod checker;
 pub mod codegen;
 pub mod emitter;
-pub mod error; // xazz-core::error 재노출
-pub mod ir; // xazz-core::ir 재노출
+pub mod error; // re-exports xazz-core::error
+pub mod ir; // re-exports xazz-core::ir
 pub mod lexer;
 pub mod opt;
 pub mod parser;
 pub mod polars_text;
 pub mod policy;
-pub mod token; // xazz-core::token 재노출
+pub mod token; // re-exports xazz-core::token
 
-// ── token 상위 노출 ──────────────────────────────────────────────────────────
+// ── token re-exports ─────────────────────────────────────────────────────────
 pub use token::{Span, Token, TokenKind};
 
-// ── i18n 상위 노출 ───────────────────────────────────────────────────────────
+// ── i18n re-exports ──────────────────────────────────────────────────────────
 pub use xazz_core::i18n::{is_korean, tr};
 
-// ── ast 상위 노출 ────────────────────────────────────────────────────────────
+// ── ast re-exports ───────────────────────────────────────────────────────────
 pub use ast::{
     BinOpKind, ChartConfig, ChartType, Expr, FillNullValue, PipelineOp, PipelineSource, Program,
     Stmt, StructField,
 };
 
-// ── error 상위 노출 ──────────────────────────────────────────────────────────
+// ── error re-exports ─────────────────────────────────────────────────────────
 pub use error::{CompileError, CompileResult, ErrorKind};
 
-// ── 핵심 컴포넌트 상위 노출 ──────────────────────────────────────────────────
+// ── core component re-exports ────────────────────────────────────────────────
 pub use checker::{
     CheckResult, CheckerColType, analyze_program, check_program, check_source, compile_ir,
 };

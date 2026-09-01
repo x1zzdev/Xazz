@@ -1,26 +1,26 @@
-/// xazz-compiler/src/polars_text.rs — Polars 소스 코드 문자열 생성 (단일 위치)
+/// xazz-compiler/src/polars_text.rs — Polars source string generation (single location)
 ///
-/// `emit rust` / `codegen` 의 텍스트 생성 계층이 공유하는 **유일한**
-/// AST 표현식 → Polars Rust 소스 문자열 매핑이다.
+/// The **only** shared AST-expression → Polars Rust source string mapping used by the
+/// text-generation layers of `emit rust` / `codegen`.
 ///
-/// 아키텍처 (중복 제거의 단일 위치):
-///   - **런타임 백엔드**: xazz-exec/src/lower.rs 가 Typed IR(DataOp/TypedExpr)을
-///     실제 Polars LazyFrame 으로 lowering 한다. 실행 경로의 유일한 op→Polars 매핑.
-///   - **텍스트 백엔드**: 이 모듈(polars_text)이 AST 표현식 → Polars Rust 소스
-///     문자열 매핑의 유일한 위치이다. codegen.rs 와 emitter.rs 는 모두 여기에 위임한다.
+/// Architecture (single location for de-duplication):
+///   - **Runtime backend**: xazz-exec/src/lower.rs lowers Typed IR (DataOp/TypedExpr) into
+///     an actual Polars LazyFrame. The only op→Polars mapping on the execution path.
+///   - **Text backend**: this module (polars_text) is the only location of the AST-expression →
+///     Polars Rust source string mapping. Both codegen.rs and emitter.rs delegate to it.
 ///
-/// 즉, "op/표현식 → Polars" 매핑은 실행(lower.rs)과 텍스트(polars_text) 각각
-/// 한 곳에만 존재한다.
+/// In other words, the "op/expression → Polars" mapping exists in exactly one place for
+/// each of execution (lower.rs) and text (polars_text).
 use std::collections::HashMap;
 
 use crate::ast::{BinOpKind, Expr, FillNullValue};
 use crate::policy::printer::escape;
 
-/// AST 표현식 → Polars Rust 소스 문자열.
+/// AST expression → Polars Rust source string.
 ///
-/// `col_types` 는 열 이름 → DSL 타입 문자열 맵이다. 왼쪽 피연산자가 float
-/// 컬럼이면 오른쪽 정수 리터럴을 f64 로 승격해 타입 안정성을 높인다.
-/// (타입 정보가 필요 없으면 `None` 전달 — codegen 의 플레인 경로.)
+/// `col_types` is a map of column name → DSL type string. If the left operand is a float
+/// column, the right integer literal is promoted to f64 to improve type safety.
+/// (Pass `None` when type info is not needed — codegen's plain path.)
 pub fn expr_to_polars(expr: &Expr, col_types: Option<&HashMap<String, String>>) -> String {
     match expr {
         Expr::Ident(s) => format!("col(\"{}\")", escape(s)),
@@ -57,7 +57,7 @@ pub fn expr_to_polars(expr: &Expr, col_types: Option<&HashMap<String, String>>) 
                 BinOpKind::Gt => "gt",
                 BinOpKind::LtEq => "lt_eq",
                 BinOpKind::GtEq => "gt_eq",
-                // ── 산술 연산자 (v0.16+) ──────────────────
+                // ── Arithmetic operators (v0.16+) ──────────────────
                 BinOpKind::Add => "add",
                 BinOpKind::Sub => "sub",
                 BinOpKind::Mul => "mul",
@@ -68,9 +68,9 @@ pub fn expr_to_polars(expr: &Expr, col_types: Option<&HashMap<String, String>>) 
     }
 }
 
-/// fillNull 채우기 값 → Polars 표현식 소스 문자열 (codegen/emitter 공유).
+/// fillNull fill value → Polars expression source string (shared by codegen/emitter).
 ///
-/// `col` 은 채울 대상 컬럼명 — mean/median 전략이 그 컬럼의 집계를 참조한다.
+/// `col` is the target column to fill — the mean/median strategies reference that column's aggregate.
 pub fn fill_value_to_polars(value: &FillNullValue, col: &str) -> String {
     match value {
         FillNullValue::Mean => format!("col(\"{}\").mean()", escape(col)),
@@ -82,9 +82,9 @@ pub fn fill_value_to_polars(value: &FillNullValue, col: &str) -> String {
     }
 }
 
-/// 집계 연산자의 Polars 메서드 호출 문자열 반환 (codegen/emitter 공유).
+/// Returns the Polars method call string for an aggregate operator (shared by codegen/emitter).
 ///
-/// 예: `AggKind::Sum` → `"col(\"pm10\").sum()"`.
+/// e.g. `AggKind::Sum` → `"col(\"pm10\").sum()"`.
 pub fn agg_expr_to_polars(kind: crate::ir::AggKind, col: &str) -> String {
     let method = match kind {
         crate::ir::AggKind::Count => "count()",
@@ -94,16 +94,16 @@ pub fn agg_expr_to_polars(kind: crate::ir::AggKind, col: &str) -> String {
         crate::ir::AggKind::Min => "min()",
         crate::ir::AggKind::Max => "max()",
         crate::ir::AggKind::Median => "median()",
-        // var(1)/std(1) 은 인자를 가지므로 괄호가 메서드명에 이미 포함된다.
+        // var(1)/std(1) take an argument, so the parentheses are already part of the method name.
         crate::ir::AggKind::Variance => "var(1)",
         crate::ir::AggKind::Std => "std(1)",
     };
     format!("col(\"{}\").{}", escape(col), method)
 }
 
-/// cast() 대상 DSL 타입 → Polars DataType 소스 문자열 (codegen/emitter 공유).
+/// cast() target DSL type → Polars DataType source string (shared by codegen/emitter).
 ///
-/// 모르는 타입은 원본 문자열을 그대로 반환한다 (오류는 체커가 이미 처리).
+/// Unknown types are returned as the original string (the checker has already handled errors).
 pub fn cast_dtype_to_polars(to_type: &str) -> String {
     match to_type {
         "float" => "DataType::Float64".to_string(),
@@ -247,7 +247,7 @@ mod tests {
         assert_eq!(cast_dtype_to_polars("int"), "DataType::Int64");
         assert_eq!(cast_dtype_to_polars("str"), "DataType::String");
         assert_eq!(cast_dtype_to_polars("bool"), "DataType::Boolean");
-        // unknown은 원본을 통과 (체커가 미리 거부하므로 도달하지 않음)
+        // unknown passes through the original (never reached, since the checker rejects it beforehand)
         assert_eq!(cast_dtype_to_polars("custom"), "custom");
     }
 }

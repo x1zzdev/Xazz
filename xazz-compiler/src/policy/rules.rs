@@ -1,15 +1,17 @@
-// xazz-compiler/src/policy/rules.rs — 정책 규칙 판정 (issue #2)
+// xazz-compiler/src/policy/rules.rs — policy rule judgment (issue #2)
 //
-// 파이프라인이 **무엇을 밖으로 내보내는가**(출력 컬럼 집합)를 정적으로 추론한 뒤,
-// 그 집합을 정책에 비추어 판정한다. Xazz 에서는 파이프라인의 결과 자체가 출력이므로
-// "출력 컬럼 = 노출 표면" 이다.
+// Statically infers what the pipeline **emits** (the output column set), then judges
+// that set against the policy. In Xazz the pipeline result itself is the output, so
+// "output columns = exposure surface".
 //
-// 핵심 판단 규칙
-//   · 집계 결과 컬럼은 더 이상 식별자가 아니다.
-//     `groupBy("region") |> count("patient_id")` 의 `patient_id` 는 환자번호가 아니라
-//     '건수'다. 이를 구분하지 못하면 정상 통계 쿼리가 전부 오탐으로 막힌다.
-//   · 민감 속성이 **그룹 키**로 쓰이는 것(질병별 건수)은 집계이므로 허용하되,
-//     차등 프라이버시를 요구한다. 행 단위로 그대로 나가는 것만 차단한다.
+// Core judgment rules
+//   · An aggregated result column is no longer an identifier.
+//     In `groupBy("region") |> count("patient_id")`, `patient_id` is a 'count', not
+//     a patient number. Without this distinction, normal statistics queries would
+//     all be blocked as false positives.
+//   · A sensitive attribute used as a **group key** (e.g. counts per disease) is an
+//     aggregate and thus allowed, but differential privacy is required. Only row-wise
+//     emission is blocked.
 
 use std::collections::HashMap;
 
@@ -23,13 +25,13 @@ use super::{
     Severity, Violation, patterns, record,
 };
 
-// ── 출력 컬럼 모델 ───────────────────────────────────────────────────────────
+// ── Output column model ──────────────────────────────────────────────────────
 
-/// 파이프라인 출력에 실리는 컬럼 하나.
+/// One column carried in the pipeline output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputColumn {
     pub name: String,
-    /// 집계(sum/mean/count/…)의 결과라 원본 값이 남지 않는 컬럼
+    /// A column that is a result of aggregation (sum/mean/count/…) with no raw values left
     pub aggregated: bool,
 }
 
@@ -48,15 +50,15 @@ impl OutputColumn {
     }
 }
 
-/// 한 구문(파이프라인)의 정적 분석 결과.
+/// Static analysis result of one statement (pipeline).
 #[derive(Debug, Clone, Default)]
 pub struct PipelineShape {
     pub columns: Vec<OutputColumn>,
-    /// 집계 연산이 하나라도 적용되었는지
+    /// Whether any aggregate operation was applied
     pub aggregated: bool,
-    /// withDp(...) 인수 (적용된 경우)
+    /// withDp(...) arguments (when applied)
     pub dp: Option<DpArgs>,
-    /// 출력 컬럼 집합을 확실히 알아냈는지 (스키마 미해석 대응)
+    /// Whether the output column set is known for certain (for unresolved schemas)
     pub columns_known: bool,
 }
 
@@ -72,17 +74,17 @@ impl PipelineShape {
         }
     }
 
-    /// 정책상 원본 값이 노출되는 컬럼만 골라낸다 (집계 결과는 제외).
+    /// Picks only columns whose raw values are exposed under policy (aggregates excluded).
     fn exposed(&self) -> impl Iterator<Item = &OutputColumn> {
         self.columns.iter().filter(|c| !c.aggregated)
     }
 }
 
-// ── AST 규칙 적용 ────────────────────────────────────────────────────────────
+// ── AST rule application ─────────────────────────────────────────────────────
 
-/// AST 기반 규칙 전부를 적용한다.
+/// Applies all AST-based rules.
 pub fn apply_ast_rules(program: &Program, policy: &Policy, report: &mut PolicyReport) {
-    // 스키마는 선언 순서와 무관하게 전부 먼저 모은다.
+    // Collect all schemas first, regardless of declaration order.
     let mut schemas: HashMap<String, Vec<StructField>> = HashMap::new();
     for stmt in &program.stmts {
         if let Stmt::TypeDecl { name, fields } = stmt {
@@ -115,7 +117,7 @@ pub fn apply_ast_rules(program: &Program, policy: &Policy, report: &mut PolicyRe
     }
 }
 
-/// `load("...")` 경로에 대한 규칙 (민감 경로 · 경로 탈출).
+/// Rules for the `load("...")` path (sensitive path · path traversal).
 fn check_source_path(
     source: &PipelineSource,
     index: usize,
@@ -164,7 +166,7 @@ fn check_source_path(
         );
     }
 
-    // 상위 디렉터리 탈출은 기본 경고 — 정책에서 block 으로 올릴 수 있다.
+    // Parent-directory traversal is a warning by default — can be escalated to block via policy.
     let traversal = normalized.split('/').any(|segment| segment == "..");
     if traversal {
         let severity = policy.severity_for(RULE_PATH_TRAVERSAL, Severity::Warn);
@@ -190,10 +192,10 @@ fn check_source_path(
         );
     }
 
-    // 절대 경로 접근은 인가 디렉터리(allowlist)에 속할 때만 허용한다 (fail-closed).
-    // 비어 있으면 모든 절대 경로를 차단한다 — 블록리스트는 알려진 민감 경로만
-    // 걸러내므로, 알려지지 않은 절대 경로(예: load("/home/<user>/.env"))는
-    // allowlist 로만 막을 수 있다.
+    // Absolute-path access is allowed only when inside an authorized directory (allowlist) (fail-closed).
+    // When empty, every absolute path is blocked — a blocklist only filters known
+    // sensitive paths, so an unknown absolute path (e.g. load("/home/<user>/.env"))
+    // can only be blocked by the allowlist.
     let is_absolute = normalized.starts_with('/')
         || normalized.starts_with("c:/")
         || normalized.starts_with("c:\\");
@@ -231,9 +233,9 @@ fn check_source_path(
     }
 }
 
-// ── 출력 컬럼 추론 ───────────────────────────────────────────────────────────
+// ── Output column inference ──────────────────────────────────────────────────
 
-/// 소스와 연산자 목록으로부터 출력 컬럼 집합을 추론한다.
+/// Infers the output column set from the source and the operator list.
 pub fn infer_shape(
     source: &PipelineSource,
     ops: &[PipelineOp],
@@ -268,7 +270,7 @@ pub fn infer_shape(
 
     for op in ops {
         match op {
-            // ── 컬럼 집합을 확정하는 연산 ────────────────────────────────
+            // ── Operations that determine the column set ────────────────────────────────
             PipelineOp::Select(cols) => {
                 let prev = shape.columns.clone();
                 let picked = cols
@@ -285,11 +287,11 @@ pub fn infer_shape(
                         }
                     })
                     .collect();
-                // select 는 출력 컬럼을 완전히 결정한다 — 스키마를 몰라도 확실해진다.
+                // select fully determines the output columns — certain even without the schema.
                 shape.set_columns(picked);
             }
 
-            // ── 집계 — 결과 컬럼은 통계값이므로 식별자가 아니다 ─────────────
+            // ── Aggregation — result columns are statistics, not identifiers ─────────────
             PipelineOp::GroupBy(col) => {
                 if !group_keys.contains(col) {
                     group_keys.push(col.clone());
@@ -317,7 +319,7 @@ pub fn infer_shape(
                 shape.set_columns(cols);
             }
 
-            // ── 컬럼을 추가·개명하는 연산 ────────────────────────────────
+            // ── Operations that add or rename columns ────────────────────────────────
             PipelineOp::WithColumn { name, .. } => {
                 shape.push_unique(OutputColumn::raw(name));
             }
@@ -337,7 +339,7 @@ pub fn infer_shape(
                 shape.push_unique(OutputColumn::raw(as_col.as_deref().unwrap_or("prediction")));
             }
 
-            // ── 조인 — 상대 변수의 컬럼이 합쳐진다 ───────────────────────
+            // ── Join — the other variable's columns are merged in ───────────────────────
             PipelineOp::Join { other, .. } => match vars.get(other) {
                 Some(rhs) => {
                     for c in &rhs.columns {
@@ -350,12 +352,12 @@ pub fn infer_shape(
                 }
             },
 
-            // ── 프라이버시 ──────────────────────────────────────────────
+            // ── Privacy ──────────────────────────────────────────────
             PipelineOp::WithDp(args) => {
                 shape.dp = Some(args.clone());
             }
 
-            // ── 행만 거르거나 값을 바꾸는 연산 — 컬럼 집합 불변 ───────────
+            // ── Operations that only filter rows or change values — column set unchanged ──
             PipelineOp::Filter(_)
             | PipelineOp::DropNull(_)
             | PipelineOp::FillNull { .. }
@@ -372,9 +374,9 @@ pub fn infer_shape(
     shape
 }
 
-// ── 판정 ─────────────────────────────────────────────────────────────────────
+// ── Judgment ─────────────────────────────────────────────────────────────────
 
-/// 추론된 출력 컬럼 집합을 정책에 비추어 판정한다.
+/// Judges the inferred output column set against the policy.
 fn judge(
     shape: &PipelineShape,
     index: usize,
@@ -382,7 +384,7 @@ fn judge(
     policy: &Policy,
     report: &mut PolicyReport,
 ) {
-    // ── XZP014: 컬럼 집합을 확정하지 못했다 ────────────────────────────────
+    // ── XZP014: the column set could not be determined ────────────────────────────────
     if !shape.columns_known {
         let severity = policy.severity_for(RULE_UNRESOLVED_SCHEMA, Severity::Warn);
         record(
@@ -404,7 +406,7 @@ fn judge(
         );
     }
 
-    // ── XZP001: 직접 식별자 노출 ───────────────────────────────────────────
+    // ── XZP001: direct identifier exposure ──────────────────────────────────────
     let direct: Vec<String> = shape
         .exposed()
         .filter(|c| policy.classify(&c.name) == ColumnClass::DirectIdentifier)
@@ -445,7 +447,7 @@ fn judge(
         );
     }
 
-    // ── XZP002: 민감 속성 행 단위 노출 ─────────────────────────────────────
+    // ── XZP002: row-wise sensitive attribute exposure ───────────────────────────
     if !shape.aggregated {
         let sensitive: Vec<String> = shape
             .exposed()
@@ -488,14 +490,14 @@ fn judge(
         }
     }
 
-    // ── XZP003: 준식별자 결합 재식별 위험 ──────────────────────────────────
+    // ── XZP003: quasi-identifier combination re-identification risk ─────────────
     let quasi: Vec<String> = shape
         .exposed()
         .filter(|c| policy.classify(&c.name) == ColumnClass::QuasiIdentifier)
         .map(|c| c.name.clone())
         .collect();
     if quasi.len() >= policy.quasi_identifier_threshold {
-        // 집계된 파이프라인이면 개별 레코드가 남지 않으므로 경고로 낮춘다.
+        // An aggregated pipeline leaves no individual records, so lower to a warning.
         let default_severity = if shape.aggregated {
             Severity::Warn
         } else {
@@ -532,7 +534,7 @@ fn judge(
         );
     }
 
-    // ── XZP004: 민감 속성 집계에 DP 미적용 ─────────────────────────────────
+    // ── XZP004: no DP on the sensitive-attribute aggregate ───────────────────────
     if shape.aggregated && shape.dp.is_none() {
         let sensitive_keys: Vec<String> = shape
             .columns
@@ -581,8 +583,8 @@ fn judge(
         }
     }
 
-    // ── XZP005: 프라이버시 예산 상한 초과 ──────────────────────────────────
-    // NaN 도 "상한 위반"으로 다룬다 — 비교로는 걸러지지 않으므로 명시적으로 확인한다.
+    // ── XZP005: privacy budget over the cap ─────────────────────────────────────
+    // NaN is also treated as a "cap violation" — it is not caught by comparison, so check explicitly.
     if let Some(dp) = shape.dp.as_ref().filter(|dp| {
         !dp.epsilon.is_finite() || dp.epsilon <= 0.0 || dp.epsilon > policy.max_epsilon
     }) {
@@ -624,9 +626,9 @@ fn judge(
     }
 }
 
-// ── 리터럴 규칙 적용 ─────────────────────────────────────────────────────────
+// ── Literal rule application ─────────────────────────────────────────────────
 
-/// 소스 텍스트(주석 포함)에서 개인정보·비밀키 리터럴을 찾아 위반으로 기록한다.
+/// Finds PII and secret-key literals in the source text (including comments) and records them as violations.
 pub fn apply_literal_rules(source: &str, policy: &Policy, report: &mut PolicyReport) {
     for finding in patterns::scan_source(source) {
         let (rule_id, hint) = if finding.kind.is_pii() {
@@ -676,7 +678,7 @@ pub fn apply_literal_rules(source: &str, policy: &Policy, report: &mut PolicyRep
     }
 }
 
-/// 차트가 참조하는 컬럼 목록 — 보정 로직에서 재사용한다.
+/// The list of columns referenced by a chart — reused by remediation logic.
 pub fn chart_columns(config: &ChartConfig) -> Vec<String> {
     [&config.x, &config.y, &config.label, &config.value]
         .into_iter()
@@ -685,7 +687,7 @@ pub fn chart_columns(config: &ChartConfig) -> Vec<String> {
         .collect()
 }
 
-// ── 유닛 테스트 ──────────────────────────────────────────────────────────────
+// ── Unit tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -712,7 +714,7 @@ mod tests {
         !r.safe_to_execute && r.violations.iter().any(|v| v.rule_id == rule)
     }
 
-    /// 직접 식별자를 select 로 내보내면 차단된다.
+    /// Emitting a direct identifier via select is blocked.
     #[test]
     fn blocks_direct_identifier_in_select() {
         assert!(blocked_by(
@@ -721,7 +723,7 @@ mod tests {
         ));
     }
 
-    /// select 없이 전체 컬럼을 내보내도 직접 식별자가 잡힌다.
+    /// Emitting all columns without select also catches direct identifiers.
     #[test]
     fn blocks_direct_identifier_without_select() {
         assert!(blocked_by(
@@ -730,7 +732,7 @@ mod tests {
         ));
     }
 
-    /// 민감 속성이 행 단위로 나가면 차단된다.
+    /// Row-wise emission of a sensitive attribute is blocked.
     #[test]
     fn blocks_row_level_sensitive_attribute() {
         assert!(blocked_by(
@@ -739,7 +741,7 @@ mod tests {
         ));
     }
 
-    /// 준식별자 3개 결합은 차단된다.
+    /// Combining 3 quasi-identifiers is blocked.
     #[test]
     fn blocks_quasi_identifier_combination() {
         assert!(blocked_by(
@@ -748,7 +750,7 @@ mod tests {
         ));
     }
 
-    /// 준식별자 2개는 임계치 미만이라 통과한다.
+    /// 2 quasi-identifiers are below the threshold and pass.
     #[test]
     fn allows_quasi_identifiers_below_threshold() {
         let r = report_for("v out = load(\"data/p.csv\") :: Patient |> select([age, gender]);");
@@ -759,7 +761,7 @@ mod tests {
         );
     }
 
-    /// 집계 결과 컬럼은 식별자로 보지 않는다 — 정상 통계 쿼리 오탐 방지.
+    /// Aggregated result columns are not treated as identifiers — prevents false positives on normal statistics queries.
     #[test]
     fn aggregated_identifier_column_is_not_a_leak() {
         let r = report_for(
@@ -770,7 +772,7 @@ mod tests {
         assert!(r.safe_to_execute, "정상 집계가 차단됨: {:?}", r.violations);
     }
 
-    /// 민감 속성을 그룹 키로 쓴 집계는 DP 를 요구한다.
+    /// An aggregate using a sensitive attribute as a group key requires DP.
     #[test]
     fn sensitive_aggregate_requires_dp() {
         assert!(blocked_by(
@@ -781,7 +783,7 @@ mod tests {
         ));
     }
 
-    /// withDp 를 붙이면 같은 집계가 통과한다.
+    /// The same aggregate passes once withDp is added.
     #[test]
     fn sensitive_aggregate_passes_with_dp() {
         let r = report_for(
@@ -797,7 +799,7 @@ mod tests {
         );
     }
 
-    /// ε 이 정책 상한을 넘으면 차단된다.
+    /// ε above the policy cap is blocked.
     #[test]
     fn blocks_excessive_epsilon() {
         assert!(blocked_by(
@@ -809,7 +811,7 @@ mod tests {
         ));
     }
 
-    /// 변수 참조를 거쳐도 컬럼 추적이 이어진다.
+    /// Column tracking continues through variable references.
     #[test]
     fn tracks_columns_through_variable_reference() {
         assert!(blocked_by(
@@ -819,11 +821,11 @@ mod tests {
         ));
     }
 
-    /// rename 으로 이름을 바꿔도 원본 분류가 따라오지는 않는다 —
-    /// 대신 rename 대상이 정책 컬럼이면 이름이 바뀐 시점부터 재분류된다.
+    /// Renaming does not carry over the original classification —
+    /// instead, if the rename target is a policy column, it is re-classified from the rename point on.
     #[test]
     fn rename_changes_classification_target() {
-        // name → nickname 으로 바꾸면 직접 식별자 분류에서 벗어난다.
+        // Renaming name → nickname moves it out of the direct-identifier class.
         let r = report_for(
             "v out = load(\"data/p.csv\") :: Patient
                |> select([name, age_band])
@@ -836,7 +838,7 @@ mod tests {
         );
     }
 
-    /// 정상적인 대기질 파이프라인은 통과한다 (기존 예제 회귀 방지).
+    /// A normal air-quality pipeline passes (regression guard for existing examples).
     #[test]
     fn existing_air_quality_pipeline_passes() {
         let src =
@@ -857,7 +859,7 @@ mod tests {
         );
     }
 
-    /// 민감 경로 접근은 차단된다.
+    /// Sensitive-path access is blocked.
     #[test]
     fn blocks_sensitive_path_access() {
         let r = analyze(
@@ -872,7 +874,7 @@ mod tests {
         );
     }
 
-    /// 알려지지 않은 절대 경로(.env)도 allowlist 에 없으면 차단된다 — 블록리스트 한계 보완.
+    /// Unknown absolute paths (.env) are also blocked unless allowlisted — compensates for the blocklist limitation.
     #[test]
     fn blocks_unlisted_absolute_path() {
         let r = analyze(
@@ -887,7 +889,7 @@ mod tests {
         );
     }
 
-    /// allowlist 에 허용된 절대 경로 접두사 아래 경로는 통과한다.
+    /// Paths under an allowlisted absolute-path prefix pass.
     #[test]
     fn allows_absolute_path_under_allowed_prefix() {
         let mut policy = Policy::builtin();
@@ -901,7 +903,7 @@ mod tests {
         assert!(r.safe_to_execute, "{:?}", r.violations);
     }
 
-    /// 경로 탈출은 기본적으로 경고이며 실행을 막지 않는다.
+    /// Path traversal is a warning by default and does not block execution.
     #[test]
     fn path_traversal_is_warning_by_default() {
         let r = analyze(
@@ -916,7 +918,7 @@ mod tests {
         );
     }
 
-    /// 정책에서 경로 탈출을 차단으로 올릴 수 있다.
+    /// Policy can escalate path traversal to block.
     #[test]
     fn path_traversal_can_be_escalated_by_policy() {
         let mut policy = Policy::builtin();
@@ -931,7 +933,7 @@ mod tests {
         assert!(!r.safe_to_execute);
     }
 
-    /// 스키마를 해석하지 못하면 경고를 남긴다.
+    /// An unresolved schema produces a warning.
     #[test]
     fn unresolved_schema_is_reported() {
         let r = analyze("v x = load(\"data/a.csv\") :: Unknown;", &Policy::builtin());
@@ -942,7 +944,7 @@ mod tests {
         );
     }
 
-    /// 스키마를 몰라도 select 로 컬럼을 명시하면 분류가 작동한다.
+    /// Even without the schema, explicit select columns are classified.
     #[test]
     fn explicit_select_classifies_without_schema() {
         let r = analyze(

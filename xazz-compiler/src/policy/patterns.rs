@@ -1,39 +1,39 @@
-// xazz-compiler/src/policy/patterns.rs — 리터럴 스캐너 (Policy-as-Code #2)
+// xazz-compiler/src/policy/patterns.rs — literal scanner (Policy-as-Code #2)
 //
-// `.xzz` 소스 텍스트를 직접 훑어 개인정보(PII) · 비밀키 리터럴을 찾아낸다.
-// AST 가 아니라 원본 텍스트를 대상으로 하는 이유는 두 가지다.
+// Scans the `.xzz` source text directly to find PII and secret-key literals.
+// The reasons for targeting the raw text rather than the AST are two-fold.
 //
-//   1. 주석에 적힌 비밀키도 유출이다 — AST 에는 주석이 남지 않는다.
-//   2. 원본 오프셋에서 정확한 line/col 을 계산할 수 있다.
+//   1. A secret key written in a comment is still a leak — comments are not kept in the AST.
+//   2. Exact line/col can be computed from the raw offsets.
 //
-// ⚠️  정규식 크레이트를 쓰지 않는다. xazz-compiler 는 CLI 바이너리에
-//     링크되는 경량 크레이트이므로(CONTRIBUTING.md 아키텍처 제약)
-//     의존성을 늘리지 않고 손으로 스캐너를 작성한다.
+// ⚠️  No regex crate is used. Since xazz-compiler is a lightweight crate linked into the
+//     CLI binary (CONTRIBUTING.md architecture constraint), the scanner is written by
+//     hand rather than adding a dependency.
 
 use serde::Serialize;
 
-/// 탐지된 리터럴의 종류
+/// Kind of detected literal
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SecretKind {
-    /// 주민등록번호 / 외국인등록번호 (체크섬 검증 통과)
+    /// Resident registration number / foreigner registration number (checksum verified)
     ResidentRegistrationNumber,
-    /// 휴대전화 · 유선전화 번호
+    /// Mobile phone or landline number
     PhoneNumber,
-    /// 이메일 주소
+    /// Email address
     Email,
-    /// 신용카드 번호 (Luhn 검증 통과)
+    /// Credit card number (Luhn verified)
     CreditCard,
-    /// 클라우드/서비스 API 키 (AWS, GitHub, OpenAI, Slack …)
+    /// Cloud/service API key (AWS, GitHub, OpenAI, Slack …)
     ApiKey,
-    /// PEM 개인키 블록
+    /// PEM private key block
     PrivateKey,
-    /// `password=`, `secret=` 형태의 일반 자격증명
+    /// Generic credential in the form of `password=`, `secret=`
     GenericSecret,
 }
 
 impl SecretKind {
-    /// 표시 이름
+    /// Display name
     pub fn label(&self) -> &'static str {
         use xazz_core::i18n::is_korean;
         if is_korean() {
@@ -59,7 +59,7 @@ impl SecretKind {
         }
     }
 
-    /// 이 종류가 개인정보(PII)인지, 비밀정보(Secret)인지 구분한다.
+    /// Whether this kind is PII or a secret.
     pub fn is_pii(&self) -> bool {
         matches!(
             self,
@@ -71,23 +71,23 @@ impl SecretKind {
     }
 }
 
-/// 소스에서 발견된 민감 리터럴 하나
+/// One sensitive literal found in the source
 #[derive(Debug, Clone, Serialize)]
 pub struct LiteralFinding {
     pub kind: SecretKind,
-    /// 1-base 줄 번호
+    /// 1-based line number
     pub line: usize,
-    /// 1-base 칼럼 번호
+    /// 1-based column number
     pub col: usize,
-    /// 마스킹된 값 — 원본 값은 절대 리포트에 싣지 않는다.
+    /// Masked value — the raw value is never put in a report.
     pub redacted: String,
 }
 
-// ── 공개 진입점 ──────────────────────────────────────────────────────────────
+// ── Public entry point ───────────────────────────────────────────────────────
 
-/// 소스 전체를 훑어 민감 리터럴을 모두 찾아낸다.
+/// Scans the whole source and finds every sensitive literal.
 ///
-/// 같은 (kind, line, col) 은 한 번만 보고한다.
+/// The same (kind, line, col) is reported only once.
 pub fn scan_source(source: &str) -> Vec<LiteralFinding> {
     let bytes = source.as_bytes();
     let mut out: Vec<LiteralFinding> = Vec::new();
@@ -105,9 +105,9 @@ pub fn scan_source(source: &str) -> Vec<LiteralFinding> {
     out
 }
 
-// ── 위치 계산 ────────────────────────────────────────────────────────────────
+// ── Position calculation ─────────────────────────────────────────────────────
 
-/// 바이트 오프셋 → (line, col). 둘 다 1-base.
+/// Byte offset → (line, col). Both are 1-based.
 fn line_col(source: &str, offset: usize) -> (usize, usize) {
     let mut line = 1usize;
     let mut col = 1usize;
@@ -125,7 +125,7 @@ fn line_col(source: &str, offset: usize) -> (usize, usize) {
     (line, col)
 }
 
-/// 값을 마스킹한다 — 앞 2글자만 남기고 나머지는 `*`.
+/// Masks a value — keeps the first 2 characters and replaces the rest with `*`.
 fn redact(value: &str) -> String {
     let chars: Vec<char> = value.chars().collect();
     if chars.len() <= 2 {
@@ -145,32 +145,33 @@ fn push(out: &mut Vec<LiteralFinding>, source: &str, offset: usize, kind: Secret
     });
 }
 
-// ── 저수준 헬퍼 ──────────────────────────────────────────────────────────────
+// ── Low-level helpers ────────────────────────────────────────────────────────
 
 fn is_digit(b: u8) -> bool {
     b.is_ascii_digit()
 }
 
-/// `pos` 바로 앞뒤가 숫자가 아닌지 확인해 더 긴 숫자열의 일부가 아님을 보장한다.
+/// Ensures the bytes right before and after are not digits, so the run is not part
+/// of a longer digit sequence.
 fn digit_boundary(bytes: &[u8], start: usize, end: usize) -> bool {
     let before_ok = start == 0 || !is_digit(bytes[start - 1]);
     let after_ok = end >= bytes.len() || !is_digit(bytes[end]);
     before_ok && after_ok
 }
 
-// ── 주민등록번호 ─────────────────────────────────────────────────────────────
+// ── Resident registration number ─────────────────────────────────────────────
 
-/// `YYMMDD-SXXXXXX` 형태를 찾고 체크섬까지 검증한다.
+/// Finds the `YYMMDD-SXXXXXX` form and verifies the checksum too.
 ///
-/// 성별코드 1~8 (1·2 내국인 1900년대, 3·4 2000년대, 5~8 외국인)만 인정한다.
-/// 체크섬: 가중치 [2,3,4,5,6,7,8,9,2,3,4,5] 곱의 합에 대해
-/// `(11 - sum % 11) % 10` 이 마지막 자리와 같아야 한다.
+/// Only gender codes 1–8 are accepted (1·2 natives born 1900s, 3·4 born 2000s, 5–8 foreigners).
+/// Checksum: with the sum of the products of weights [2,3,4,5,6,7,8,9,2,3,4,5],
+/// `(11 - sum % 11) % 10` must equal the last digit.
 fn scan_rrn(source: &str, bytes: &[u8], out: &mut Vec<LiteralFinding>) {
     const W: [u32; 12] = [2, 3, 4, 5, 6, 7, 8, 9, 2, 3, 4, 5];
     let n = bytes.len();
     let mut i = 0usize;
     while i + 14 <= n {
-        // 6자리 숫자 + '-' + 7자리 숫자
+        // 6 digits + '-' + 7 digits
         let head_ok = (0..6).all(|k| is_digit(bytes[i + k]));
         if head_ok && bytes[i + 6] == b'-' && (7..14).all(|k| is_digit(bytes[i + k])) {
             let digits: Vec<u32> = (0..14)
@@ -204,12 +205,13 @@ fn scan_rrn(source: &str, bytes: &[u8], out: &mut Vec<LiteralFinding>) {
     }
 }
 
-// ── 전화번호 ─────────────────────────────────────────────────────────────────
+// ── Phone number ─────────────────────────────────────────────────────────────
 
-/// 휴대전화(`01X-XXXX-XXXX`) 및 지역번호 유선전화를 찾는다.
+/// Finds mobile phone numbers (`01X-XXXX-XXXX`) and landlines with area codes.
 ///
-/// 구분자는 `-` 만 인정한다. 구분자 없는 11자리 숫자는 다른 식별자
-/// (예: 우편번호·코드값)와 구분되지 않아 오탐이 크므로 제외한다.
+/// Only `-` is accepted as a separator. An 11-digit run without separators is excluded,
+/// since it cannot be distinguished from other identifiers (e.g. zip codes, code values)
+/// and would cause many false positives.
 fn scan_phone(source: &str, bytes: &[u8], out: &mut Vec<LiteralFinding>) {
     let n = bytes.len();
     let mut i = 0usize;
@@ -218,7 +220,7 @@ fn scan_phone(source: &str, bytes: &[u8], out: &mut Vec<LiteralFinding>) {
             i += 1;
             continue;
         }
-        // 국번 그룹: 2~3자리(0으로 시작) → '-' → 3~4자리 → '-' → 4자리
+        // Exchange group: 2–3 digits (starting with 0) → '-' → 3–4 digits → '-' → 4 digits
         let mut matched = false;
         for head in [3usize, 2] {
             for mid in [4usize, 3] {
@@ -255,9 +257,9 @@ fn scan_phone(source: &str, bytes: &[u8], out: &mut Vec<LiteralFinding>) {
     }
 }
 
-// ── 이메일 ───────────────────────────────────────────────────────────────────
+// ── Email ────────────────────────────────────────────────────────────────────
 
-/// `local@domain.tld` 를 찾는다. TLD 는 알파벳 2자 이상이어야 한다.
+/// Finds `local@domain.tld`. The TLD must be at least 2 alphabetic characters.
 fn scan_email(source: &str, bytes: &[u8], out: &mut Vec<LiteralFinding>) {
     let n = bytes.len();
     let local_ok =
@@ -282,7 +284,7 @@ fn scan_email(source: &str, bytes: &[u8], out: &mut Vec<LiteralFinding>) {
             end += 1;
         }
         let domain = &source[at + 1..end];
-        // 마지막 '.' 뒤 라벨이 알파벳 2자 이상이어야 이메일로 인정한다.
+        // The label after the last '.' must be at least 2 alphabetic characters to count as an email.
         let tld_ok = domain
             .rsplit_once('.')
             .map(|(_, tld)| tld.len() >= 2 && tld.chars().all(|c| c.is_ascii_alphabetic()))
@@ -293,21 +295,22 @@ fn scan_email(source: &str, bytes: &[u8], out: &mut Vec<LiteralFinding>) {
     }
 }
 
-// ── 신용카드 ─────────────────────────────────────────────────────────────────
+// ── Credit card ──────────────────────────────────────────────────────────────
 
-/// 13~19자리 숫자열(구분자 `-`/공백 허용)을 Luhn 검증으로 확인한다.
+/// Verifies 13–19 digit runs (separators `-`/space allowed) with the Luhn check.
 ///
-/// Luhn 만으로는 부족하다. 임의의 긴 숫자열은 약 1/10 확률로 Luhn 을 통과한다.
-/// 실제로 나노초 타임스탬프 `1787805001967327111` (19자리)이 Luhn 을 통과해,
-/// 임시 경로에 섞인 것만으로 카드번호로 오탐된 사례가 있었다. 그래서 두 조건을 더 건다.
+/// Luhn alone is not enough. A random long digit run passes Luhn with probability ~1/10.
+/// In fact a nanosecond timestamp `1787805001967327111` (19 digits) passed Luhn and was
+/// misreported as a card number merely because it appeared in a temp path. So two more
+/// conditions are added.
 ///
-/// 1. 구분자 없는 숫자열은 **발급사 식별번호(IIN) 선두 자리**가 그럴듯해야 한다.
-///  타임스탬프·일련번호가 흔히 갖는 0·1·7·8 선두는 카드가 아니다.
-/// 2. 식별자 문맥(`_` 나 영문자에 붙어 있는 숫자열)은 카드번호가 아니다.
-///  `xazz_test_4150_1787805001967327111` 같은 경로·변수명을 배제한다.
+/// 1. A digit run without separators must have a plausible **issuer identification number (IIN)** first digit.
+///  Timestamps and serial numbers commonly start with 0·1·7·8, which are not cards.
+/// 2. A digit run in an identifier context (attached to `_` or letters) is not a card number.
+///  Paths and variable names like `xazz_test_4150_1787805001967327111` are excluded.
 ///
-/// 구분자가 있는 형태(`4111-1111-1111-1111`)는 표기 자체가 강한 신호이므로
-/// IIN 검사를 요구하지 않는다.
+/// The separated form (`4111-1111-1111-1111`) is a strong signal by itself, so
+/// the IIN check is not required for it.
 fn scan_credit_card(source: &str, bytes: &[u8], out: &mut Vec<LiteralFinding>) {
     let n = bytes.len();
     let mut i = 0usize;
@@ -330,7 +333,7 @@ fn scan_credit_card(source: &str, bytes: &[u8], out: &mut Vec<LiteralFinding>) {
                 break;
             }
         }
-        // 후행 구분자는 잘라낸다.
+        // Trim any trailing separator.
         let mut end = j;
         while end > i && !is_digit(bytes[end - 1]) {
             end -= 1;
@@ -350,10 +353,10 @@ fn scan_credit_card(source: &str, bytes: &[u8], out: &mut Vec<LiteralFinding>) {
     }
 }
 
-/// 숫자열 앞뒤가 식별자 문맥(`_` 또는 영문자)이 아닌지 확인한다.
+/// Ensures the digit run is not in an identifier context (`_` or letters).
 ///
-/// `xazz_test_4150_1787805001967327111` 처럼 변수명·경로 조각에 붙어 있는
-/// 숫자열은 카드번호가 아니다.
+/// Digit runs attached to variable names or path fragments like
+/// `xazz_test_4150_1787805001967327111` are not card numbers.
 fn identifier_boundary(bytes: &[u8], start: usize, end: usize) -> bool {
     let ident = |b: u8| b == b'_' || b.is_ascii_alphabetic();
     let before_ok = start == 0 || !ident(bytes[start - 1]);
@@ -361,13 +364,13 @@ fn identifier_boundary(bytes: &[u8], start: usize, end: usize) -> bool {
     before_ok && after_ok
 }
 
-/// 발급사 식별번호(IIN)의 선두 자리가 실재하는 카드 대역인지 확인한다.
+/// Checks whether the first digit of the issuer identification number (IIN) is a real card range.
 ///
-/// 국제 브랜드 대역만 인정한다 — 3: Amex(34·37)·JCB·Diners, 4: Visa,
-/// 5: Mastercard, 6: Discover·UnionPay, 2: Mastercard 2-시리즈(2221~2720).
+/// Only international brand ranges are accepted — 3: Amex(34·37)·JCB·Diners, 4: Visa,
+/// 5: Mastercard, 6: Discover·UnionPay, 2: Mastercard 2-series(2221~2720).
 ///
-/// 0·1·7·8·9 로 시작하는 숫자열은 카드번호가 아니다 — 타임스탬프와
-/// 일련번호가 대부분 이 대역에 들어간다.
+/// Runs starting with 0·1·7·8·9 are not card numbers — timestamps and serial numbers
+/// mostly fall in those ranges.
 fn plausible_iin(digits: &[u32]) -> bool {
     match digits.first() {
         Some(3) | Some(4) | Some(5) | Some(6) => true,
@@ -382,7 +385,7 @@ fn plausible_iin(digits: &[u32]) -> bool {
     }
 }
 
-/// Luhn 체크섬 — 신용카드 번호의 표준 검증 알고리즘.
+/// Luhn checksum — the standard validation algorithm for credit card numbers.
 fn luhn(digits: &[u32]) -> bool {
     let mut sum = 0u32;
     let mut double = false;
@@ -400,11 +403,11 @@ fn luhn(digits: &[u32]) -> bool {
     sum.is_multiple_of(10)
 }
 
-// ── API 키 ───────────────────────────────────────────────────────────────────
+// ── API key ──────────────────────────────────────────────────────────────────
 
-/// 잘 알려진 서비스 토큰 접두사를 찾는다.
+/// Finds well-known service token prefixes.
 fn scan_api_key(source: &str, out: &mut Vec<LiteralFinding>) {
-    // (접두사, 접두사 뒤에 이어져야 하는 최소 토큰 길이)
+    // (prefix, minimum token length that must follow the prefix)
     const PREFIXES: &[(&str, usize)] = &[
         ("AKIA", 16),
         ("ASIA", 16),
@@ -435,14 +438,14 @@ fn scan_api_key(source: &str, out: &mut Vec<LiteralFinding>) {
     }
 }
 
-// ── PEM 개인키 ───────────────────────────────────────────────────────────────
+// ── PEM private key ──────────────────────────────────────────────────────────
 
 fn scan_private_key(source: &str, out: &mut Vec<LiteralFinding>) {
     const NEEDLE: &str = "PRIVATE KEY-----";
     let mut from = 0usize;
     while let Some(rel) = source[from..].find(NEEDLE) {
         let at = from + rel;
-        // "-----BEGIN ... PRIVATE KEY-----" 형태만 인정한다.
+        // Only accept the "-----BEGIN ... PRIVATE KEY-----" form.
         let head_start = source[..at].rfind("-----BEGIN").unwrap_or(usize::MAX);
         if head_start != usize::MAX && at - head_start <= 40 {
             push(
@@ -457,9 +460,9 @@ fn scan_private_key(source: &str, out: &mut Vec<LiteralFinding>) {
     }
 }
 
-// ── 일반 자격증명 ────────────────────────────────────────────────────────────
+// ── Generic credential ───────────────────────────────────────────────────────
 
-/// `password = "..."` / `api_key: "..."` 형태의 하드코딩 자격증명을 찾는다.
+/// Finds hardcoded credentials in the form of `password = "..."` / `api_key: "..."`.
 fn scan_generic_secret(source: &str, out: &mut Vec<LiteralFinding>) {
     const KEYS: &[&str] = &[
         "password",
@@ -479,14 +482,14 @@ fn scan_generic_secret(source: &str, out: &mut Vec<LiteralFinding>) {
             let at = from + rel;
             from = at + key.len();
 
-            // 키워드 앞이 식별자 문자면 다른 단어의 일부다.
+            // If the character before the keyword is an identifier character, it is part of another word.
             if at > 0 {
                 let prev = lower.as_bytes()[at - 1];
                 if prev.is_ascii_alphanumeric() || prev == b'_' {
                     continue;
                 }
             }
-            // 키워드 뒤: 공백* [:=] 공백* "값"
+            // After the keyword: spaces* [:=] spaces* "value"
             let mut p = at + key.len();
             let b = lower.as_bytes();
             while p < b.len() && (b[p] == b' ' || b[p] == b'\t') {
@@ -507,7 +510,7 @@ fn scan_generic_secret(source: &str, out: &mut Vec<LiteralFinding>) {
                 continue;
             };
             let value = &source[value_start..value_start + close_rel];
-            // 8자 미만이거나 명백한 플레이스홀더는 무시한다.
+            // Ignore values shorter than 8 characters or obvious placeholders.
             let placeholder = value.starts_with('<')
                 || value.starts_with('$')
                 || value.starts_with("${")
@@ -520,7 +523,7 @@ fn scan_generic_secret(source: &str, out: &mut Vec<LiteralFinding>) {
     }
 }
 
-// ── 유닛 테스트 ──────────────────────────────────────────────────────────────
+// ── Unit tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -530,10 +533,10 @@ mod tests {
         scan_source(src).into_iter().map(|f| f.kind).collect()
     }
 
-    /// 체크섬이 유효한 주민등록번호는 탐지된다.
+    /// A resident registration number with a valid checksum is detected.
     #[test]
     fn detects_valid_rrn() {
-        // 900101-1234568 은 체크섬 규칙을 만족하는 합성 번호다 (실존 번호 아님).
+        // 900101-1234568 is a synthetic number satisfying the checksum rule (not a real one).
         let found = scan_source("v x = a |> filter(rrn == \"900101-1234568\")");
         assert!(
             found
@@ -544,62 +547,62 @@ mod tests {
         );
     }
 
-    /// 체크섬이 틀린 번호는 무시한다 (오탐 방지).
+    /// Numbers with an incorrect checksum are ignored (false-positive guard).
     #[test]
     fn ignores_rrn_with_bad_checksum() {
         let found = kinds("v x = a |> filter(code == \"900101-1234567\")");
         assert!(!found.contains(&SecretKind::ResidentRegistrationNumber));
     }
 
-    /// 성별코드가 범위를 벗어나면 주민번호로 보지 않는다.
+    /// A gender code out of range is not treated as a resident number.
     #[test]
     fn ignores_rrn_with_invalid_gender_digit() {
         let found = kinds("v x = a |> filter(code == \"900101-9234567\")");
         assert!(!found.contains(&SecretKind::ResidentRegistrationNumber));
     }
 
-    /// 휴대전화 번호 탐지.
+    /// Mobile phone number detection.
     #[test]
     fn detects_phone_number() {
         let found = kinds("// 담당자 010-1234-5678");
         assert!(found.contains(&SecretKind::PhoneNumber), "{:?}", found);
     }
 
-    /// 날짜(2026-08-27)를 전화번호로 오탐하지 않는다.
+    /// A date (2026-08-27) is not misdetected as a phone number.
     #[test]
     fn ignores_date_as_phone() {
         let found = kinds("// 작성일 2026-08-27");
         assert!(!found.contains(&SecretKind::PhoneNumber), "{:?}", found);
     }
 
-    /// 이메일 탐지 및 TLD 없는 문자열 무시.
+    /// Email detection and ignoring strings without a TLD.
     #[test]
     fn detects_email_only_with_tld() {
         assert!(kinds("v x = \"hong@example.com\"").contains(&SecretKind::Email));
         assert!(!kinds("v x = \"user@localhost\"").contains(&SecretKind::Email));
     }
 
-    /// Luhn 을 통과하는 카드번호만 탐지한다.
+    /// Only card numbers passing Luhn are detected.
     #[test]
     fn detects_credit_card_by_luhn() {
-        // 4111-1111-1111-1111 은 Luhn 을 통과하는 표준 테스트 번호다.
+        // 4111-1111-1111-1111 is the standard test number that passes Luhn.
         assert!(kinds("v x = \"4111-1111-1111-1111\"").contains(&SecretKind::CreditCard));
         assert!(!kinds("v x = \"4111-1111-1111-1112\"").contains(&SecretKind::CreditCard));
     }
 
-    /// 구분자 없는 카드번호도 IIN 이 그럴듯하면 탐지한다.
+    /// A bare card number with a plausible IIN is also detected.
     #[test]
     fn detects_bare_credit_card_with_valid_iin() {
         assert!(kinds("v x = \"4111111111111111\"").contains(&SecretKind::CreditCard));
-        // Mastercard 2-시리즈 (2221~2720)
+        // Mastercard 2-series (2221~2720)
         assert!(kinds("v x = \"2221000000000009\"").contains(&SecretKind::CreditCard));
     }
 
-    /// 나노초 타임스탬프를 카드번호로 오탐하지 않는다.
+    /// A nanosecond timestamp is not misdetected as a card number.
     ///
-    /// 회귀 방지: `1787805001967327111` (19자리)은 실제로 Luhn 을 통과한다.
-    /// 임의의 긴 숫자열은 약 1/10 확률로 Luhn 을 통과하므로, Luhn 만으로
-    /// 판정하면 타임스탬프·일련번호가 전부 카드번호로 잡힌다.
+    /// Regression guard: `1787805001967327111` (19 digits) actually passes Luhn.
+    /// Since a random long digit run passes Luhn with probability ~1/10, judging
+    /// by Luhn alone would flag every timestamp and serial number as a card number.
     #[test]
     fn does_not_flag_luhn_passing_timestamp() {
         for path in [
@@ -617,43 +620,43 @@ mod tests {
         }
     }
 
-    /// 카드 대역이 아닌 선두 자리는 구분자가 없으면 인정하지 않는다.
+    /// First digits outside the card ranges are rejected when there is no separator.
     #[test]
     fn bare_digits_need_a_plausible_card_prefix() {
-        // 선두가 1 — Luhn 을 통과해도 카드 대역이 아니다.
+        // Leading digit 1 — passes Luhn but is not a card range.
         assert!(!kinds("v x = \"1787805001967327111\"").contains(&SecretKind::CreditCard));
-        // 선두가 9 — 마찬가지.
+        // Leading digit 9 — same.
         assert!(!kinds("v x = \"9000000000000009\"").contains(&SecretKind::CreditCard));
     }
 
-    /// 식별자·경로에 붙어 있는 숫자열은 카드번호로 보지 않는다.
+    /// Digit runs attached to identifiers or paths are not treated as card numbers.
     #[test]
     fn digits_glued_to_identifiers_are_not_cards() {
-        // 4111111111111111 은 유효한 카드번호지만 변수명에 붙어 있으면 아니다.
+        // 4111111111111111 is a valid card number, but not when glued to a variable name.
         assert!(!kinds("v order_4111111111111111 = a;").contains(&SecretKind::CreditCard));
         assert!(!kinds("v x = \"run4111111111111111\";").contains(&SecretKind::CreditCard));
     }
 
-    /// AWS 액세스 키 접두사 탐지.
+    /// AWS access key prefix detection.
     #[test]
     fn detects_aws_access_key() {
         assert!(kinds("// AKIAIOSFODNN7EXAMPLE").contains(&SecretKind::ApiKey));
     }
 
-    /// 하드코딩된 비밀번호 탐지.
+    /// Hardcoded password detection.
     #[test]
     fn detects_generic_secret() {
         assert!(kinds("// password = \"hunter2hunter2\"").contains(&SecretKind::GenericSecret));
     }
 
-    /// 플레이스홀더는 자격증명으로 보지 않는다.
+    /// Placeholders are not treated as credentials.
     #[test]
     fn ignores_placeholder_secret() {
         assert!(!kinds("// password = \"<YOUR_PASSWORD>\"").contains(&SecretKind::GenericSecret));
         assert!(!kinds("// password = \"********\"").contains(&SecretKind::GenericSecret));
     }
 
-    /// 정상적인 대기질 파이프라인에서는 아무것도 탐지되지 않는다 (오탐 회귀 방지).
+    /// Nothing is detected in a normal air-quality pipeline (false-positive regression guard).
     #[test]
     fn clean_pipeline_has_no_findings() {
         let src = "type AQ = { station: string, pm10: float };\n\
@@ -664,7 +667,7 @@ mod tests {
         assert!(scan_source(src).is_empty(), "{:?}", scan_source(src));
     }
 
-    /// 리포트에 원본 값이 실리지 않는다 (마스킹 검증).
+    /// Raw values never end up in the report (masking verification).
     #[test]
     fn findings_are_redacted() {
         let found = scan_source("v x = a |> filter(rrn == \"900101-1234568\")");
@@ -678,7 +681,7 @@ mod tests {
         }
     }
 
-    /// line/col 이 1-base 로 정확히 계산된다.
+    /// line/col are computed accurately as 1-based.
     #[test]
     fn reports_accurate_line_and_col() {
         let src = "line one\n// 010-1234-5678";
