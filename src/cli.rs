@@ -133,5 +133,6 @@ pub enum Commands {
     /// xazz 사용자 프로필을 분석하고 아이덴티티를 확인합니다
     ///
     /// 예: xazz whoami
+    #[command(hide = true)]
     Whoami,
 }
