@@ -115,18 +115,28 @@ fn append_to_path(
     //    instances (multi-process). flock applies across process boundaries, so even
     //    when several xazz-servers append to the same log concurrently, index/prev_hash
     //    are computed atomically.
+    //
+    //    The file is opened with read+append and read via the SAME locked handle:
+    //    on Windows, opening a second handle to read while the exclusive lock is held
+    //    fails with ERROR_LOCK_VIOLATION (os error 33).
     use fs2::FileExt;
-    use std::io::Write;
-    let lock_file = std::fs::OpenOptions::new()
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let mut file = std::fs::OpenOptions::new()
         .create(true)
-        .write(true)
+        .read(true)
+        .append(true)
         .open(file_path)
         .map_err(|e| format!("failed to open audit-log file for lock: {e}"))?;
-    lock_file
-        .lock_exclusive()
+    file.lock_exclusive()
         .map_err(|e| format!("failed to lock audit-log file: {e}"))?;
 
-    let existing = read_all(file_path).map_err(|e| format!("failed to read audit log: {e}"))?;
+    file.seek(SeekFrom::Start(0))
+        .map_err(|e| format!("failed to seek audit-log file: {e}"))?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)
+        .map_err(|e| format!("failed to read audit log: {e}"))?;
+    let existing =
+        parse_records(&contents).map_err(|e| format!("failed to read audit log: {e}"))?;
     let index = existing.len() as u64;
     let prev_hash = existing
         .last()
@@ -148,12 +158,8 @@ fn append_to_path(
         ..record
     };
 
-    // append-only: use append(true) in OpenOptions
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(file_path)
-        .map_err(|e| format!("failed to open audit-log file: {e}"))?;
+    // append-only: the handle is opened in append mode, so the write lands at the
+    // end even though we previously sought to position 0 for reading.
     let line =
         serde_json::to_string(&record).map_err(|e| format!("JSON serialization failed: {e}"))?;
     writeln!(file, "{}", line).map_err(|e| format!("failed to write audit log: {e}"))?;
@@ -166,7 +172,7 @@ fn append_to_path(
         .map_err(|e| format!("failed to fsync audit log: {e}"))?;
 
     // Release the exclusive lock (also released automatically when the file goes out of scope)
-    let _ = lock_file.unlock();
+    let _ = file.unlock();
 
     Ok(record)
 }
@@ -182,6 +188,11 @@ fn read_all(file_path: &std::path::Path) -> Result<Vec<AuditRecord>, String> {
     }
     let contents =
         std::fs::read_to_string(file_path).map_err(|e| format!("failed to read audit log: {e}"))?;
+    parse_records(&contents)
+}
+
+/// Parses JSONL audit-log contents into records, reporting the offending line.
+fn parse_records(contents: &str) -> Result<Vec<AuditRecord>, String> {
     let mut records = Vec::new();
     for (i, line) in contents.lines().enumerate() {
         let trimmed = line.trim();
