@@ -82,6 +82,38 @@ pub fn fill_value_to_polars(value: &FillNullValue, col: &str) -> String {
     }
 }
 
+/// 집계 연산자의 Polars 메서드 호출 문자열 반환 (codegen/emitter 공유).
+///
+/// 예: `AggKind::Sum` → `"col(\"pm10\").sum()"`.
+pub fn agg_expr_to_polars(kind: crate::ir::AggKind, col: &str) -> String {
+    let method = match kind {
+        crate::ir::AggKind::Count => "count()",
+        crate::ir::AggKind::Len => "count()",
+        crate::ir::AggKind::Sum => "sum()",
+        crate::ir::AggKind::Mean => "mean()",
+        crate::ir::AggKind::Min => "min()",
+        crate::ir::AggKind::Max => "max()",
+        crate::ir::AggKind::Median => "median()",
+        // var(1)/std(1) 은 인자를 가지므로 괄호가 메서드명에 이미 포함된다.
+        crate::ir::AggKind::Variance => "var(1)",
+        crate::ir::AggKind::Std => "std(1)",
+    };
+    format!("col(\"{}\").{}", escape(col), method)
+}
+
+/// cast() 대상 DSL 타입 → Polars DataType 소스 문자열 (codegen/emitter 공유).
+///
+/// 모르는 타입은 원본 문자열을 그대로 반환한다 (오류는 체커가 이미 처리).
+pub fn cast_dtype_to_polars(to_type: &str) -> String {
+    match to_type {
+        "float" => "DataType::Float64".to_string(),
+        "int" => "DataType::Int64".to_string(),
+        "str" => "DataType::String".to_string(),
+        "bool" => "DataType::Boolean".to_string(),
+        other => other.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,5 +213,41 @@ mod tests {
             fill_value_to_polars(&FillNullValue::Str("a\"b".into()), "a"),
             "lit(\"a\\\"b\")"
         );
+    }
+
+    #[test]
+    fn agg_expr_maps_each_kind() {
+        use crate::ir::AggKind;
+        assert_eq!(
+            agg_expr_to_polars(AggKind::Sum, "pm10"),
+            "col(\"pm10\").sum()"
+        );
+        assert_eq!(
+            agg_expr_to_polars(AggKind::Mean, "pm10"),
+            "col(\"pm10\").mean()"
+        );
+        assert_eq!(
+            agg_expr_to_polars(AggKind::Count, "id"),
+            "col(\"id\").count()"
+        );
+        assert_eq!(
+            agg_expr_to_polars(AggKind::Variance, "v"),
+            "col(\"v\").var(1)"
+        );
+        assert_eq!(agg_expr_to_polars(AggKind::Std, "v"), "col(\"v\").std(1)");
+        assert_eq!(
+            agg_expr_to_polars(AggKind::Median, "v"),
+            "col(\"v\").median()"
+        );
+    }
+
+    #[test]
+    fn cast_dtype_maps_known_types() {
+        assert_eq!(cast_dtype_to_polars("float"), "DataType::Float64");
+        assert_eq!(cast_dtype_to_polars("int"), "DataType::Int64");
+        assert_eq!(cast_dtype_to_polars("str"), "DataType::String");
+        assert_eq!(cast_dtype_to_polars("bool"), "DataType::Boolean");
+        // unknown은 원본을 통과 (체커가 미리 거부하므로 도달하지 않음)
+        assert_eq!(cast_dtype_to_polars("custom"), "custom");
     }
 }

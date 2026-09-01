@@ -273,72 +273,87 @@ fn generate_rust_src(
 
                     // ── 집계 연산자: GroupBy와 함께 또는 단독 ─────────────────
                     PipelineOp::Count(Some(agg_col)) => {
+                        let agg = crate::polars_text::agg_expr_to_polars(
+                            crate::ir::AggKind::Count,
+                            agg_col,
+                        );
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
-                                "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").count()])  // |> groupBy(\"{}\") |> count(\"{}\")\n",
-                                escape(&gc), escape(agg_col), gc, agg_col
+                                "        .group_by([col(\"{}\")])\n        .agg([{}])  // |> groupBy(\"{}\") |> count(\"{}\")\n",
+                                escape(&gc), agg, gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
-                                "        .select([col(\"{}\").count()])  // |> count(\"{}\")\n",
-                                escape(agg_col),
-                                agg_col
+                                "        .select([{}])  // |> count(\"{}\")\n",
+                                agg, agg_col
                             ));
                         }
                     }
                     PipelineOp::Sum(agg_col) => {
+                        let agg = crate::polars_text::agg_expr_to_polars(
+                            crate::ir::AggKind::Sum,
+                            agg_col,
+                        );
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
-                                "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").sum()])  // |> groupBy(\"{}\") |> sum(\"{}\")\n",
-                                escape(&gc), escape(agg_col), gc, agg_col
+                                "        .group_by([col(\"{}\")])\n        .agg([{}])  // |> groupBy(\"{}\") |> sum(\"{}\")\n",
+                                escape(&gc), agg, gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
-                                "        .select([col(\"{}\").sum()])  // |> sum(\"{}\")\n",
-                                escape(agg_col),
-                                agg_col
+                                "        .select([{}])  // |> sum(\"{}\")\n",
+                                agg, agg_col
                             ));
                         }
                     }
                     PipelineOp::Mean(agg_col) => {
+                        let agg = crate::polars_text::agg_expr_to_polars(
+                            crate::ir::AggKind::Mean,
+                            agg_col,
+                        );
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
-                                "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").mean()])  // |> groupBy(\"{}\") |> mean(\"{}\")\n",
-                                escape(&gc), escape(agg_col), gc, agg_col
+                                "        .group_by([col(\"{}\")])\n        .agg([{}])  // |> groupBy(\"{}\") |> mean(\"{}\")\n",
+                                escape(&gc), agg, gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
-                                "        .select([col(\"{}\").mean()])  // |> mean(\"{}\")\n",
-                                escape(agg_col),
-                                agg_col
+                                "        .select([{}])  // |> mean(\"{}\")\n",
+                                agg, agg_col
                             ));
                         }
                     }
                     PipelineOp::Min(agg_col) => {
+                        let agg = crate::polars_text::agg_expr_to_polars(
+                            crate::ir::AggKind::Min,
+                            agg_col,
+                        );
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
-                                "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").min()])  // |> groupBy(\"{}\") |> min(\"{}\")\n",
-                                escape(&gc), escape(agg_col), gc, agg_col
+                                "        .group_by([col(\"{}\")])\n        .agg([{}])  // |> groupBy(\"{}\") |> min(\"{}\")\n",
+                                escape(&gc), agg, gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
-                                "        .select([col(\"{}\").min()])  // |> min(\"{}\")\n",
-                                escape(agg_col),
-                                agg_col
+                                "        .select([{}])  // |> min(\"{}\")\n",
+                                agg, agg_col
                             ));
                         }
                     }
                     PipelineOp::Max(agg_col) => {
+                        let agg = crate::polars_text::agg_expr_to_polars(
+                            crate::ir::AggKind::Max,
+                            agg_col,
+                        );
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
-                                "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").max()])  // |> groupBy(\"{}\") |> max(\"{}\")\n",
-                                escape(&gc), escape(agg_col), gc, agg_col
+                                "        .group_by([col(\"{}\")])\n        .agg([{}])  // |> groupBy(\"{}\") |> max(\"{}\")\n",
+                                escape(&gc), agg, gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
-                                "        .select([col(\"{}\").max()])  // |> max(\"{}\")\n",
-                                escape(agg_col),
-                                agg_col
+                                "        .select([{}])  // |> max(\"{}\")\n",
+                                agg, agg_col
                             ));
                         }
                     }
@@ -430,16 +445,10 @@ fn generate_rust_src(
                         col: cast_col,
                         to_type,
                     } => {
-                        let polars_type = match to_type.as_str() {
-                            "float" => "DataType::Float64",
-                            "int" => "DataType::Int64",
-                            "str" => "DataType::String",
-                            "bool" => "DataType::Boolean",
-                            other => other,
-                        };
+                        let polars_type = crate::polars_text::cast_dtype_to_polars(to_type);
                         out.push_str(&format!(
                             "        .with_columns([col(\"{}\").cast({})])  // |> cast(\"{}\", \"{}\")\n",
-                            cast_col, polars_type, cast_col, to_type
+                            escape(cast_col), polars_type, cast_col, to_type
                         ));
                     }
 
@@ -481,44 +490,53 @@ fn generate_rust_src(
 
                     // ── v0.22 median / variance / std 집계 ─────────────────────
                     PipelineOp::Median(agg_col) => {
+                        let agg = crate::polars_text::agg_expr_to_polars(
+                            crate::ir::AggKind::Median,
+                            agg_col,
+                        );
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
-                                "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").median()])  // |> groupBy(\"{}\") |> median(\"{}\")\n",
-                                escape(&gc), escape(agg_col), gc, agg_col
+                                "        .group_by([col(\"{}\")])\n        .agg([{}])  // |> groupBy(\"{}\") |> median(\"{}\")\n",
+                                escape(&gc), agg, gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
-                                "        .select([col(\"{}\").median()])  // |> median(\"{}\")\n",
-                                escape(agg_col),
-                                agg_col
+                                "        .select([{}])  // |> median(\"{}\")\n",
+                                agg, agg_col
                             ));
                         }
                     }
                     PipelineOp::Variance(agg_col) => {
+                        let agg = crate::polars_text::agg_expr_to_polars(
+                            crate::ir::AggKind::Variance,
+                            agg_col,
+                        );
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
-                                "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").var(1)])  // |> groupBy(\"{}\") |> variance(\"{}\")\n",
-                                escape(&gc), escape(agg_col), gc, agg_col
+                                "        .group_by([col(\"{}\")])\n        .agg([{}])  // |> groupBy(\"{}\") |> variance(\"{}\")\n",
+                                escape(&gc), agg, gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
-                                "        .select([col(\"{}\").var(1)])  // |> variance(\"{}\")\n",
-                                escape(agg_col),
-                                agg_col
+                                "        .select([{}])  // |> variance(\"{}\")\n",
+                                agg, agg_col
                             ));
                         }
                     }
                     PipelineOp::Std(agg_col) => {
+                        let agg = crate::polars_text::agg_expr_to_polars(
+                            crate::ir::AggKind::Std,
+                            agg_col,
+                        );
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
-                                "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").std(1)])  // |> groupBy(\"{}\") |> std(\"{}\")\n",
-                                escape(&gc), escape(agg_col), gc, agg_col
+                                "        .group_by([col(\"{}\")])\n        .agg([{}])  // |> groupBy(\"{}\") |> std(\"{}\")\n",
+                                escape(&gc), agg, gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
-                                "        .select([col(\"{}\").std(1)])  // |> std(\"{}\")\n",
-                                escape(agg_col),
-                                agg_col
+                                "        .select([{}])  // |> std(\"{}\")\n",
+                                agg, agg_col
                             ));
                         }
                     }

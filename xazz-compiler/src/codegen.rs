@@ -269,8 +269,8 @@ impl Codegen {
             PipelineOp::Count(None) => "  // |> count  →  df.height() 로 행 수 확인".to_string(),
             PipelineOp::Count(Some(col)) => {
                 format!(
-                    "  .agg([col(\"{}\").count()])  // |> count(\"{}\")",
-                    esc(col),
+                    "  .agg([{}])  // |> count(\"{}\")",
+                    crate::polars_text::agg_expr_to_polars(crate::ir::AggKind::Count, col),
                     esc(col)
                 )
             }
@@ -285,29 +285,29 @@ impl Codegen {
             }
             PipelineOp::Sum(agg_col) => {
                 format!(
-                    "  .agg([col(\"{}\").sum()])  // |> sum(\"{}\")",
-                    esc(agg_col),
+                    "  .agg([{}])  // |> sum(\"{}\")",
+                    crate::polars_text::agg_expr_to_polars(crate::ir::AggKind::Sum, agg_col),
                     esc(agg_col)
                 )
             }
             PipelineOp::Mean(agg_col) => {
                 format!(
-                    "  .agg([col(\"{}\").mean()])  // |> mean(\"{}\")",
-                    esc(agg_col),
+                    "  .agg([{}])  // |> mean(\"{}\")",
+                    crate::polars_text::agg_expr_to_polars(crate::ir::AggKind::Mean, agg_col),
                     esc(agg_col)
                 )
             }
             PipelineOp::Min(agg_col) => {
                 format!(
-                    "  .agg([col(\"{}\").min()])  // |> min(\"{}\")",
-                    esc(agg_col),
+                    "  .agg([{}])  // |> min(\"{}\")",
+                    crate::polars_text::agg_expr_to_polars(crate::ir::AggKind::Min, agg_col),
                     esc(agg_col)
                 )
             }
             PipelineOp::Max(agg_col) => {
                 format!(
-                    "  .agg([col(\"{}\").max()])  // |> max(\"{}\")",
-                    esc(agg_col),
+                    "  .agg([{}])  // |> max(\"{}\")",
+                    crate::polars_text::agg_expr_to_polars(crate::ir::AggKind::Max, agg_col),
                     esc(agg_col)
                 )
             }
@@ -395,13 +395,7 @@ impl Codegen {
 
             // ── v0.20 Cast ───────────────────────────────────────────────────
             PipelineOp::Cast { col, to_type } => {
-                let polars_type = match to_type.as_str() {
-                    "float" => "DataType::Float64",
-                    "int" => "DataType::Int64",
-                    "str" => "DataType::String",
-                    "bool" => "DataType::Boolean",
-                    other => other,
-                };
+                let polars_type = crate::polars_text::cast_dtype_to_polars(to_type);
                 format!(
                     "  .with_columns([col(\"{}\").cast({})])  // |> cast(\"{}\", \"{}\")",
                     esc(col),
@@ -451,20 +445,23 @@ impl Codegen {
             // ── v0.22 median / variance / std 집계 ──────────────────────────
             PipelineOp::Median(agg_col) => {
                 format!(
-                    "  .agg([col(\"{}\").median()])  // |> median(\"{}\")",
-                    agg_col, agg_col
+                    "  .agg([{}])  // |> median(\"{}\")",
+                    crate::polars_text::agg_expr_to_polars(crate::ir::AggKind::Median, agg_col),
+                    agg_col
                 )
             }
             PipelineOp::Variance(agg_col) => {
                 format!(
-                    "  .agg([col(\"{}\").var(1)])  // |> variance(\"{}\")",
-                    agg_col, agg_col
+                    "  .agg([{}])  // |> variance(\"{}\")",
+                    crate::polars_text::agg_expr_to_polars(crate::ir::AggKind::Variance, agg_col),
+                    agg_col
                 )
             }
             PipelineOp::Std(agg_col) => {
                 format!(
-                    "  .agg([col(\"{}\").std(1)])  // |> std(\"{}\")",
-                    agg_col, agg_col
+                    "  .agg([{}])  // |> std(\"{}\")",
+                    crate::polars_text::agg_expr_to_polars(crate::ir::AggKind::Std, agg_col),
+                    agg_col
                 )
             }
             PipelineOp::Train { model_name, config } => format!(
