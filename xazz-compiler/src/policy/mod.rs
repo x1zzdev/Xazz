@@ -419,6 +419,12 @@ pub struct Policy {
     /// load() 경로에 포함되면 차단할 문자열
     #[serde(default)]
     pub denied_path_fragments: Vec<String>,
+    /// 절대 경로 load() 를 허용할 인가 디렉터리 (allowlist).
+    ///
+    /// 비어 있으면 절대 경로 접근은 전부 차단된다 (fail-closed).
+    /// 상대 경로는 이 목록과 무관하게 프로젝트 루트 기준으로 검사된다.
+    #[serde(default)]
+    pub allowed_absolute_path_prefixes: Vec<String>,
 
     /// 규칙별 심각도 재정의 (예: `{"XZP013": "block"}`)
     #[serde(default)]
@@ -712,6 +718,8 @@ impl Policy {
                 ".aws/credentials",
                 ".kube/config",
             ]),
+            // 기본 정책은 절대 경로 접근을 전부 거부한다 (fail-closed).
+            allowed_absolute_path_prefixes: Vec::new(),
             rule_severity: BTreeMap::new(),
             domain: default_domain(),
             risk_level: RiskLevel::Medium,

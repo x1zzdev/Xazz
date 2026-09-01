@@ -189,6 +189,46 @@ fn check_source_path(
             .at_stmt(index, var),
         );
     }
+
+    // 절대 경로 접근은 인가 디렉터리(allowlist)에 속할 때만 허용한다 (fail-closed).
+    // 비어 있으면 모든 절대 경로를 차단한다 — 블록리스트는 알려진 민감 경로만
+    // 걸러내므로, 알려지지 않은 절대 경로(예: load("/home/<user>/.env"))는
+    // allowlist 로만 막을 수 있다.
+    let is_absolute = normalized.starts_with('/')
+        || normalized.starts_with("c:/")
+        || normalized.starts_with("c:\\");
+    if is_absolute {
+        let allowed = policy.allowed_absolute_path_prefixes.iter().any(|prefix| {
+            let p = prefix.replace('\\', "/").to_ascii_lowercase();
+            !p.is_empty() && normalized.starts_with(&p)
+        });
+        if !allowed {
+            record(
+                report,
+                Violation::new(
+                    RULE_SENSITIVE_PATH,
+                    Severity::Block,
+                    format!(
+                        "{}: load(\"{}\"). {}",
+                        tr(
+                            "absolute path is outside the authorized data directories",
+                            "인가된 데이터 디렉터리를 벗어난 절대 경로입니다"
+                        ),
+                        file_path,
+                        tr(
+                            "a data pipeline should only read authorized data directories",
+                            "데이터 파이프라인은 인가된 데이터 디렉터리만 읽어야 합니다"
+                        )
+                    ),
+                    tr(
+                        "use a project-relative path under an authorized data directory",
+                        "인가된 데이터 디렉터리 아래의 프로젝트 상대 경로를 사용하세요",
+                    ),
+                )
+                .at_stmt(index, var),
+            );
+        }
+    }
 }
 
 // ── 출력 컬럼 추론 ───────────────────────────────────────────────────────────
@@ -830,6 +870,35 @@ mod tests {
                 .iter()
                 .any(|v| v.rule_id == super::super::RULE_SENSITIVE_PATH)
         );
+    }
+
+    /// 알려지지 않은 절대 경로(.env)도 allowlist 에 없으면 차단된다 — 블록리스트 한계 보완.
+    #[test]
+    fn blocks_unlisted_absolute_path() {
+        let r = analyze(
+            "type P = { a: string };\nv x = load(\"/home/user/.env\") :: P |> select([a]);",
+            &Policy::builtin(),
+        );
+        assert!(!r.safe_to_execute);
+        assert!(
+            r.violations
+                .iter()
+                .any(|v| v.rule_id == super::super::RULE_SENSITIVE_PATH)
+        );
+    }
+
+    /// allowlist 에 허용된 절대 경로 접두사 아래 경로는 통과한다.
+    #[test]
+    fn allows_absolute_path_under_allowed_prefix() {
+        let mut policy = Policy::builtin();
+        policy
+            .allowed_absolute_path_prefixes
+            .push("/srv/xazz-data".to_string());
+        let r = analyze(
+            "type P = { a: string };\nv x = load(\"/srv/xazz-data/air.csv\") :: P |> select([a]);",
+            &policy,
+        );
+        assert!(r.safe_to_execute, "{:?}", r.violations);
     }
 
     /// 경로 탈출은 기본적으로 경고이며 실행을 막지 않는다.
