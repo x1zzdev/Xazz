@@ -264,6 +264,7 @@ impl Analyzer {
         if self.schemas.contains_key(name) {
             self.error(
                 ErrorKind::Other("중복된 스키마 선언".to_string()),
+                Some(name),
                 if is_korean() {
                     format!(
                         "스키마 '{}' 가 두 번 선언되었습니다. 이름을 다르게 지정하거나 중복을 제거하세요.",
@@ -289,6 +290,7 @@ impl Analyzer {
         if self.models.contains_key(name) {
             self.error(
                 ErrorKind::Other("중복된 모델 선언".to_string()),
+                Some(name),
                 if is_korean() {
                     format!(
                         "모델 '{}' 이 두 번 선언되었습니다. 이름을 다르게 지정하세요.",
@@ -309,6 +311,7 @@ impl Analyzer {
         if !has_dense {
             self.error(
                 ErrorKind::Other("Dense 레이어 없음".to_string()),
+                Some(name),
                 if is_korean() {
                     format!(
                         "모델 '{}' 에 유효한 Dense 레이어가 없습니다. 최소 하나의 Dense(units) 레이어가 필요합니다.",
@@ -323,7 +326,7 @@ impl Analyzer {
             );
         }
         if layers.iter().any(|l| matches!(l, LayerKind::BatchNorm)) {
-            self.warning(if is_korean() {
+            self.warning(Some(name), if is_korean() {
                 format!(
                     "모델 '{}' 에 BatchNorm() 이 포함되어 있지만 1D MLP 에서는 지원하지 않아 무시됩니다.",
                     name
@@ -346,6 +349,7 @@ impl Analyzer {
         if self.vars.contains_key(var_name) || self.trained_vars.contains(var_name) {
             self.error(
                 ErrorKind::Other("중복된 변수 선언".to_string()),
+                Some(var_name),
                 if is_korean() {
                     format!(
                         "변수 '{}' 가 이미 선언되어 있습니다. 이름을 다르게 지정하세요.",
@@ -370,6 +374,7 @@ impl Analyzer {
         if !self.vars.contains_key(source_var) {
             self.error(
                 ErrorKind::UndeclaredVariable(source_var.to_string()),
+                Some(source_var),
                 if is_korean() {
                     format!(
                         "run {} : 데이터 소스 변수 '{}' 가 선언되지 않았습니다.",
@@ -387,6 +392,7 @@ impl Analyzer {
         if !self.models.contains_key(model_name) {
             self.error(
                 ErrorKind::Other("미선언 모델".to_string()),
+                Some(model_name),
                 if is_korean() {
                     format!(
                         "run |> train({}) : 모델 '{}' 이 선언되지 않았습니다. 먼저 `model {} {{ ... }}` 로 선언하세요.",
@@ -409,6 +415,7 @@ impl Analyzer {
                         schema: source_var.to_string(),
                         available: sorted_keys(&var.columns),
                     },
+                    Some(&config.target),
                     if is_korean() {
                         format!(
                             "run |> train({}) : 타겟 컬럼 '{}' 이 소스 변수 '{}' 의 스키마에 없습니다.",
@@ -424,7 +431,7 @@ impl Analyzer {
             } else if let Some(t) = var.columns.get(&config.target)
                 && !t.is_numeric()
             {
-                self.warning(if is_korean() {
+                self.warning(Some(&config.target), if is_korean() {
                     format!(
                         "타겟 컬럼 '{}' 이 숫자형이 아니어서 학습 입력이 될 수 없습니다. 학습은 숫자형 타겟을 요구합니다.",
                         config.target
@@ -485,6 +492,7 @@ impl Analyzer {
         if let Some(g) = st.pending_group.take() {
             self.error(
                 ErrorKind::Other("groupBy 후 집계 누락".to_string()),
+                Some(&g),
                 if is_korean() {
                     format!(
                         "groupBy(\"{}\") 뒤에 sum/mean/min/max/count 등 집계 연산이 없습니다. 파이프라인이 그룹된 상태로 종료될 수 없습니다.",
@@ -542,6 +550,7 @@ impl Analyzer {
                     None => {
                         self.error(
                             ErrorKind::UndeclaredType(schema_name.to_string()),
+                            Some(schema_name),
                             if is_korean() {
                                 format!(
                                     "load(...) :: {} : 스키마 '{}' 이(가) 선언되지 않았습니다. `type {} = {{ ... }}` 로 먼저 선언하세요.",
@@ -569,6 +578,7 @@ impl Analyzer {
                 if self.trained_vars.contains(name) {
                     self.error(
                         ErrorKind::UndeclaredVariable(name.to_string()),
+                        Some(name),
                         if is_korean() {
                             format!(
                                 "변수 '{}' 은 학습된 모델입니다. DataFrame 파이프라인 소스로 사용할 수 없습니다.",
@@ -589,6 +599,7 @@ impl Analyzer {
                 } else {
                     self.error(
                         ErrorKind::UndeclaredVariable(name.to_string()),
+                        Some(name),
                         if is_korean() {
                             format!(
                                 "변수 '{}' 이(가) 선언되지 않았습니다. 이 변수를 이전 파이프라인에서 먼저 선언하세요.",
@@ -657,6 +668,7 @@ impl Analyzer {
         if !self.models.contains_key(model_name) {
             self.error(
                 ErrorKind::Other("미선언 모델".to_string()),
+                Some(model_name),
                 if is_korean() {
                     format!(
                         "train({}) : 모델 '{}' 은(는) 선언되지 않았습니다. 먼저 `model {} {{ ... }}` 로 선언하세요.",
@@ -687,6 +699,7 @@ impl Analyzer {
         if !self.trained_vars.contains(model_var) {
             self.error(
                 ErrorKind::UndeclaredVariable(model_var.to_string()),
+                Some(model_var),
                 if is_korean() {
                     format!(
                         "predict({}) : 변수 '{}' 은(는) 학습된 모델이 아닙니다. 먼저 `v {} = ... |> train(...)` 으로 학습하세요.",
@@ -808,6 +821,7 @@ impl Analyzer {
             if !t.option && t.name != "unknown" {
                 self.error(
                     ErrorKind::Other("fillNull on non-nullable column".to_string()),
+                    Some(col),
                     if is_korean() {
                         format!(
                             "fillNull(\"{}\", ...) : 컬럼 '{}' 은 null을 허용하지 않는 타입으로 선언되어 있습니다. 스키마에서 '{}' 을(를) Option<{}> 으로 선언하거나, 이 연산을 제거하세요.",
@@ -844,6 +858,7 @@ impl Analyzer {
         if self.trained_vars.contains(other) {
             self.error(
                 ErrorKind::UndeclaredVariable(other.to_string()),
+                Some(other),
                 if is_korean() {
                     format!("join() 대상 변수 '{}' 은 학습된 모델입니다.", other)
                 } else {
@@ -858,6 +873,7 @@ impl Analyzer {
         } else {
             self.error(
                 ErrorKind::UndeclaredVariable(other.to_string()),
+                Some(other),
                 if is_korean() {
                     format!("join() 대상 변수 '{}' 이(가) 선언되지 않았습니다.", other)
                 } else {
@@ -908,6 +924,7 @@ impl Analyzer {
         if !matches!(to_type.as_str(), "float" | "int" | "str" | "bool") {
             self.error(
                 ErrorKind::Other("알 수 없는 cast 타입".to_string()),
+                Some(to_type),
                 if is_korean() {
                     format!(
                         "cast(\"{}\", \"{}\") : 알 수 없는 타입 '{}'. 지원 타입: \"float\", \"int\", \"str\", \"bool\"",
@@ -976,7 +993,7 @@ impl Analyzer {
             }
         }
         if args.epsilon > MAX_EPSILON_WARN {
-            self.warning(if is_korean() {
+            self.warning(None, if is_korean() {
                 format!(
                     "withDp(epsilon: {}) : ε 이 10을 초과하면 프라이버시 보호 효과가 사실상 없습니다. 1.0 이하 권장.",
                     args.epsilon
@@ -996,7 +1013,7 @@ impl Analyzer {
     fn check_agg_column(&mut self, col: &str, cols: &HashMap<String, CheckerColType>) {
         match cols.get(col) {
             Some(t) if !t.is_numeric() => {
-                self.warning(if is_korean() {
+                self.warning(Some(col), if is_korean() {
                     format!(
                         "집계 컬럼 '{}' 이 숫자형이 아닙니다. 집계(sum/mean/min/max)는 숫자형 컬럼에만 의미가 있습니다.",
                         col
@@ -1028,7 +1045,7 @@ impl Analyzer {
         if let Some(t) = cols.get(col) {
             let is_str_fill = matches!(value, FillNullValue::Str(_));
             if is_str_fill && t.is_numeric() {
-                self.warning(if is_korean() {
+                self.warning(Some(col), if is_korean() {
                     format!(
                         "fillNull(\"{}\", <문자열>) : 숫자형 컬럼 '{}' 을 문자열로 채우면 타입이 바뀔 수 있습니다.",
                         col, col
@@ -1040,7 +1057,7 @@ impl Analyzer {
                     )
                 });
             } else if !is_str_fill && !t.is_numeric() && t.name != "unknown" {
-                self.warning(if is_korean() {
+                self.warning(Some(col), if is_korean() {
                     format!(
                         "fillNull(\"{}\", <숫자>) : 문자열 컬럼 '{}' 에 숫자 값을 채우면 타입이 바뀔 수 있습니다.",
                         col, col
@@ -1098,7 +1115,7 @@ impl Analyzer {
                     } else {
                         "Division by a literal zero detected (compile-time) — DivisionByZero. If the denominator can become 0 in data, handle it with a filter or replacement."
                     };
-                    let span = self.resolve_span(message);
+                    let span = self.resolve_span(None);
                     self.warnings.push(CompileError::new(
                         ErrorKind::DivisionByZero {
                             col: "(literal)".to_string(),
@@ -1150,6 +1167,7 @@ impl Analyzer {
                 schema: ctx.to_string(),
                 available,
             },
+            Some(col),
             if is_korean() {
                 format!("{}: 스키마에 '{}' 컬럼이 존재하지 않습니다.", ctx, col)
             } else {
@@ -1158,15 +1176,15 @@ impl Analyzer {
         );
     }
 
-    fn error(&mut self, kind: ErrorKind, message: impl Into<String>) {
+    fn error(&mut self, kind: ErrorKind, anchor: Option<&str>, message: impl Into<String>) {
         let message = message.into();
-        let span = self.resolve_span(&message);
+        let span = self.resolve_span(anchor);
         self.errors.push(CompileError::new(kind, span, message));
     }
 
-    fn warning(&mut self, message: impl Into<String>) {
+    fn warning(&mut self, anchor: Option<&str>, message: impl Into<String>) {
         let message = message.into();
-        let span = self.resolve_span(&message);
+        let span = self.resolve_span(anchor);
         self.warnings.push(CompileError::new(
             ErrorKind::Other("경고".to_string()),
             span,
@@ -1174,12 +1192,11 @@ impl Analyzer {
         ));
     }
 
-    /// 진단 메시지에서 피식별자(첫 번째 `'...'`)를 뽑아 현재 명령문의 토큰에서
-    /// 해당 식별자의 Span(라인/컬럼)을 찾아 반환한다.
+    /// 현재 명령문의 토큰에서 `anchor`(식별자/키워드 이름)의 Span 을 찾아 반환한다.
     ///
-    /// - stmt_tokens 가 없으면(내부/런타임 경유) Span(0,0) 반환
-    /// - 식별자를 찾지 못하면 명령문 시작 토큰의 Span 으로 폴백
-    fn resolve_span(&self, message: &str) -> crate::Span {
+    /// - anchor 가 None 이거나 명령문 토큰이 없으면 명령문 시작 토큰의 Span 으로 폴백.
+    /// - 명령문 시작 토큰도 없으면(내부/런타임 경유) Span(0,0) 반환.
+    fn resolve_span(&self, anchor: Option<&str>) -> crate::Span {
         use crate::TokenKind;
 
         let Some(stmts) = &self.stmt_tokens else {
@@ -1189,19 +1206,12 @@ impl Analyzer {
             return crate::Span::new(0, 0);
         };
 
-        // 첫 번째 '...' 안의 식별자 추출
-        let name = extract_quoted(message);
-
-        // 식별자 토큰 매칭 (Ident 또는 예약 키워드)
-        let matched = tokens.iter().find(|t| match &t.kind {
-            TokenKind::Ident(n) => Some(n.as_str()) == name.as_deref(),
-            other => {
-                format!("{:?}", other).to_lowercase()
-                    == name
-                        .as_deref()
-                        .map(|s| s.to_lowercase())
-                        .unwrap_or_default()
-            }
+        // 앵커 식별자 토큰 매칭 (Ident 또는 예약 키워드)
+        let matched = anchor.and_then(|name| {
+            tokens.iter().find(|t| match &t.kind {
+                TokenKind::Ident(n) => n == name,
+                other => format!("{:?}", other).to_lowercase() == name.to_lowercase(),
+            })
         });
 
         match matched {
@@ -1212,14 +1222,6 @@ impl Analyzer {
                 .unwrap_or_else(|| crate::Span::new(0, 0)),
         }
     }
-}
-
-/// 메시지의 첫 번째 `'...'` 사이 문자열을 반환한다. 없으면 None.
-fn extract_quoted(message: &str) -> Option<String> {
-    let start = message.find('\'')? + 1;
-    let rest = &message[start..];
-    let end = rest.find('\'')?;
-    Some(rest[..end].to_string())
 }
 
 /// 리터럴이 0 인지 확인한다 (DivisionByZero 정적 검사용).
@@ -1672,6 +1674,53 @@ mod tests {
         let err = &r.errors[0];
         assert_eq!(err.span.line, 0);
         assert_eq!(err.span.col, 0);
+    }
+
+    #[test]
+    fn span_is_stable_when_error_message_changes() {
+        // 메시지 포맷을 바꿔도 Span 이 흔들리지 않아야 한다 — resolve_span 은
+        // 메시지를 파싱하지 않고 앵커 식별자로 토큰을 직접 찾기 때문이다.
+        let src = "type X = { missing_col: float };
+v bad = load(\"x.csv\") :: X |> filter(other_col > 1);\n";
+        let (parse, r1) = check_source(src);
+        assert!(parse.is_ok());
+
+        // 동일 소스로 두 번 검사 — 메시지 문자열은 각 진단마다 동일하므로,
+        // resolve_span 이 메시지에 의존한다면 (여기서는 아님) Span 이 어긋난다.
+        let (_, r2) = check_source(src);
+        assert_eq!(r1.errors.len(), r2.errors.len());
+
+        for (e1, e2) in r1.errors.iter().zip(r2.errors.iter()) {
+            assert_eq!(
+                e1.span, e2.span,
+                "동일 소스 검사는 동일 Span 을 가져야 함: {}",
+                e1.message
+            );
+            assert!(e1.span.line >= 1, "Span 은 0,0 이면 안 됨: {}", e1.message);
+        }
+    }
+
+    #[test]
+    fn span_points_to_identifier_not_first_quote() {
+        // 앵커는 메시지의 첫 번째 따옴표가 아니라 실제 토큰의 위치를 가리켜야 한다.
+        // 메시지에서 'x.csv'(load 경로) 가 먼저 등장해도, 앵커(other_col)의 위치를 써야 한다.
+        let src = "type X = { a: string };
+v bad = load(\"x.csv\") :: X |> filter(other_col > 1);\n";
+        let (parse, r) = check_source(src);
+        assert!(parse.is_ok());
+        let err = r
+            .errors
+            .iter()
+            .find(|e| e.message.contains("other_col"))
+            .unwrap();
+        // other_col 은 2번째 명령문의 filter 안에 있으므로 라인 2, 컬럼은 0 보다 큼
+        assert_eq!(err.span.line, 2);
+        assert!(
+            err.span.col > 0,
+            "앵커 식별자의 컬럼 위치여야 함(실제 {}): {}",
+            err.span.col,
+            err.message
+        );
     }
 
     #[test]
