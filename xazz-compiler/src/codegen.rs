@@ -109,7 +109,9 @@ impl Codegen {
             } => {
                 lines.push(format!(
                     "let {} = LazyCsvReader::new(\"{}\")  // :: {}",
-                    var_name, file_path, schema_name
+                    var_name,
+                    esc(file_path),
+                    schema_name
                 ));
                 lines.push("  .with_has_header(true)".into());
                 lines.push("  .finish()?".into());
@@ -158,7 +160,8 @@ impl Codegen {
             } => {
                 lines.push(format!(
                     "let _expr_result = LazyCsvReader::new(\"{}\")  // :: {}",
-                    file_path, schema_name
+                    esc(file_path),
+                    schema_name
                 ));
                 lines.push("  .with_has_header(true)".into());
                 lines.push("  .finish()?".into());
@@ -494,8 +497,8 @@ impl Codegen {
 
     pub fn expr_to_polars(expr: &Expr) -> String {
         match expr {
-            Expr::Ident(s) => format!("col(\"{}\")", s),
-            Expr::StringLit(s) => format!("lit(\"{}\")", s),
+            Expr::Ident(s) => format!("col(\"{}\")", esc(s)),
+            Expr::StringLit(s) => format!("lit(\"{}\")", esc(s)),
             Expr::IntLit(n) => format!("lit({}i64)", n),
             Expr::FloatLit(f) => format!("lit({}f64)", f),
             Expr::BoolLit(b) => format!("lit({})", b),
@@ -619,6 +622,23 @@ mod tests {
         assert_eq!(
             Codegen::expr_to_polars(&Expr::StringLit("hello".into())),
             "lit(\"hello\")"
+        );
+    }
+
+    /// StringLit 내 따옴표/백슬래시는 이스케이프되어야 유효한 Rust 코드가 된다
+    #[test]
+    fn test_expr_to_polars_string_lit_escapes_quotes_and_backslashes() {
+        assert_eq!(
+            Codegen::expr_to_polars(&Expr::StringLit("a\"b".into())),
+            "lit(\"a\\\"b\")"
+        );
+        assert_eq!(
+            Codegen::expr_to_polars(&Expr::StringLit("a\\b".into())),
+            "lit(\"a\\\\b\")"
+        );
+        assert_eq!(
+            Codegen::expr_to_polars(&Expr::Ident("x\"y".into())),
+            "col(\"x\\\"y\")"
         );
     }
 

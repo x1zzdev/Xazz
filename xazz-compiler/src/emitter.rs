@@ -244,8 +244,10 @@ fn generate_rust_src(
                         ));
                     }
                     PipelineOp::Select(cols) => {
-                        let polars_cols: Vec<String> =
-                            cols.iter().map(|c| format!("col(\"{}\")", c)).collect();
+                        let polars_cols: Vec<String> = cols
+                            .iter()
+                            .map(|c| format!("col(\"{}\")", escape(c)))
+                            .collect();
                         out.push_str(&format!(
                             "        .select([{}])  // |> select([{}])\n",
                             polars_cols.join(", "),
@@ -267,12 +269,13 @@ fn generate_rust_src(
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
                                 "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").count()])  // |> groupBy(\"{}\") |> count(\"{}\")\n",
-                                gc, agg_col, gc, agg_col
+                                escape(&gc), escape(agg_col), gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
                                 "        .select([col(\"{}\").count()])  // |> count(\"{}\")\n",
-                                agg_col, agg_col
+                                escape(agg_col),
+                                agg_col
                             ));
                         }
                     }
@@ -280,12 +283,13 @@ fn generate_rust_src(
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
                                 "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").sum()])  // |> groupBy(\"{}\") |> sum(\"{}\")\n",
-                                gc, agg_col, gc, agg_col
+                                escape(&gc), escape(agg_col), gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
                                 "        .select([col(\"{}\").sum()])  // |> sum(\"{}\")\n",
-                                agg_col, agg_col
+                                escape(agg_col),
+                                agg_col
                             ));
                         }
                     }
@@ -293,12 +297,13 @@ fn generate_rust_src(
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
                                 "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").mean()])  // |> groupBy(\"{}\") |> mean(\"{}\")\n",
-                                gc, agg_col, gc, agg_col
+                                escape(&gc), escape(agg_col), gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
                                 "        .select([col(\"{}\").mean()])  // |> mean(\"{}\")\n",
-                                agg_col, agg_col
+                                escape(agg_col),
+                                agg_col
                             ));
                         }
                     }
@@ -306,12 +311,13 @@ fn generate_rust_src(
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
                                 "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").min()])  // |> groupBy(\"{}\") |> min(\"{}\")\n",
-                                gc, agg_col, gc, agg_col
+                                escape(&gc), escape(agg_col), gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
                                 "        .select([col(\"{}\").min()])  // |> min(\"{}\")\n",
-                                agg_col, agg_col
+                                escape(agg_col),
+                                agg_col
                             ));
                         }
                     }
@@ -319,12 +325,13 @@ fn generate_rust_src(
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
                                 "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").max()])  // |> groupBy(\"{}\") |> max(\"{}\")\n",
-                                gc, agg_col, gc, agg_col
+                                escape(&gc), escape(agg_col), gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
                                 "        .select([col(\"{}\").max()])  // |> max(\"{}\")\n",
-                                agg_col, agg_col
+                                escape(agg_col),
+                                agg_col
                             ));
                         }
                     }
@@ -336,7 +343,7 @@ fn generate_rust_src(
                     } => {
                         out.push_str(&format!(
                             "        .sort([\"{}\"], SortMultipleOptions::default().with_order_descending({}))  // |> orderBy(\"{}\", desc: {})\n",
-                            sort_col, desc, sort_col, desc
+                            escape(sort_col), desc, sort_col, desc
                         ));
                     }
                     PipelineOp::Take(n) => {
@@ -347,7 +354,7 @@ fn generate_rust_src(
                     PipelineOp::DropNull(drop_col) => {
                         out.push_str(&format!(
                             "        .drop_nulls(Some(vec![col(\"{}\")]))  // |> dropNull(\"{}\")\n",
-                            drop_col, drop_col
+                            escape(drop_col), drop_col
                         ));
                     }
                     PipelineOp::FillNull {
@@ -355,16 +362,18 @@ fn generate_rust_src(
                         value,
                     } => {
                         let lit_str = match value {
-                            FillNullValue::Mean => format!("col(\"{}\").mean()", fill_col),
-                            FillNullValue::Median => format!("col(\"{}\").median()", fill_col),
+                            FillNullValue::Mean => format!("col(\"{}\").mean()", escape(fill_col)),
+                            FillNullValue::Median => {
+                                format!("col(\"{}\").median()", escape(fill_col))
+                            }
                             FillNullValue::Zero => "lit(0)".to_string(),
                             FillNullValue::Int(n) => format!("lit({}i64)", n),
                             FillNullValue::Float(f) => format!("lit({}f64)", f),
-                            FillNullValue::Str(s) => format!("lit(\"{}\")", s),
+                            FillNullValue::Str(s) => format!("lit(\"{}\")", escape(s)),
                         };
                         out.push_str(&format!(
                             "        .with_columns([col(\"{}\").fill_null({})])  // |> fillNull(\"{}\", ...)\n",
-                            fill_col, lit_str, fill_col
+                            escape(fill_col), lit_str, fill_col
                         ));
                     }
 
@@ -375,10 +384,14 @@ fn generate_rust_src(
                         right_on,
                         how,
                     } => {
-                        let left_cols: Vec<String> =
-                            left_on.iter().map(|k| format!("col(\"{}\")", k)).collect();
-                        let right_cols: Vec<String> =
-                            right_on.iter().map(|k| format!("col(\"{}\")", k)).collect();
+                        let left_cols: Vec<String> = left_on
+                            .iter()
+                            .map(|k| format!("col(\"{}\")", escape(k)))
+                            .collect();
+                        let right_cols: Vec<String> = right_on
+                            .iter()
+                            .map(|k| format!("col(\"{}\")", escape(k)))
+                            .collect();
                         out.push_str(&format!(
                             "        .join(\n            {}.clone().lazy(),\n            [{}],\n            [{}],\n            JoinArgs::new({}),\n        )  // |> join({}, left_on: {:?}, right_on: {:?})\n",
                             other,
@@ -400,7 +413,7 @@ fn generate_rust_src(
                         out.push_str(&format!(
                             "        .with_columns([{}.alias(\"{}\")])  // |> withColumn(\"{}\", {})\n",
                             polars_expr,
-                            col_name,
+                            escape(col_name),
                             col_name,
                             Codegen::expr_to_xzz(expr)
                         ));
@@ -473,12 +486,13 @@ fn generate_rust_src(
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
                                 "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").median()])  // |> groupBy(\"{}\") |> median(\"{}\")\n",
-                                gc, agg_col, gc, agg_col
+                                escape(&gc), escape(agg_col), gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
                                 "        .select([col(\"{}\").median()])  // |> median(\"{}\")\n",
-                                agg_col, agg_col
+                                escape(agg_col),
+                                agg_col
                             ));
                         }
                     }
@@ -486,12 +500,13 @@ fn generate_rust_src(
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
                                 "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").var(1)])  // |> groupBy(\"{}\") |> variance(\"{}\")\n",
-                                gc, agg_col, gc, agg_col
+                                escape(&gc), escape(agg_col), gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
                                 "        .select([col(\"{}\").var(1)])  // |> variance(\"{}\")\n",
-                                agg_col, agg_col
+                                escape(agg_col),
+                                agg_col
                             ));
                         }
                     }
@@ -499,12 +514,13 @@ fn generate_rust_src(
                         if let Some(gc) = pending_group_col.take() {
                             out.push_str(&format!(
                                 "        .group_by([col(\"{}\")])\n        .agg([col(\"{}\").std(1)])  // |> groupBy(\"{}\") |> std(\"{}\")\n",
-                                gc, agg_col, gc, agg_col
+                                escape(&gc), escape(agg_col), gc, agg_col
                             ));
                         } else {
                             out.push_str(&format!(
                                 "        .select([col(\"{}\").std(1)])  // |> std(\"{}\")\n",
-                                agg_col, agg_col
+                                escape(agg_col),
+                                agg_col
                             ));
                         }
                     }
@@ -1232,5 +1248,41 @@ mod tests {
         let out = emit("type S = { a: string }; v p = load(\"x.csv\") :: S;");
         assert!(out.contains("test.xzz"), "소스 경로 주석 없음");
         assert!(out.contains("Auto-generated by xazzLang"), "헤더 없음");
+    }
+
+    /// select/fillNull 에 따옴표·백슬래시가 들어간 문자열 값이 생성 코드에
+    /// 안전하게 이스케이프되어 삽입되는지 왕복 검증한다.
+    #[test]
+    fn emit_rust_escapes_quotes_and_backslashes_in_strings() {
+        let out = emit(
+            "type S = { a: string };
+             v p = load(\"x.csv\") :: S
+               |> fillNull(\"a\", \"a\\\"b\")
+               |> fillNull(\"a\", \"x\\\\y\");",
+        );
+        assert!(
+            out.contains(".fill_null(lit(\"a\\\"b\"))"),
+            "fillNull 따옴표 이스케이프 누락: {}",
+            out
+        );
+        assert!(
+            out.contains(".fill_null(lit(\"x\\\\y\"))"),
+            "fillNull 백슬래시 이스케이프 누락: {}",
+            out
+        );
+    }
+
+    /// select 에 따옴표가 들어간 컬럼명이 안전하게 이스케이프된다.
+    #[test]
+    fn emit_rust_escapes_quotes_in_select_columns() {
+        let out = emit(
+            "type S = { a: string };
+             v p = load(\"x.csv\") :: S |> select([a]);",
+        );
+        assert!(
+            out.contains(".select([col(\"a\")])"),
+            "select 컬럼 생성 누락: {}",
+            out
+        );
     }
 }
