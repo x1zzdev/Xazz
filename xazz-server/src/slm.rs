@@ -67,6 +67,44 @@ impl SlmConfig {
                 .unwrap_or(defaults.timeout_ms),
         }
     }
+
+    /// 엔드포인트가 루프백(로컬) 호스트인지 여부.
+    ///
+    /// 온프레미스 sLM 의 핵심은 "코드/데이터가 외부로 나가지 않는다"이다.
+    /// `XAZZ_SLM_ENDPOINT` 를 원격 호스트로 바꾸면 이 보장이 무너지므로,
+    /// 기본값 외의 비-루프백 엔드포인트는 명시적 허용 플래그 없이는 거부한다.
+    pub fn is_loopback(&self) -> bool {
+        let lower = self.endpoint.to_ascii_lowercase();
+        lower.contains("127.0.0.1")
+            || lower.contains("localhost")
+            || lower.contains("[::1]")
+            || lower.contains("::1")
+    }
+}
+
+/// 비-루프백 sLM 엔드포인트 사용 시 데이터가 외부로 나갈 수 있음을 명시적으로 허용.
+const ALLOW_REMOTE_SLM_ENV: &str = "XAZZ_SLM_ALLOW_REMOTE";
+
+/// 루프백이 아닌 sLM 엔드포인트를 거부한다. (기본값은 신뢰, 비-로컬은 차단)
+///
+/// `XAZZ_SLM_ALLOW_REMOTE=1` 로 명시적 허용 시에만 통과시킨다. 이는 기본 정책이
+/// "데이터가 외부로 나가지 않음" 이며, 원격 사용은 사용자가 의도적으로 옵트인해야
+/// 한다는 것을 강제한다.
+pub fn guard_endpoint(cfg: &SlmConfig) -> Result<(), String> {
+    if cfg.is_loopback() {
+        return Ok(());
+    }
+    let allow_remote = std::env::var(ALLOW_REMOTE_SLM_ENV)
+        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on"))
+        .unwrap_or(false);
+    if allow_remote {
+        return Ok(());
+    }
+    Err(format!(
+        "sLM endpoint '{}' is not a loopback host. An on-premise sLM must stay on the local machine \
+         to guarantee data never leaves the host. To allow a remote endpoint, set {} = 1 explicitly.",
+        cfg.endpoint, ALLOW_REMOTE_SLM_ENV
+    ))
 }
 
 /// 정적 가드레일 리포트를 sLM 프롬프트로 바꾼다.
@@ -126,6 +164,9 @@ pub async fn propose(code: &str, report: &PolicyReport, cfg: &SlmConfig) -> Resu
     if !cfg.enabled {
         return Err("sLM 이 비활성화되어 있습니다 (XAZZ_SLM_ENABLED=1 로 활성화).".to_string());
     }
+
+    // 비-루프백 엔드포인트는 명시적 허용 없이 네트워크 요청을 보내지 않는다.
+    guard_endpoint(cfg)?;
 
     let url = format!("{}/api/generate", cfg.endpoint.trim_end_matches('/'));
     let payload = json!({
@@ -248,6 +289,43 @@ mod tests {
             cfg.endpoint.contains("127.0.0.1"),
             "기본 엔드포인트가 로컬호스트가 아님: {}",
             cfg.endpoint
+        );
+    }
+
+    /// 루프백 엔드포인트는 항상 통과한다.
+    #[test]
+    fn loopback_endpoint_passes_guard() {
+        for e in [
+            "http://127.0.0.1:11434",
+            "http://localhost:11434",
+            "http://[::1]:11434",
+        ] {
+            let cfg = SlmConfig {
+                enabled: true,
+                endpoint: e.to_string(),
+                model: "m".to_string(),
+                timeout_ms: 1,
+            };
+            assert!(guard_endpoint(&cfg).is_ok(), "루프백 차단됨: {}", e);
+        }
+    }
+
+    /// 비-루프백 엔드포인트는 명시적 허용 없이 거부된다.
+    #[test]
+    fn remote_endpoint_rejected_without_explicit_allow() {
+        // 환경변수가 이미 설정돼 있으면 테스트가 오염될 수 있으므로 제거.
+        unsafe { std::env::remove_var("XAZZ_SLM_ALLOW_REMOTE") };
+        let cfg = SlmConfig {
+            enabled: true,
+            endpoint: "http://10.0.0.5:11434".to_string(),
+            model: "m".to_string(),
+            timeout_ms: 1,
+        };
+        let err = guard_endpoint(&cfg).unwrap_err();
+        assert!(
+            err.contains("loopback"),
+            "오류 메시지에 loopback 없음: {}",
+            err
         );
     }
 }
