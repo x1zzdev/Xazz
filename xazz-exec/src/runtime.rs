@@ -699,13 +699,20 @@ fn execute_node(
                 lf = snapshot.lazy();
             }
             IrStep::Side(SideOp::WithDp(args)) => {
-                // 1) 세션 (ε, δ)-budget 차감 (조성 회계) — 초과 시 파이프라인 전체 거부
-                let delta = args.delta.unwrap_or(crate::dp::DEFAULT_DELTA);
-                dp_budget.spend(args.mechanism, args.epsilon, delta)?;
-
-                // 2) 현재까지의 파이프라인을 collect 후 출력 섭동(output perturbation)
+                // 1) 현재까지의 파이프라인을 collect 후 출력 섭동(output perturbation)
                 let snapshot = lf.clone().collect()?;
                 let (noised, report) = crate::dp::apply_dp(&snapshot, args)?;
+
+                // 2) 노이즈 주입이 성공한 뒤에만 예산을 차감한다 (원자적 조성 회계).
+                //    - k 개 컬럼에 노이즈를 주입하면 k 개 독립 메커니즘이므로 k·ε 로 청구.
+                //    - apply_dp 가 실패했으면 예산을 건드리지 않는다 (실패해도 ε 소모 방지).
+                let delta = args.delta.unwrap_or(crate::dp::DEFAULT_DELTA);
+                dp_budget.spend_n(
+                    args.mechanism,
+                    args.epsilon,
+                    delta,
+                    report.noised_columns.len(),
+                )?;
 
                 println!("[xazz:dp]");
                 let mut dp_json =

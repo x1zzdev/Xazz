@@ -105,6 +105,24 @@ impl PrivacyBudget {
         epsilon: f64,
         delta: f64,
     ) -> Result<(), String> {
+        self.spend_n(mechanism, epsilon, delta, 1)
+    }
+
+    /// 동일 (ε, δ) 메커니즘을 `count` 개 합성해 예산을 소모한다.
+    ///
+    /// k 개의 독립 메커니즘(예: 노이즈를 주입한 k 개 컬럼)은 순차 조성에 따라
+    /// (k·ε, k·δ) 로 합성된다. 단일 `spend` 로 한 번만 청구하면 회계가 누락되므로,
+    /// 호출 측은 적용할 메커니즘 수를 이 메서드로 한 번에 원자적으로 청구한다.
+    pub fn spend_n(
+        &mut self,
+        mechanism: DpMechanism,
+        epsilon: f64,
+        delta: f64,
+        count: usize,
+    ) -> Result<(), String> {
+        if count == 0 {
+            return Ok(());
+        }
         if epsilon <= 0.0 {
             return Err(format!(
                 "{}: {} {epsilon}",
@@ -132,14 +150,15 @@ impl PrivacyBudget {
             }
         };
 
-        // 조성 회계: (Σεᵢ, Σδᵢ)
-        let new_eps = self.spent_eps + epsilon;
-        let new_delta = self.spent_delta + delta;
+        let count_f = count as f64;
+        // 조성 회계: k 개 메커니즘 → (k·Σεᵢ, k·Σδᵢ)
+        let new_eps = self.spent_eps + epsilon * count_f;
+        let new_delta = self.spent_delta + delta * count_f;
 
         const EPS_TOL: f64 = 1e-9;
         if new_eps > self.total_eps + EPS_TOL {
             return Err(format!(
-                "DP 예산 초과(ε): 이번 요청 ε={epsilon:.4} 를 더하면 누적 {new_eps:.4} > 총 예산 {:.4}. \
+                "DP 예산 초과(ε): 이번 요청 ε={epsilon:.4} × {count} 컬럼 을 더하면 누적 {new_eps:.4} > 총 예산 {:.4}. \
                  반복 질의를 통한 노이즈 평균화(재구성 공격) 방지를 위해 실행을 거부합니다. \
                  (총 예산은 XAZZ_DP_BUDGET 환경변수로 조정 가능)",
                 self.total_eps
@@ -147,7 +166,7 @@ impl PrivacyBudget {
         }
         if new_delta > self.total_delta + EPS_TOL {
             return Err(format!(
-                "DP 예산 초과(δ): 이번 요청 δ={delta:.4e} 를 더하면 누적 {new_delta:.4e} > 총 δ 예산 {:.4e}. \
+                "DP 예산 초과(δ): 이번 요청 δ={delta:.4e} × {count} 컬럼 을 더하면 누적 {new_delta:.4e} > 총 δ 예산 {:.4e}. \
                  gaussian 메커니즘의 조성 회계를 위해 실행을 거부합니다. \
                  (총 δ 예산은 XAZZ_DP_DELTA_BUDGET 환경변수로 조정 가능)",
                 self.total_delta
@@ -156,11 +175,13 @@ impl PrivacyBudget {
 
         self.spent_eps = new_eps;
         self.spent_delta = new_delta;
-        self.queries.push(CompositionRecord {
-            mechanism,
-            epsilon,
-            delta,
-        });
+        for _ in 0..count {
+            self.queries.push(CompositionRecord {
+                mechanism,
+                epsilon,
+                delta,
+            });
+        }
         Ok(())
     }
 
@@ -619,5 +640,43 @@ mod tests {
         assert!(budget.spend(DpMechanism::Laplace, 1.0, 0.0).is_ok());
         assert!(budget.spend(DpMechanism::Laplace, 2.0, 0.0).is_ok());
         assert_eq!(budget.spent_delta(), 0.0, "laplace 는 순수 ε-DP (δ=0)");
+    }
+
+    #[test]
+    fn spend_n_charges_per_mechanism_for_multi_column() {
+        // k 개 컬럼 = k 개 메커니즘 → k·ε 청구 (순차 조성)
+        let mut budget = PrivacyBudget::new(10.0);
+        assert!(budget.spend_n(DpMechanism::Laplace, 1.0, 0.0, 3).is_ok());
+        assert!((budget.spent() - 3.0).abs() < 1e-12);
+        assert_eq!(budget.query_count(), 3);
+    }
+
+    #[test]
+    fn spend_n_blocks_when_multi_column_exceeds_budget() {
+        // 잔여가 2ε 인데 3 컬럼에 노이즈 → 3ε 청구는 거부 (k 메커니즘 반영)
+        let mut budget = PrivacyBudget::new(2.0);
+        let err = budget
+            .spend_n(DpMechanism::Laplace, 1.0, 0.0, 3)
+            .unwrap_err();
+        assert!(err.contains("예산 초과"), "예산 초과 메시지 아님: {err}");
+        // 거부 시 예산 미소모
+        assert!((budget.spent() - 0.0).abs() < 1e-12);
+        assert_eq!(budget.query_count(), 0);
+    }
+
+    #[test]
+    fn spend_n_zero_count_is_noop() {
+        let mut budget = PrivacyBudget::new(1.0);
+        assert!(budget.spend_n(DpMechanism::Laplace, 1.0, 0.0, 0).is_ok());
+        assert_eq!(budget.spent(), 0.0);
+    }
+
+    #[test]
+    fn spend_n_gaussian_accumulates_delta_per_column() {
+        let mut budget = PrivacyBudget::new_with_delta(10.0, 1e-4);
+        assert!(budget.spend_n(DpMechanism::Gaussian, 1.0, 1e-5, 2).is_ok());
+        assert!((budget.spent() - 2.0).abs() < 1e-12);
+        assert!((budget.spent_delta() - 2e-5).abs() < 1e-12);
+        assert_eq!(budget.query_count(), 2);
     }
 }

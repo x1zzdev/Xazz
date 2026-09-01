@@ -28,7 +28,8 @@ Xazz's `withDp(...)` applies **output perturbation to aggregate results**. The c
 ### Sensitivity
 
 - `sensitivity` argument (Δf) — default 1.0. The user sets it to match the aggregate (e.g. count → 1, mean → 1/n).
-- Clipped queries and group-count validation are currently out of scope; noise is applied only to value columns, not group keys.
+- Clipped queries and group-count validation are currently out of scope.
+- **Group keys are NOT excluded from noising** — `apply_dp` noises every numeric column in the result, including numeric group keys (e.g. `groupBy("year")` where `year` is an integer). For a truly sound sensitivity bound the user must set `sensitivity` to match the aggregate (mean/sum have Δf ≠ 1.0) and the numeric group key caveat applies. This is a documented limitation, not a guarantee.
 
 ---
 
@@ -38,6 +39,7 @@ Xazz's `withDp(...)` applies **output perturbation to aggregate results**. The c
 
 - Laplace: δ contribution 0 → only ε accumulates.
 - Gaussian: both ε and δ accumulate.
+- **Multi-column noising is charged per column.** Noising `k` columns with the same mechanism is `k` independent mechanisms, so a single `withDp` over `k` numeric columns is charged `k·ε` (and `k·δ` for Gaussian) via `spend_n`. The budget is deducted only **after** noise injection succeeds — a failed `apply_dp` (e.g. no numeric columns) does not consume budget.
 
 ### Budget configuration
 
@@ -48,7 +50,11 @@ Xazz's `withDp(...)` applies **output perturbation to aggregate results**. The c
 
 ### Rejection rules (fail-closed)
 
-Each `withDp` call first spends budget via `spend(mechanism, ε, δ)`; if `Σε > total_ε` or `Σδ > total_δ`, the query is **rejected**. Rejected requests do not consume budget (atomic). This structurally blocks noise-averaging (reconstruction) attacks via repeated queries.
+Each `withDp` call spends budget via `spend_n(mechanism, ε, δ, k)`; if `Σε > total_ε` or `Σδ > total_δ`, the query is **rejected**. Rejected requests do not consume budget (atomic). This structurally blocks noise-averaging (reconstruction) attacks via repeated queries.
+
+### Session scope (important limitation)
+
+The ε/δ budget is scoped to **one process run** of the pipeline. The xazz CLI executes one `.xzz` file per process, so repeated `withDp` calls *within a single script* share one budget. However, **the server spawns a fresh subprocess per `/execute` request**, so a session that spans multiple requests does **not** accumulate budget across them — the "session" is effectively per-request in the server deployment. A true cross-request budget requires the server to maintain per-session budget state, which is not yet implemented.
 
 ---
 
