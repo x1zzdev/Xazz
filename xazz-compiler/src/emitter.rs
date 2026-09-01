@@ -437,7 +437,7 @@ fn generate_rust_src(
                     // ── Chart: unsupported by emitter (runtime only) ──────────────
                     PipelineOp::Chart(config) => {
                         out.push_str(&format!(
-                            "        // |> chart {{ type: {} }}  →  [xazz:chart] JSON 출력\n",
+                            "        // |> chart {{ type: {} }}  →  [xazz:chart] JSON output\n",
                             config.chart_type.as_str()
                         ));
                     }
@@ -545,7 +545,7 @@ fn generate_rust_src(
                     // ── v0.5 deep-learning operators: in emit rust, delegate to runtime train/predict ──
                     PipelineOp::Train { model_name, config } => {
                         out.push_str(&format!(
-                            "        // |> train({}, target: \"{}\", epochs: {})  → xazz 실행 시 Burn 학습 수행\n",
+                            "        // |> train({}, target: \"{}\", epochs: {})  → Burn training runs at xazz execution\n",
                             model_name, config.target, config.epochs
                         ));
                     }
@@ -555,14 +555,14 @@ fn generate_rust_src(
                             .map(|c| format!(", as: \"{}\"", c))
                             .unwrap_or_default();
                         out.push_str(&format!(
-                            "        // |> predict({}{})  → 예측 컬럼 추가 (xazz 실행 시)\n",
+                            "        // |> predict({}{})  → prediction column added (at xazz execution)\n",
                             model_var, as_str
                         ));
                     }
                     // ── v0.6 withDp — in emit rust, delegate DP injection to runtime ──
                     PipelineOp::WithDp(args) => {
                         out.push_str(&format!(
-                            "        // |> withDp(epsilon: {}, mechanism: {})  → xazz 실행 시 DP 노이즈 주입\n",
+                            "        // |> withDp(epsilon: {}, mechanism: {})  → DP noise injected at xazz execution\n",
                             args.epsilon,
                             args.mechanism.as_str()
                         ));
@@ -717,7 +717,7 @@ fn emit_dl_model_struct(name: &str, layers: &[LayerKind]) -> String {
 
 /// Column → f32 tensor data extraction helper (Polars DataFrame → (x_flat, y_flat, feature_count)).
 fn emit_extract_xy_fn() -> String {
-    r#"/// 타겟을 제외한 숫자형 컬럼을 특성으로, 타겟 컬럼을 라벨로 추출한다.
+    r#"/// Extracts numeric columns (excluding the target) as features and the target column as the label.
 fn extract_xy(
     df: &DataFrame,
     target: &str,
@@ -1108,12 +1108,12 @@ fn edit_distance(a: &str, b: &str) -> usize {
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn emit_csv_loader_fn() -> String {
-    r#"/// EUC-KR(CP949) 자동 감지 CSV 로더
-/// UTF-8 직접 시도 → 실패 시 EUC-KR 디코딩 (한국 공공데이터 대응)
+    r#"/// EUC-KR(CP949) auto-detecting CSV loader
+/// Tries UTF-8 first, falls back to EUC-KR decoding (for Korean public data)
 fn load_csv(file_path: &str) -> Result<DataFrame, Box<dyn std::error::Error>> {
     let raw_bytes = std::fs::read(file_path)?;
 
-    // UTF-8 직접 시도 → 실패 시 EUC-KR(CP949) 디코딩
+    // Try UTF-8 directly, fall back to EUC-KR(CP949) decoding
     let utf8_string = match String::from_utf8(raw_bytes.clone()) {
         Ok(s) => s,
         Err(_) => {

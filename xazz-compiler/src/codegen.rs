@@ -38,7 +38,7 @@ impl Codegen {
     pub fn generate(program: &Program) -> String {
         let mut out = String::new();
         out.push_str("// ═══════════════════════════════════════════════════════\n");
-        out.push_str("// xazzLang → Polars LazyFrame 흐름 매핑\n");
+        out.push_str("// xazzLang → Polars LazyFrame flow mapping\n");
         out.push_str("// ═══════════════════════════════════════════════════════\n\n");
 
         for (i, stmt) in program.stmts.iter().enumerate() {
@@ -132,7 +132,7 @@ impl Codegen {
 
         // collect — point of lazy execution
         lines.push(format!(
-            "  .collect()?;  // ← {}: 모든 연산 일괄 실행",
+            "  .collect()?;  // ← {}: runs all operations at once",
             var_name
         ));
 
@@ -179,7 +179,7 @@ impl Codegen {
             lines.push(Self::emit_op(op));
         }
 
-        lines.push("  .collect()?;  // ← expression statement 실행".to_string());
+        lines.push("  .collect()?;  // ← expression statement execution".to_string());
         lines.join("\n")
     }
 
@@ -188,7 +188,7 @@ impl Codegen {
     fn emit_model_decl(name: &str, layers: &[LayerKind]) -> String {
         let mut lines: Vec<String> = Vec::new();
         lines.push(format!("// [ModelDecl] model {}", name));
-        lines.push(format!("// Burn MLP 모델 (nn 모듈로 자동 생성)"));
+        lines.push(format!("// Burn MLP model (auto-generated nn module)"));
         for (i, layer) in layers.iter().enumerate() {
             lines.push(format!("//   [{}] {}", i, layer.to_burn_str()));
         }
@@ -220,13 +220,13 @@ impl Codegen {
             "// [TrainStmt] run {} |> train({}, target: \"{}\", epochs: {}, lr: {})",
             source_var, model_name, config.target, config.epochs, config.learning_rate
         ));
-        lines.push(format!("// 데이터 소스: {}", source_var));
-        lines.push(format!("// 모델: {}", model_name));
-        lines.push(format!("// 타겟 컬럼: {}", config.target));
-        lines.push(format!("// 에포크: {}", config.epochs));
-        lines.push(format!("// 학습률: {}", config.learning_rate));
-        lines.push(format!("// 배치 크기: {}", batch_str));
-        lines.push(format!("// 검증 비율: {}", val_str));
+        lines.push(format!("// data source: {}", source_var));
+        lines.push(format!("// model: {}", model_name));
+        lines.push(format!("// target column: {}", config.target));
+        lines.push(format!("// epochs: {}", config.epochs));
+        lines.push(format!("// learning rate: {}", config.learning_rate));
+        lines.push(format!("// batch size: {}", batch_str));
+        lines.push(format!("// validation split: {}", val_str));
         lines.push(String::new());
         lines.push(format!(
             "// let mut model = {}::new(&device, input_dim);",
@@ -266,7 +266,9 @@ impl Codegen {
                     xzz
                 )
             }
-            PipelineOp::Count(None) => "  // |> count  →  df.height() 로 행 수 확인".to_string(),
+            PipelineOp::Count(None) => {
+                "  // |> count  →  check row count via df.height()".to_string()
+            }
             PipelineOp::Count(Some(col)) => {
                 format!(
                     "  .agg([{}])  // |> count(\"{}\")",
@@ -388,7 +390,7 @@ impl Codegen {
             // ── Chart: unsupported by codegen (runtime only) ─────────────────────
             PipelineOp::Chart(config) => {
                 format!(
-                    "  // |> chart {{ type: {} }}  →  [xazz:chart] JSON 출력",
+                    "  // |> chart {{ type: {} }}  →  [xazz:chart] JSON output",
                     config.chart_type.as_str()
                 )
             }
@@ -465,7 +467,7 @@ impl Codegen {
                 )
             }
             PipelineOp::Train { model_name, config } => format!(
-                "  // |> train({}, target: \"{}\", epochs: {}, lr: {})  → 학습된 모델 변수",
+                "  // |> train({}, target: \"{}\", epochs: {}, lr: {})  → trained model variable",
                 model_name, config.target, config.epochs, config.learning_rate
             ),
             PipelineOp::Predict { model_var, as_col } => {
@@ -473,7 +475,10 @@ impl Codegen {
                     .as_deref()
                     .map(|c| format!(", as: \"{}\"", c))
                     .unwrap_or_default();
-                format!("  // |> predict({}{})  → 예측 컬럼 추가", model_var, as_str)
+                format!(
+                    "  // |> predict({}{})  → prediction column added",
+                    model_var, as_str
+                )
             }
 
             // ── v0.6 withDp — differential privacy noise injection ───────────────────
