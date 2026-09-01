@@ -62,11 +62,11 @@ impl Parser {
 
     // ── 내부 헬퍼 ─────────────────────────────────────────────────────────────
 
-    fn current_kind(&self) -> TokenKind {
+    fn current_kind(&self) -> &TokenKind {
         self.tokens
             .get(self.pos)
-            .map(|t| t.kind.clone())
-            .unwrap_or(TokenKind::Eof)
+            .map(|t| &t.kind)
+            .unwrap_or(&TokenKind::Eof)
     }
 
     fn current_span(&self) -> Span {
@@ -85,7 +85,7 @@ impl Parser {
     fn expect(&mut self, expected: &TokenKind) -> CompileResult<Span> {
         let kind = self.current_kind();
         let span = self.current_span();
-        if kind == *expected {
+        if kind == expected {
             self.advance();
             Ok(span)
         } else {
@@ -98,7 +98,7 @@ impl Parser {
     }
 
     fn eat(&mut self, kind: &TokenKind) -> bool {
-        if self.current_kind() == *kind {
+        if self.current_kind() == kind {
             self.advance();
             true
         } else {
@@ -207,6 +207,7 @@ impl Parser {
     fn expect_number(&mut self) -> CompileResult<i64> {
         match self.current_kind() {
             TokenKind::IntLit(n) => {
+                let n = *n;
                 self.advance();
                 Ok(n)
             }
@@ -221,10 +222,12 @@ impl Parser {
     fn expect_float(&mut self) -> CompileResult<f64> {
         match self.current_kind() {
             TokenKind::FloatLit(f) => {
+                let f = *f;
                 self.advance();
                 Ok(f)
             }
             TokenKind::IntLit(n) => {
+                let n = *n;
                 self.advance();
                 Ok(n as f64)
             }
@@ -298,6 +301,7 @@ impl Parser {
                 "target" => {
                     config.target = match self.current_kind() {
                         TokenKind::StringLit(s) => {
+                            let s = s.clone();
                             self.advance();
                             s
                         }
@@ -573,6 +577,7 @@ impl Parser {
 
         let file_path = match self.current_kind() {
             TokenKind::StringLit(s) => {
+                let s = s.clone();
                 self.advance();
                 s
             }
@@ -744,6 +749,7 @@ impl Parser {
                 self.expect(&TokenKind::LParen)?;
                 let n = match self.current_kind() {
                     TokenKind::IntLit(n) => {
+                        let n = *n;
                         self.advance();
                         n
                     }
@@ -813,14 +819,17 @@ impl Parser {
                 // 채우기 값: 정수, 부동소수 또는 문자열 리터럴
                 let value = match self.current_kind() {
                     TokenKind::IntLit(n) => {
+                        let n = *n;
                         self.advance();
                         FillNullValue::Int(n)
                     }
                     TokenKind::FloatLit(f) => {
+                        let f = *f;
                         self.advance();
                         FillNullValue::Float(f)
                     }
                     TokenKind::StringLit(s) => {
+                        let s = s.clone();
                         self.advance();
                         FillNullValue::Str(s)
                     }
@@ -1093,6 +1102,7 @@ impl Parser {
                 self.expect(&TokenKind::LParen)?;
                 let n = match self.current_kind() {
                     TokenKind::IntLit(n) => {
+                        let n = *n;
                         self.advance();
                         n
                     }
@@ -1117,6 +1127,7 @@ impl Parser {
                     self.expect(&TokenKind::Colon)?;
                     match self.current_kind() {
                         TokenKind::IntLit(s) => {
+                            let s = *s;
                             self.advance();
                             Some(s)
                         }
@@ -1264,35 +1275,35 @@ impl Parser {
                 }
 
                 // x: column_name (식별자, 키워드, 문자열 리터럴 모두 허용)
-                TokenKind::Ident(ref key) if key == "x" => {
+                TokenKind::Ident(key) if key == "x" => {
                     self.advance();
                     self.expect(&TokenKind::Colon)?;
                     x = Some(self.expect_col_name_or_str()?);
                 }
 
                 // y: column_name
-                TokenKind::Ident(ref key) if key == "y" => {
+                TokenKind::Ident(key) if key == "y" => {
                     self.advance();
                     self.expect(&TokenKind::Colon)?;
                     y = Some(self.expect_col_name_or_str()?);
                 }
 
                 // label: column_name
-                TokenKind::Ident(ref key) if key == "label" => {
+                TokenKind::Ident(key) if key == "label" => {
                     self.advance();
                     self.expect(&TokenKind::Colon)?;
                     label = Some(self.expect_col_name_or_str()?);
                 }
 
                 // value: column_name
-                TokenKind::Ident(ref key) if key == "value" => {
+                TokenKind::Ident(key) if key == "value" => {
                     self.advance();
                     self.expect(&TokenKind::Colon)?;
                     value = Some(self.expect_col_name_or_str()?);
                 }
 
                 // title: "문자열"
-                TokenKind::Ident(ref key) if key == "title" => {
+                TokenKind::Ident(key) if key == "title" => {
                     self.advance();
                     self.expect(&TokenKind::Colon)?;
                     title = Some(self.expect_string_lit()?);
@@ -1446,6 +1457,7 @@ impl Parser {
     fn parse_primary(&mut self) -> CompileResult<Expr> {
         match self.current_kind() {
             TokenKind::Ident(s) => {
+                let s = s.clone();
                 self.advance();
                 // col("column_name") 함수 호출 형태 처리
                 // col("x") → Expr::Ident("x")  (런타임에서 polars::col("x") 로 변환됨)
@@ -1453,6 +1465,7 @@ impl Parser {
                     self.advance(); // ( 소비
                     let col_name = match self.current_kind() {
                         TokenKind::StringLit(name) => {
+                            let name = name.clone();
                             self.advance();
                             name
                         }
@@ -1474,14 +1487,17 @@ impl Parser {
                 }
             }
             TokenKind::IntLit(n) => {
+                let n = *n;
                 self.advance();
                 Ok(Expr::IntLit(n))
             }
             TokenKind::FloatLit(f) => {
+                let f = *f;
                 self.advance();
                 Ok(Expr::FloatLit(f))
             }
             TokenKind::StringLit(s) => {
+                let s = s.clone();
                 self.advance();
                 Ok(Expr::StringLit(s))
             }
@@ -1513,6 +1529,7 @@ impl Parser {
     fn expect_ident(&mut self) -> CompileResult<String> {
         match self.current_kind() {
             TokenKind::Ident(s) => {
+                let s = s.clone();
                 self.advance();
                 Ok(s)
             }
@@ -1528,6 +1545,7 @@ impl Parser {
     fn expect_string_lit(&mut self) -> CompileResult<String> {
         match self.current_kind() {
             TokenKind::StringLit(s) => {
+                let s = s.clone();
                 self.advance();
                 Ok(s)
             }
@@ -1544,10 +1562,12 @@ impl Parser {
     fn expect_ident_or_str(&mut self) -> CompileResult<String> {
         match self.current_kind() {
             TokenKind::Ident(s) => {
+                let s = s.clone();
                 self.advance();
                 Ok(s)
             }
             TokenKind::StringLit(s) => {
+                let s = s.clone();
                 self.advance();
                 Ok(s)
             }
@@ -1563,6 +1583,7 @@ impl Parser {
     /// x: "district"  또는  x: district  둘 다 처리
     fn expect_col_name_or_str(&mut self) -> CompileResult<String> {
         if let TokenKind::StringLit(s) = self.current_kind() {
+            let s = s.clone();
             self.advance();
             return Ok(s);
         }
