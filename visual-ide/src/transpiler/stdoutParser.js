@@ -38,6 +38,55 @@ function parseErrorLine(line) {
 }
 
 /**
+ * chart payload 의 chartType 을 화이트리스트로 검증해 기본값으로 폴백한다.
+ * @param {unknown} raw
+ * @returns {'bar'|'line'|'pie'|'scatter'}
+ */
+function toChartType(raw) {
+  const validTypes = ['bar', 'line', 'pie', 'scatter'];
+  return validTypes.includes(raw) ? raw : 'bar';
+}
+
+/**
+ * chart payload 의 rawData 를 차트 타입별로 변환한다.
+ * @param {object} payload
+ * @returns {any[]}
+ */
+function transformChartData(payload) {
+  const chartType = toChartType(payload.chartType);
+  const rawData  = Array.isArray(payload.data) ? payload.data : [];
+  const xCol     = payload.x;
+  const yCol     = payload.y;
+  const labelCol = payload.label;
+  const valueCol = payload.value;
+
+  if ((chartType === 'bar' || chartType === 'line') && xCol && yCol) {
+    return rawData.map(row => ({
+      ...row,
+      label: row[xCol],
+      value: Number(row[yCol] ?? 0),
+      x: row[xCol],
+      y: Number(row[yCol] ?? 0),
+    }));
+  }
+  if (chartType === 'pie' && labelCol && valueCol) {
+    return rawData.map(row => ({
+      ...row,
+      label: row[labelCol],
+      value: Number(row[valueCol] ?? 0),
+    }));
+  }
+  if (chartType === 'scatter' && xCol && yCol) {
+    return rawData.map(row => ({
+      ...row,
+      x: Number(row[xCol] ?? 0),
+      y: Number(row[yCol] ?? 0),
+    }));
+  }
+  return rawData;
+}
+
+/**
  * stdout 라인 배열을 ExecutionEvent[] 로 파싱합니다.
  *
  * RULE: stdout MUST NOT directly update UI.
@@ -57,50 +106,36 @@ export function parseStdout(lines) {
     const trimmed = line.trim();
 
     // ── [xazz:chart] ────────────────────────────────────────────────────────
-    // Xazz: "[xazz:chart]" (다음 줄에 JSON payload)
+    // 신형: "[xazz:chart] {JSON}" (한 줄, 줄바꿈/이모지로 끊겨도 안전)
+    // 구형: "[xazz:chart]" + 다음 줄에 JSON payload (호환 유지)
+    const chartInline = trimmed.startsWith(PREFIX_CHART + ' ')
+      ? trimmed.slice(PREFIX_CHART.length).trim()
+      : null;
+    if (chartInline) {
+      try {
+        const payload = JSON.parse(chartInline);
+        events.push({
+          type: 'chart',
+          chartType: toChartType(payload.chartType),
+          title: (typeof payload.title === 'string' ? payload.title : 'Chart'),
+          data: transformChartData(payload),
+        });
+      } catch {
+        events.push({ type: 'text', text: line });
+      }
+      i++;
+      continue;
+    }
     if (trimmed === PREFIX_CHART) {
       i++;
       if (i < lines.length) {
         try {
           const payload = JSON.parse(lines[i].trim());
-
-          const validTypes = ['bar', 'line', 'pie', 'scatter'];
-          const chartType = validTypes.includes(payload.chartType) ? payload.chartType : 'bar';
-
-          const rawData  = Array.isArray(payload.data) ? payload.data : [];
-          const xCol     = payload.x;
-          const yCol     = payload.y;
-          const labelCol = payload.label;
-          const valueCol = payload.value;
-
-          let transformedData = rawData;
-          if ((chartType === 'bar' || chartType === 'line') && xCol && yCol) {
-            transformedData = rawData.map(row => ({
-              ...row,
-              label: row[xCol],
-              value: Number(row[yCol] ?? 0),
-              x: row[xCol],
-              y: Number(row[yCol] ?? 0),
-            }));
-          } else if (chartType === 'pie' && labelCol && valueCol) {
-            transformedData = rawData.map(row => ({
-              ...row,
-              label: row[labelCol],
-              value: Number(row[valueCol] ?? 0),
-            }));
-          } else if (chartType === 'scatter' && xCol && yCol) {
-            transformedData = rawData.map(row => ({
-              ...row,
-              x: Number(row[xCol] ?? 0),
-              y: Number(row[yCol] ?? 0),
-            }));
-          }
-
           events.push({
-            type:      'chart',
-            chartType,
-            title:     (typeof payload.title === 'string' ? payload.title : 'Chart'),
-            data:      transformedData,
+            type: 'chart',
+            chartType: toChartType(payload.chartType),
+            title: (typeof payload.title === 'string' ? payload.title : 'Chart'),
+            data: transformChartData(payload),
           });
         } catch {
           events.push({ type: 'text', text: lines[i] });

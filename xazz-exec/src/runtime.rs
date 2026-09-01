@@ -656,8 +656,9 @@ fn execute_node(
             IrStep::Side(SideOp::Chart(config)) => {
                 let snapshot = lf.clone().collect()?;
                 let spec = build_chart_spec(config, &snapshot)?;
-                println!("[xazz:chart]");
-                println!("{}", serde_json::to_string(&spec)?);
+                // 단일 라인 셀프-컨테이닝 마커 — 줄바꿈/이모지가 JSON 을 끊어도
+                // 파서가 손상되지 않도록 한다. (이전: 마커와 JSON 이 두 줄에 걸침)
+                println!("[xazz:chart] {}", serde_json::to_string(&spec)?);
 
                 let safe_base = node.name.clone().unwrap_or_else(|| match &node.source {
                     Source::Ref { var } => var.clone(),
@@ -725,7 +726,6 @@ fn execute_node(
                     report.noised_columns.len(),
                 )?;
 
-                println!("[xazz:dp]");
                 let mut dp_json =
                     serde_json::to_value(&report).unwrap_or_else(|_| serde_json::json!({}));
                 if let Some(obj) = dp_json.as_object_mut() {
@@ -744,7 +744,8 @@ fn execute_node(
                         serde_json::json!(dp_budget.query_count()),
                     );
                 }
-                println!("{}", dp_json);
+                // 단일 라인 셀프-컨테이닝 마커 (줄바꿈/이모지로 끊겨도 파싱 안전).
+                println!("[xazz:dp] {}", dp_json);
                 eprintln!(
                     "[xazz] DP {}: {} (ε={}, δ={}, Δf={}, {}={:.4}) — {} {:?} | {} ε {:.2}/{:.2} · δ {:.2e}/{:.2e}",
                     tr("applied", "적용"),

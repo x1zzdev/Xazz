@@ -438,8 +438,14 @@ fn parse_stdout_markers(
                 training = Some(parsed);
             }
         }
-        // 차등 프라이버시 감사 마커 — 두 줄: "[xazz:dp]" 다음 줄에 JSON 리포트.
-        if trimmed == "[xazz:dp]" {
+        // 차등 프라이버시 감사 마커 — 단일 라인 셀프-컨테이닝:
+        //   [xazz:dp] <JSON>            (신형 — 줄바꿈/이모지로 끊겨도 안전)
+        //   [xazz:dp]\n<JSON>           (구형 — 다음 줄에 JSON, 호환 유지)
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:dp] ") {
+            if let Ok(parsed) = serde_json::from_str::<Value>(json_part) {
+                dp = Some(parsed);
+            }
+        } else if trimmed == "[xazz:dp]" {
             let next = lines.get(i + 1).map(|l| l.trim()).unwrap_or("");
             if let Ok(parsed) = serde_json::from_str::<Value>(next) {
                 dp = Some(parsed);
