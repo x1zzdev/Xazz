@@ -65,16 +65,23 @@ pub fn is_korean() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn default_is_english() {
+        // Serialize against env_var_selects_korean: it mutates process-wide state.
+        let _guard = ENV_LOCK.lock().unwrap();
         reset_lang();
+        unsafe { std::env::remove_var("XAZZ_LANG") };
         assert_eq!(current(), Lang::En);
         assert_eq!(tr("row", "행"), "row");
     }
 
     #[test]
     fn env_var_selects_korean() {
+        let _guard = ENV_LOCK.lock().unwrap();
         reset_lang();
         // Rust 2024: manipulating env is marked unsafe (parallel-test safety).
         unsafe { std::env::set_var("XAZZ_LANG", "ko") };
@@ -85,6 +92,10 @@ mod tests {
 
     #[test]
     fn thread_local_override_isolation() {
+        // Serialize against env_var_selects_korean: current() falls through to
+        // the process-wide XAZZ_LANG when the override is reset.
+        let _guard = ENV_LOCK.lock().unwrap();
+        unsafe { std::env::remove_var("XAZZ_LANG") };
         set_lang(Lang::Ko);
         assert_eq!(current(), Lang::Ko);
         reset_lang();
