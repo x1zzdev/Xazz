@@ -1,18 +1,18 @@
-//! xazz-exec/src/chart.rs — 시각화(차트) 하위시스템 (v0.19)
+//! xazz-exec/src/chart.rs — visualization (chart) subsystem (v0.19)
 //!
-//! DataFrame → JSON 차트 명세 → Chart.js HTML 렌더링을 담당한다.
-//! 런타임(runtime.rs)은 차트 생성 시 이 모듈의 함수를 호출할 뿐
-//! 시각화 지식을 직접 보유하지 않는다 (God runtime 해체).
+//! Responsible for DataFrame → JSON chart spec → Chart.js HTML rendering.
+//! The runtime (runtime.rs) only calls this module's functions when creating charts
+//! and does not hold visualization knowledge itself (God runtime dismantled).
 
 use serde::Serialize;
 
 use xazz_compiler::ast::{ChartConfig, ChartType};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ── ChartSpec — 프론트엔드로 전달하는 시각화 명세 (v0.19) ─────────────────────
+// ── ChartSpec — visualization spec passed to the frontend (v0.19) ────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Recharts 호환 JSON 차트 명세
+/// Recharts-compatible JSON chart spec
 #[derive(Debug, Serialize)]
 pub struct ChartSpec {
     #[serde(rename = "chartType")]
@@ -29,7 +29,7 @@ pub struct ChartSpec {
     pub data: serde_json::Value,
 }
 
-// ── DataFrame → ChartSpec 변환 ────────────────────────────────────────────────
+// ── DataFrame → ChartSpec conversion ──────────────────────────────────────────
 pub fn build_chart_spec(
     config: &ChartConfig,
     df: &polars::frame::DataFrame,
@@ -84,7 +84,7 @@ pub fn build_chart_spec(
     })
 }
 
-/// Polars DataFrame을 JSON 배열(`[{col: val, ...}, ...]`)로 직렬화
+/// Serializes a Polars DataFrame to a JSON array (`[{col: val, ...}, ...]`)
 pub fn df_to_json_array(
     df: &polars::frame::DataFrame,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
@@ -129,15 +129,15 @@ pub fn df_to_json_array(
     Ok(serde_json::Value::Array(rows))
 }
 
-// ── write_chart_html — ChartSpec → Chart.js 기반 HTML 파일 생성 ───────────────
+// ── write_chart_html — ChartSpec → Chart.js-based HTML file generation ────────
 pub fn write_chart_html(
     spec: &ChartSpec,
     output_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let data_json = serde_json::to_string(&spec.data)?;
-    // script 태그 안에 JSON 을 인라인으로 넣으므로, `</script>` 로 스크립트 블록을
-    // 탈출하지 못하게 `<`, `>`, `&`, U+2028/U+2029 를 \uXXXX 로 이스케이프한다.
-    // (serde_json 은 `<`/`>` 를 이스케이프하지 않는다 — Stored XSS 방지)
+    // JSON is inlined inside a script tag, so escape `<`, `>`, `&`, U+2028/U+2029
+    // as \uXXXX to prevent escaping the script block via `</script>`.
+    // (serde_json does not escape `<`/`>` — stored XSS prevention)
     let data_json_escaped = data_json
         .replace('<', "\\u003c")
         .replace('>', "\\u003e")
@@ -147,9 +147,9 @@ pub fn write_chart_html(
     let title = &spec.title;
     let chart_type_str = &spec.chart_type;
 
-    // JS 문자열/키로 안전하게 삽입하기 위해 JSON 인코딩한다. (Stored XSS 방지)
+    // JSON-encode for safe insertion into JS strings/keys. (stored XSS prevention)
     let js = |s: &str| serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string());
-    // HTML 컨텍스트(제목)용 이스케이프
+    // Escape for the HTML context (title)
     let html_esc = |s: &str| {
         s.replace('&', "&amp;")
             .replace('<', "&lt;")
@@ -384,11 +384,11 @@ mod tests {
         let html = std::fs::read_to_string(&out).unwrap();
         assert!(
             !html.contains("</script><script>alert"),
-            "raw </script> 가 그대로 삽입되면 안 됨"
+            "raw </script> must not be inserted verbatim"
         );
         assert!(
             html.contains("\\u003c/script\\u003e"),
-            "< 가 \\u003c 로 이스케이프되어야 함"
+            "< must be escaped as \\u003c"
         );
         std::fs::remove_file(&out).ok();
     }

@@ -1,28 +1,28 @@
-/// xazzLang - 코드 생성기 (v0.16)
+/// xazzLang - code generator (v0.16)
 ///
-/// Program AST → Polars LazyFrame 흐름 문자열 생성.
+/// Generates a Polars LazyFrame flow string from a Program AST.
 ///
-/// [v0.16 변경사항]
-///   - BoolLit 표현식 지원 (true/false)
-///   - Count(None) / Count(Some(col)) 구분
-///   - 신규 연산자 출력: GroupBy, Sum, Mean, Min, Max, OrderBy, Take, DropNull, FillNull
-///   - Join 연산자: .join(..., ..., JoinArgs::new(JoinType::Inner)) 매핑
-///   - WithColumn 연산자: .with_columns([expr.alias("name")]) 매핑
-///   - 산술 연산자: Add/Sub/Mul/Div → .add()/.sub()/.mul()/.div()
+/// [v0.16 changes]
+///   - BoolLit expression support (true/false)
+///   - Count(None) / Count(Some(col)) distinction
+///   - New operator output: GroupBy, Sum, Mean, Min, Max, OrderBy, Take, DropNull, FillNull
+///   - Join operator: .join(..., ..., JoinArgs::new(JoinType::Inner)) mapping
+///   - WithColumn operator: .with_columns([expr.alias("name")]) mapping
+///   - Arithmetic operators: Add/Sub/Mul/Div → .add()/.sub()/.mul()/.div()
 ///
-/// 중복 제거 (단일 위치):
-///   - 표현식 → Polars 문자열 매핑은 `crate::polars_text` 의 유일한 구현을
-///     사용한다 (이 모듈과 emitter.rs 가 공유).
-///   - 런타임 op→Polars 매핑은 xazz-exec/src/lower.rs (Typed IR) 한 곳에만 존재한다.
+/// Deduplication (single location):
+///   - The expression → Polars string mapping uses the single implementation in
+///     `crate::polars_text` (shared by this module and emitter.rs).
+///   - The runtime op→Polars mapping exists in only one place: xazz-exec/src/lower.rs (Typed IR).
 use crate::ast::{
     BinOpKind, Expr, LayerKind, PipelineOp, PipelineSource, Program, Stmt, TrainConfig,
 };
 
-/// 코드 생성기 — 유닛 구조체
+/// Code generator — unit struct
 pub struct Codegen;
 
-/// 생성된 Rust 문자열 리터럴에 삽입할 DSL 문자열 값을 이스케이프한다.
-/// (`"` 와 `\` 를 이스케이프하여 생성 코드 주입 방지)
+/// Escapes a DSL string value for insertion into a generated Rust string literal.
+/// (escapes `"` and `\` to prevent generated code injection)
 fn esc(s: &str) -> String {
     crate::policy::printer::escape(s)
 }
@@ -32,9 +32,9 @@ impl Codegen {
         Codegen
     }
 
-    // ── 최상위 진입점 ─────────────────────────────────────────────────────────
+    // ── top-level entry point ─────────────────────────────────────────────────────────
 
-    /// Program AST 전체를 Polars 흐름 문자열로 생성
+    /// Generates a Polars flow string from the entire Program AST
     pub fn generate(program: &Program) -> String {
         let mut out = String::new();
         out.push_str("// ═══════════════════════════════════════════════════════\n");
@@ -50,7 +50,7 @@ impl Codegen {
         out
     }
 
-    // ── Stmt 변환 ─────────────────────────────────────────────────────────────
+    // ── Stmt conversion ─────────────────────────────────────────────────────────────
 
     fn emit_stmt(stmt: &Stmt) -> String {
         match stmt {
@@ -77,7 +77,7 @@ impl Codegen {
         }
     }
 
-    // ── VarDecl 변환 ──────────────────────────────────────────────────────────
+    // ── VarDecl conversion ──────────────────────────────────────────────────────────
 
     fn emit_var_decl(
         var_name: &str,
@@ -87,7 +87,7 @@ impl Codegen {
     ) -> String {
         let mut lines: Vec<String> = Vec::new();
 
-        // 주석 헤더
+        // comment header
         let source_comment = match source {
             PipelineSource::Load {
                 file_path,
@@ -105,7 +105,7 @@ impl Codegen {
             mut_kw, var_name, source_comment
         ));
 
-        // 소스 코드 생성
+        // generate source code
         match source {
             PipelineSource::Load {
                 file_path,
@@ -125,12 +125,12 @@ impl Codegen {
             }
         }
 
-        // 파이프라인 각 단계
+        // each pipeline stage
         for op in ops {
             lines.push(Self::emit_op(op));
         }
 
-        // collect — Lazy 실행 시점
+        // collect — point of lazy execution
         lines.push(format!(
             "  .collect()?;  // ← {}: 모든 연산 일괄 실행",
             var_name
@@ -139,7 +139,7 @@ impl Codegen {
         lines.join("\n")
     }
 
-    // ── ExprStmt 변환 ─────────────────────────────────────────────────────────
+    // ── ExprStmt conversion ─────────────────────────────────────────────────────────
 
     fn emit_expr_stmt(source: &PipelineSource, ops: &[PipelineOp]) -> String {
         let mut lines: Vec<String> = Vec::new();
@@ -183,7 +183,7 @@ impl Codegen {
         lines.join("\n")
     }
 
-    // ── ModelDecl 변환 ────────────────────────────────────────────────────────
+    // ── ModelDecl conversion ────────────────────────────────────────────────────────
 
     fn emit_model_decl(name: &str, layers: &[LayerKind]) -> String {
         let mut lines: Vec<String> = Vec::new();
@@ -204,7 +204,7 @@ impl Codegen {
         lines.join("\n")
     }
 
-    // ── TrainStmt 변환 ────────────────────────────────────────────────────────
+    // ── TrainStmt conversion ────────────────────────────────────────────────────────
 
     fn emit_train_stmt(source_var: &str, model_name: &str, config: &TrainConfig) -> String {
         let batch_str = match config.batch_size {
@@ -242,11 +242,11 @@ impl Codegen {
         lines.join("\n")
     }
 
-    // ── Op 변환 ───────────────────────────────────────────────────────────────
+    // ── Op conversion ───────────────────────────────────────────────────────────────
 
     fn emit_op(op: &PipelineOp) -> String {
         match op {
-            // ── 기존 ──────────────────────────────────────────────────────────
+            // ── existing ──────────────────────────────────────────────────────────
             PipelineOp::Filter(expr) => {
                 format!(
                     "  .filter({})  // |> filter({})",
@@ -275,7 +275,7 @@ impl Codegen {
                 )
             }
 
-            // ── v0.16 집계 ────────────────────────────────────────────────────
+            // ── v0.16 aggregates ────────────────────────────────────────────────────
             PipelineOp::GroupBy(group_col) => {
                 format!(
                     "  .group_by([col(\"{}\")])  // |> groupBy(\"{}\")",
@@ -312,7 +312,7 @@ impl Codegen {
                 )
             }
 
-            // ── v0.16 정렬 / 슬라이싱 ─────────────────────────────────────────
+            // ── v0.16 sorting / slicing ─────────────────────────────────────────
             PipelineOp::OrderBy { col, desc } => {
                 format!(
                     "  .sort([\"{}\"], SortMultipleOptions::default().with_order_descending({}))  // |> orderBy(\"{}\", desc: {})",
@@ -326,7 +326,7 @@ impl Codegen {
                 format!("  .limit({})  // |> take({})", n, n)
             }
 
-            // ── v0.16 Null 처리 ────────────────────────────────────────────────
+            // ── v0.16 Null handling ────────────────────────────────────────────────
             PipelineOp::DropNull(drop_col) => {
                 format!(
                     "  .drop_nulls(Some(vec![col(\"{}\")]))  // |> dropNull(\"{}\")",
@@ -385,7 +385,7 @@ impl Codegen {
                 )
             }
 
-            // ── Chart: codegen 미지원 (런타임에서만 처리) ─────────────────────
+            // ── Chart: unsupported by codegen (runtime only) ─────────────────────
             PipelineOp::Chart(config) => {
                 format!(
                     "  // |> chart {{ type: {} }}  →  [xazz:chart] JSON 출력",
@@ -430,7 +430,7 @@ impl Codegen {
                 )
             }
 
-            // ── v0.22 sample(n) / sample(n, seed: 42) — 무작위 샘플링 ───────
+            // ── v0.22 sample(n) / sample(n, seed: 42) — random sampling ───────
             PipelineOp::Sample { n, seed } => match seed {
                 Some(s) => format!(
                     "  .collect()?.sample_n_literal({}, false, false, Some({}))?.lazy()  // |> sample({}, seed: {})",
@@ -442,7 +442,7 @@ impl Codegen {
                 ),
             },
 
-            // ── v0.22 median / variance / std 집계 ──────────────────────────
+            // ── v0.22 median / variance / std aggregates ──────────────────────────
             PipelineOp::Median(agg_col) => {
                 format!(
                     "  .agg([{}])  // |> median(\"{}\")",
@@ -476,7 +476,7 @@ impl Codegen {
                 format!("  // |> predict({}{})  → 예측 컬럼 추가", model_var, as_str)
             }
 
-            // ── v0.6 withDp — 차등 프라이버시 노이즈 주입 ───────────────────
+            // ── v0.6 withDp — differential privacy noise injection ───────────────────
             PipelineOp::WithDp(args) => format!(
                 "  .collect()?  → dp::apply_dp(ε={}, {}, Δf={})  // |> withDp(epsilon: {})",
                 args.epsilon,
@@ -487,13 +487,13 @@ impl Codegen {
         }
     }
 
-    // ── 표현식 → Polars Rust ──────────────────────────────────────────────────
+    // ── expression → Polars Rust ──────────────────────────────────────────────────
 
     pub fn expr_to_polars(expr: &Expr) -> String {
         crate::polars_text::expr_to_polars(expr, None)
     }
 
-    // ── 표현식 → xazzLang 소스 표현 ──────────────────────────────────────────
+    // ── expression → xazzLang source representation ──────────────────────────────────────────
 
     pub fn expr_to_xzz(expr: &Expr) -> String {
         match expr {
@@ -532,7 +532,7 @@ impl Default for Codegen {
     }
 }
 
-// ── Codegen 유닛 테스트 ────────────────────────────────────────────────────────
+// ── Codegen unit tests ────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -542,7 +542,7 @@ mod tests {
         PipelineSource, Program, Stmt, StructField,
     };
 
-    /// 단일 VarDecl (Load 소스)을 갖는 Program 생성 헬퍼
+    /// Helper that builds a Program with a single VarDecl (Load source)
     fn make_load_program(ops: Vec<PipelineOp>) -> Program {
         let mut p = Program::new();
         p.stmts.push(Stmt::VarDecl {
@@ -557,9 +557,9 @@ mod tests {
         p
     }
 
-    // ── expr_to_polars 출력 검증 ───────────────────────────────────────────────
+    // ── expr_to_polars output verification ───────────────────────────────────────────────
 
-    /// Ident → col("...") 변환
+    /// Ident → col("...") conversion
     #[test]
     fn test_expr_to_polars_ident() {
         assert_eq!(
@@ -568,26 +568,26 @@ mod tests {
         );
     }
 
-    /// IntLit → lit(...i64) 변환
+    /// IntLit → lit(...i64) conversion
     #[test]
     fn test_expr_to_polars_int_lit() {
         assert_eq!(Codegen::expr_to_polars(&Expr::IntLit(42)), "lit(42i64)");
     }
 
-    /// FloatLit → lit(...f64) 변환
+    /// FloatLit → lit(...f64) conversion
     #[test]
     fn test_expr_to_polars_float_lit() {
         assert_eq!(Codegen::expr_to_polars(&Expr::FloatLit(2.5)), "lit(2.5f64)");
     }
 
-    /// BoolLit → lit(true/false) 변환
+    /// BoolLit → lit(true/false) conversion
     #[test]
     fn test_expr_to_polars_bool_lit() {
         assert_eq!(Codegen::expr_to_polars(&Expr::BoolLit(true)), "lit(true)");
         assert_eq!(Codegen::expr_to_polars(&Expr::BoolLit(false)), "lit(false)");
     }
 
-    /// StringLit → lit("...") 변환
+    /// StringLit → lit("...") conversion
     #[test]
     fn test_expr_to_polars_string_lit() {
         assert_eq!(
@@ -596,7 +596,7 @@ mod tests {
         );
     }
 
-    /// StringLit 내 따옴표/백슬래시는 이스케이프되어야 유효한 Rust 코드가 된다
+    /// Quotes/backslashes inside StringLit must be escaped to produce valid Rust code
     #[test]
     fn test_expr_to_polars_string_lit_escapes_quotes_and_backslashes() {
         assert_eq!(
@@ -613,7 +613,7 @@ mod tests {
         );
     }
 
-    /// BinOp Gt → col(...).gt(lit(...)) 변환
+    /// BinOp Gt → col(...).gt(lit(...)) conversion
     #[test]
     fn test_expr_to_polars_binop_gt() {
         let expr = Expr::BinOp {
@@ -627,7 +627,7 @@ mod tests {
         );
     }
 
-    /// BinOp Eq → .eq(...) 변환
+    /// BinOp Eq → .eq(...) conversion
     #[test]
     fn test_expr_to_polars_binop_eq() {
         let expr = Expr::BinOp {
@@ -641,7 +641,7 @@ mod tests {
         );
     }
 
-    /// BinOp Add → .add(...) 변환 (산술 연산자)
+    /// BinOp Add → .add(...) conversion (arithmetic operator)
     #[test]
     fn test_expr_to_polars_binop_add() {
         let expr = Expr::BinOp {
@@ -652,7 +652,7 @@ mod tests {
         assert_eq!(Codegen::expr_to_polars(&expr), "col(\"a\").add(col(\"b\"))");
     }
 
-    /// BinOp Mul → .mul(...) 변환
+    /// BinOp Mul → .mul(...) conversion
     #[test]
     fn test_expr_to_polars_binop_mul() {
         let expr = Expr::BinOp {
@@ -664,9 +664,9 @@ mod tests {
         assert!(result.contains(".mul("), ".mul( 없음: {}", result);
     }
 
-    // ── expr_to_xzz 출력 검증 ─────────────────────────────────────────────────
+    // ── expr_to_xzz output verification ─────────────────────────────────────────────────
 
-    /// Ident → 식별자 문자열 그대로
+    /// Ident → the identifier string as-is
     #[test]
     fn test_expr_to_xzz_ident() {
         assert_eq!(Codegen::expr_to_xzz(&Expr::Ident("pm10".into())), "pm10");
@@ -694,9 +694,9 @@ mod tests {
         assert_eq!(Codegen::expr_to_xzz(&expr), "a + b");
     }
 
-    // ── generate() 전체 파이프라인 출력 검증 ──────────────────────────────────
+    // ── generate() full pipeline output verification ──────────────────────────────────
 
-    /// TypeDecl → Schema 주석 블록 생성
+    /// TypeDecl → generates a Schema comment block
     #[test]
     fn test_generate_type_decl_comment() {
         let mut p = Program::new();
@@ -723,7 +723,7 @@ mod tests {
         assert!(output.contains("Option<float>"), "Option<float> 없음");
     }
 
-    /// VarDecl (Load 소스) → LazyCsvReader 코드 생성
+    /// VarDecl (Load source) → generates LazyCsvReader code
     #[test]
     fn test_generate_var_decl_load_source() {
         let program = make_load_program(vec![]);
@@ -736,7 +736,7 @@ mod tests {
         assert!(output.contains("result"), "변수명 result 없음");
     }
 
-    /// VarDecl → .collect()? 종결자 포함
+    /// VarDecl → includes .collect()? terminator
     #[test]
     fn test_generate_ends_with_collect() {
         let program = make_load_program(vec![]);
@@ -748,7 +748,7 @@ mod tests {
         );
     }
 
-    /// VarDecl (VarRef 소스) → .clone().lazy() 코드 생성
+    /// VarDecl (VarRef source) → generates .clone().lazy() code
     #[test]
     fn test_generate_var_ref_source() {
         let mut p = Program::new();
@@ -766,7 +766,7 @@ mod tests {
         );
     }
 
-    /// mut 변수 선언 → 주석에 "mut " 포함
+    /// mut variable declaration → includes "mut " in the comment
     #[test]
     fn test_generate_mut_var_comment() {
         let mut p = Program::new();
@@ -783,7 +783,7 @@ mod tests {
         assert!(output.contains("mut v data"), "mut v 없음: {}", output);
     }
 
-    /// Filter op → .filter(...) 출력
+    /// Filter op → .filter(...) output
     #[test]
     fn test_generate_filter_op() {
         let program = make_load_program(vec![PipelineOp::Filter(Expr::BinOp {
@@ -796,7 +796,7 @@ mod tests {
         assert!(output.contains("pm10"), "pm10 없음");
     }
 
-    /// Select op → .select([col(...)]) 출력
+    /// Select op → .select([col(...)]) output
     #[test]
     fn test_generate_select_op() {
         let program = make_load_program(vec![PipelineOp::Select(vec![
@@ -809,7 +809,7 @@ mod tests {
         assert!(output.contains("col(\"date\")"), "col(\"date\") 없음");
     }
 
-    /// GroupBy op → .group_by([col(...)]) 출력
+    /// GroupBy op → .group_by([col(...)]) output
     #[test]
     fn test_generate_group_by_op() {
         let program = make_load_program(vec![PipelineOp::GroupBy("region".into())]);
@@ -821,7 +821,7 @@ mod tests {
         );
     }
 
-    /// Sum op → .agg([col(...).sum()]) 출력
+    /// Sum op → .agg([col(...).sum()]) output
     #[test]
     fn test_generate_sum_op() {
         let program = make_load_program(vec![PipelineOp::Sum("pop".into())]);
@@ -829,7 +829,7 @@ mod tests {
         assert!(output.contains(".sum()"), ".sum() 없음: {}", output);
     }
 
-    /// Mean op → .agg([col(...).mean()]) 출력
+    /// Mean op → .agg([col(...).mean()]) output
     #[test]
     fn test_generate_mean_op() {
         let program = make_load_program(vec![PipelineOp::Mean("score".into())]);
@@ -977,7 +977,7 @@ mod tests {
         );
     }
 
-    /// Chart op → [xazz:chart] JSON 출력 주석
+    /// Chart op → [xazz:chart] JSON output comment
     #[test]
     fn test_generate_chart_op_comment() {
         let program = make_load_program(vec![PipelineOp::Chart(ChartConfig {
@@ -996,7 +996,7 @@ mod tests {
         );
     }
 
-    /// Count(None) → 전체 행 수 주석
+    /// Count(None) → total row count comment
     #[test]
     fn test_generate_count_none() {
         let program = make_load_program(vec![PipelineOp::Count(None)]);
@@ -1035,7 +1035,7 @@ mod tests {
         );
     }
 
-    /// Sample(n) (seed 없음) → .sample_n_literal(n, false, false, None)
+    /// Sample(n) (no seed) → .sample_n_literal(n, false, false, None)
     #[test]
     fn test_generate_sample_op() {
         let program = make_load_program(vec![PipelineOp::Sample { n: 100, seed: None }]);
@@ -1062,7 +1062,7 @@ mod tests {
         );
     }
 
-    /// Median op → .agg([col(...).median()]) 출력
+    /// Median op → .agg([col(...).median()]) output
     #[test]
     fn test_generate_median_op() {
         let program = make_load_program(vec![PipelineOp::Median("score".into())]);
@@ -1070,7 +1070,7 @@ mod tests {
         assert!(output.contains(".median()"), ".median() 없음: {}", output);
     }
 
-    /// Variance op → .agg([col(...).var(1)]) 출력
+    /// Variance op → .agg([col(...).var(1)]) output
     #[test]
     fn test_generate_variance_op() {
         let program = make_load_program(vec![PipelineOp::Variance("score".into())]);
@@ -1078,7 +1078,7 @@ mod tests {
         assert!(output.contains(".var(1)"), ".var(1) 없음: {}", output);
     }
 
-    /// Std op → .agg([col(...).std(1)]) 출력
+    /// Std op → .agg([col(...).std(1)]) output
     #[test]
     fn test_generate_std_op() {
         let program = make_load_program(vec![PipelineOp::Std("score".into())]);

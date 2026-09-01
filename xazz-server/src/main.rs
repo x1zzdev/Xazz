@@ -1,19 +1,19 @@
-//! xazz-server — Visual IDE 연동 Axum HTTP API 서버 (v0.3)
+//! xazz-server — Axum HTTP API server for the Visual IDE integration (v0.3)
 //!
-//! 엔드포인트:
-//!   POST /execute          { "code": "<xzz DSL>" }         → 파이프라인 실행, JSON 결과 반환
-//!   POST /schema           multipart/form-data (file)      → CSV 스키마 추론, 컬럼 타입 반환
-//!   GET  /health           {}                               → 서버 상태 확인
-//!   POST /security/audit   { "code": "<xzz DSL>" }         → SHA-256 감사 로그 생성 + 영구 저장
-//!   POST /security/verify  { "code": "<xzz DSL>", "hash": "<sha256>" } → 감사 해시 검증
-//!   GET  /security/audit/log                               → 전체 감사 로그 조회 (JSONL 해시 체인)
-//!   GET  /security/audit/log/:hash                         → 코드 해시로 감사 레코드 조회
-//!   GET  /security/audit/chain                             → 해시 체인 무결성 검증
-//!   GET  /security/policy                                  → 활성 Policy-as-Code 정책 조회
-//!   POST /security/policy/check { "code": "<xzz DSL>" }    → 정적 가드레일 검사 리포트
-//!   POST /security/remediate    { "code": "<xzz DSL>" }    → 안전 코드 자동 보정 (결정적 + sLM)
+//! Endpoints:
+//!   POST /execute          { "code": "<xzz DSL>" }         → pipeline execution, JSON result
+//!   POST /schema           multipart/form-data (file)      → CSV schema inference, column types
+//!   GET  /health           {}                               → server status check
+//!   POST /security/audit   { "code": "<xzz DSL>" }         → SHA-256 audit log creation + persistent storage
+//!   POST /security/verify  { "code": "<xzz DSL>", "hash": "<sha256>" } → audit hash verification
+//!   GET  /security/audit/log                               → view all audit logs (JSONL hash chain)
+//!   GET  /security/audit/log/:hash                         → look up an audit record by code hash
+//!   GET  /security/audit/chain                             → verify hash-chain integrity
+//!   GET  /security/policy                                  → view the active Policy-as-Code policy
+//!   POST /security/policy/check { "code": "<xzz DSL>" }    → static guardrail inspection report
+//!   POST /security/remediate    { "code": "<xzz DSL>" }    → safe code auto-remediation (deterministic + sLM)
 //!
-//! 포트: 8005 (frontend/.env: VITE_API_BASE_URL=http://127.0.0.1:8005)
+//! Port: 8005 (frontend/.env: VITE_API_BASE_URL=http://127.0.0.1:8005)
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -38,20 +38,21 @@ mod audit_log;
 mod guardrail;
 mod slm;
 
-/// 동시에 실행되는 `xazz run` 프로세스 상한 — 실행 DoS 방지.
-/// 초과 요청은 즉시 429 로 거부한다 (큐에 쌓지 않음 → 후속 요청 대기 폭주 방지).
+/// Upper bound on concurrently running `xazz run` processes — execution DoS prevention.
+/// Over-limit requests are rejected immediately with 429 (no queue → prevents
+/// follow-up request backlog buildup).
 const MAX_CONCURRENT_EXECUTIONS: usize = 4;
 
-/// /schema 업로드 허용 최대 크기 (바이트).
+/// /schema upload maximum allowed size (bytes).
 const MAX_UPLOAD_BYTES: usize = 50 * 1024 * 1024;
 
-/// AppState — 요청 전반에 공유되는 실행 세마포어.
+/// AppState — execution semaphore shared across requests.
 #[derive(Clone)]
 struct AppState {
     exec_permits: Arc<Semaphore>,
 }
 
-// ── 요청 / 응답 타입 ────────────────────────────────────────────────────────
+// ── request / response types ─────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 struct ExecuteRequest {
@@ -67,14 +68,14 @@ struct ExecuteResponse {
     stdout: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     training: Option<Value>,
-    /// `[xazz:dp]` 마커에서 파싱한 차등 프라이버시 감사 리포트 (v0.6).
-    /// withDp(...) 미사용 시 None — 프론트엔드는 이를 "예산 미소모"로 표시한다.
+    /// Differential-privacy audit report parsed from the `[xazz:dp]` marker (v0.6).
+    /// None when withDp(...) is unused — the frontend shows this as "budget unconsumed".
     #[serde(skip_serializing_if = "Option::is_none")]
     dp: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     diagnostics: Option<Value>,
-    /// Policy-as-Code 정적 가드레일 리포트 (v0.7 — issue #2).
-    /// 차단된 요청에서는 차단 사유가, 통과한 요청에서는 경고가 담긴다.
+    /// Policy-as-Code static guardrail report (v0.7 — issue #2).
+    /// For blocked requests it holds the reason; for passed requests it holds warnings.
     #[serde(skip_serializing_if = "Option::is_none")]
     policy: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -99,13 +100,14 @@ struct SchemaColumn {
 
 #[tokio::main]
 async fn main() {
-    // uploads/ 디렉터리 미리 생성
+    // create the uploads/ directory upfront
     let _ = std::fs::create_dir_all("uploads");
 
-    // ── 보안: 루프백 오리진만 CORS 허용 ──────────────────────────────────────
-    // 이 서버는 실행할 파이프라인 코드를 받고 임의 로컬 파일을 읽을 수 있으므로,
-    // 임의 웹페이지(원격 오리진)의 cross-origin 요청을 차단한다.
-    // Vite dev(5173)와 same-origin(릴리즈 web/) 시나리오 모두 루프백이므로 통과한다.
+    // ── Security: only allow loopback origins via CORS ──────────────────────────
+    // This server receives pipeline code to execute and can read arbitrary local
+    // files, so it blocks cross-origin requests from arbitrary webpages (remote
+    // origins). Both the Vite dev (5173) and same-origin (release web/) scenarios
+    // are loopback and thus pass.
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(|origin, _parts| {
             let b = origin.as_bytes();
@@ -138,9 +140,10 @@ async fn main() {
         })
         .layer(cors);
 
-    // ── 선택적 Bearer 토큰 인증 ─────────────────────────────────────────────
-    // `XAZZ_SERVER_TOKEN` 이 설정된 경우 모든 요청에 `Authorization: Bearer <token>` 을 요구한다.
-    // 미설정 시 로컬 전용 도구로 동작한다 (루프백 바인딩 + 루프백 CORS가 1차 방어).
+    // ── Optional Bearer token auth ─────────────────────────────────────────────
+    // When `XAZZ_SERVER_TOKEN` is set, every request requires `Authorization: Bearer <token>`.
+    // When unset, it operates as a local-only tool (loopback binding + loopback CORS
+    // provide the first line of defense).
     let app = app.layer(middleware::from_fn(optional_bearer_auth));
 
     let app = match web_root {
@@ -151,8 +154,8 @@ async fn main() {
     let addr = "127.0.0.1:8005";
     println!("[xazz-server] 🚀 Listening on http://{}", addr);
 
-    // ── 주기적 uploads/ 정리 — 스키마 추론용 업로드 파일은 장기 보관이 필요 없다. ──
-    // 24시간마다 1시간보다 오래된 파일을 삭제한다 (Disk DoS 방지).
+    // ── Periodic uploads/ cleanup — schema-inference upload files need no long-term retention. ──
+    // Every 24 hours, delete files older than 1 hour (disk DoS prevention).
     tokio::spawn(async {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(24 * 60 * 60)).await;
@@ -164,7 +167,7 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-/// uploads/ 에서 1시간보다 오래된 파일을 삭제한다.
+/// Deletes files older than 1 hour from uploads/.
 fn clean_stale_uploads() {
     const MAX_AGE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
     let Ok(entries) = std::fs::read_dir("uploads") else {
@@ -189,10 +192,10 @@ fn clean_stale_uploads() {
     }
 }
 
-// ── 선택적 Bearer 토큰 인증 미들웨어 ─────────────────────────────────────────
+// ── Optional Bearer token auth middleware ─────────────────────────────────────
 
-/// `XAZZ_SERVER_TOKEN` 이 설정되어 있으면 모든 요청에 `Authorization: Bearer <token>` 을 요구한다.
-/// 미설정(또는 빈 값)이면 모든 요청을 통과시킨다 (로컬 전용 기본 동작).
+/// When `XAZZ_SERVER_TOKEN` is set, every request requires `Authorization: Bearer <token>`.
+/// When unset (or empty), all requests pass (default local-only behavior).
 async fn optional_bearer_auth(
     req: axum::extract::Request,
     next: Next,
@@ -218,13 +221,13 @@ async fn optional_bearer_auth(
 
 // ── Static IDE serving ───────────────────────────────────────────────────────
 
-/// 빌드된 Visual IDE 정적 자산 디렉터리를 찾는다. 없으면 None.
+/// Finds the built Visual IDE static-asset directory. None if absent.
 ///
-/// 우선순위:
-///   1. 환경변수 `XAZZ_WEB_DIR` (명시적 지정)
-///   2. 실행 바이너리 옆의 `web/`
-///   3. 실행 바이너리 상위의 `web/` (pkg에서 bin/ 과 web/ 를 나란히 둘 경우)
-///   4. 현재 작업 디렉터리의 `web/`
+/// Priority:
+///   1. `XAZZ_WEB_DIR` environment variable (explicit)
+///   2. `web/` next to the executable
+///   3. `web/` one level above the executable (when pkg places bin/ and web/ side by side)
+///   4. `web/` in the current working directory
 fn resolve_web_dir() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("XAZZ_WEB_DIR") {
         let p = PathBuf::from(dir);
@@ -249,8 +252,8 @@ fn resolve_web_dir() -> Option<PathBuf> {
         .find(|p| p.join("index.html").exists())
 }
 
-/// SPA 폴백 — ServeDir 에서 매치되는 파일이 없으면 index.html 을 반환한다.
-/// Vite SPA 라우터(/editor, /monitor 등)가 클라이언트 사이드에서 처리하도록 한다.
+/// SPA fallback — returns index.html when ServeDir finds no matching file.
+/// Lets the Vite SPA router (/editor, /monitor, etc.) handle routing client-side.
 fn serve_index() -> tower_http::services::ServeFile {
     let web_root = resolve_web_dir().unwrap_or_else(|| PathBuf::from("web"));
     let index = web_root.join("index.html");
@@ -263,7 +266,7 @@ async fn handle_execute(
     State(state): State<AppState>,
     Json(payload): Json<ExecuteRequest>,
 ) -> Result<Json<ExecuteResponse>, (StatusCode, Json<ExecuteResponse>)> {
-    // 0a. 동시 실행 세마포어 — 허가가 없으면 실행을 거부한다 (fail-closed, no queue).
+    // 0a. Concurrency semaphore — if no permit, deny execution (fail-closed, no queue).
     let _permit = match state.exec_permits.try_acquire() {
         Ok(p) => p,
         Err(_) => {
@@ -285,13 +288,14 @@ async fn handle_execute(
         }
     };
 
-    // 0. Policy-as-Code 정적 가드레일 (issue #2)
+    // 0. Policy-as-Code static guardrail (issue #2)
     //
-    //    위반이면 여기서 끝난다 — 임시 파일도 만들지 않고 xazz 실행기도 스폰하지 않는다.
-    //    정책을 불러오지 못한 경우에도 마찬가지로 거부한다 (fail-closed).
+    //    On violation this is where it ends — no temp file is created and the xazz
+    //    runner is not spawned. It also denies when the policy cannot be loaded
+    //    (fail-closed).
     let policy_report = match guardrail::gate(&payload.code) {
         guardrail::Decision::Reject { report } => {
-            // 차단 역시 감사 대상이다 — 무엇이 왜 막혔는지 영구 기록에 남긴다.
+            // Blocks are audit-worthy too — record what was blocked and why.
             if let Err(e) = audit_log::append_with_outcome(&payload.code, Some("blocked")) {
                 eprintln!("[xazz] ⚠️ failed to record block in audit log: {}", e);
             }
@@ -319,7 +323,7 @@ async fn handle_execute(
         guardrail::Decision::Allow { report, .. } => report,
     };
 
-    // 1. DSL 코드를 임시 .xzz 파일에 저장
+    // 1. Save the DSL code to a temp .xzz file
     let tmp = tempfile::Builder::new()
         .suffix(".xzz")
         .tempfile()
@@ -333,11 +337,11 @@ async fn handle_execute(
         f.flush().ok();
     }
 
-    // 2. xazz.exe 실행 파일 경로 탐색
+    // 2. Locate the xazz.exe executable path
     let exe_path = find_xazz_exe().map_err(|e| internal_err(e))?;
 
-    // 3. xazz run <tmp.xzz> 실행
-    //    게이트를 통과한 요청만 이 지점에 도달한다 — 테스트가 카운터로 검증한다.
+    // 3. Run xazz run <tmp.xzz>
+    //    Only requests that pass the gate reach this point — tests verify with the counter.
     guardrail::note_runner_invocation();
     let output = tokio::task::spawn_blocking(move || {
         Command::new(&exe_path).arg("run").arg(&tmp_path).output()
@@ -351,11 +355,11 @@ async fn handle_execute(
 
     let success = output.status.success();
 
-    // 4. stdout 파싱: [xazz:result], [xazz:chart], [xazz:train], [xazz:dp] 마커 추출
+    // 4. Parse stdout: extract [xazz:result], [xazz:chart], [xazz:train], [xazz:dp] markers
     let (rows, schema, logs, training, dp, diagnostics) = parse_stdout_markers(&stdout, &stderr);
 
-    // 5. 실행 이력 자동 감사 기록 (신뢰성 인프라 — 모든 연산 이력 영구 보존)
-    //    실패해도 실행은 반환하되, 감사 기록 실패만 로그에 경고로 남긴다.
+    // 5. Auto-audit the execution history (trust infrastructure — persist all operation history)
+    //    Even on failure, return the execution, logging only the audit-record failure as a warning.
     match audit_log::append_with_outcome(
         &payload.code,
         Some(if success { "success" } else { "failed" }),
@@ -399,7 +403,7 @@ async fn handle_execute(
     }
 }
 
-/// stdout 에서 [xazz:result], [xazz:chart], [xazz:train], [xazz:diagnostics], [xazz:dp] 마커를 파싱한다.
+/// Parses the [xazz:result], [xazz:chart], [xazz:train], [xazz:diagnostics], [xazz:dp] markers from stdout.
 fn parse_stdout_markers(
     stdout: &str,
     stderr: &str,
@@ -432,15 +436,15 @@ fn parse_stdout_markers(
                 }
             }
         }
-        // Burn 딥러닝 학습 결과 마커 (같은 줄에 JSON)
+        // Burn deep-learning training result marker (JSON on the same line)
         if let Some(json_part) = trimmed.strip_prefix("[xazz:train] ") {
             if let Ok(parsed) = serde_json::from_str::<Value>(json_part) {
                 training = Some(parsed);
             }
         }
-        // 차등 프라이버시 감사 마커 — 단일 라인 셀프-컨테이닝:
-        //   [xazz:dp] <JSON>            (신형 — 줄바꿈/이모지로 끊겨도 안전)
-        //   [xazz:dp]\n<JSON>           (구형 — 다음 줄에 JSON, 호환 유지)
+        // Differential-privacy audit marker — single-line self-contained:
+        //   [xazz:dp] <JSON>            (new form — safe even if broken by newlines/emojis)
+        //   [xazz:dp]\n<JSON>           (legacy form — JSON on the next line, kept for compatibility)
         if let Some(json_part) = trimmed.strip_prefix("[xazz:dp] ") {
             if let Ok(parsed) = serde_json::from_str::<Value>(json_part) {
                 dp = Some(parsed);
@@ -449,18 +453,18 @@ fn parse_stdout_markers(
             let next = lines.get(i + 1).map(|l| l.trim()).unwrap_or("");
             if let Ok(parsed) = serde_json::from_str::<Value>(next) {
                 dp = Some(parsed);
-                i += 1; // JSON 줄은 소비
+                i += 1; // JSON line is consumed
             }
         }
-        // Policy-as-Code 가드레일 마커 — 실행 엔진이 내보낸 정책 리포트.
-        // 서버는 앞단에서 이미 같은 검사를 했지만, 실행 엔진의 판정을 그대로
-        // 신뢰할 수 있도록 마커도 로그로 남긴다.
+        // Policy-as-Code guardrail marker — policy report emitted by the execution engine.
+        // The server already ran the same check upstream, but logs the marker as-is so
+        // the execution engine's verdict can be trusted.
         if let Some(json_part) = trimmed.strip_prefix("[xazz:policy] ") {
             if serde_json::from_str::<Value>(json_part).is_err() {
                 eprintln!("[xazz] ⚠️ [xazz:policy] 마커 파싱 실패");
             }
         }
-        // 정적 의미 분석(Type Checker) 진단 마커
+        // Static semantic analysis (Type Checker) diagnostics marker
         if let Some(json_part) = trimmed.strip_prefix("[xazz:diagnostics] ") {
             if let Ok(parsed) = serde_json::from_str::<Value>(json_part) {
                 diagnostics = Some(parsed);
@@ -477,7 +481,7 @@ fn parse_stdout_markers(
 async fn handle_schema(
     mut multipart: Multipart,
 ) -> Result<Json<SchemaResponse>, (StatusCode, String)> {
-    // multipart 에서 파일 필드 추출
+    // Extract the file field from the multipart
     let mut file_bytes: Option<Vec<u8>> = None;
     let mut original_name = "upload.csv".to_string();
 
@@ -493,7 +497,7 @@ async fn handle_schema(
                 .bytes()
                 .await
                 .map_err(|e| (StatusCode::BAD_REQUEST, format!("파일 읽기 실패: {}", e)))?;
-            // 업로드 크기 상한 — 초과 시 거부 (Disk DoS 방지).
+            // Upload size upper bound — reject if exceeded (disk DoS prevention).
             if data.len() > MAX_UPLOAD_BYTES {
                 return Err((
                     StatusCode::PAYLOAD_TOO_LARGE,
@@ -509,7 +513,7 @@ async fn handle_schema(
 
     let bytes = file_bytes.ok_or((StatusCode::BAD_REQUEST, "파일 필드 없음".to_string()))?;
 
-    // 저장 경로 생성 (uploads/<uuid>_<name>)
+    // Build the save path (uploads/<uuid>_<name>)
     let uid = uuid::Uuid::new_v4().to_string();
     let safe_name: String = original_name
         .chars()
@@ -529,14 +533,14 @@ async fn handle_schema(
         )
     })?;
 
-    // 인코딩 감지 및 CSV 파싱
+    // Encoding detection and CSV parsing
     let text = decode_bytes(&bytes);
     let schema = infer_csv_schema_from_text(&text);
 
     Ok(Json(SchemaResponse { schema, file_path }))
 }
 
-// ── CSV 스키마 추론 (xazz import 와 동일 로직) ────────────────────────────────
+// ── CSV schema inference (same logic as xazz import) ──────────────────────────
 
 fn decode_bytes(bytes: &[u8]) -> String {
     match String::from_utf8(bytes.to_vec()) {
@@ -559,7 +563,7 @@ fn infer_csv_schema_from_text(text: &str) -> Vec<SchemaColumn> {
         Err(_) => return vec![],
     };
 
-    // 컬럼별로 샘플 값을 수집
+    // Collect sample values per column
     let col_count = headers.len();
     let mut samples: Vec<Vec<String>> = vec![Vec::new(); col_count];
 
@@ -658,7 +662,7 @@ struct AuditResponse {
 async fn handle_security_audit(Json(payload): Json<AuditRequest>) -> Json<AuditResponse> {
     let hash = audit_log::hash_code(&payload.code);
 
-    // append-only 감사 로그에 영구 저장 (실패해도 해시는 반환)
+    // Persist to the append-only audit log (the hash is returned even on failure)
     let stored = audit_log::append(&payload.code);
 
     match stored {
@@ -697,9 +701,9 @@ struct VerifyResponse {
     algorithm: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     logged: Option<bool>,
-    /// 검증의 의미론적 한계를 명시한다 — `valid` 는 "입력 해시 == 감사 로그에
-    /// 기록된 해시"만 증명하며, 그 코드가 실제로 실행되었음을 증명하지는 않는다.
-    /// 실행 여부는 레코드의 `outcome` 필드로만 추론 가능하다.
+    /// States the semantic limit of verification — `valid` only proves "input hash == hash
+    /// recorded in the audit log", not that the code was actually executed.
+    /// Execution status can only be inferred from the record's `outcome` field.
     note: String,
 }
 
@@ -710,7 +714,7 @@ async fn handle_security_verify(Json(payload): Json<VerifyRequest>) -> Json<Veri
     hasher.update(payload.code.as_bytes());
     let computed = format!("{:x}", hasher.finalize());
     let valid = computed == payload.hash;
-    // 로그에 존재하는지 여부도 함께 반환
+    // Also return whether it exists in the log
     let logged = audit_log::lookup_by_hash(&payload.hash)
         .ok()
         .map(|r| !r.is_empty());
@@ -760,10 +764,10 @@ async fn handle_audit_chain() -> Result<Json<Value>, (StatusCode, String)> {
 
 // ── GET /security/policy ─────────────────────────────────────────────────────
 
-/// 현재 적용 중인 Policy-as-Code 정책을 그대로 돌려준다.
+/// Returns the currently active Policy-as-Code policy as-is.
 ///
-/// 프런트엔드는 이 응답으로 "어떤 컬럼이 왜 막히는지"를 사용자에게 미리
-/// 보여줄 수 있다. 정책 로딩에 실패하면 500 과 함께 사유를 돌려준다.
+/// The frontend can use this response to show the user "which column is blocked
+/// and why" in advance. If policy loading fails, it returns 500 with the reason.
 async fn handle_policy_info() -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     match guardrail::load_policy() {
         Ok((policy, origin)) => Ok(Json(json!({
@@ -780,11 +784,11 @@ async fn handle_policy_info() -> Result<Json<Value>, (StatusCode, Json<Value>)> 
 
 // ── POST /security/policy/check ──────────────────────────────────────────────
 
-/// 코드를 실행하지 않고 정적 가드레일 검사만 수행한다.
+/// Performs only a static guardrail check without executing the code.
 ///
-/// Visual IDE 는 편집 중에 이 엔드포인트를 호출해 실행 버튼을 누르기 전에
-/// 위반을 표시한다. 위반이 있어도 HTTP 200 이다 — 검사 자체는 성공했으며,
-/// 판정은 본문의 `safe_to_execute` 에 담긴다.
+/// The Visual IDE calls this endpoint while editing to show violations before the
+/// run button is pressed. Even with violations it returns HTTP 200 — the check
+/// itself succeeded; the verdict is in the body's `safe_to_execute`.
 async fn handle_policy_check(
     Json(payload): Json<guardrail::CodeRequest>,
 ) -> Result<Json<guardrail::PolicyCheckResponse>, (StatusCode, Json<Value>)> {
@@ -805,15 +809,16 @@ async fn handle_policy_check(
 
 // ── POST /security/remediate ─────────────────────────────────────────────────
 
-/// 차단된 코드를 안전한 대체 코드로 보정하고 위반 리포트를 함께 반환한다.
+/// Remediates blocked code into a safe replacement and returns the violation report.
 ///
-/// 보정 전략은 두 단계다.
-///   1. 결정적 보정 — AST 를 직접 고쳐 항상 동작하는 안전 코드를 만든다.
-///   2. 온프레미스 sLM(Qwen2.5-Coder) — 켜져 있으면 더 자연스러운 재작성을
-///      제안하되, **같은 정책 엔진으로 재검증**을 통과할 때만 채택된다.
+/// The remediation strategy has two stages.
+///   1. Deterministic remediation — directly edits the AST to produce safe code that
+///      always works.
+///   2. On-premise sLM (Qwen2.5-Coder) — if enabled, suggests a more natural rewrite,
+///      but it is adopted **only when it passes re-verification by the same policy engine**.
 ///
-/// 응답의 `remediation.verified` 가 false 면 사람이 처리해야 할 위반이
-/// 남아 있다는 뜻이다. 이 경우 보정 코드를 "안전하다"고 표시하면 안 된다.
+/// If the response's `remediation.verified` is false, human-handled violations remain.
+/// In that case, the remediated code must not be marked "safe".
 async fn handle_remediate(
     Json(payload): Json<guardrail::CodeRequest>,
 ) -> Result<Json<guardrail::RemediateResponse>, (StatusCode, Json<Value>)> {
@@ -837,24 +842,24 @@ async fn handle_remediate(
     }))
 }
 
-// ── 유틸리티 ──────────────────────────────────────────────────────────────────
+// ── utilities ──────────────────────────────────────────────────────────────────
 
 fn find_xazz_exe() -> Result<PathBuf, String> {
-    // 1. 환경변수로 경로 고정 (배포 하드닝)
+    // 1. Pin the path via env var (deployment hardening)
     if let Ok(pinned) = std::env::var("XAZZ_EXEC_PATH") {
         if !pinned.trim().is_empty() {
             return Ok(PathBuf::from(pinned));
         }
     }
 
-    // 플랫폼별 실행 파일명
+    // platform-specific executable name
     let names: &[&str] = if cfg!(windows) {
         &["xazz.exe"]
     } else {
         &["xazz", "xazz.exe"]
     };
 
-    // 2. 현재 실행파일과 같은 디렉터리
+    // 2. Same directory as the current executable
     if let Ok(current_exe) = std::env::current_exe() {
         let dir = current_exe.parent().unwrap_or(&current_exe);
         for name in names {
@@ -864,9 +869,9 @@ fn find_xazz_exe() -> Result<PathBuf, String> {
             }
         }
     }
-    // 3. target/release (CWD 기준, 프로젝트 로컬) — CWD 가 Xazz 저장소 루트로
-    //    보일 때만 허용한다 (Cargo.toml 이 있는 디렉터리). 임의 CWD 에서 상대
-    //    경로 셰도잉으로 실행 파일을 위장하는 것을 방지한다.
+    // 3. target/release (CWD-based, project-local) — allowed only when CWD looks like
+    //    the Xazz repo root (a directory with Cargo.toml). Prevents disguising an
+    //    executable via relative-path shadowing from an arbitrary CWD.
     if std::path::Path::new("Cargo.toml").is_file() {
         for name in names {
             let candidate = PathBuf::from("target/release").join(name);
@@ -875,7 +880,7 @@ fn find_xazz_exe() -> Result<PathBuf, String> {
             }
         }
     }
-    // PATH 폴백은 수행하지 않는다 (PATH 셰도잉 방지, fail-closed)
+    // No PATH fallback is performed (PATH-shadowing prevention, fail-closed)
     Err(
         "xazz 실행 파일을 찾을 수 없습니다 (PATH 폴백은 보안상 비활성화됨). \
          XAZZ_EXEC_PATH 로 절대 경로를 지정하거나 xazz 를 xazz-server 와 같은 디렉터리에 배치하세요."
@@ -901,17 +906,18 @@ fn internal_err(msg: String) -> (StatusCode, Json<ExecuteResponse>) {
     )
 }
 
-// ── 통합 테스트 — 실행 게이트 (issue #2) ─────────────────────────────────────
+// ── Integration tests — execution gate (issue #2) ─────────────────────────────
 //
-// 여기서 증명하려는 것은 "위반 코드가 거부된다"가 아니라
-// **"위반 코드에서는 실행기가 아예 호출되지 않는다"** 이다.
-// 앞의 것은 분석 결과일 뿐이고, 뒤의 것이 실제 보안 속성이다.
+// What we aim to prove here is not "violating code is rejected" but
+// **"for violating code, the runner is never invoked at all"**.
+// The former is only an analysis result; the latter is the actual security property.
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// 테스트용 AppState — 실행 세마포어가 테스트 동시성 제한을 만들지 않게 충분히 큰 허가 수.
+    /// Test AppState — a permit count large enough that the execution semaphore does not
+    /// impose test concurrency limits.
     fn test_state() -> AppState {
         AppState {
             exec_permits: Arc::new(Semaphore::new(64)),
@@ -922,7 +928,7 @@ mod tests {
         "type Patient = { patient_id: string, name: string, age_band: string };
 v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);";
 
-    /// 위반 코드는 422 로 거부되고, 리포트가 본문에 실린다.
+    /// Violating code is rejected with 422 and the report is in the body.
     #[tokio::test]
     async fn violating_code_is_rejected_with_422() {
         let result = handle_execute(
@@ -933,22 +939,22 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
         )
         .await;
 
-        let (status, body) = result.err().expect("위반 코드가 거부되지 않았다");
+        let (status, body) = result.err().expect("violating code was not rejected");
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert!(!body.0.success);
-        let policy = body.0.policy.as_ref().expect("정책 리포트가 없다");
+        let policy = body.0.policy.as_ref().expect("no policy report");
         assert_eq!(policy["safe_to_execute"], serde_json::Value::Bool(false));
         assert!(
             policy["violations"]
                 .as_array()
                 .map(|v| !v.is_empty())
                 .unwrap_or(false),
-            "위반 목록이 비어 있다: {:?}",
+            "violation list is empty: {:?}",
             policy
         );
     }
 
-    /// 거부된 요청에서는 xazz 실행기가 단 한 번도 스폰되지 않는다.
+    /// The xazz runner is never spawned even once for a rejected request.
     #[tokio::test]
     async fn rejected_request_never_invokes_runner() {
         let before = guardrail::runner_invocations();
@@ -964,11 +970,11 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
         assert_eq!(
             guardrail::runner_invocations(),
             before,
-            "차단된 요청인데 실행기가 호출되었다"
+            "runner was invoked for a blocked request"
         );
     }
 
-    /// 파싱조차 되지 않는 코드도 fail-closed 로 거부되며 실행기를 부르지 않는다.
+    /// Even code that does not parse is rejected fail-closed without invoking the runner.
     #[tokio::test]
     async fn unparseable_code_is_rejected_without_running() {
         let before = guardrail::runner_invocations();
@@ -981,12 +987,12 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
         )
         .await;
 
-        let (status, _) = result.err().expect("파싱 불가 코드가 거부되지 않았다");
+        let (status, _) = result.err().expect("unparseable code was not rejected");
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(guardrail::runner_invocations(), before);
     }
 
-    /// 하드코딩된 비밀키가 있으면 거부된다.
+    /// A hardcoded secret key is rejected.
     #[tokio::test]
     async fn hardcoded_secret_is_rejected() {
         let code = "// AKIAIOSFODNN7EXAMPLE\n\
@@ -999,17 +1005,17 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
             }),
         )
         .await;
-        let (status, body) = result.err().expect("비밀키가 있는데 통과했다");
+        let (status, body) = result.err().expect("secret key passed the gate");
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-        // 리포트에 원본 키가 실려서는 안 된다.
+        // The report must not contain the original key.
         let serialized = serde_json::to_string(&body.0.policy).unwrap_or_default();
         assert!(
             !serialized.contains("AKIAIOSFODNN7EXAMPLE"),
-            "리포트에 원본 비밀키가 노출되었다"
+            "original secret key leaked in the report"
         );
     }
 
-    /// /security/policy/check 는 위반이 있어도 200 이며 판정은 본문에 담긴다.
+    /// /security/policy/check returns 200 even with violations; the verdict is in the body.
     #[tokio::test]
     async fn policy_check_returns_report_without_executing() {
         let before = guardrail::runner_invocations();
@@ -1018,41 +1024,44 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
             code: UNSAFE_CODE.to_string(),
         }))
         .await
-        .expect("정책 검사 실패");
+        .expect("policy check failed");
 
         assert!(!response.0.safe_to_execute);
         assert!(!response.0.policy.violations.is_empty());
         assert_eq!(guardrail::runner_invocations(), before);
     }
 
-    /// /security/remediate 는 검증된 안전 코드와 리포트를 함께 돌려준다.
+    /// /security/remediate returns verified safe code and the report together.
     #[tokio::test]
     async fn remediate_returns_verified_safe_code() {
         let response = handle_remediate(Json(guardrail::CodeRequest {
             code: UNSAFE_CODE.to_string(),
         }))
         .await
-        .expect("보정 실패");
+        .expect("remediation failed");
 
-        assert!(!response.0.safe_to_execute, "원본은 위반이어야 한다");
+        assert!(
+            !response.0.safe_to_execute,
+            "the original must be a violation"
+        );
         let rem = &response.0.remediation;
-        // 이 코드는 남길 컬럼이 age_band 하나 있으므로 보정이 가능하다.
+        // This code has one remaining column (age_band), so it is fixable.
         assert!(
             rem.verified,
-            "보정 코드가 검증되지 않았다: {}",
+            "remediated code was not verified: {}",
             rem.report_after.render()
         );
-        // 보정된 코드는 실제로 정책을 통과해야 한다 — 말이 아니라 재검증으로.
+        // The remediated code must actually pass the policy — via re-verification, not assertion.
         let policy = xazz_compiler::Policy::builtin();
         let recheck = xazz_compiler::check_policy(&rem.code, &policy);
         assert!(
             recheck.safe_to_execute,
-            "보정 코드가 여전히 위반이다: {}",
+            "remediated code still violates: {}",
             recheck.render()
         );
     }
 
-    /// 실행 세마포어가 모두 점유되면 /execute 는 429 로 거부한다 (no queue).
+    /// When the execution semaphore is fully exhausted, /execute rejects with 429 (no queue).
     #[test]
     fn execute_rejects_when_semaphore_exhausted() {
         let state = AppState {
@@ -1068,16 +1077,16 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
                 code: "type P = { a: string }; v x = load(\"data/a.csv\") :: P;".to_string(),
             }),
         ));
-        let (status, body) = result.err().expect("허가 없음에도 실행이 허용되었다");
+        let (status, body) = result.err().expect("execution allowed without a permit");
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
         assert!(
             body.0.error.as_deref().unwrap_or("").contains("capacity"),
-            "오류 메시지가 없음: {:?}",
+            "no error message: {:?}",
             body.0.error
         );
     }
 
-    /// 안전한 코드는 게이트를 통과한다 (오탐 회귀 방지).
+    /// Safe code passes the gate (false-positive regression prevention).
     #[test]
     fn safe_code_passes_the_gate() {
         let safe = "type AQ = { station: string, pm10: Option<float> };

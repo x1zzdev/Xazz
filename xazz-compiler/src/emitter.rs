@@ -1,25 +1,25 @@
-/// xazz-compiler/src/emitter.rs — Rust 코드 에밋 (Transpiler Layer) v0.16
+/// xazz-compiler/src/emitter.rs — Rust code emission (Transpiler Layer) v0.16
 ///
-/// .xzz 스크립트 → 독립 실행 가능한 Rust + Polars 소스 코드 생성기.
+/// .xzz script → standalone runnable Rust + Polars source code generator.
 ///
-/// [v0.16 변경사항]
-///   - BoolLit 지원 (to_typed_polars_expr)
-///   - Count(None) / Count(Some(col)) 구분
-///   - 신규 연산자 코드 생성:
-///       GroupBy + 집계 연산자 → .group_by([...]).agg([...]) 페어링
+/// [v0.16 changes]
+///   - BoolLit support (to_typed_polars_expr)
+///   - Count(None) / Count(Some(col)) distinction
+///   - code generation for new operators:
+///       GroupBy + aggregation operator → .group_by([...]).agg([...]) pairing
 ///       OrderBy → .sort([...], SortMultipleOptions)
 ///       Take → .limit(n)
 ///       DropNull → .drop_nulls(Some(vec![...]))
 ///       FillNull → .with_columns([...fill_null(...)])
-///   - validate_op_columns: 신규 컬럼 인수 연산자 스키마 검증 추가
-///   - Join 연산자 코드 생성: .join(..., JoinArgs::new(JoinType::...))
-///   - WithColumn 연산자 코드 생성: .with_columns([expr.alias("name")])
-///   - 산술 연산자 to_typed_polars_expr: add/sub/mul/div
+///   - validate_op_columns: schema validation added for the new column-argument operators
+///   - Join operator code generation: .join(..., JoinArgs::new(JoinType::...))
+///   - WithColumn operator code generation: .with_columns([expr.alias("name")])
+///   - arithmetic operator to_typed_polars_expr: add/sub/mul/div
 ///
-/// 중복 제거 (단일 위치):
-///   - 표현식 → Polars 문자열 매핑은 `crate::polars_text` 의 유일한 구현을
-///     사용한다 (이 모듈과 codegen.rs 가 공유).
-///   - 런타임 op→Polars 매핑은 xazz-exec/src/lower.rs (Typed IR) 한 곳에만 존재한다.
+/// deduplication (single location):
+///   - the expression → Polars string mapping uses the single implementation in
+///     `crate::polars_text` (shared by this module and codegen.rs).
+///   - the runtime op→Polars mapping exists only in xazz-exec/src/lower.rs (Typed IR).
 use std::collections::HashMap;
 use std::fs;
 
@@ -27,36 +27,36 @@ use crate::ast::{Expr, LayerKind, PipelineOp, PipelineSource, Program, Stmt, Tra
 use crate::policy::printer::escape;
 use crate::{Codegen, Lexer, Parser, StructField};
 
-/// 학습 배치 크기 기본값 (생성 코드의 기본).
+/// default training batch size (the default in generated code).
 const DEFAULT_BATCH_SIZE: usize = 32;
-/// 검증 분할 비율 상한 (생성 코드의 클램프).
+/// validation split ratio upper bound (the clamp in generated code).
 const MAX_VALIDATION_SPLIT: f64 = 0.9;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ── 공개 진입점 ───────────────────────────────────────────────────────────────
+// ── public entry points ───────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// .xzz 파일을 독립 실행 가능한 Rust 소스 코드로 변환한다.
+/// Converts a .xzz file into standalone runnable Rust source code.
 pub fn emit_rust(
     source_path: &str,
     out_path: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // ── Step 1: 소스 파일 읽기 ───────────────────────────────────────────────
+    // ── Step 1: read the source file ───────────────────────────────────────────────
     let source = fs::read_to_string(source_path)
         .map_err(|e| format!("IO 에러: 파일 읽기 실패 '{}' — {}", source_path, e))?;
 
-    // ── Step 2: 렉서 ────────────────────────────────────────────────────────
+    // ── Step 2: lexer ────────────────────────────────────────────────────────
     let mut lexer = Lexer::new(&source);
     let tokens = lexer.tokenize().map_err(|e| format!("{}", e))?;
 
-    // ── Step 3: 파서 ────────────────────────────────────────────────────────
+    // ── Step 3: parser ────────────────────────────────────────────────────────
     let mut parser = Parser::new(tokens);
     let program = parser.parse().map_err(|e| format!("{}", e))?;
 
-    // ── Step 4: 스키마 검증 + Rust 코드 생성 ────────────────────────────────
+    // ── Step 4: schema validation + Rust code generation ────────────────────────────────
     let rust_code = generate_rust_src(&program, source_path)?;
 
-    // ── Step 5: 출력 ────────────────────────────────────────────────────────
+    // ── Step 5: output ────────────────────────────────────────────────────────
     match out_path {
         Some(path) => {
             fs::write(path, &rust_code)
@@ -83,14 +83,14 @@ pub fn emit_rust(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ── 내부: AST → Rust 소스 문자열 생성 ─────────────────────────────────────────
+// ── internal: AST → Rust source string generation ─────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn generate_rust_src(
     program: &Program,
     source_path: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    // ── 전역 스키마 맵 구축 ──────────────────────────────────────────────────
+    // ── build the global schema map ──────────────────────────────────────────────────
     let mut schema_map: HashMap<String, Vec<StructField>> = HashMap::new();
     for stmt in &program.stmts {
         if let Stmt::TypeDecl { name, fields } = stmt {
@@ -100,12 +100,12 @@ fn generate_rust_src(
 
     let mut out = String::new();
 
-    // 파일 헤더
+    // file header
     out.push_str("// ═══════════════════════════════════════════════════════════════\n");
     out.push_str("// Auto-generated by xazzLang `emit rust`\n");
     out.push_str(&format!("// Source: {}\n", source_path));
     out.push_str("//\n");
-    out.push_str("// [필요한 Cargo.toml 의존성]\n");
+    out.push_str("// [required Cargo.toml dependencies]\n");
     out.push_str("//   polars      = { version = \"0.53\", features = [\"lazy\", \"csv\"] }\n");
     out.push_str("//   encoding_rs = \"0.8\"\n");
     if program_has_dl(program) {
@@ -114,7 +114,7 @@ fn generate_rust_src(
     }
     out.push_str("// ═══════════════════════════════════════════════════════════════\n\n");
 
-    // 임포트
+    // imports
     out.push_str("use polars::prelude::*;\n");
     out.push_str("use encoding_rs::EUC_KR;\n");
     out.push_str("use std::io::Cursor;\n\n");
@@ -124,11 +124,11 @@ fn generate_rust_src(
         out.push('\n');
     }
 
-    // CSV 로더 헬퍼
+    // CSV loader helper
     out.push_str(&emit_csv_loader_fn());
     out.push('\n');
 
-    // 딥러닝 (Burn) 모델 정의 + 학습 헬퍼
+    // deep-learning (Burn) model definition + training helper
     if program_has_dl(program) {
         for stmt in &program.stmts {
             if let Stmt::ModelDecl { name, layers } = stmt {
@@ -142,13 +142,15 @@ fn generate_rust_src(
     // fn main()
     out.push_str("fn main() -> Result<(), Box<dyn std::error::Error>> {\n");
 
-    // TypeDecl → 스키마 주석 블록
+    // TypeDecl → schema comment block
     let has_schemas = program
         .stmts
         .iter()
         .any(|s| matches!(s, Stmt::TypeDecl { .. }));
     if has_schemas {
-        out.push_str("    // ── xazzLang Schema Definitions (참조용 주석) ─────────────────────\n");
+        out.push_str(
+            "    // ── xazzLang Schema Definitions (reference comments) ─────────────────────\n",
+        );
         for stmt in &program.stmts {
             if let Stmt::TypeDecl { name, fields } = stmt {
                 out.push_str(&format!("    // type {} = {{\n", name));
@@ -163,10 +165,10 @@ fn generate_rust_src(
         );
     }
 
-    // 변수별 스키마 추적
+    // per-variable schema tracking
     let mut var_col_types: HashMap<String, HashMap<String, String>> = HashMap::new();
 
-    // VarDecl → LazyFrame 파이프라인
+    // VarDecl → LazyFrame pipeline
     for stmt in &program.stmts {
         if let Stmt::VarDecl {
             var_name,
@@ -177,7 +179,7 @@ fn generate_rust_src(
         {
             let mut_kw = if *is_mut { "mut " } else { "" };
 
-            // 활성 컬럼 타입 맵 결정
+            // determine active column type map
             let col_types: HashMap<String, String> = match source {
                 PipelineSource::Load { schema_name, .. } => schema_map
                     .get(schema_name)
@@ -194,20 +196,20 @@ fn generate_rust_src(
                     .unwrap_or_default(),
             };
 
-            // 스키마 검증
+            // schema validation
             if !col_types.is_empty() {
                 for op in ops {
                     validate_op_columns(op, &col_types, &var_col_types, source_path)?;
                 }
             }
 
-            // 코드 생성 헤더
+            // code generation header
             out.push_str(&format!(
                 "    // ── Pipeline: {}v {} ──────────────────────────────────────────\n",
                 mut_kw, var_name
             ));
 
-            // 소스 결정
+            // determine source
             match source {
                 PipelineSource::Load {
                     file_path,
@@ -235,8 +237,8 @@ fn generate_rust_src(
                 }
             }
 
-            // ── 파이프라인 연산자 체이닝 ─────────────────────────────────────
-            // GroupBy+agg 패턴: GroupBy를 저장해 두었다가 다음 집계 연산자와 합쳐 출력
+            // ── pipeline operator chaining ─────────────────────────────────────
+            // GroupBy+agg pattern: save GroupBy, then merge with the next aggregate operator for output
             let mut has_count = false;
             let mut pending_group_col: Option<String> = None;
 
@@ -262,16 +264,16 @@ fn generate_rust_src(
                         ));
                     }
                     PipelineOp::Count(None) => {
-                        // count (no arg): 행 수 출력용 플래그만 설정
+                        // count (no arg): only set the flag for row-count output
                         has_count = true;
                     }
 
-                    // ── GroupBy 저장 ───────────────────────────────────────────
+                    // ── GroupBy storage ───────────────────────────────────────────
                     PipelineOp::GroupBy(group_col) => {
                         pending_group_col = Some(group_col.clone());
                     }
 
-                    // ── 집계 연산자: GroupBy와 함께 또는 단독 ─────────────────
+                    // ── aggregate operators: with or without GroupBy ─────────────────
                     PipelineOp::Count(Some(agg_col)) => {
                         let agg = crate::polars_text::agg_expr_to_polars(
                             crate::ir::AggKind::Count,
@@ -358,7 +360,7 @@ fn generate_rust_src(
                         }
                     }
 
-                    // ── 정렬 / 슬라이싱 ────────────────────────────────────────
+                    // ── sorting / slicing ────────────────────────────────────────
                     PipelineOp::OrderBy {
                         col: sort_col,
                         desc,
@@ -372,7 +374,7 @@ fn generate_rust_src(
                         out.push_str(&format!("        .limit({})  // |> take({})\n", n, n));
                     }
 
-                    // ── Null 처리 ──────────────────────────────────────────────
+                    // ── Null handling ──────────────────────────────────────────────
                     PipelineOp::DropNull(drop_col) => {
                         out.push_str(&format!(
                             "        .drop_nulls(Some(vec![col(\"{}\")]))  // |> dropNull(\"{}\")\n",
@@ -432,7 +434,7 @@ fn generate_rust_src(
                         ));
                     }
 
-                    // ── Chart: emitter 미지원 (런타임에서만 처리) ──────────────
+                    // ── Chart: unsupported by emitter (runtime only) ──────────────
                     PipelineOp::Chart(config) => {
                         out.push_str(&format!(
                             "        // |> chart {{ type: {} }}  →  [xazz:chart] JSON 출력\n",
@@ -488,7 +490,7 @@ fn generate_rust_src(
                         }
                     },
 
-                    // ── v0.22 median / variance / std 집계 ─────────────────────
+                    // ── v0.22 median / variance / std aggregates ─────────────────────
                     PipelineOp::Median(agg_col) => {
                         let agg = crate::polars_text::agg_expr_to_polars(
                             crate::ir::AggKind::Median,
@@ -540,7 +542,7 @@ fn generate_rust_src(
                             ));
                         }
                     }
-                    // ── v0.5 딥러닝 연산자: emit rust 에서는 런타임 학습/예측으로 안내 ──
+                    // ── v0.5 deep-learning operators: in emit rust, delegate to runtime train/predict ──
                     PipelineOp::Train { model_name, config } => {
                         out.push_str(&format!(
                             "        // |> train({}, target: \"{}\", epochs: {})  → xazz 실행 시 Burn 학습 수행\n",
@@ -557,7 +559,7 @@ fn generate_rust_src(
                             model_var, as_str
                         ));
                     }
-                    // ── v0.6 withDp — emit rust 에서는 런타임 DP 주입으로 안내 ──
+                    // ── v0.6 withDp — in emit rust, delegate DP injection to runtime ──
                     PipelineOp::WithDp(args) => {
                         out.push_str(&format!(
                             "        // |> withDp(epsilon: {}, mechanism: {})  → xazz 실행 시 DP 노이즈 주입\n",
@@ -571,7 +573,7 @@ fn generate_rust_src(
             // collect
             out.push_str("        .collect()?;\n");
 
-            // 결과 출력
+            // result output
             if has_count {
                 out.push_str(&format!(
                     "    println!(\"[{}] count = {{}}\", {}.height());\n",
@@ -591,7 +593,7 @@ fn generate_rust_src(
         }
     }
 
-    // 딥러닝 (Burn) 학습 문 실행
+    // deep-learning (Burn) training statement execution
     for stmt in &program.stmts {
         if let Stmt::TrainStmt {
             source_var,
@@ -610,10 +612,10 @@ fn generate_rust_src(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ── 딥러닝 (Burn) 코드 생성 (v0.4) ─────────────────────────────────────────────
+// ── deep-learning (Burn) code generation (v0.4) ─────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 스크립트에 DL 구문(ModelDecl / TrainStmt)이 포함되어 있는지 확인한다.
+/// Returns whether the script contains DL statements (ModelDecl / TrainStmt).
 fn program_has_dl(program: &Program) -> bool {
     program
         .stmts
@@ -621,7 +623,7 @@ fn program_has_dl(program: &Program) -> bool {
         .any(|s| matches!(s, Stmt::ModelDecl { .. } | Stmt::TrainStmt { .. }))
 }
 
-/// Burn 임포트 블록.
+/// Burn import block.
 fn emit_burn_imports() -> String {
     r#"use burn::{
     backend::Autodiff,
@@ -642,8 +644,8 @@ type TrainBackend = Autodiff<NdArray<f32>>;
     .to_string()
 }
 
-/// DSL 레이어 체인을 Dense (units, activation) 스펙 목록으로 정규화한다.
-/// 활성화 호출은 바로 앞선 Dense 레이어에 귀속된다 (dl.rs 와 동일한 시맨틱).
+/// Normalizes a DSL layer chain into a list of Dense (units, activation) specs.
+/// Activation calls attach to the immediately preceding Dense layer (same semantics as dl.rs).
 fn dl_dense_specs(layers: &[LayerKind]) -> Vec<(usize, String)> {
     let mut specs: Vec<(usize, String)> = Vec::new();
     for layer in layers {
@@ -666,7 +668,7 @@ fn set_dl_act(specs: &mut [(usize, String)], act: &str) {
     }
 }
 
-/// `model <Name> { ... }` → Burn nn 모듈 구조체 + new() + forward().
+/// `model <Name> { ... }` → Burn nn module struct + new() + forward().
 fn emit_dl_model_struct(name: &str, layers: &[LayerKind]) -> String {
     let specs = dl_dense_specs(layers);
     if specs.is_empty() {
@@ -713,7 +715,7 @@ fn emit_dl_model_struct(name: &str, layers: &[LayerKind]) -> String {
     out
 }
 
-/// 컬럼 → f32 텐서 데이터 추출 헬퍼 (Polars DataFrame → (x_flat, y_flat, feature_count)).
+/// Column → f32 tensor data extraction helper (Polars DataFrame → (x_flat, y_flat, feature_count)).
 fn emit_extract_xy_fn() -> String {
     r#"/// 타겟을 제외한 숫자형 컬럼을 특성으로, 타겟 컬럼을 라벨로 추출한다.
 fn extract_xy(
@@ -761,7 +763,7 @@ fn extract_xy(
     Ok((xs, ys, features.len()))
 }
 
-/// AnyValue → f32 (비숫자는 NaN).
+/// AnyValue → f32 (non-numeric is NaN).
 fn xz_anyvalue_f32(v: AnyValue) -> f32 {
     match v {
         AnyValue::Float64(x) => x as f32,
@@ -778,7 +780,7 @@ fn xz_anyvalue_f32(v: AnyValue) -> f32 {
     }
 }
 
-/// 배치를 잘라 (특성 텐서, 라벨 텐서)로 만든다.
+/// Slices a batch into (feature tensor, label tensor).
 fn make_both_tensors(
     xs: &[f32],
     ys: &[f32],
@@ -804,7 +806,7 @@ fn make_both_tensors(
     .to_string()
 }
 
-/// `run <src> |> train(<Model>, ...)` → main() 내부 학습 코드 블록.
+/// `run <src> |> train(<Model>, ...)` → main() training code block.
 fn emit_dl_train_call(source_var: &str, model_name: &str, config: &TrainConfig) -> String {
     let target = &config.target;
     let epochs = config.epochs.max(1);
@@ -824,7 +826,7 @@ fn emit_dl_train_call(source_var: &str, model_name: &str, config: &TrainConfig) 
             return Err("학습 데이터가 비어 있습니다.".into());
         }}
 
-        // NaN → 평균 대체 + 표준화 (특성별 z-score)
+        // NaN → mean imputation + standardization (per-feature z-score)
         let mut fmean = vec![0f64; feature_count];
         let mut fstd = vec![1f64; feature_count];
         for j in 0..feature_count {{
@@ -903,7 +905,7 @@ fn emit_dl_train_call(source_var: &str, model_name: &str, config: &TrainConfig) 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ── 스키마 기반 컬럼명 검증 ────────────────────────────────────────────────────
+// ── schema-based column name validation ────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn validate_op_columns(
@@ -912,7 +914,7 @@ fn validate_op_columns(
     var_col_types: &HashMap<String, HashMap<String, String>>,
     source_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // 컬럼명을 스키마에서 검사하는 내부 헬퍼
+    // internal helper that checks a column name against the schema
     let check_col = |col_name: &str| -> Result<(), Box<dyn std::error::Error>> {
         if !col_types.contains_key(col_name) {
             let available: Vec<&str> = col_types.keys().map(String::as_str).collect();
@@ -943,12 +945,12 @@ fn validate_op_columns(
                 check_col(col_name.as_str())?;
             }
         }
-        // 컬럼 인수가 없는 연산자
+        // operators without a column argument
         PipelineOp::Count(None) => {}
         PipelineOp::Take(_) => {}
         PipelineOp::Sample { .. } => {}
 
-        // 문자열 컬럼 인수를 갖는 연산자 — 모두 스키마 검증
+        // operators with a string column argument — all schema-validated
         PipelineOp::Count(Some(col))
         | PipelineOp::GroupBy(col)
         | PipelineOp::Sum(col)
@@ -968,18 +970,18 @@ fn validate_op_columns(
             check_col(col.as_str())?;
         }
 
-        // join: left_on/right_on 컬럼 검증 + other 변수 존재 확인
+        // join: validate left_on/right_on columns + check other variable exists
         PipelineOp::Join {
             other,
             left_on,
             right_on,
             ..
         } => {
-            // left_on 키들: 현재 스키마에서 검증
+            // left_on keys: validate against current schema
             for key in left_on.iter().chain(right_on.iter()) {
                 check_col(key.as_str())?;
             }
-            // other 변수 존재 확인
+            // check other variable exists
             if !var_col_types.contains_key(other.as_str()) {
                 return Err(format!(
                     "[SchemaError] at {}\n\
@@ -991,32 +993,32 @@ fn validate_op_columns(
             }
         }
 
-        // rename: 컬럼 존재 검증
+        // rename: validate column exists
         PipelineOp::Rename { old_name, .. } => {
             check_col(old_name.as_str())?;
         }
 
-        // replace: 컬럼 존재 검증
+        // replace: validate column exists
         PipelineOp::Replace { col, .. } => {
             check_col(col.as_str())?;
         }
 
-        // withColumn: name은 새 컬럼이므로 스키마 검증 생략, expr 내 컬럼만 검증
+        // withColumn: name is a new column so skip schema validation; validate only columns in expr
         PipelineOp::WithColumn { expr, .. } => {
             validate_expr_columns(expr, col_types, source_path)?;
         }
 
-        // Chart: 런타임에서만 처리 (검증 생략)
+        // Chart: runtime only (skip validation)
         PipelineOp::Chart(_) => {}
 
-        // Cast: 컬럼은 DSL 작성자가 보장 (검증 생략)
+        // Cast: columns are guaranteed by the DSL author (skip validation)
         PipelineOp::Cast { .. } => {}
 
-        // v0.5 딥러닝 연산자: 모델 변수는 런타임에서 검증 (검증 생략)
+        // v0.5 deep-learning operators: model variables validated at runtime (skip validation)
         PipelineOp::Train { .. } => {}
         PipelineOp::Predict { .. } => {}
 
-        // v0.6 withDp: 컬럼 인수 없음 — 인수 범위는 파서에서 검증 (검증 생략)
+        // v0.6 withDp: no column argument — argument ranges validated by the parser (skip validation)
         PipelineOp::WithDp(_) => {}
     }
     Ok(())
@@ -1060,7 +1062,7 @@ fn validate_expr_columns(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ── 타입 인식 Polars 표현식 생성 ──────────────────────────────────────────────
+// ── type-aware Polars expression generation ──────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn to_typed_polars_expr(expr: &Expr, col_types: &HashMap<String, String>) -> String {
@@ -1068,7 +1070,7 @@ fn to_typed_polars_expr(expr: &Expr, col_types: &HashMap<String, String>) -> Str
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ── 오타 힌트: 편집 거리 기반 컬럼명 제안 ───────────────────────────────────────
+// ── typo hint: edit-distance-based column name suggestion ───────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn find_closest_col<'a>(name: &str, candidates: &[&'a str]) -> Option<&'a str> {
@@ -1102,7 +1104,7 @@ fn edit_distance(a: &str, b: &str) -> usize {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ── 생성된 파일에 포함될 CSV 로더 헬퍼 함수 소스 ──────────────────────────────
+// ── CSV loader helper function source included in generated files ──────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn emit_csv_loader_fn() -> String {
@@ -1137,7 +1139,7 @@ fn load_csv(file_path: &str) -> Result<DataFrame, Box<dyn std::error::Error>> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ── emitter 유닛 테스트 ───────────────────────────────────────────────────────
+// ── emitter unit tests ───────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1146,13 +1148,13 @@ mod tests {
     use crate::Lexer;
     use crate::parser::Parser;
 
-    /// 소스 문자열을 파싱한 Program 을 반환한다.
+    /// Returns the Program parsed from a source string.
     fn parse(src: &str) -> Program {
         let tokens = Lexer::new(src).tokenize().unwrap();
         Parser::new(tokens).parse().unwrap()
     }
 
-    /// 소스 문자열에 대해 생성된 Rust 소스를 반환한다.
+    /// Returns the Rust source generated for a source string.
     fn emit(src: &str) -> String {
         let program = parse(src);
         generate_rust_src(&program, "test.xzz").unwrap()
@@ -1226,8 +1228,8 @@ mod tests {
         assert!(out.contains("Auto-generated by xazzLang"), "헤더 없음");
     }
 
-    /// select/fillNull 에 따옴표·백슬래시가 들어간 문자열 값이 생성 코드에
-    /// 안전하게 이스케이프되어 삽입되는지 왕복 검증한다.
+    /// Verifies round-trip that string values with quotes/backslashes in select/fillNull
+    /// are safely escaped when inserted into generated code.
     #[test]
     fn emit_rust_escapes_quotes_and_backslashes_in_strings() {
         let out = emit(
@@ -1248,7 +1250,7 @@ mod tests {
         );
     }
 
-    /// select 에 따옴표가 들어간 컬럼명이 안전하게 이스케이프된다.
+    /// Column names with quotes in select are safely escaped.
     #[test]
     fn emit_rust_escapes_quotes_in_select_columns() {
         let out = emit(

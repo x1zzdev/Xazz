@@ -1,24 +1,25 @@
-// xazz-server/src/slm.rs — 온프레미스 sLM 코드 보정 어댑터 (issue #2)
+// xazz-server/src/slm.rs — on-premise sLM code remediation adapter (issue #2)
 //
-// 파인튜닝된 Qwen2.5-Coder-1.5B 를 Ollama/llama.cpp 로 로컬 서빙하고,
-// 정적 가드레일에 차단된 코드를 더 자연스러운 안전 코드로 재작성하게 한다.
+// Serves a fine-tuned Qwen2.5-Coder-1.5B locally via Ollama/llama.cpp and has it
+// rewrite code blocked by the static guardrail into more natural safe code.
 //
-// ⚠️  가장 중요한 설계 결정: **sLM 의 출력을 그대로 믿지 않는다.**
+// ⚠️  The most important design decision: **we do not trust the sLM's output as-is.**
 //
-//     생성 모델은 그럴듯하지만 여전히 위반인 코드를 낼 수 있다. 그래서
-//     제안된 코드는 반드시 같은 정책 엔진으로 재파싱·재검증되며(guardrail.rs),
-//     통과하지 못하면 결정적 보정 결과로 되돌린다. 검증되지 않은 코드가
-//     "안전한 대체 코드"라는 이름으로 사용자에게 나가는 일은 없다.
+//     A generative model can produce plausible but still-violating code. So a
+//     proposed code is always re-parsed and re-verified by the same policy engine
+//     (guardrail.rs); if it does not pass, we fall back to the deterministic
+//     remediation result. Unverified code never reaches the user as "safe
+//     replacement code".
 //
-// 네트워크
-//   로컬호스트로만 나간다. 데이터가 외부로 유출되지 않는 것이 온프레미스
-//   sLM 을 쓰는 이유이므로, 엔드포인트 기본값은 127.0.0.1 이다.
+// Network
+//   Only goes out to localhost. The reason to use an on-premise sLM is that data
+//   never leaks externally, so the endpoint default is 127.0.0.1.
 //
-// 환경변수
-//   XAZZ_SLM_ENABLED    "1"/"true" 일 때만 sLM 을 호출한다 (기본 비활성)
-//   XAZZ_SLM_ENDPOINT   기본 http://127.0.0.1:11434
-//   XAZZ_SLM_MODEL      기본 xazz-guardrail
-//   XAZZ_SLM_TIMEOUT_MS 기본 20000
+// Environment variables
+//   XAZZ_SLM_ENABLED    calls the sLM only when "1"/"true" (disabled by default)
+//   XAZZ_SLM_ENDPOINT   default http://127.0.0.1:11434
+//   XAZZ_SLM_MODEL      default xazz-guardrail
+//   XAZZ_SLM_TIMEOUT_MS default 20000
 
 use std::time::Duration;
 
@@ -31,7 +32,7 @@ use serde::Serialize;
 use serde_json::json;
 use xazz_compiler::PolicyReport;
 
-/// sLM 서빙 설정.
+/// sLM serving configuration.
 #[derive(Debug, Clone, Serialize)]
 pub struct SlmConfig {
     pub enabled: bool,
@@ -52,7 +53,7 @@ impl Default for SlmConfig {
 }
 
 impl SlmConfig {
-    /// 환경변수에서 설정을 읽는다.
+    /// Reads the configuration from environment variables.
     pub fn from_env() -> Self {
         let defaults = SlmConfig::default();
         SlmConfig {
@@ -68,11 +69,12 @@ impl SlmConfig {
         }
     }
 
-    /// 엔드포인트가 루프백(로컬) 호스트인지 여부.
+    /// Whether the endpoint is a loopback (local) host.
     ///
-    /// 온프레미스 sLM 의 핵심은 "코드/데이터가 외부로 나가지 않는다"이다.
-    /// `XAZZ_SLM_ENDPOINT` 를 원격 호스트로 바꾸면 이 보장이 무너지므로,
-    /// 기본값 외의 비-루프백 엔드포인트는 명시적 허용 플래그 없이는 거부한다.
+    /// The core of an on-premise sLM is "code/data never leave the machine".
+    /// Changing `XAZZ_SLM_ENDPOINT` to a remote host breaks this guarantee, so a
+    /// non-loopback endpoint beyond the default is rejected without an explicit
+    /// allow flag.
     pub fn is_loopback(&self) -> bool {
         let lower = self.endpoint.to_ascii_lowercase();
         lower.contains("127.0.0.1")
@@ -82,14 +84,14 @@ impl SlmConfig {
     }
 }
 
-/// 비-루프백 sLM 엔드포인트 사용 시 데이터가 외부로 나갈 수 있음을 명시적으로 허용.
+/// Explicitly allows using a non-loopback sLM endpoint, which can send data externally.
 const ALLOW_REMOTE_SLM_ENV: &str = "XAZZ_SLM_ALLOW_REMOTE";
 
-/// 루프백이 아닌 sLM 엔드포인트를 거부한다. (기본값은 신뢰, 비-로컬은 차단)
+/// Rejects a non-loopback sLM endpoint. (The default is trust; non-local is blocked)
 ///
-/// `XAZZ_SLM_ALLOW_REMOTE=1` 로 명시적 허용 시에만 통과시킨다. 이는 기본 정책이
-/// "데이터가 외부로 나가지 않음" 이며, 원격 사용은 사용자가 의도적으로 옵트인해야
-/// 한다는 것을 강제한다.
+/// Passes only when `XAZZ_SLM_ALLOW_REMOTE=1` is set explicitly. This enforces the
+/// default policy of "data does not leave the machine" and that remote use is an
+/// intentional opt-in by the user.
 pub fn guard_endpoint(cfg: &SlmConfig) -> Result<(), String> {
     if cfg.is_loopback() {
         return Ok(());
@@ -107,10 +109,11 @@ pub fn guard_endpoint(cfg: &SlmConfig) -> Result<(), String> {
     ))
 }
 
-/// 정적 가드레일 리포트를 sLM 프롬프트로 바꾼다.
+/// Converts the static guardrail report into an sLM prompt.
 ///
-/// 프롬프트는 `experiments/slm_guardrail` 의 학습 데이터 포맷과 동일하다 —
-/// 학습 시점과 추론 시점의 형식이 어긋나면 파인튜닝 효과가 사라진다.
+/// The prompt matches the training-data format in `experiments/slm_guardrail` —
+/// if the training-time and inference-time formats diverge, the fine-tuning
+/// effect is lost.
 pub fn build_prompt(code: &str, report: &PolicyReport) -> String {
     let mut violations = String::new();
     for v in &report.violations {
@@ -138,14 +141,14 @@ pub fn build_prompt(code: &str, report: &PolicyReport) -> String {
     )
 }
 
-/// 모델 응답에서 `.xzz` 코드만 추출한다.
+/// Extracts only the `.xzz` code from the model response.
 ///
-/// 코드펜스(```xzz … ```)가 있으면 그 안을, 없으면 전체를 사용한다.
+/// Uses the content inside a code fence (```xzz … ```) if present, otherwise the whole response.
 pub fn extract_code(response: &str) -> String {
     let trimmed = response.trim();
     if let Some(start) = trimmed.find("```") {
         let after = &trimmed[start + 3..];
-        // 첫 줄의 언어 태그를 건너뛴다.
+        // skip the language tag on the first line
         let body_start = after.find('\n').map(|i| i + 1).unwrap_or(0);
         let body = &after[body_start..];
         if let Some(end) = body.find("```") {
@@ -156,16 +159,16 @@ pub fn extract_code(response: &str) -> String {
     trimmed.to_string()
 }
 
-/// Ollama `/api/generate` 를 호출해 보정 코드 후보를 받아온다.
+/// Calls Ollama `/api/generate` to obtain a remediation code candidate.
 ///
-/// 실패는 오류가 아니라 "sLM 을 못 썼다"는 사실일 뿐이다 — 호출자는 결정적
-/// 보정으로 되돌아가면 된다.
+/// A failure is not an error but simply "the sLM could not be used" — the caller
+/// can fall back to deterministic remediation.
 pub async fn propose(code: &str, report: &PolicyReport, cfg: &SlmConfig) -> Result<String, String> {
     if !cfg.enabled {
         return Err("sLM 이 비활성화되어 있습니다 (XAZZ_SLM_ENABLED=1 로 활성화).".to_string());
     }
 
-    // 비-루프백 엔드포인트는 명시적 허용 없이 네트워크 요청을 보내지 않는다.
+    // Non-loopback endpoints do not send a network request without explicit approval.
     guard_endpoint(cfg)?;
 
     let url = format!("{}/api/generate", cfg.endpoint.trim_end_matches('/'));
@@ -174,7 +177,7 @@ pub async fn propose(code: &str, report: &PolicyReport, cfg: &SlmConfig) -> Resu
         "prompt": build_prompt(code, report),
         "stream": false,
         "options": {
-            // 보안 보정은 창의성이 아니라 재현성이 중요하다.
+            // Security remediation needs reproducibility, not creativity.
             "temperature": 0.1,
             "top_p": 0.9,
             "num_predict": 768
@@ -232,45 +235,49 @@ pub async fn propose(code: &str, report: &PolicyReport, cfg: &SlmConfig) -> Resu
     Ok(extracted)
 }
 
-// ── 유닛 테스트 ──────────────────────────────────────────────────────────────
+// ── unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use xazz_compiler::Policy;
 
-    /// 코드펜스가 있으면 그 안의 코드만 뽑아낸다.
+    /// Extracts only the code inside a code fence.
     #[test]
     fn extracts_code_from_fence() {
         let raw = "설명입니다.\n```xzz\nv a = b |> select([x]);\n```\n끝.";
         assert_eq!(extract_code(raw), "v a = b |> select([x]);");
     }
 
-    /// 코드펜스가 없으면 전체를 코드로 본다.
+    /// With no code fence, treats the whole response as code.
     #[test]
     fn extracts_bare_code() {
         assert_eq!(extract_code("  v a = b;  "), "v a = b;");
     }
 
-    /// 닫는 펜스가 없어도 깨지지 않는다.
+    /// Does not break even without a closing fence.
     #[test]
     fn tolerates_unterminated_fence() {
         assert_eq!(extract_code("```xzz\nv a = b;"), "v a = b;");
     }
 
-    /// 프롬프트에 위반 규칙 ID 와 원본 코드가 모두 들어간다.
+    /// The prompt contains both the violation rule IDs and the original code.
     #[test]
     fn prompt_contains_violations_and_code() {
         let src = "type P = { name: string, age_band: string };\n\
                    v x = load(\"d.csv\") :: P |> select([name]);";
         let report = xazz_compiler::check_policy(src, &Policy::builtin());
         let prompt = build_prompt(src, &report);
-        assert!(prompt.contains("XZP001"), "위반 ID 누락:\n{}", prompt);
-        assert!(prompt.contains("select([name])"), "원본 코드 누락");
-        assert!(prompt.contains("withDp"), "보정 규칙 누락");
+        assert!(
+            prompt.contains("XZP001"),
+            "violation ID missing:\n{}",
+            prompt
+        );
+        assert!(prompt.contains("select([name])"), "original code missing");
+        assert!(prompt.contains("withDp"), "remediation rule missing");
     }
 
-    /// 기본 설정은 비활성이며, 비활성 상태에서는 네트워크를 건드리지 않는다.
+    /// The default config is disabled, and while disabled the network is never touched.
     #[tokio::test]
     async fn disabled_config_never_calls_network() {
         let cfg = SlmConfig::default();
@@ -281,18 +288,18 @@ mod tests {
         assert!(result.unwrap_err().contains("비활성화"));
     }
 
-    /// 엔드포인트 기본값은 로컬호스트다 — 데이터가 외부로 나가지 않는다.
+    /// The endpoint default is localhost — data does not leave the machine.
     #[test]
     fn default_endpoint_is_loopback() {
         let cfg = SlmConfig::default();
         assert!(
             cfg.endpoint.contains("127.0.0.1"),
-            "기본 엔드포인트가 로컬호스트가 아님: {}",
+            "default endpoint is not localhost: {}",
             cfg.endpoint
         );
     }
 
-    /// 루프백 엔드포인트는 항상 통과한다.
+    /// Loopback endpoints always pass.
     #[test]
     fn loopback_endpoint_passes_guard() {
         for e in [
@@ -306,14 +313,14 @@ mod tests {
                 model: "m".to_string(),
                 timeout_ms: 1,
             };
-            assert!(guard_endpoint(&cfg).is_ok(), "루프백 차단됨: {}", e);
+            assert!(guard_endpoint(&cfg).is_ok(), "loopback blocked: {}", e);
         }
     }
 
-    /// 비-루프백 엔드포인트는 명시적 허용 없이 거부된다.
+    /// A non-loopback endpoint is rejected without explicit approval.
     #[test]
     fn remote_endpoint_rejected_without_explicit_allow() {
-        // 환경변수가 이미 설정돼 있으면 테스트가 오염될 수 있으므로 제거.
+        // Remove the env var if already set, so it does not contaminate the test.
         unsafe { std::env::remove_var("XAZZ_SLM_ALLOW_REMOTE") };
         let cfg = SlmConfig {
             enabled: true,
@@ -324,7 +331,7 @@ mod tests {
         let err = guard_endpoint(&cfg).unwrap_err();
         assert!(
             err.contains("loopback"),
-            "오류 메시지에 loopback 없음: {}",
+            "error message missing 'loopback': {}",
             err
         );
     }

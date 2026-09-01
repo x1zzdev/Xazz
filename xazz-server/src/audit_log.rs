@@ -1,56 +1,57 @@
-//! xazz-server audit_log.rs — SHA-256 감사 로그 (append-only JSONL)
+//! xazz-server audit_log.rs — SHA-256 audit log (append-only JSONL)
 //!
-//! 모든 보안 감사 기록을 디스크의 JSONL 파일에 영구 보존한다.
-//! 각 레코드는 코드의 SHA-256 해시, 타임스탬프, 그리고 이전 레코드의 해시를
-//! 포함해 연쇄(hash chain)를 형성한다. 이로써 로그 변조를 감지할 수 있다.
+//! Persists all security audit records in a JSONL file on disk.
+//! Each record contains the SHA-256 hash of the code, a timestamp, and the hash
+//! of the previous record, forming a hash chain. This makes log tampering detectable.
 //!
-//!   - append(): 새 감사 레코드 추가 (파일에 append)
-//!   - all():    전체 로그 반환
-//!   - lookup(): 코드 해시로 일치하는 레코드 조회
+//!   - append(): adds a new audit record (appends to the file)
+//!   - all():    returns the entire log
+//!   - lookup(): looks up records matching a code hash
 //!
-//! JSONL 파일 위치: 서버 실행 디렉터리의 `audit_log/audit.jsonl`
+//! JSONL file location: `audit_log/audit.jsonl` in the server's working directory
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Mutex;
 
-/// JSONL 파일 경로 (서버 실행 디렉터리 기준)
+/// JSONL file path (relative to the server's working directory)
 pub const AUDIT_LOG_DIR: &str = "audit_log";
 pub const AUDIT_LOG_FILE: &str = "audit_log/audit.jsonl";
 
-/// append 의 read-modify-write 를 직렬화하는 전역 잠금.
-/// 동시 append 가 같은 index/prev_hash 를 계산해 감사 체인이 깨지는 TOCTOU 를 방지한다.
+/// Global lock that serializes append's read-modify-write.
+/// Prevents the TOCTOU where concurrent appends compute the same index/prev_hash
+/// and break the audit chain.
 static APPEND_LOCK: Mutex<()> = Mutex::new(());
 
-/// 감사 로그 레코드 — 한 줄 JSON
+/// Audit log record — one JSON line
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditRecord {
-    /// 레코드 순번 (0부터)
+    /// Record sequence number (starting from 0)
     pub index: u64,
-    /// ISO-8601 타임스탬프
+    /// ISO-8601 timestamp
     pub timestamp: String,
-    /// 대상 코드의 SHA-256 해시
+    /// SHA-256 hash of the target code
     pub hash: String,
-    /// 원본 코드 길이 (바이트)
+    /// Length of the original code (bytes)
     pub code_length: usize,
-    /// 실행 결과 상태 ("success" | "failed" | enum 값). 없으면 None.
+    /// Execution result status ("success" | "failed" | enum value). None if absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outcome: Option<String>,
-    /// 이전 레코드의 SHA-256 해시 (체인 형성) — 첫 레코드는 "GENESIS"
+    /// SHA-256 hash of the previous record (forms the chain) — the first record is "GENESIS"
     pub prev_hash: String,
-    /// 이 레코드 전체(prev_hash 제외)의 SHA-256 해시
+    /// SHA-256 hash of this whole record (excluding prev_hash)
     pub record_hash: String,
 }
 
 impl AuditRecord {
-    /// 해시 체인 검증용 — record_hash 재계산과 prev_hash 연결 확인
+    /// For hash-chain verification — recomputes record_hash and checks the prev_hash link
     pub fn verify(&self) -> bool {
         let computed = compute_record_hash(self);
         computed == self.record_hash
     }
 }
 
-/// record_hash 계산 (record_hash 필드 자체는 제외)
+/// record_hash computation (excludes the record_hash field itself)
 fn compute_record_hash(r: &AuditRecord) -> String {
     let mut hasher = Sha256::new();
     hasher.update(r.index.to_string().as_bytes());
@@ -69,14 +70,14 @@ fn compute_record_hash(r: &AuditRecord) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-/// 코드 문자열의 SHA-256 해시 반환
+/// Returns the SHA-256 hash of a code string
 pub fn hash_code(code: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(code.as_bytes());
     format!("{:x}", hasher.finalize())
 }
 
-/// 로그 파일 디렉터리를 생성하고 경로를 반환한다.
+/// Creates the log file directory and returns its path.
 fn ensure_log_dir() -> Result<std::path::PathBuf, String> {
     let path = std::path::PathBuf::from(AUDIT_LOG_DIR);
     std::fs::create_dir_all(&path)
@@ -84,35 +85,36 @@ fn ensure_log_dir() -> Result<std::path::PathBuf, String> {
     Ok(path)
 }
 
-/// 새 감사 레코드를 생성해 파일 끝에 추가한다. (append-only)
+/// Creates a new audit record and appends it to the end of the file. (append-only)
 ///
-/// `outcome`은 실행 결과 상태("success"/"failed" 등)로, 기존 서명 호환을
-/// 위해 `append(code)` 형태(결과 미지정)도 지원한다.
+/// `outcome` is the execution result status ("success"/"failed", etc.); for
+/// backward-compatible existing signature calls, `append(code)` (no outcome) is also supported.
 pub fn append(code: &str) -> Result<AuditRecord, String> {
     append_with_outcome(code, None)
 }
 
-/// 실행 결과(outcome)를 포함해 감사 레코드를 추가한다. (기본 로그 파일)
+/// Adds an audit record including the execution result (outcome). (default log file)
 pub fn append_with_outcome(code: &str, outcome: Option<&str>) -> Result<AuditRecord, String> {
     ensure_log_dir()?;
     let file_path = std::path::PathBuf::from(AUDIT_LOG_FILE);
     append_to_path(code, outcome, &file_path)
 }
 
-/// 코드 + outcome을 지정된 파일(append-only)에 기록한다. (내부, 테스트용)
+/// Writes code + outcome to the specified file (append-only). (internal, for tests)
 fn append_to_path(
     code: &str,
     outcome: Option<&str>,
     file_path: &std::path::Path,
 ) -> Result<AuditRecord, String> {
-    // 1) 프로세스 내 동시 append 의 read-modify-write 를 직렬화한다. (TOCTOU 방지)
+    // 1) Serialize concurrent in-process append read-modify-writes. (TOCTOU prevention)
     let _guard = APPEND_LOCK
         .lock()
         .map_err(|_| "failed to acquire audit-log lock (poisoned)".to_string())?;
 
-    // 2) 다중 인스턴스(multi-process)에서도 체인이 깨지지 않도록 OS 배타 파일 잠금을 건다.
-    //    flock 은 프로세스 경계를 넘어 적용되므로, 여러 xazz-server 가 같은 로그에
-    //    동시에 append 해도 index/prev_hash 가 원자적으로 계산된다.
+    // 2) Take an OS exclusive file lock so the chain is not broken across multiple
+    //    instances (multi-process). flock applies across process boundaries, so even
+    //    when several xazz-servers append to the same log concurrently, index/prev_hash
+    //    are computed atomically.
     use fs2::FileExt;
     use std::io::Write;
     let lock_file = std::fs::OpenOptions::new()
@@ -146,7 +148,7 @@ fn append_to_path(
         ..record
     };
 
-    // append-only: OpenOptions에 append(true) 사용
+    // append-only: use append(true) in OpenOptions
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -156,20 +158,20 @@ fn append_to_path(
         serde_json::to_string(&record).map_err(|e| format!("JSON serialization failed: {e}"))?;
     writeln!(file, "{}", line).map_err(|e| format!("failed to write audit log: {e}"))?;
 
-    // 내구성: 파일 버퍼를 OS 로 플러시하고 디스크에 동기화한다.
-    // fsync 없이는 프로세스/OS 크래시 시 버퍼에만 남은 레코드가 유실된다.
+    // Durability: flush the file buffer to the OS and sync it to disk.
+    // Without fsync, records left only in the buffer are lost on a process/OS crash.
     file.flush()
         .map_err(|e| format!("failed to flush audit log: {e}"))?;
     file.sync_all()
         .map_err(|e| format!("failed to fsync audit log: {e}"))?;
 
-    // 배타 잠금 해제 (파일이 스코프에서 벗어날 때도 자동 해제)
+    // Release the exclusive lock (also released automatically when the file goes out of scope)
     let _ = lock_file.unlock();
 
     Ok(record)
 }
 
-/// 로그 파일에서 모든 레코드를 순서대로 읽는다.
+/// Reads all records from the log file in order.
 pub fn all() -> Result<Vec<AuditRecord>, String> {
     read_all(&std::path::PathBuf::from(AUDIT_LOG_FILE))
 }
@@ -193,12 +195,12 @@ fn read_all(file_path: &std::path::Path) -> Result<Vec<AuditRecord>, String> {
     Ok(records)
 }
 
-/// 코드 해시로 일치하는 레코드들을 반환한다.
+/// Returns the records matching a code hash.
 pub fn lookup_by_hash(hash: &str) -> Result<Vec<AuditRecord>, String> {
     Ok(all()?.into_iter().filter(|r| r.hash == hash).collect())
 }
 
-/// 전체 로그 해시 체인이 유효한지 검증한다.
+/// Verifies that the whole log hash chain is valid.
 pub fn verify_chain() -> Result<bool, String> {
     let records = all()?;
     let mut prev = "GENESIS".to_string();
@@ -215,7 +217,7 @@ pub fn verify_chain() -> Result<bool, String> {
 mod tests {
     use super::*;
 
-    /// 임시 로그 경로로 테스트하는 대신 순수 계산 함수를 검증한다.
+    /// Instead of testing with a temp log path, verifies the pure computation functions.
     #[test]
     fn hash_code_is_stable() {
         let a = hash_code("v p = load(\"x.csv\") :: S;");
@@ -241,19 +243,19 @@ mod tests {
         let r1 = append_to_path("v a = load(\"x.csv\") :: S;", Some("success"), &file).unwrap();
         let r2 = append_to_path("v b = load(\"y.csv\") :: T;", Some("failed"), &file).unwrap();
 
-        // 인덱스·체인 연결
+        // index and chain linking
         assert_eq!(r1.index, 0);
         assert_eq!(r2.index, 1);
         assert_eq!(r2.prev_hash, r1.record_hash);
-        // outcome 기록
+        // outcome recording
         assert_eq!(r1.outcome.as_deref(), Some("success"));
         assert_eq!(r2.outcome.as_deref(), Some("failed"));
 
-        // 파일에서 재읽어 검증
+        // re-read from the file and verify
         let recs = read_all(&file).unwrap();
         assert_eq!(recs.len(), 2);
         for r in &recs {
-            assert!(r.verify(), "레코드 해시 불일치");
+            assert!(r.verify(), "record hash mismatch");
         }
         assert_eq!(recs[1].prev_hash, recs[0].record_hash);
 
@@ -273,7 +275,7 @@ mod tests {
         };
         r.record_hash = compute_record_hash(&r);
         assert!(r.verify());
-        // 해시가 변경되면 검증 실패
+        // verification fails if the hash is tampered with
         let mut tampered = r.clone();
         tampered.code_length = 999;
         assert!(!tampered.verify());
@@ -291,7 +293,7 @@ mod tests {
             record_hash: String::new(),
         };
         r1.record_hash = compute_record_hash(&r1);
-        // 이전 해시가 맞지 않는 레코드
+        // a record whose previous hash does not match
         let mut r2 = AuditRecord {
             index: 1,
             timestamp: "t1".into(),
@@ -312,6 +314,6 @@ mod tests {
             }
             prev = r.record_hash.clone();
         }
-        assert!(!ok, "체인 파손이 감지되어야 한다");
+        assert!(!ok, "a chain break should be detected");
     }
 }

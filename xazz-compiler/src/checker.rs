@@ -26,10 +26,10 @@ use crate::error::{CompileError, ErrorKind};
 use crate::ir;
 use xazz_core::i18n::is_korean;
 
-/// withDp() ε 상한 — 이를 초과하면 프라이버시 보호가 사실상 없어 경고한다.
+/// withDp() ε upper bound — exceeding this means privacy protection is effectively gone, so warn.
 const MAX_EPSILON_WARN: f64 = 10.0;
 
-/// 컬럼 타입 정보 (canonical name + nullable 여부)
+/// Column type information (canonical name + nullable flag)
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckerColType {
     pub name: String,
@@ -48,7 +48,7 @@ impl CheckerColType {
     }
 }
 
-/// 분석 결과 — 오류 목록과 경고 목록
+/// Analysis result — list of errors and warnings
 #[derive(Debug, Clone, Default)]
 pub struct CheckResult {
     pub errors: Vec<CompileError>,
@@ -64,7 +64,7 @@ impl CheckResult {
     }
 }
 
-/// 분석기 상태 — 스키마 / 모델 / 변수 심볼 테이블
+/// Analyzer state — schema / model / variable symbol table
 struct Analyzer {
     schemas: HashMap<String, Vec<StructField>>,
     models: HashMap<String, Vec<LayerKind>>,
@@ -72,21 +72,21 @@ struct Analyzer {
     trained_vars: HashSet<String>,
     errors: Vec<CompileError>,
     warnings: Vec<CompileError>,
-    /// 타입이 붙은 IR (검사와 동시에 구축됨 — 이중 추론 방지).
+    /// Typed IR (built alongside checking — prevents double inference).
     ir: ir::TypedProgram,
-    /// 명령문별 토큰 슬라이스 (check_source 경유 시 Some, Span 해석용)
+    /// Per-statement token slices (Some when going through check_source, for Span resolution)
     stmt_tokens: Option<Vec<Vec<crate::Token>>>,
-    /// 현재 처리 중인 명령문 인덱스
+    /// index of the statement currently being processed
     cur_stmt: usize,
 }
 
-/// 변수에 대한 추론된 컬럼 스키마
+/// Inferred column schema for a variable
 #[derive(Debug, Clone, Default)]
 struct VarInfo {
     columns: HashMap<String, CheckerColType>,
 }
 
-/// 파이프라인 검사 중 누적되는 가변 상태 — 연산자별 처리기(check_*_op)가 공유한다.
+/// Mutable state accumulated during pipeline checking — shared by per-operator handlers (check_*_op).
 struct PipelineCheckState {
     cols: HashMap<String, CheckerColType>,
     steps: Vec<ir::Step>,
@@ -94,7 +94,7 @@ struct PipelineCheckState {
     yields_model: bool,
 }
 
-/// 분석기의 최상위 진입점 — Program AST 를 검사한다.
+/// Top-level entry point of the analyzer — checks a Program AST.
 pub fn check_program(program: &Program) -> CheckResult {
     let mut a = Analyzer::new(None);
     a.check_program(program);
@@ -104,9 +104,9 @@ pub fn check_program(program: &Program) -> CheckResult {
     }
 }
 
-/// Program AST 를 검사하고, 검사와 동시에 타입이 붙은 IR 을 생성한다.
+/// Checks a Program AST and builds a typed IR alongside the check.
 ///
-/// (이중 추론 방지: 진단과 IR 은 동일한 단일 순회에서 만들어진다.)
+/// (Prevents double inference: diagnostics and IR are built in the same single pass.)
 pub fn analyze_program(program: &Program) -> (CheckResult, ir::TypedProgram) {
     let mut a = Analyzer::new(None);
     a.check_program(program);
@@ -119,19 +119,19 @@ pub fn analyze_program(program: &Program) -> (CheckResult, ir::TypedProgram) {
     )
 }
 
-/// 소스 문자열을 렉싱·파싱·검사한 결과를 반환한다.
+/// Returns the result of lexing, parsing, and checking a source string.
 ///
-/// 렉서/파서 에러가 있으면 (Err, 빈 결과) 를 반환한다.
-/// 성공 시 CheckResult 의 각 진단에는 소스 내 라인/컬럼(Span)이 첨부된다.
+/// If there is a lexer/parser error, returns (Err, empty result).
+/// On success, each CheckResult diagnostic carries a line/column (Span) within the source.
 pub fn check_source(source: &str) -> (crate::CompileResult<crate::Program>, CheckResult) {
     let (parsed, check) = compile_ir(source);
     (parsed.map(|(program, _ir)| program), check)
 }
 
-/// 소스 문자열을 렉싱·파싱해 Program + Typed IR + 진단을 함께 생성한다.
+/// Lexes and parses a source string to produce Program + Typed IR + diagnostics together.
 ///
-/// 렉서/파서 에러가 있으면 (Err, 빈 결과) 를 반환한다.
-/// 성공 시 진단에는 Span 이 첨부되고, IR 은 컬럼 수준 타입을 포함한다.
+/// If there is a lexer/parser error, returns (Err, empty result).
+/// On success, diagnostics carry a Span and the IR includes column-level types.
 pub fn compile_ir(
     source: &str,
 ) -> (
@@ -162,11 +162,11 @@ pub fn compile_ir(
     }
 }
 
-/// 토큰 스트림을 명령문 단위로 분할한다.
+/// Splits a token stream into statement-sized slices.
 ///
-/// 파서는 명령문을 `type` / `v` / `mut` / `model` / `run` 또는
-/// `Ident |> ...`(expression statement) 로 시작한다. 이 경계에서 잘라
-/// 명령문별 토큰 슬라이스를 반환한다. (개수는 AST stmts 와 일치해야 함)
+/// The parser starts a statement with `type` / `v` / `mut` / `model` / `run` or
+/// `Ident |> ...` (expression statement). It cuts at these boundaries and
+/// returns per-statement token slices. (Count must match AST stmts.)
 fn segment_statements(tokens: &[crate::Token], expected: usize) -> Vec<Vec<crate::Token>> {
     use crate::TokenKind;
 
@@ -182,9 +182,9 @@ fn segment_statements(tokens: &[crate::Token], expected: usize) -> Vec<Vec<crate
 
     for i in 0..tokens.len() {
         let tk = &tokens[i].kind;
-        // expression statement 경계: `Ident |> ...` 는 직전 토큰이 문장 종결자
-        // (`;` `}` `)`) 일 때만 새 명령문으로 간주한다. 이는 `v x = ... |> ...`
-        // 처럼 파이프라인 중간에 등장하는 Ident 를 오분할하는 것을 방지한다.
+        // expression statement boundary: `Ident |> ...` starts a new statement
+        // only when the preceding token is a terminator (`;` `}` `)`). This
+        // prevents mis-segmenting an Ident that appears mid-pipeline, e.g. `v x = ... |> ...`.
         let prev_is_terminator = current
             .last()
             .map(|t| {
@@ -210,7 +210,7 @@ fn segment_statements(tokens: &[crate::Token], expected: usize) -> Vec<Vec<crate
         segments.push(current);
     }
 
-    // 경계 감지 실패 시 전체를 하나로 묶어 반환 (동작은 보장)
+    // On boundary detection failure, return everything as one slice (behavior guaranteed)
     if segments.len() != expected {
         return vec![tokens.to_vec()];
     }
@@ -445,7 +445,7 @@ impl Analyzer {
             }
         }
 
-        // TrainStmt 는 `run <var> |> train(...)` — 바인딩 없는 모델 학습 노드로 IR 에 기록한다.
+        // TrainStmt is `run <var> |> train(...)` — recorded in the IR as a model-training node with no binding.
         let input_schema = self
             .vars
             .get(source_var)
@@ -466,8 +466,8 @@ impl Analyzer {
         });
     }
 
-    /// 파이프라인을 검사하고, 최종 컬럼 스키마를 추론한다.
-    /// 반환값: 파이프라인이 train() 으로 끝나 모델 변수가 되는지 여부.
+    /// Checks a pipeline and infers the final column schema.
+    /// Return value: whether the pipeline ends with train() and becomes a model variable.
     fn check_pipeline(
         &mut self,
         binding: Option<&str>,
@@ -525,7 +525,7 @@ impl Analyzer {
         st.yields_model
     }
 
-    /// 파이프라인 소스를 정적 분석하고 IR Source 로 변환한다.
+    /// Statically analyzes a pipeline source and converts it to an IR Source.
     fn resolve_pipeline_source(
         &mut self,
         source: &PipelineSource,
@@ -618,7 +618,7 @@ impl Analyzer {
         }
     }
 
-    /// 단일 연산자를 검사하고 IR Step 을 누적한다. true 를 반환하면 파이프라인을 중단한다(train).
+    /// Checks a single operator and accumulates an IR Step. Returns true to halt the pipeline (train).
     fn check_op(&mut self, op: &PipelineOp, st: &mut PipelineCheckState) -> bool {
         match op {
             PipelineOp::Train { model_name, config } => self.check_train_op(model_name, config, st),
@@ -754,7 +754,7 @@ impl Analyzer {
         false
     }
 
-    // count(col) 은 행 수를 세는 연산이라 컬럼 타입과 무관하다 — 존재성만 검사
+    // count(col) counts rows and is unrelated to column type — only check existence
     fn check_count_op(&mut self, c: &String, st: &mut PipelineCheckState) -> bool {
         self.check_column(c, "count", &st.cols);
         st.pending_group = None;
@@ -984,9 +984,9 @@ impl Analyzer {
         false
     }
 
-    // ── v0.6 withDp — 인수 범위는 파서가 검증, 숫자형 컬럼 존재는 런타임이 검증 ──
+    // ── v0.6 withDp — argument ranges validated by the parser, numeric column existence by runtime ──
     fn check_withdp_op(&mut self, args: &DpArgs, st: &mut PipelineCheckState) -> bool {
-        // 노이즈 주입 후 숫자형 컬럼은 float 로 승격된다
+        // after noise injection, numeric columns are promoted to float
         for (_, t) in st.cols.iter_mut() {
             if t.is_numeric() {
                 *t = CheckerColType::new("float", t.option);
@@ -1103,9 +1103,9 @@ impl Analyzer {
         }
     }
 
-    /// Div 연산의 분모가 리터럴 0 인 경우를 정적으로 감지해 경고를 남긴다.
-    /// (데이터 의존적인 "컬럼에 0 존재" 는 런타임에만 판별 가능하므로,
-    ///  여기서는 컴파일 타임에 확정 가능한 리터럴 0 분모만 처리한다.)
+    /// Statically detects when a Div operand's denominator is literal 0 and emits a warning.
+    /// (Data-dependent "0 exists in column" can only be determined at runtime, so
+    ///  only literal-0 denominators determinable at compile time are handled here.)
     fn check_division_by_zero(&mut self, expr: &Expr) {
         match expr {
             Expr::BinOp { lhs, op, rhs } => {
@@ -1143,8 +1143,8 @@ impl Analyzer {
         self.column_missing_with_available(col, ctx, &HashMap::new())
     }
 
-    /// 컬럼 존재 검사 실패 시 did-you-mean 힌트를 포함한 오류를 남긴다.
-    /// `cols` 는 현재 파이프라인의 스키마 컬럼(비어 있으면 다른 변수들의 컬럼으로 폴백).
+    /// Emits an error with a did-you-mean hint when a column existence check fails.
+    /// `cols` are the current pipeline's schema columns (fallback to other variables' columns if empty).
     fn column_missing_with_available(
         &mut self,
         col: &str,
@@ -1192,10 +1192,10 @@ impl Analyzer {
         ));
     }
 
-    /// 현재 명령문의 토큰에서 `anchor`(식별자/키워드 이름)의 Span 을 찾아 반환한다.
+    /// Finds and returns the Span of `anchor` (identifier/keyword name) in the current statement's tokens.
     ///
-    /// - anchor 가 None 이거나 명령문 토큰이 없으면 명령문 시작 토큰의 Span 으로 폴백.
-    /// - 명령문 시작 토큰도 없으면(내부/런타임 경유) Span(0,0) 반환.
+    /// - If anchor is None or there are no statement tokens, fall back to the first statement token's Span.
+    /// - If there is no first statement token either (internal/runtime path), returns Span(0,0).
     fn resolve_span(&self, anchor: Option<&str>) -> crate::Span {
         use crate::TokenKind;
 
@@ -1206,7 +1206,7 @@ impl Analyzer {
             return crate::Span::new(0, 0);
         };
 
-        // 앵커 식별자 토큰 매칭 (Ident 또는 예약 키워드)
+        // match anchor identifier token (Ident or reserved keyword)
         let matched = anchor.and_then(|name| {
             tokens.iter().find(|t| match &t.kind {
                 TokenKind::Ident(n) => n == name,
@@ -1224,7 +1224,7 @@ impl Analyzer {
     }
 }
 
-/// 리터럴이 0 인지 확인한다 (DivisionByZero 정적 검사용).
+/// Checks whether a literal is 0 (for DivisionByZero static checking).
 fn is_zero_literal(expr: &Expr) -> bool {
     match expr {
         Expr::IntLit(0) => true,
@@ -1233,7 +1233,7 @@ fn is_zero_literal(expr: &Expr) -> bool {
     }
 }
 
-/// 표현식을 사람이 읽기 좋은 문자열로 변환한다 (DivisionByZero 경고 컨텍스트).
+/// Converts an expression to a human-readable string (DivisionByZero warning context).
 fn format_expr_display(expr: &Expr) -> String {
     match expr {
         Expr::Ident(s) => format!("col(\"{}\")", s),
@@ -1264,7 +1264,7 @@ fn format_expr_display(expr: &Expr) -> String {
     }
 }
 
-/// 스키마 field_type 문자열 → CheckerColType 변환 (Option<T> 지원)
+/// Converts a schema field_type string → CheckerColType (supports Option<T>)
 fn col_type_of_field(field_type: &str) -> CheckerColType {
     if let Some(inner) = field_type.strip_prefix("Option<") {
         CheckerColType::new(normalize_type(inner.trim_end_matches('>')), true)
@@ -1283,8 +1283,8 @@ fn normalize_type(t: &str) -> &'static str {
     }
 }
 
-/// 표현식의 결과 타입을 추론해 타입이 붙은 IR 표현식을 생성한다.
-/// (withColumn / filter 등에 사용 — 단일 추론 지점.)
+/// Infers an expression's result type and builds a typed IR expression.
+/// (used by withColumn / filter, etc. — single inference point.)
 fn type_expr(expr: &Expr, cols: &HashMap<String, CheckerColType>) -> ir::TypedExpr {
     match expr {
         Expr::Ident(c) => {
@@ -1326,7 +1326,7 @@ fn type_expr(expr: &Expr, cols: &HashMap<String, CheckerColType>) -> ir::TypedEx
     }
 }
 
-/// checker 로컬 CheckerColType → IR ColType 변환.
+/// Converts a checker-local CheckerColType → IR ColType.
 fn to_ir_col_type(ct: &CheckerColType) -> ir::ColType {
     let base = match ct.name.as_str() {
         "string" => ir::ColType::String,
@@ -1342,7 +1342,7 @@ fn to_ir_col_type(ct: &CheckerColType) -> ir::ColType {
     }
 }
 
-/// IR ColType → checker 로컬 CheckerColType 변환.
+/// Converts an IR ColType → checker-local CheckerColType.
 fn ir_col_type_to_checker(ty: &ir::ColType) -> CheckerColType {
     match ty {
         ir::ColType::Nullable(inner) => CheckerColType::new(inner.name(), true),
@@ -1350,7 +1350,7 @@ fn ir_col_type_to_checker(ty: &ir::ColType) -> CheckerColType {
     }
 }
 
-/// AST StructField 목록 → IR Schema 변환 (타입 선언용).
+/// Converts an AST StructField list → IR Schema (for type declarations).
 fn ir_schema_from_fields(fields: &[StructField]) -> ir::Schema {
     ir::Schema::new(
         fields
@@ -1365,7 +1365,7 @@ fn ir_schema_from_fields(fields: &[StructField]) -> ir::Schema {
     )
 }
 
-/// checker 컬럼 맵 → IR Schema 변환 (파이프라인 입출력용, 이름순 정렬로 결정적).
+/// Converts a checker column map → IR Schema (for pipeline I/O, deterministic by name sorting).
 fn ir_schema_from_map(cols: &HashMap<String, CheckerColType>) -> ir::Schema {
     let mut fields: Vec<ir::SchemaField> = cols
         .iter()
@@ -1375,7 +1375,7 @@ fn ir_schema_from_map(cols: &HashMap<String, CheckerColType>) -> ir::Schema {
     ir::Schema::new(fields)
 }
 
-/// fillNull 채우기 값 → IR FillValue 변환.
+/// Converts a fillNull fill value → IR FillValue.
 fn fill_value_ir(value: &FillNullValue) -> ir::FillValue {
     match value {
         FillNullValue::Int(n) => ir::FillValue::Int(*n),
@@ -1387,7 +1387,7 @@ fn fill_value_ir(value: &FillNullValue) -> ir::FillValue {
     }
 }
 
-/// 집계 연산자 → (AggKind, 컬럼명) 추출.
+/// Extracts an aggregate operator → (AggKind, column name).
 fn aggregate_kind_col(op: &PipelineOp) -> (ir::AggKind, String) {
     match op {
         PipelineOp::Sum(c) => (ir::AggKind::Sum, c.clone()),
@@ -1627,7 +1627,7 @@ mod tests {
         );
     }
 
-    // ── Span(위치) 해석 검증 ──────────────────────────────────────────────────
+    // ── Span (location) resolution verification ──────────────────────────────────────────────────
 
     #[test]
     fn source_diagnostics_carry_line_numbers() {
@@ -1647,7 +1647,7 @@ mod tests {
 
     #[test]
     fn source_diagnostics_point_to_offending_identifier() {
-        // missing_col 은 두 번째 명령문에만 있으므로 그쪽 Span(라인 2)을 가리켜야 함
+        // missing_col only exists in the second statement, so it must point to that Span (line 2)
         let src = "type X = { missing_col: float };\nv bad = load(\"x.csv\") :: X |> filter(other_col > 1);\n";
         let (parse, r) = check_source(src);
         assert!(parse.is_ok());
@@ -1666,7 +1666,7 @@ mod tests {
 
     #[test]
     fn program_check_has_no_span() {
-        // check_program(내부 경로)는 Span 이 없어 0,0 을 유지
+        // check_program (internal path) has no Span, so it stays 0,0
         let r = check(
             "type X = { a: string };
              v bad = load(\"x.csv\") :: X |> filter(nope > 1);",
@@ -1678,15 +1678,15 @@ mod tests {
 
     #[test]
     fn span_is_stable_when_error_message_changes() {
-        // 메시지 포맷을 바꿔도 Span 이 흔들리지 않아야 한다 — resolve_span 은
-        // 메시지를 파싱하지 않고 앵커 식별자로 토큰을 직접 찾기 때문이다.
+        // Changing the message format must not shift the Span — resolve_span
+        // finds tokens directly by anchor identifier without parsing the message.
         let src = "type X = { missing_col: float };
 v bad = load(\"x.csv\") :: X |> filter(other_col > 1);\n";
         let (parse, r1) = check_source(src);
         assert!(parse.is_ok());
 
-        // 동일 소스로 두 번 검사 — 메시지 문자열은 각 진단마다 동일하므로,
-        // resolve_span 이 메시지에 의존한다면 (여기서는 아님) Span 이 어긋난다.
+        // Check the same source twice — message strings are identical per diagnostic, so
+        // if resolve_span depended on the message (it does not here), the Span would drift.
         let (_, r2) = check_source(src);
         assert_eq!(r1.errors.len(), r2.errors.len());
 
@@ -1702,8 +1702,8 @@ v bad = load(\"x.csv\") :: X |> filter(other_col > 1);\n";
 
     #[test]
     fn span_points_to_identifier_not_first_quote() {
-        // 앵커는 메시지의 첫 번째 따옴표가 아니라 실제 토큰의 위치를 가리켜야 한다.
-        // 메시지에서 'x.csv'(load 경로) 가 먼저 등장해도, 앵커(other_col)의 위치를 써야 한다.
+        // The anchor must point to the actual token location, not the first quote in the message.
+        // Even if 'x.csv' (load path) appears first in the message, use the anchor (other_col) location.
         let src = "type X = { a: string };
 v bad = load(\"x.csv\") :: X |> filter(other_col > 1);\n";
         let (parse, r) = check_source(src);
@@ -1713,7 +1713,7 @@ v bad = load(\"x.csv\") :: X |> filter(other_col > 1);\n";
             .iter()
             .find(|e| e.message.contains("other_col"))
             .unwrap();
-        // other_col 은 2번째 명령문의 filter 안에 있으므로 라인 2, 컬럼은 0 보다 큼
+        // other_col is inside the filter of the 2nd statement, so line 2, column > 0
         assert_eq!(err.span.line, 2);
         assert!(
             err.span.col > 0,
@@ -1752,7 +1752,7 @@ v bad = load(\"x.csv\") :: X |> filter(other_col > 1);\n";
         );
     }
 
-    // ── IR 생성 검증 ──────────────────────────────────────────────────────────
+    // ── IR generation verification ──────────────────────────────────────────────────────────
 
     fn analyze(src: &str) -> (CheckResult, ir::TypedProgram) {
         let tokens = Lexer::new(src).tokenize().unwrap();
@@ -1775,7 +1775,7 @@ v bad = load(\"x.csv\") :: X |> filter(other_col > 1);\n";
         assert_eq!(ir.models[0].layers.len(), 3);
         assert_eq!(ir.pipelines.len(), 2);
 
-        // 파이프라인 0: filter → select
+        // pipeline 0: filter → select
         let p0 = &ir.pipelines[0];
         assert_eq!(p0.name.as_deref(), Some("data"));
         assert!(matches!(p0.source, ir::Source::Load { .. }));
@@ -1803,7 +1803,7 @@ v bad = load(\"x.csv\") :: X |> filter(other_col > 1);\n";
         );
         assert_eq!(p0.output_schema.names(), vec!["a", "y"]);
 
-        // 파이프라인 1: groupBy → sum (집계는 GroupBy + Aggregate 두 스텝으로 보존)
+        // pipeline 1: groupBy → sum (aggregation preserved as GroupBy + Aggregate two steps)
         let p1 = &ir.pipelines[1];
         assert!(matches!(p1.source, ir::Source::Ref { .. }));
         assert_eq!(p1.steps[0], ir::Step::Data(ir::DataOp::GroupBy("a".into())));

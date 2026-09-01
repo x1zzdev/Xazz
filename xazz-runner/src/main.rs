@@ -1,21 +1,21 @@
 // xazz-runner/src/main.rs
 //
-// xazz IPC 브리지 — CLI와 실행 엔진 사이의 경량 릴레이
+// xazz IPC bridge — a lightweight relay between the CLI and the execution engine
 //
-// ✅  이 바이너리는 Polars/tokio/rayon/reqwest/hyper를 링크하지 않는다.
-// ✅  허용 의존성: serde, serde_json, std 만
+// ✅  This binary does not link Polars/tokio/rayon/reqwest/hyper.
+// ✅  Allowed dependencies: serde, serde_json, std only
 //
-// 아키텍처:
+// Architecture:
 //   xazz CLI (NO Polars)
 //     ↓ std::process::Command (spawn)
 //   xazz-runner  (NO Polars — this binary)
 //     ↓ std::process::Command (spawn)
-//   xazz-exec    (Polars + tokio + rayon 격리)
+//   xazz-exec    (Polars + tokio + rayon isolated)
 //
-// 통신 프로토콜:
-//   - xazz CLI → xazz-runner : CLI args 전달
-//   - xazz-runner → xazz-exec : args 그대로 전달, stdout/stderr 상속
-//   - 종료 코드: xazz-exec 종료 코드를 그대로 전파
+// Communication protocol:
+//   - xazz CLI → xazz-runner : passes CLI args through
+//   - xazz-runner → xazz-exec : passes args through as-is, inherits stdout/stderr
+//   - exit code: propagates the xazz-exec exit code as-is
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -23,14 +23,14 @@ use std::time::{Duration, Instant};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// 실행 엔진(xazz-exec)의 기본 최대 실행 시간(초).
-/// `XAZZ_EXEC_TIMEOUT_SECS` 환경변수로 재정의 가능 (0 이하 무시).
+/// Default maximum execution time (seconds) for the execution engine (xazz-exec).
+/// Overridable via the `XAZZ_EXEC_TIMEOUT_SECS` environment variable (values ≤ 0 ignored).
 const DEFAULT_EXEC_TIMEOUT_SECS: u64 = 300;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    // ── 도우미 플래그: --version / --help / --check-engine ──────────────────
+    // ── helper flags: --version / --help / --check-engine ───────────────────
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("xazz-runner {}", VERSION);
         return;
@@ -40,7 +40,7 @@ fn main() {
         return;
     }
 
-    // 실행 엔진 존재/가용성 진단 (변경 없이 확인만)
+    // Diagnose execution-engine presence/availability (check only, no changes)
     if args
         .iter()
         .any(|a| a == "--check-engine" || a == "--doctor")
@@ -57,7 +57,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    // ── xazz-exec 바이너리 경로 해석 ──────────────────────────────────────
+    // ── resolve the xazz-exec binary path ─────────────────────────────────────
     let exec_path = match resolve_exec_binary() {
         Ok(p) => p,
         Err(msg) => {
@@ -66,10 +66,11 @@ fn main() {
         }
     };
 
-    // ── xazz-exec 서브프로세스 스폰 ───────────────────────────────────────
-    // stdin/stdout/stderr 상속 → 투명한 IPC relay
-    // 실행 시간 제한(타임아웃)은 DoS 방지용 경량 하드닝이다.
-    // (참고: 이는 프로세스 격리이지 OS 샌드박스가 아니다 — seccomp/landlock 은 별도 마일스톤)
+    // ── spawn the xazz-exec subprocess ───────────────────────────────────────
+    // stdin/stdout/stderr inherited → transparent IPC relay
+    // The execution time limit (timeout) is lightweight hardening against DoS.
+    // (Note: this is process isolation, not an OS sandbox — seccomp/landlock
+    //  are a separate milestone)
     let mut child = Command::new(&exec_path)
         .args(&args)
         .stdin(Stdio::inherit())
@@ -117,7 +118,7 @@ fn main() {
         }
     };
 
-    // xazz-exec 종료 코드를 그대로 전파
+    // propagate the xazz-exec exit code as-is
     std::process::exit(code);
 }
 
@@ -132,9 +133,9 @@ fn print_usage() {
     println!("  --check-engine       diagnose availability of the execution engine (xazz-exec)");
 }
 
-/// xazz-exec 실행 엔진의 존재와 실행 가능 여부를 진단한다.
+/// Diagnoses the existence and runnability of the xazz-exec execution engine.
 ///
-/// 종료 코드: 0 = 정상, 1 = 엔진 누락/실행 불가
+/// Exit code: 0 = ok, 1 = engine missing/not runnable
 fn check_engine() {
     let mut ok = true;
     println!("[xazz-runner] execution-engine diagnostics");
@@ -160,7 +161,7 @@ fn check_engine() {
         ok = false;
     }
 
-    // 실행 가능 여부는 실제로 --version 호출로 확인
+    // runnability is verified by actually invoking --version
     if ok {
         match Command::new(&exec_path).arg("--version").output() {
             Ok(out) => {
@@ -195,28 +196,28 @@ fn check_engine() {
     std::process::exit(if ok { 0 } else { 1 });
 }
 
-/// xazz-exec 바이너리 경로를 해석한다.
+/// Resolves the xazz-exec binary path.
 ///
-/// 우선순위:
-/// 1. `XAZZ_EXEC_PATH` 환경변수 (배포 하드닝)
-/// 2. 현재 실행 파일(xazz-runner)과 같은 디렉터리
+/// Priority:
+/// 1. `XAZZ_EXEC_PATH` environment variable (deployment hardening)
+/// 2. Same directory as the current executable (xazz-runner)
 ///
-/// PATH 폴백은 수행하지 않는다 (PATH 셰도잉으로 임의 코드 실행되는 것을 방지).
-/// 찾지 못하면 `Err`를 반환한다 (fail-closed).
+/// No PATH fallback is performed (prevents arbitrary code execution via PATH shadowing).
+/// Returns `Err` if not found (fail-closed).
 fn resolve_exec_binary() -> Result<PathBuf, String> {
     #[cfg(target_os = "windows")]
     let exec_name = "xazz-exec.exe";
     #[cfg(not(target_os = "windows"))]
     let exec_name = "xazz-exec";
 
-    // 1. 환경변수로 경로 고정 (배포 하드닝)
+    // 1. Pin the path via env var (deployment hardening)
     if let Ok(pinned) = std::env::var("XAZZ_EXEC_PATH") {
         if !pinned.trim().is_empty() {
             return Ok(PathBuf::from(pinned));
         }
     }
 
-    // 2. 현재 실행 파일 옆에서 찾기
+    // 2. Look next to the current executable
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(dir) = current_exe.parent() {
             let candidate = dir.join(exec_name);
