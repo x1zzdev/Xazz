@@ -53,7 +53,7 @@ fn write_xzz(csv: &Path, script: &str) -> PathBuf {
 ///
 /// 반환한 가드는 스코프를 벗어나면 원래 CWD 로 복원한다. (절대 경로는
 /// Policy-as-Code 가 차단하므로 테스트는 상대 경로를 써야 한다.)
-fn run_in_dir(dir: &Path, script: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn run_in_dir(dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let _guard = CWD_LOCK.lock().unwrap();
     let original = std::env::current_dir().unwrap();
     std::env::set_current_dir(dir).unwrap();
@@ -79,7 +79,7 @@ fn run_valid_preprocessing_pipeline() {
            |> orderBy(\"pm10\", desc: true);",
     );
 
-    let result = run_in_dir(&dir, "");
+    let result = run_in_dir(&dir);
     assert!(result.is_ok(), "유효한 파이프라인 실행 실패: {:?}", result);
 }
 
@@ -92,7 +92,7 @@ fn run_empty_pipeline_collects_rows() {
         "type S = { a: int, b: int };
          v p = load(\"data.csv\") :: S;",
     );
-    let result = run_in_dir(&dir, "");
+    let result = run_in_dir(&dir);
     assert!(result.is_ok(), "빈 파이프라인 실행 실패: {:?}", result);
 }
 
@@ -107,6 +107,6 @@ fn run_join_between_two_pipelines() {
          v right = left |> filter(val > 15);
          v joined = left |> join(right, left_on: [\"id\"], right_on: [\"id\"], how: \"inner\");",
     );
-    let result = run_in_dir(&dir, "");
+    let result = run_in_dir(&dir);
     assert!(result.is_ok(), "join 파이프라인 실행 실패: {:?}", result);
 }
