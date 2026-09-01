@@ -15,12 +15,16 @@
 ///   - Join 연산자 코드 생성: .join(..., JoinArgs::new(JoinType::...))
 ///   - WithColumn 연산자 코드 생성: .with_columns([expr.alias("name")])
 ///   - 산술 연산자 to_typed_polars_expr: add/sub/mul/div
+///
+/// 중복 제거 (단일 위치):
+///   - 표현식 → Polars 문자열 매핑은 `crate::polars_text` 의 유일한 구현을
+///     사용한다 (이 모듈과 codegen.rs 가 공유).
+///   - 런타임 op→Polars 매핑은 xazz-exec/src/lower.rs (Typed IR) 한 곳에만 존재한다.
 use std::collections::HashMap;
 use std::fs;
 
 use crate::ast::{
-    BinOpKind, Expr, FillNullValue, LayerKind, PipelineOp, PipelineSource, Program, Stmt,
-    TrainConfig,
+    Expr, FillNullValue, LayerKind, PipelineOp, PipelineSource, Program, Stmt, TrainConfig,
 };
 use crate::policy::printer::escape;
 use crate::{Codegen, Lexer, Parser, StructField};
@@ -1053,50 +1057,7 @@ fn validate_expr_columns(
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn to_typed_polars_expr(expr: &Expr, col_types: &HashMap<String, String>) -> String {
-    match expr {
-        Expr::Ident(s) => format!("col(\"{}\")", escape(s)),
-        Expr::StringLit(s) => format!("lit(\"{}\")", escape(s)),
-        Expr::IntLit(n) => format!("lit({}i64)", n),
-        Expr::FloatLit(f) => format!("lit({}f64)", f),
-        Expr::BoolLit(b) => format!("lit({})", b),
-        Expr::BinOp { lhs, op, rhs } => {
-            let lhs_is_float = if let Expr::Ident(col_name) = lhs.as_ref() {
-                col_types
-                    .get(col_name.as_str())
-                    .map(|t| t.contains("float"))
-                    .unwrap_or(false)
-            } else {
-                false
-            };
-
-            let l = to_typed_polars_expr(lhs, col_types);
-
-            let r = if lhs_is_float {
-                match rhs.as_ref() {
-                    Expr::IntLit(n) => format!("lit({:.1}f64)", *n as f64),
-                    Expr::FloatLit(f) => format!("lit({}f64)", f),
-                    other => to_typed_polars_expr(other, col_types),
-                }
-            } else {
-                to_typed_polars_expr(rhs, col_types)
-            };
-
-            let op_method = match op {
-                BinOpKind::Eq => "eq",
-                BinOpKind::NotEq => "neq",
-                BinOpKind::Lt => "lt",
-                BinOpKind::Gt => "gt",
-                BinOpKind::LtEq => "lt_eq",
-                BinOpKind::GtEq => "gt_eq",
-                // ── 산술 연산자 (v0.16+) ──────────────────────
-                BinOpKind::Add => "add",
-                BinOpKind::Sub => "sub",
-                BinOpKind::Mul => "mul",
-                BinOpKind::Div => "div",
-            };
-            format!("{}.{}({})", l, op_method, r)
-        }
-    }
+    crate::polars_text::expr_to_polars(expr, Some(col_types))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

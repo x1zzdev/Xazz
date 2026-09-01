@@ -23,6 +23,7 @@ pub mod ir; // xazz-core::ir 재노출
 pub mod lexer;
 pub mod opt;
 pub mod parser;
+pub mod polars_text;
 pub mod policy;
 pub mod token; // xazz-core::token 재노출
 

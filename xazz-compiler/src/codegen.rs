@@ -9,6 +9,11 @@
 ///   - Join 연산자: .join(..., ..., JoinArgs::new(JoinType::Inner)) 매핑
 ///   - WithColumn 연산자: .with_columns([expr.alias("name")]) 매핑
 ///   - 산술 연산자: Add/Sub/Mul/Div → .add()/.sub()/.mul()/.div()
+///
+/// 중복 제거 (단일 위치):
+///   - 표현식 → Polars 문자열 매핑은 `crate::polars_text` 의 유일한 구현을
+///     사용한다 (이 모듈과 emitter.rs 가 공유).
+///   - 런타임 op→Polars 매핑은 xazz-exec/src/lower.rs (Typed IR) 한 곳에만 존재한다.
 use crate::ast::{
     BinOpKind, Expr, FillNullValue, LayerKind, PipelineOp, PipelineSource, Program, Stmt,
     TrainConfig,
@@ -496,30 +501,7 @@ impl Codegen {
     // ── 표현식 → Polars Rust ──────────────────────────────────────────────────
 
     pub fn expr_to_polars(expr: &Expr) -> String {
-        match expr {
-            Expr::Ident(s) => format!("col(\"{}\")", esc(s)),
-            Expr::StringLit(s) => format!("lit(\"{}\")", esc(s)),
-            Expr::IntLit(n) => format!("lit({}i64)", n),
-            Expr::FloatLit(f) => format!("lit({}f64)", f),
-            Expr::BoolLit(b) => format!("lit({})", b),
-            Expr::BinOp { lhs, op, rhs } => {
-                let l = Self::expr_to_polars(lhs);
-                let r = Self::expr_to_polars(rhs);
-                match op {
-                    BinOpKind::Eq => format!("{}.eq({})", l, r),
-                    BinOpKind::NotEq => format!("{}.neq({})", l, r),
-                    BinOpKind::Lt => format!("{}.lt({})", l, r),
-                    BinOpKind::Gt => format!("{}.gt({})", l, r),
-                    BinOpKind::LtEq => format!("{}.lt_eq({})", l, r),
-                    BinOpKind::GtEq => format!("{}.gt_eq({})", l, r),
-                    // ── 산술 연산자 (v0.16+) ──────────────────
-                    BinOpKind::Add => format!("{}.add({})", l, r),
-                    BinOpKind::Sub => format!("{}.sub({})", l, r),
-                    BinOpKind::Mul => format!("{}.mul({})", l, r),
-                    BinOpKind::Div => format!("{}.div({})", l, r),
-                }
-            }
-        }
+        crate::polars_text::expr_to_polars(expr, None)
     }
 
     // ── 표현식 → xazzLang 소스 표현 ──────────────────────────────────────────
