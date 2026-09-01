@@ -19,8 +19,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{
-    BinOpKind, ChartConfig, Expr, FillNullValue, LayerKind, PipelineOp, PipelineSource, Program,
-    Stmt, StructField, TrainConfig,
+    BinOpKind, ChartConfig, DpArgs, Expr, FillNullValue, JoinHow, LayerKind, PipelineOp,
+    PipelineSource, Program, Stmt, StructField, TrainConfig,
 };
 use crate::error::{CompileError, ErrorKind};
 use crate::ir;
@@ -84,6 +84,14 @@ struct Analyzer {
 #[derive(Debug, Clone, Default)]
 struct VarInfo {
     columns: HashMap<String, CheckerColType>,
+}
+
+/// 파이프라인 검사 중 누적되는 가변 상태 — 연산자별 처리기(check_*_op)가 공유한다.
+struct PipelineCheckState {
+    cols: HashMap<String, CheckerColType>,
+    steps: Vec<ir::Step>,
+    pending_group: Option<String>,
+    yields_model: bool,
 }
 
 /// 분석기의 최상위 진입점 — Program AST 를 검사한다.
@@ -459,362 +467,22 @@ impl Analyzer {
         source: &PipelineSource,
         ops: &[PipelineOp],
     ) -> bool {
-        let mut columns: Option<HashMap<String, CheckerColType>> = None;
-        let mut yields_model = false;
-        let mut steps: Vec<ir::Step> = Vec::new();
-
-        let ir_source: ir::Source = match source {
-            PipelineSource::Load {
-                file_path,
-                schema_name,
-            } => {
-                let schema_ir = self
-                    .schemas
-                    .get(schema_name)
-                    .map(|f| ir_schema_from_fields(f));
-                match self.schemas.get(schema_name) {
-                    Some(fields) => {
-                        let mut map = HashMap::new();
-                        for f in fields {
-                            map.insert(f.name.clone(), col_type_of_field(&f.field_type));
-                        }
-                        columns = Some(map);
-                    }
-                    None => {
-                        self.error(
-                            ErrorKind::UndeclaredType(schema_name.to_string()),
-                            if is_korean() {
-                                format!(
-                                    "load(...) :: {} : 스키마 '{}' 이(가) 선언되지 않았습니다. `type {} = {{ ... }}` 로 먼저 선언하세요.",
-                                    schema_name, schema_name, schema_name
-                                )
-                            } else {
-                                format!(
-                                    "load(...) :: {} : schema '{}' is not declared. Declare it first with `type {} = {{ ... }}`.",
-                                    schema_name, schema_name, schema_name
-                                )
-                            },
-                        );
-                    }
-                }
-                ir::Source::Load {
-                    file_path: file_path.clone(),
-                    schema: schema_ir,
-                }
-            }
-            PipelineSource::VarRef(name) => {
-                if self.trained_vars.contains(name) {
-                    self.error(
-                        ErrorKind::UndeclaredVariable(name.to_string()),
-                        if is_korean() {
-                            format!(
-                                "변수 '{}' 은 학습된 모델입니다. DataFrame 파이프라인 소스로 사용할 수 없습니다.",
-                                name
-                            )
-                        } else {
-                            format!(
-                                "Variable '{}' is a trained model and cannot be used as a DataFrame pipeline source.",
-                                name
-                            )
-                        },
-                    );
-                } else if let Some(var) = self.vars.get(name) {
-                    columns = Some(var.columns.clone());
-                } else {
-                    self.error(
-                        ErrorKind::UndeclaredVariable(name.to_string()),
-                        if is_korean() {
-                            format!(
-                                "변수 '{}' 이(가) 선언되지 않았습니다. 이 변수를 이전 파이프라인에서 먼저 선언하세요.",
-                                name
-                            )
-                        } else {
-                            format!(
-                                "Variable '{}' is not declared. Declare it in an earlier pipeline first.",
-                                name
-                            )
-                        },
-                    );
-                }
-                ir::Source::Ref { var: name.clone() }
-            }
+        let (input_cols, ir_source) = self.resolve_pipeline_source(source);
+        let input_schema = input_cols.as_ref().map(ir_schema_from_map);
+        let mut st = PipelineCheckState {
+            cols: input_cols.unwrap_or_default(),
+            steps: Vec::new(),
+            pending_group: None,
+            yields_model: false,
         };
 
-        let input_schema = columns.as_ref().map(ir_schema_from_map);
-        let mut cols = columns.unwrap_or_default();
-        let mut pending_group: Option<String> = None;
-
         for op in ops {
-            match op {
-                PipelineOp::Train { model_name, config } => {
-                    if !self.models.contains_key(model_name) {
-                        self.error(
-                            ErrorKind::Other("미선언 모델".to_string()),
-                            if is_korean() {
-                                format!(
-                                    "train({}) : 모델 '{}' 은(는) 선언되지 않았습니다. 먼저 `model {} {{ ... }}` 로 선언하세요.",
-                                    model_name, model_name, model_name
-                                )
-                            } else {
-                                format!(
-                                    "train({}) : model '{}' is not declared. Declare it first with `model {} {{ ... }}`.",
-                                    model_name, model_name, model_name
-                                )
-                            },
-                        );
-                    }
-                    steps.push(ir::Step::ML(ir::MLOp::Train {
-                        model: model_name.clone(),
-                        config: config.clone(),
-                    }));
-                    yields_model = true;
-                    break;
-                }
-                PipelineOp::Predict { model_var, as_col } => {
-                    if !self.trained_vars.contains(model_var) {
-                        self.error(
-                            ErrorKind::UndeclaredVariable(model_var.to_string()),
-                            if is_korean() {
-                                format!(
-                                    "predict({}) : 변수 '{}' 은(는) 학습된 모델이 아닙니다. 먼저 `v {} = ... |> train(...)` 으로 학습하세요.",
-                                    model_var, model_var, model_var
-                                )
-                            } else {
-                                format!(
-                                    "predict({}) : variable '{}' is not a trained model. Train it first with `v {} = ... |> train(...)`.",
-                                    model_var, model_var, model_var
-                                )
-                            },
-                        );
-                    }
-                    if let Some(name) = as_col {
-                        cols.insert(name.clone(), CheckerColType::new("float", true));
-                    }
-                    steps.push(ir::Step::ML(ir::MLOp::Predict {
-                        model: model_var.clone(),
-                        as_col: as_col.clone(),
-                    }));
-                }
-                PipelineOp::Filter(expr) => {
-                    self.check_expr_columns(expr, &cols);
-                    let typed = type_expr(expr, &cols);
-                    steps.push(ir::Step::Data(ir::DataOp::Filter(typed)));
-                }
-                PipelineOp::Select(cols_sel) => {
-                    let mut next = HashMap::new();
-                    for c in cols_sel {
-                        if let Some(t) = cols.get(c) {
-                            next.insert(c.clone(), t.clone());
-                        } else {
-                            self.column_missing_with_available(c, "select", &cols);
-                        }
-                    }
-                    cols = next;
-                    steps.push(ir::Step::Data(ir::DataOp::Select(cols_sel.clone())));
-                }
-                PipelineOp::GroupBy(group_col) => {
-                    self.check_column(group_col, "groupBy", &cols);
-                    pending_group = Some(group_col.clone());
-                    steps.push(ir::Step::Data(ir::DataOp::GroupBy(group_col.clone())));
-                }
-                // count(col) 은 행 수를 세는 연산이라 컬럼 타입과 무관하다 — 존재성만 검사
-                PipelineOp::Count(Some(c)) => {
-                    self.check_column(c, "count", &cols);
-                    pending_group = None;
-                    steps.push(ir::Step::Data(ir::DataOp::Aggregate {
-                        kind: ir::AggKind::Count,
-                        col: c.clone(),
-                    }));
-                }
-                PipelineOp::Sum(_)
-                | PipelineOp::Mean(_)
-                | PipelineOp::Min(_)
-                | PipelineOp::Max(_)
-                | PipelineOp::Median(_)
-                | PipelineOp::Variance(_)
-                | PipelineOp::Std(_) => {
-                    let (kind, agg_col) = aggregate_kind_col(op);
-                    self.check_agg_column(&agg_col, &cols);
-                    pending_group = None;
-                    steps.push(ir::Step::Data(ir::DataOp::Aggregate { kind, col: agg_col }));
-                }
-                PipelineOp::Count(None) => {
-                    pending_group = None;
-                    steps.push(ir::Step::Data(ir::DataOp::Aggregate {
-                        kind: ir::AggKind::Len,
-                        col: String::new(),
-                    }));
-                }
-                PipelineOp::OrderBy { col, desc } => {
-                    self.check_column(col, "orderBy", &cols);
-                    steps.push(ir::Step::Data(ir::DataOp::Sort {
-                        col: col.clone(),
-                        desc: *desc,
-                    }));
-                }
-                PipelineOp::Take(n) => {
-                    steps.push(ir::Step::Data(ir::DataOp::Limit(*n)));
-                }
-                PipelineOp::Sample { n, seed } => {
-                    steps.push(ir::Step::Data(ir::DataOp::Sample { n: *n, seed: *seed }));
-                }
-                PipelineOp::DropNull(drop_col) => {
-                    self.check_column(drop_col, "dropNull", &cols);
-                    steps.push(ir::Step::Data(ir::DataOp::DropNull(drop_col.clone())));
-                }
-                PipelineOp::FillNull { col, value } => {
-                    self.check_column(col, "fillNull", &cols);
-                    if let Some(t) = cols.get(col) {
-                        if !t.option && t.name != "unknown" {
-                            self.error(
-                                ErrorKind::Other("fillNull on non-nullable column".to_string()),
-                                if is_korean() {
-                                    format!(
-                                        "fillNull(\"{}\", ...) : 컬럼 '{}' 은 null을 허용하지 않는 타입으로 선언되어 있습니다. 스키마에서 '{}' 을(를) Option<{}> 으로 선언하거나, 이 연산을 제거하세요.",
-                                        col, col, col, t.name
-                                    )
-                                } else {
-                                    format!(
-                                        "fillNull(\"{}\", ...) : column '{}' is declared as a non-nullable type. Declare '{}' as Option<{}> in the schema, or remove this operation.",
-                                        col, col, col, t.name
-                                    )
-                                },
-                            );
-                        }
-                    }
-                    self.check_fill_value(col, value, &cols);
-                    steps.push(ir::Step::Data(ir::DataOp::FillNull {
-                        col: col.clone(),
-                        value: fill_value_ir(value),
-                    }));
-                }
-                PipelineOp::Join {
-                    other,
-                    left_on,
-                    right_on,
-                    how,
-                } => {
-                    for k in left_on {
-                        self.check_column(k, "join(left_on)", &cols);
-                    }
-                    if self.trained_vars.contains(other) {
-                        self.error(
-                            ErrorKind::UndeclaredVariable(other.to_string()),
-                            if is_korean() {
-                                format!("join() 대상 변수 '{}' 은 학습된 모델입니다.", other)
-                            } else {
-                                format!("join() target variable '{}' is a trained model.", other)
-                            },
-                        );
-                    } else if let Some(var) = self.vars.get(other) {
-                        let right_cols: HashMap<String, CheckerColType> = var.columns.clone();
-                        for k in right_on {
-                            self.check_column(k, "join(right_on)", &right_cols);
-                        }
-                    } else {
-                        self.error(
-                            ErrorKind::UndeclaredVariable(other.to_string()),
-                            if is_korean() {
-                                format!("join() 대상 변수 '{}' 이(가) 선언되지 않았습니다.", other)
-                            } else {
-                                format!("join() target variable '{}' is not declared.", other)
-                            },
-                        );
-                    }
-                    steps.push(ir::Step::Data(ir::DataOp::Join {
-                        other: other.clone(),
-                        left_on: left_on.clone(),
-                        right_on: right_on.clone(),
-                        how: how.clone(),
-                    }));
-                }
-                PipelineOp::WithColumn { name, expr } => {
-                    self.check_expr_columns(expr, &cols);
-                    self.check_division_by_zero(expr);
-                    let typed = type_expr(expr, &cols);
-                    cols.insert(name.clone(), ir_col_type_to_checker(&typed.ty));
-                    steps.push(ir::Step::Data(ir::DataOp::WithColumn {
-                        name: name.clone(),
-                        expr: typed,
-                    }));
-                }
-                PipelineOp::Chart(config) => {
-                    self.check_chart(config, &cols);
-                    steps.push(ir::Step::Side(ir::SideOp::Chart(config.clone())));
-                }
-                PipelineOp::Cast { col, to_type } => {
-                    if !matches!(to_type.as_str(), "float" | "int" | "str" | "bool") {
-                        self.error(
-                            ErrorKind::Other("알 수 없는 cast 타입".to_string()),
-                            if is_korean() {
-                                format!(
-                                    "cast(\"{}\", \"{}\") : 알 수 없는 타입 '{}'. 지원 타입: \"float\", \"int\", \"str\", \"bool\"",
-                                    col, to_type, to_type
-                                )
-                            } else {
-                                format!(
-                                    "cast(\"{}\", \"{}\") : unknown type '{}'. Supported types: \"float\", \"int\", \"str\", \"bool\"",
-                                    col, to_type, to_type
-                                )
-                            },
-                        );
-                    }
-                    self.check_column(col, "cast", &cols);
-                    if let Some(t) = cols.get(col).cloned() {
-                        let nt = normalize_type(to_type);
-                        cols.insert(col.clone(), CheckerColType::new(nt, t.option));
-                    }
-                    steps.push(ir::Step::Data(ir::DataOp::Cast {
-                        col: col.clone(),
-                        to: to_type.clone(),
-                    }));
-                }
-                PipelineOp::Rename { old_name, new_name } => {
-                    self.check_column(old_name, "rename", &cols);
-                    if let Some(t) = cols.remove(old_name) {
-                        cols.insert(new_name.clone(), t);
-                    }
-                    steps.push(ir::Step::Data(ir::DataOp::Rename {
-                        old: old_name.clone(),
-                        new: new_name.clone(),
-                    }));
-                }
-                PipelineOp::Replace { col, from, to } => {
-                    self.check_column(col, "replace", &cols);
-                    steps.push(ir::Step::Data(ir::DataOp::Replace {
-                        col: col.clone(),
-                        from: from.clone(),
-                        to: to.clone(),
-                    }));
-                }
-
-                // ── v0.6 withDp — 인수 범위는 파서가 검증, 숫자형 컬럼 존재는 런타임이 검증 ──
-                PipelineOp::WithDp(args) => {
-                    // 노이즈 주입 후 숫자형 컬럼은 float 로 승격된다
-                    for (_, t) in cols.iter_mut() {
-                        if t.is_numeric() {
-                            *t = CheckerColType::new("float", t.option);
-                        }
-                    }
-                    if args.epsilon > MAX_EPSILON_WARN {
-                        self.warning(if is_korean() {
-                            format!(
-                                "withDp(epsilon: {}) : ε 이 10을 초과하면 프라이버시 보호 효과가 사실상 없습니다. 1.0 이하 권장.",
-                                args.epsilon
-                            )
-                        } else {
-                            format!(
-                                "withDp(epsilon: {}) : ε above 10 provides effectively no privacy protection. 1.0 or less is recommended.",
-                                args.epsilon
-                            )
-                        });
-                    }
-                    steps.push(ir::Step::Side(ir::SideOp::WithDp(args.clone())));
-                }
+            if self.check_op(op, &mut st) {
+                break;
             }
         }
 
-        if let Some(g) = pending_group {
+        if let Some(g) = st.pending_group.take() {
             self.error(
                 ErrorKind::Other("groupBy 후 집계 누락".to_string()),
                 if is_korean() {
@@ -836,17 +504,493 @@ impl Analyzer {
             name: binding.map(|s| s.to_string()),
             source: ir_source,
             input_schema,
-            output_schema: ir_schema_from_map(&cols),
-            steps,
-            yields_model,
+            output_schema: ir_schema_from_map(&st.cols),
+            steps: st.steps,
+            yields_model: st.yields_model,
         };
         self.ir.pipelines.push(node);
 
         if let Some(binding) = binding {
             self.vars
-                .insert(binding.to_string(), VarInfo { columns: cols });
+                .insert(binding.to_string(), VarInfo { columns: st.cols });
         }
-        yields_model
+        st.yields_model
+    }
+
+    /// 파이프라인 소스를 정적 분석하고 IR Source 로 변환한다.
+    fn resolve_pipeline_source(
+        &mut self,
+        source: &PipelineSource,
+    ) -> (Option<HashMap<String, CheckerColType>>, ir::Source) {
+        match source {
+            PipelineSource::Load {
+                file_path,
+                schema_name,
+            } => {
+                let schema_ir = self
+                    .schemas
+                    .get(schema_name)
+                    .map(|f| ir_schema_from_fields(f));
+                let columns = match self.schemas.get(schema_name) {
+                    Some(fields) => {
+                        let mut map = HashMap::new();
+                        for f in fields {
+                            map.insert(f.name.clone(), col_type_of_field(&f.field_type));
+                        }
+                        Some(map)
+                    }
+                    None => {
+                        self.error(
+                            ErrorKind::UndeclaredType(schema_name.to_string()),
+                            if is_korean() {
+                                format!(
+                                    "load(...) :: {} : 스키마 '{}' 이(가) 선언되지 않았습니다. `type {} = {{ ... }}` 로 먼저 선언하세요.",
+                                    schema_name, schema_name, schema_name
+                                )
+                            } else {
+                                format!(
+                                    "load(...) :: {} : schema '{}' is not declared. Declare it first with `type {} = {{ ... }}`.",
+                                    schema_name, schema_name, schema_name
+                                )
+                            },
+                        );
+                        None
+                    }
+                };
+                (
+                    columns,
+                    ir::Source::Load {
+                        file_path: file_path.clone(),
+                        schema: schema_ir,
+                    },
+                )
+            }
+            PipelineSource::VarRef(name) => {
+                if self.trained_vars.contains(name) {
+                    self.error(
+                        ErrorKind::UndeclaredVariable(name.to_string()),
+                        if is_korean() {
+                            format!(
+                                "변수 '{}' 은 학습된 모델입니다. DataFrame 파이프라인 소스로 사용할 수 없습니다.",
+                                name
+                            )
+                        } else {
+                            format!(
+                                "Variable '{}' is a trained model and cannot be used as a DataFrame pipeline source.",
+                                name
+                            )
+                        },
+                    );
+                } else if let Some(var) = self.vars.get(name) {
+                    return (
+                        Some(var.columns.clone()),
+                        ir::Source::Ref { var: name.clone() },
+                    );
+                } else {
+                    self.error(
+                        ErrorKind::UndeclaredVariable(name.to_string()),
+                        if is_korean() {
+                            format!(
+                                "변수 '{}' 이(가) 선언되지 않았습니다. 이 변수를 이전 파이프라인에서 먼저 선언하세요.",
+                                name
+                            )
+                        } else {
+                            format!(
+                                "Variable '{}' is not declared. Declare it in an earlier pipeline first.",
+                                name
+                            )
+                        },
+                    );
+                }
+                (None, ir::Source::Ref { var: name.clone() })
+            }
+        }
+    }
+
+    /// 단일 연산자를 검사하고 IR Step 을 누적한다. true 를 반환하면 파이프라인을 중단한다(train).
+    fn check_op(&mut self, op: &PipelineOp, st: &mut PipelineCheckState) -> bool {
+        match op {
+            PipelineOp::Train { model_name, config } => self.check_train_op(model_name, config, st),
+            PipelineOp::Predict { model_var, as_col } => {
+                self.check_predict_op(model_var, as_col, st)
+            }
+            PipelineOp::Filter(expr) => self.check_filter_op(expr, st),
+            PipelineOp::Select(cols) => self.check_select_op(cols, st),
+            PipelineOp::GroupBy(group_col) => self.check_groupby_op(group_col, st),
+            PipelineOp::Count(Some(c)) => self.check_count_op(c, st),
+            PipelineOp::Sum(_)
+            | PipelineOp::Mean(_)
+            | PipelineOp::Min(_)
+            | PipelineOp::Max(_)
+            | PipelineOp::Median(_)
+            | PipelineOp::Variance(_)
+            | PipelineOp::Std(_) => self.check_aggregate_op(op, st),
+            PipelineOp::Count(None) => self.check_count_all_op(st),
+            PipelineOp::OrderBy { col, desc } => self.check_orderby_op(col, *desc, st),
+            PipelineOp::Take(n) => self.check_take_op(*n, st),
+            PipelineOp::Sample { n, seed } => self.check_sample_op(*n, *seed, st),
+            PipelineOp::DropNull(drop_col) => self.check_dropnull_op(drop_col, st),
+            PipelineOp::FillNull { col, value } => self.check_fillnull_op(col, value, st),
+            PipelineOp::Join {
+                other,
+                left_on,
+                right_on,
+                how,
+            } => self.check_join_op(other, left_on, right_on, how, st),
+            PipelineOp::WithColumn { name, expr } => self.check_withcolumn_op(name, expr, st),
+            PipelineOp::Chart(config) => self.check_chart_op(config, st),
+            PipelineOp::Cast { col, to_type } => self.check_cast_op(col, to_type, st),
+            PipelineOp::Rename { old_name, new_name } => {
+                self.check_rename_op(old_name, new_name, st)
+            }
+            PipelineOp::Replace { col, from, to } => self.check_replace_op(col, from, to, st),
+            PipelineOp::WithDp(args) => self.check_withdp_op(args, st),
+        }
+    }
+
+    fn check_train_op(
+        &mut self,
+        model_name: &String,
+        config: &TrainConfig,
+        st: &mut PipelineCheckState,
+    ) -> bool {
+        if !self.models.contains_key(model_name) {
+            self.error(
+                ErrorKind::Other("미선언 모델".to_string()),
+                if is_korean() {
+                    format!(
+                        "train({}) : 모델 '{}' 은(는) 선언되지 않았습니다. 먼저 `model {} {{ ... }}` 로 선언하세요.",
+                        model_name, model_name, model_name
+                    )
+                } else {
+                    format!(
+                        "train({}) : model '{}' is not declared. Declare it first with `model {} {{ ... }}`.",
+                        model_name, model_name, model_name
+                    )
+                },
+            );
+        }
+        st.steps.push(ir::Step::ML(ir::MLOp::Train {
+            model: model_name.clone(),
+            config: config.clone(),
+        }));
+        st.yields_model = true;
+        true
+    }
+
+    fn check_predict_op(
+        &mut self,
+        model_var: &String,
+        as_col: &Option<String>,
+        st: &mut PipelineCheckState,
+    ) -> bool {
+        if !self.trained_vars.contains(model_var) {
+            self.error(
+                ErrorKind::UndeclaredVariable(model_var.to_string()),
+                if is_korean() {
+                    format!(
+                        "predict({}) : 변수 '{}' 은(는) 학습된 모델이 아닙니다. 먼저 `v {} = ... |> train(...)` 으로 학습하세요.",
+                        model_var, model_var, model_var
+                    )
+                } else {
+                    format!(
+                        "predict({}) : variable '{}' is not a trained model. Train it first with `v {} = ... |> train(...)`.",
+                        model_var, model_var, model_var
+                    )
+                },
+            );
+        }
+        if let Some(name) = as_col {
+            st.cols
+                .insert(name.clone(), CheckerColType::new("float", true));
+        }
+        st.steps.push(ir::Step::ML(ir::MLOp::Predict {
+            model: model_var.clone(),
+            as_col: as_col.clone(),
+        }));
+        false
+    }
+
+    fn check_filter_op(&mut self, expr: &Expr, st: &mut PipelineCheckState) -> bool {
+        self.check_expr_columns(expr, &st.cols);
+        let typed = type_expr(expr, &st.cols);
+        st.steps.push(ir::Step::Data(ir::DataOp::Filter(typed)));
+        false
+    }
+
+    fn check_select_op(&mut self, cols_sel: &Vec<String>, st: &mut PipelineCheckState) -> bool {
+        let mut next = HashMap::new();
+        for c in cols_sel {
+            if let Some(t) = st.cols.get(c) {
+                next.insert(c.clone(), t.clone());
+            } else {
+                self.column_missing_with_available(c, "select", &st.cols);
+            }
+        }
+        st.cols = next;
+        st.steps
+            .push(ir::Step::Data(ir::DataOp::Select(cols_sel.clone())));
+        false
+    }
+
+    fn check_groupby_op(&mut self, group_col: &String, st: &mut PipelineCheckState) -> bool {
+        self.check_column(group_col, "groupBy", &st.cols);
+        st.pending_group = Some(group_col.clone());
+        st.steps
+            .push(ir::Step::Data(ir::DataOp::GroupBy(group_col.clone())));
+        false
+    }
+
+    // count(col) 은 행 수를 세는 연산이라 컬럼 타입과 무관하다 — 존재성만 검사
+    fn check_count_op(&mut self, c: &String, st: &mut PipelineCheckState) -> bool {
+        self.check_column(c, "count", &st.cols);
+        st.pending_group = None;
+        st.steps.push(ir::Step::Data(ir::DataOp::Aggregate {
+            kind: ir::AggKind::Count,
+            col: c.clone(),
+        }));
+        false
+    }
+
+    fn check_aggregate_op(&mut self, op: &PipelineOp, st: &mut PipelineCheckState) -> bool {
+        let (kind, agg_col) = aggregate_kind_col(op);
+        self.check_agg_column(&agg_col, &st.cols);
+        st.pending_group = None;
+        st.steps
+            .push(ir::Step::Data(ir::DataOp::Aggregate { kind, col: agg_col }));
+        false
+    }
+
+    fn check_count_all_op(&mut self, st: &mut PipelineCheckState) -> bool {
+        st.pending_group = None;
+        st.steps.push(ir::Step::Data(ir::DataOp::Aggregate {
+            kind: ir::AggKind::Len,
+            col: String::new(),
+        }));
+        false
+    }
+
+    fn check_orderby_op(&mut self, col: &String, desc: bool, st: &mut PipelineCheckState) -> bool {
+        self.check_column(col, "orderBy", &st.cols);
+        st.steps.push(ir::Step::Data(ir::DataOp::Sort {
+            col: col.clone(),
+            desc,
+        }));
+        false
+    }
+
+    fn check_take_op(&mut self, n: i64, st: &mut PipelineCheckState) -> bool {
+        st.steps.push(ir::Step::Data(ir::DataOp::Limit(n)));
+        false
+    }
+
+    fn check_sample_op(&mut self, n: i64, seed: Option<i64>, st: &mut PipelineCheckState) -> bool {
+        st.steps
+            .push(ir::Step::Data(ir::DataOp::Sample { n, seed }));
+        false
+    }
+
+    fn check_dropnull_op(&mut self, drop_col: &String, st: &mut PipelineCheckState) -> bool {
+        self.check_column(drop_col, "dropNull", &st.cols);
+        st.steps
+            .push(ir::Step::Data(ir::DataOp::DropNull(drop_col.clone())));
+        false
+    }
+
+    fn check_fillnull_op(
+        &mut self,
+        col: &String,
+        value: &FillNullValue,
+        st: &mut PipelineCheckState,
+    ) -> bool {
+        self.check_column(col, "fillNull", &st.cols);
+        if let Some(t) = st.cols.get(col) {
+            if !t.option && t.name != "unknown" {
+                self.error(
+                    ErrorKind::Other("fillNull on non-nullable column".to_string()),
+                    if is_korean() {
+                        format!(
+                            "fillNull(\"{}\", ...) : 컬럼 '{}' 은 null을 허용하지 않는 타입으로 선언되어 있습니다. 스키마에서 '{}' 을(를) Option<{}> 으로 선언하거나, 이 연산을 제거하세요.",
+                            col, col, col, t.name
+                        )
+                    } else {
+                        format!(
+                            "fillNull(\"{}\", ...) : column '{}' is declared as a non-nullable type. Declare '{}' as Option<{}> in the schema, or remove this operation.",
+                            col, col, col, t.name
+                        )
+                    },
+                );
+            }
+        }
+        self.check_fill_value(col, value, &st.cols);
+        st.steps.push(ir::Step::Data(ir::DataOp::FillNull {
+            col: col.clone(),
+            value: fill_value_ir(value),
+        }));
+        false
+    }
+
+    fn check_join_op(
+        &mut self,
+        other: &String,
+        left_on: &Vec<String>,
+        right_on: &Vec<String>,
+        how: &JoinHow,
+        st: &mut PipelineCheckState,
+    ) -> bool {
+        for k in left_on {
+            self.check_column(k, "join(left_on)", &st.cols);
+        }
+        if self.trained_vars.contains(other) {
+            self.error(
+                ErrorKind::UndeclaredVariable(other.to_string()),
+                if is_korean() {
+                    format!("join() 대상 변수 '{}' 은 학습된 모델입니다.", other)
+                } else {
+                    format!("join() target variable '{}' is a trained model.", other)
+                },
+            );
+        } else if let Some(var) = self.vars.get(other) {
+            let right_cols: HashMap<String, CheckerColType> = var.columns.clone();
+            for k in right_on {
+                self.check_column(k, "join(right_on)", &right_cols);
+            }
+        } else {
+            self.error(
+                ErrorKind::UndeclaredVariable(other.to_string()),
+                if is_korean() {
+                    format!("join() 대상 변수 '{}' 이(가) 선언되지 않았습니다.", other)
+                } else {
+                    format!("join() target variable '{}' is not declared.", other)
+                },
+            );
+        }
+        st.steps.push(ir::Step::Data(ir::DataOp::Join {
+            other: other.clone(),
+            left_on: left_on.clone(),
+            right_on: right_on.clone(),
+            how: how.clone(),
+        }));
+        false
+    }
+
+    fn check_withcolumn_op(
+        &mut self,
+        name: &String,
+        expr: &Expr,
+        st: &mut PipelineCheckState,
+    ) -> bool {
+        self.check_expr_columns(expr, &st.cols);
+        self.check_division_by_zero(expr);
+        let typed = type_expr(expr, &st.cols);
+        st.cols
+            .insert(name.clone(), ir_col_type_to_checker(&typed.ty));
+        st.steps.push(ir::Step::Data(ir::DataOp::WithColumn {
+            name: name.clone(),
+            expr: typed,
+        }));
+        false
+    }
+
+    fn check_chart_op(&mut self, config: &ChartConfig, st: &mut PipelineCheckState) -> bool {
+        self.check_chart(config, &st.cols);
+        st.steps
+            .push(ir::Step::Side(ir::SideOp::Chart(config.clone())));
+        false
+    }
+
+    fn check_cast_op(
+        &mut self,
+        col: &String,
+        to_type: &String,
+        st: &mut PipelineCheckState,
+    ) -> bool {
+        if !matches!(to_type.as_str(), "float" | "int" | "str" | "bool") {
+            self.error(
+                ErrorKind::Other("알 수 없는 cast 타입".to_string()),
+                if is_korean() {
+                    format!(
+                        "cast(\"{}\", \"{}\") : 알 수 없는 타입 '{}'. 지원 타입: \"float\", \"int\", \"str\", \"bool\"",
+                        col, to_type, to_type
+                    )
+                } else {
+                    format!(
+                        "cast(\"{}\", \"{}\") : unknown type '{}'. Supported types: \"float\", \"int\", \"str\", \"bool\"",
+                        col, to_type, to_type
+                    )
+                },
+            );
+        }
+        self.check_column(col, "cast", &st.cols);
+        if let Some(t) = st.cols.get(col).cloned() {
+            let nt = normalize_type(to_type);
+            st.cols
+                .insert(col.clone(), CheckerColType::new(nt, t.option));
+        }
+        st.steps.push(ir::Step::Data(ir::DataOp::Cast {
+            col: col.clone(),
+            to: to_type.clone(),
+        }));
+        false
+    }
+
+    fn check_rename_op(
+        &mut self,
+        old_name: &String,
+        new_name: &String,
+        st: &mut PipelineCheckState,
+    ) -> bool {
+        self.check_column(old_name, "rename", &st.cols);
+        if let Some(t) = st.cols.remove(old_name) {
+            st.cols.insert(new_name.clone(), t);
+        }
+        st.steps.push(ir::Step::Data(ir::DataOp::Rename {
+            old: old_name.clone(),
+            new: new_name.clone(),
+        }));
+        false
+    }
+
+    fn check_replace_op(
+        &mut self,
+        col: &String,
+        from: &String,
+        to: &String,
+        st: &mut PipelineCheckState,
+    ) -> bool {
+        self.check_column(col, "replace", &st.cols);
+        st.steps.push(ir::Step::Data(ir::DataOp::Replace {
+            col: col.clone(),
+            from: from.clone(),
+            to: to.clone(),
+        }));
+        false
+    }
+
+    // ── v0.6 withDp — 인수 범위는 파서가 검증, 숫자형 컬럼 존재는 런타임이 검증 ──
+    fn check_withdp_op(&mut self, args: &DpArgs, st: &mut PipelineCheckState) -> bool {
+        // 노이즈 주입 후 숫자형 컬럼은 float 로 승격된다
+        for (_, t) in st.cols.iter_mut() {
+            if t.is_numeric() {
+                *t = CheckerColType::new("float", t.option);
+            }
+        }
+        if args.epsilon > MAX_EPSILON_WARN {
+            self.warning(if is_korean() {
+                format!(
+                    "withDp(epsilon: {}) : ε 이 10을 초과하면 프라이버시 보호 효과가 사실상 없습니다. 1.0 이하 권장.",
+                    args.epsilon
+                )
+            } else {
+                format!(
+                    "withDp(epsilon: {}) : ε above 10 provides effectively no privacy protection. 1.0 or less is recommended.",
+                    args.epsilon
+                )
+            });
+        }
+        st.steps
+            .push(ir::Step::Side(ir::SideOp::WithDp(args.clone())));
+        false
     }
 
     fn check_agg_column(&mut self, col: &str, cols: &HashMap<String, CheckerColType>) {
