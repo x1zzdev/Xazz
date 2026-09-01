@@ -12,12 +12,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        // ── run: .xzz 데이터 분석 코드 실행 ──────────────────────────────────
+        // ── run: execute .xzz data analysis code ────────────────────────────────
         //
-        // ⚠️  아키텍처 원칙 (바이너리 크기 최소화):
-        //   CLI 바이너리는 Polars/Tokio를 링크하지 않는다.
-        //   run 명령어는 xazz-runner 서브프로세스를 스폰해 실행을 위임한다.
-        //   통신: CLI args만 사용 (별도 IPC 불필요)
+        // ⚠️  Architecture principle (binary size minimization):
+        //   The CLI binary does not link Polars/Tokio.
+        //   The run command spawns the xazz-runner subprocess to delegate execution.
+        //   Communication: CLI args only (no separate IPC needed)
         Commands::Run {
             file,
             release,
@@ -49,9 +49,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::process::exit(1);
             }
 
-            // ── 보안 가드레일 (issue #2) ──────────────────────────────────
-            // 서브프로세스를 띄우기 전에 Policy-as-Code 정적 검사를 통과해야 한다.
-            // 위반이 있으면 여기서 종료한다. (실행 엔진에도 동일한 게이트가 있다)
+            // ── security guardrail (issue #2) ──────────────────────────────
+            // Must pass the Policy-as-Code static check before spawning the subprocess.
+            // If there are violations, exit here. (The execution engine has the same gate)
             policy_cli::gate_before_run(&source_path, json);
 
             if release {
@@ -59,9 +59,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!();
             }
 
-            // ── xazz-runner 서브프로세스 스폰 ────────────────────────────────
-            // Polars/Tokio는 xazz-runner 바이너리에만 링크되며,
-            // 이 CLI 바이너리의 크기에 영향을 주지 않는다.
+            // ── spawn the xazz-runner subprocess ────────────────────────────────
+            // Polars/Tokio are only linked into the xazz-runner binary,
+            // so they do not affect this CLI binary's size.
             let runner = find_runner()?;
             let mut cmd = std::process::Command::new(&runner);
             cmd.arg(&source_path);
@@ -77,9 +77,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cmd.arg("--opt");
             }
 
-            // ── --json: 구조화된 JSON 실행 결과 출력 ────────────────────────
-            // xazz-runner 의 stdout 을 캡처해 [xazz:result] / [xazz:diagnostics]
-            // 마커를 파싱한 뒤 단일 JSON 객체로 재조립한다.
+            // ── --json: print structured JSON execution result ──────────────────────
+            // Capture xazz-runner's stdout, parse the [xazz:result] / [xazz:diagnostics]
+            // markers, and reassemble into a single JSON object.
             if json {
                 let output = cmd.output().map_err(|e| {
                     format!(
@@ -149,8 +149,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // ── policy: Policy-as-Code 보안 가드레일 검사 (issue #2) ────────────
-        // 정적 분석만 사용하므로 Polars 없이 CLI에서 직접 처리한다.
+        // ── policy: Policy-as-Code security guardrail check (issue #2) ──────────
+        // Uses only static analysis, so it is handled directly in the CLI without Polars.
         Commands::Policy {
             file,
             json,
@@ -173,8 +173,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // ── emit: .xzz → 타겟 언어 변환 출력 ──────────────────────────────
-        // emit은 Polars 없이 컴파일러만 사용하므로 CLI에서 직접 처리한다.
+        // ── emit: convert .xzz → target language ────────────────────────────────
+        // emit uses only the compiler without Polars, so it is handled directly in the CLI.
         Commands::Emit { format, file, out } => {
             let source_path = match file.to_str() {
                 Some(p) => p.to_owned(),
@@ -229,7 +229,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // ── check: 정적 의미 분석 (Type Checker) ────────────────────────────
+        // ── check: static semantic analysis (type checker) ──────────────────────
         Commands::Check { file, json } => {
             let source = match std::fs::read_to_string(&file) {
                 Ok(s) => s,
@@ -241,7 +241,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let (parse_result, result) = xazz_compiler::check_source(&source);
 
-            // 파싱 단계 에러가 있으면 그대로 출력 후 실패 종료
+            // If there are parsing errors, print them and exit with failure
             if let Err(e) = &parse_result {
                 if json {
                     let out = serde_json::json!({
@@ -257,7 +257,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::process::exit(1);
             }
 
-            // ── --json: 구조화된 진단 결과 출력 ─────────────────────────────
+            // ── --json: print structured diagnostics result ──────────────────────────
             if json {
                 let diag = |e: &xazz_compiler::CompileError| {
                     serde_json::json!({
@@ -324,7 +324,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("✅ static analysis passed — no defects before execution");
         }
 
-        // ── sde: 합성 데이터 생성 ────────────────────────────────────────────
+        // ── sde: generate synthetic data ──────────────────────────────────────────
         Commands::Sde { rows, output } => match sde::generate(rows, &output) {
             Ok(()) => {
                 println!(
@@ -339,7 +339,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         },
 
-        // ── new: 새 프로젝트 생성 ─────────────────────────────────────────────
+        // ── new: create a new project ─────────────────────────────────────────────
         Commands::New { name } => {
             if let Err(e) = project::create_project(&name) {
                 eprintln!("{}", e);
@@ -347,7 +347,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // ── import: CSV → xazz 타입 정의 + load 문 자동 생성 ─────────────────
+        // ── import: auto-generate CSV → xazz type definition + load statement ─────
         Commands::Import { file } => {
             if let Err(e) = schema::import_csv(&file) {
                 eprintln!("{}", e);
@@ -355,7 +355,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // ── whoami: 사용자 아이덴티티 출력 ──────────────────────────────────
+        // ── whoami: print user identity ──────────────────────────────────────────
         Commands::Whoami => {
             whoami::run_whoami()?;
         }
@@ -364,21 +364,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// ── xazz-runner 바이너리 탐색 ────────────────────────────────────────────────
+// ── locate the xazz-runner binary ──────────────────────────────────────────────
 //
-// 탐색 순서:
-//   1. XAZZ_RUNNER_PATH 환경변수 (배포 하드닝)
-//   2. 현재 xazz 실행 파일과 같은 디렉토리
-// PATH 폴백은 수행하지 않는다 (PATH 셰도잉으로 임의 코드 실행 방지, fail-closed)
+// Search order:
+//   1. XAZZ_RUNNER_PATH environment variable (deployment hardening)
+//   2. Same directory as the current xazz executable
+// No PATH fallback (prevents arbitrary code execution via PATH shadowing, fail-closed)
 fn find_runner() -> Result<std::path::PathBuf, String> {
-    // 1. 환경변수로 경로 고정 (배포 하드닝)
+    // 1. Pin the path via environment variable (deployment hardening)
     if let Ok(pinned) = std::env::var("XAZZ_RUNNER_PATH") {
         if !pinned.trim().is_empty() {
             return Ok(std::path::PathBuf::from(pinned));
         }
     }
 
-    // 2. 현재 실행 파일 옆에서 탐색
+    // 2. Search next to the current executable
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             #[cfg(windows)]

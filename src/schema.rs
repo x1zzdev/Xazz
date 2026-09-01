@@ -2,12 +2,12 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::io::Read;
 
-// ─── 상수 ──────────────────────────────────────────────────────────────────
+// ─── constants ──────────────────────────────────────────────────────────────
 
-/// 스키마 추론에 검사할 최대 샘플 행 수.
+/// Maximum number of sample rows to inspect for schema inference.
 const SCHEMA_SAMPLE_ROWS: usize = 100;
 
-// ─── 타입 추론 ──────────────────────────────────────────────────────────────
+// ─── type inference ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
 enum InferredType {
@@ -17,7 +17,7 @@ enum InferredType {
     String,
 }
 
-/// 단일 셀 값에서 타입을 추론합니다.
+/// Infer the type from a single cell value.
 fn infer_type(value: &str) -> InferredType {
     let trimmed = value.trim();
     match trimmed.to_lowercase().as_str() {
@@ -33,7 +33,7 @@ fn infer_type(value: &str) -> InferredType {
     InferredType::String
 }
 
-/// 두 타입을 병합합니다 (타입 승격 규칙).
+/// Merge two types (type promotion rules).
 ///
 /// Bool + Bool  = Bool
 /// Int  + Int   = Int
@@ -57,11 +57,11 @@ fn merge_type(a: InferredType, b: InferredType) -> InferredType {
     }
 }
 
-// ─── 이름 생성 헬퍼 ─────────────────────────────────────────────────────────
+// ─── name generation helpers ──────────────────────────────────────────────────
 
-/// 파일 경로에서 PascalCase 타입 이름을 생성합니다.
+/// Generate a PascalCase type name from a file path.
 ///
-/// 예)
+/// Example)
 /// - `data/seoul_air.csv` → `SeoulAir`
 /// - `weather_data.csv`   → `WeatherData`
 /// - `population.csv`     → `Population`
@@ -85,24 +85,24 @@ fn filename_to_type_name(path: &str) -> std::string::String {
         .collect::<std::string::String>()
 }
 
-/// 파일 경로에서 변수 이름을 생성합니다.
+/// Generate a variable name from a file path.
 ///
-/// 예)
+/// Example)
 /// - `seoul_air.csv`   → `air`
 /// - `weather_data.csv` → `weather`
 /// - `population.csv`   → `population`
 ///
-/// 규칙: 마지막 언더스코어 이후 세그먼트 사용, 없으면 전체 stem 사용.
+/// Rule: use the segment after the last underscore, or the whole stem if none.
 fn filename_to_var_name(path: &str) -> std::string::String {
     let stem = std::path::Path::new(path)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("data");
 
-    // 언더스코어가 있을 때 마지막 세그먼트, 없으면 전체
+    // When there is an underscore, use the last segment; otherwise the whole
     let segments: Vec<&str> = stem.split('_').collect();
     if segments.len() >= 2 {
-        // 마지막 세그먼트가 너무 짧거나 숫자면 두 번째 마지막 사용
+        // If the last segment is too short or numeric, use the second-to-last
         let last = *segments.last().unwrap_or(&stem);
         if last.len() >= 2 && last.parse::<u64>().is_err() {
             last.to_lowercase()
@@ -116,29 +116,29 @@ fn filename_to_var_name(path: &str) -> std::string::String {
     }
 }
 
-// ─── 스키마 추론 ────────────────────────────────────────────────────────────
+// ─── schema inference ──────────────────────────────────────────────────────────
 
-/// CSV 파일을 읽어 xazz 타입 정의 + load 문을 생성합니다.
+/// Read a CSV file and generate a xazz type definition + load statement.
 ///
-/// 최대 100행 샘플만 검사합니다.
+/// Only inspects a sample of up to 100 rows.
 pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
-    // 1) 파일을 바이트로 읽음
+    // 1) Read the file as bytes
     let mut file = fs::File::open(csv_path)
         .with_context(|| format!("failed to open CSV file '{}'.", csv_path))?;
     let mut raw_bytes = Vec::new();
     file.read_to_end(&mut raw_bytes)
         .with_context(|| format!("failed to read CSV file '{}'", csv_path))?;
 
-    // 2) EUC-KR(CP949) 감지 및 UTF-8 디코딩
+    // 2) Detect EUC-KR(CP949) and decode as UTF-8
     let content = if raw_bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        // BOM이 있으면 UTF-8 BOM 제거 후 사용
+        // If there is a BOM, strip the UTF-8 BOM and use it
         std::string::String::from_utf8(raw_bytes[3..].to_vec())
             .map_err(|e| anyhow::anyhow!("UTF-8 디코딩 실패: {}", e))?
     } else {
-        // EUC-KR로 디코딩 시도, 실패하면 UTF-8로 fallback
+        // Try decoding as EUC-KR, fall back to UTF-8 on failure
         let (cow, _, had_errors) = encoding_rs::EUC_KR.decode(&raw_bytes);
         if had_errors {
-            // EUC-KR 실패 시 UTF-8 fallback
+            // Fall back to UTF-8 when EUC-KR fails
             std::string::String::from_utf8(raw_bytes)
                 .map_err(|e| anyhow::anyhow!("UTF-8 디코딩도 실패: {}", e))?
         } else {
@@ -146,7 +146,7 @@ pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
         }
     };
 
-    // 3) 메모리에서 CSV Reader 생성
+    // 3) Create the CSV reader in memory
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(true)
         .from_reader(content.as_bytes());
@@ -160,9 +160,9 @@ pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
 
     let col_count = headers.len();
 
-    // 열별 현재 추론 타입 (초기값 없음 → Option)
+    // Current inferred type per column (no initial value → Option)
     let mut col_types: Vec<Option<InferredType>> = vec![None; col_count];
-    // 열별 nullable 여부
+    // Whether each column is nullable
     let mut col_nullable: Vec<bool> = vec![false; col_count];
 
     for result in rdr.records().take(SCHEMA_SAMPLE_ROWS) {
@@ -185,13 +185,13 @@ pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
         }
     }
 
-    // 타입이 한 번도 채워지지 않은 열(모두 공백)은 String 처리
+    // Columns never populated with a type (all blank) are treated as String
     let col_types: Vec<InferredType> = col_types
         .into_iter()
         .map(|t| t.unwrap_or(InferredType::String))
         .collect();
 
-    // ─── 코드 생성 ───────────────────────────────────────────────────────────
+    // ─── code generation ───────────────────────────────────────────────────────────
     let type_name = filename_to_type_name(csv_path);
     let var_name = filename_to_var_name(csv_path);
 
@@ -224,14 +224,14 @@ pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
     Ok(output)
 }
 
-// ─── Import 명령어 ──────────────────────────────────────────────────────────
+// ─── import command ───────────────────────────────────────────────────────────
 
-/// CSV 파일 경로에서 xazz.toml이 있는 프로젝트 루트 디렉토리를 탐색합니다.
+/// Search for the project root directory (containing xazz.toml) from a CSV file path.
 ///
-/// 예) `a/data/seoul.csv` → `a/` (a/xazz.toml 이 존재하므로)
+/// Example) `a/data/seoul.csv` → `a/` (because a/xazz.toml exists)
 fn find_project_root(csv_path: &str) -> Option<std::path::PathBuf> {
     let path = std::path::Path::new(csv_path);
-    // CSV 파일의 부모 디렉토리부터 시작해서 상위로 올라가며 xazz.toml 탐색
+    // Start from the CSV file's parent directory and walk upward looking for xazz.toml
     let mut dir = path.parent()?;
     loop {
         if dir.join("xazz.toml").exists() {
@@ -244,18 +244,18 @@ fn find_project_root(csv_path: &str) -> Option<std::path::PathBuf> {
     }
 }
 
-/// CSV 파일을 읽어 스키마를 추론하고 main.xzz에 추가합니다.
+/// Read a CSV file, infer its schema, and append it to main.xzz.
 pub fn import_csv(file: &str) -> Result<()> {
     let generated = infer_csv_schema(file)?;
 
-    // CSV 경로에서 프로젝트 루트(xazz.toml이 있는 디렉토리)를 찾고,
-    // 없으면 현재 디렉토리를 폴백으로 사용합니다.
+    // Find the project root (directory containing xazz.toml) from the CSV path,
+    // falling back to the current directory if not found.
     let main_xzz_path = match find_project_root(file) {
         Some(root) => root.join("main.xzz"),
         None => std::path::PathBuf::from("main.xzz"),
     };
 
-    // main.xzz 읽기 (없으면 빈 파일로 처리)
+    // Read main.xzz (treat as an empty file if not present)
     let current = if main_xzz_path.exists() {
         fs::read_to_string(&main_xzz_path)
             .with_context(|| format!("failed to read {}", main_xzz_path.display()))?
@@ -263,7 +263,7 @@ pub fn import_csv(file: &str) -> Result<()> {
         std::string::String::new()
     };
 
-    // 이미 같은 타입 정의가 존재하면 스킵
+    // Skip if the same type definition already exists
     let type_name = filename_to_type_name(file);
     let type_marker = format!("type {} =", type_name);
     if current.contains(&type_marker) {
@@ -275,7 +275,7 @@ pub fn import_csv(file: &str) -> Result<()> {
         return Ok(());
     }
 
-    // 기존 내용 끝 + 빈 줄 + 생성 코드 + 마지막 줄바꿈
+    // existing content end + blank line + generated code + trailing newline
     let updated = format!("{}\n\n{}\n", current.trim_end(), generated);
 
     fs::write(&main_xzz_path, &updated)

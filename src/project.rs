@@ -2,8 +2,8 @@ use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::Path;
 
-/// 프로젝트명이 단일 안전한 경로 세그먼트인지 검증한다.
-/// 경로 구분자, `..`, 절대 경로, 드라이브 접두사를 거부한다.
+/// Verify that the project name is a single safe path segment.
+/// Reject path separators, `..`, absolute paths, and drive prefixes.
 fn validate_project_name(name: &str) -> Result<()> {
     let invalid_hint = |c: &str| {
         format!(
@@ -22,7 +22,7 @@ fn validate_project_name(name: &str) -> Result<()> {
     if name.starts_with('/') || name.starts_with('\\') || name.contains("..") {
         bail!(invalid_hint("경로 구분자 / .."));
     }
-    // Windows 드라이브 접두사 (C:\) 및 URL 스킴 거부
+    // Reject Windows drive prefixes (C:\) and URL schemes
     if name.len() >= 2 && name.as_bytes()[1] == b':' {
         bail!(invalid_hint("드라이브 문자 (:)"));
     }
@@ -32,9 +32,9 @@ fn validate_project_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// 새 Xazz 프로젝트 디렉터리를 생성합니다.
+/// Create a new Xazz project directory.
 ///
-/// 생성 구조:
+/// Generated structure:
 /// ```text
 /// {name}/
 /// ├── data/
@@ -44,12 +44,12 @@ fn validate_project_name(name: &str) -> Result<()> {
 /// └── xazz.toml
 /// ```
 pub fn create_project(name: &str) -> Result<()> {
-    // ── 프로젝트명 검증: 단일 안전 경로 세그먼트만 허용 (디렉터리 트래버설 방지)
+    // ── validate project name: allow only a single safe path segment (prevents directory traversal)
     validate_project_name(name)?;
 
     let root = Path::new(name);
 
-    // 이미 존재하면 실패
+    // Fail if it already exists
     if root.exists() {
         bail!(
             "project creation failed: directory '{}' already exists.\n\
@@ -58,11 +58,11 @@ pub fn create_project(name: &str) -> Result<()> {
         );
     }
 
-    // 루트 + data/ 디렉터리 생성
+    // Create the root + data/ directories
     fs::create_dir_all(root.join("data"))
         .with_context(|| format!("failed to create directory '{}'.", name))?;
 
-    // data/sample.csv — 즉시 실행 가능한 샘플 데이터
+    // data/sample.csv — ready-to-run sample data
     let sample_csv = "\
 station,pm10,pm25,date
 Gangnam,45.2,23.1,2026-01-01
@@ -79,7 +79,7 @@ Songpa,68.1,36.4,2026-01-10
     fs::write(root.join("data").join("sample.csv"), sample_csv)
         .with_context(|| "failed to write data/sample.csv.".to_string())?;
 
-    // example.xzz — 즉시 실행 가능한 파이프라인 예제
+    // example.xzz — ready-to-run pipeline example
     let example_xzz = r#"// Xazz Quick Start Example
 // Run: xazz run example.xzz
 // Export: xazz run example.xzz --output result.csv
@@ -100,12 +100,12 @@ v result = data
     fs::write(root.join("example.xzz"), example_xzz)
         .with_context(|| "failed to write example.xzz.".to_string())?;
 
-    // main.xzz — 빈 스타터 파일
+    // main.xzz — empty starter file
     let main_xzz = "// Xazz Project\n// Edit this file or run: xazz run example.xzz\n\n";
     fs::write(root.join("main.xzz"), main_xzz)
         .with_context(|| "failed to write main.xzz.".to_string())?;
 
-    // xazz.toml 작성 — name 값은 TOML 문자열로 이스케이프
+    // Write xazz.toml — escape the name value as a TOML string
     let toml_name = name.replace('\\', "\\\\").replace('"', "\\\"");
     let toml_content = format!("[project]\nname = \"{}\"\nversion = \"0.1.0\"\n", toml_name);
     fs::write(root.join("xazz.toml"), toml_content)
