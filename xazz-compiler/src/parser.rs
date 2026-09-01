@@ -60,7 +60,7 @@ impl Parser {
         Parser { tokens, pos: 0 }
     }
 
-    // ── 내부 헬퍼 ─────────────────────────────────────────────────────────────
+    // ── Internal helpers ─────────────────────────────────────────────────────────────
 
     fn current_kind(&self) -> &TokenKind {
         self.tokens
@@ -111,7 +111,7 @@ impl Parser {
             || matches!(self.current_kind(), TokenKind::Eof)
     }
 
-    // ── 최상위 ────────────────────────────────────────────────────────────────
+    // ── Top-level ────────────────────────────────────────────────────────────────
 
     pub fn parse(&mut self) -> CompileResult<Program> {
         let mut program = Program::new();
@@ -263,7 +263,7 @@ impl Parser {
         })
     }
 
-    /// train() 명명 인자를 파싱한다 (model_name 소비 후 호출).
+    /// Parses the named arguments of train() (called after consuming model_name).
     /// train_args = ("," named_arg)*
     /// named_arg = ("target" | "epochs" | "lr" | "batch_size" | "validation_split") ":" literal
     fn parse_train_args(&mut self) -> CompileResult<TrainConfig> {
@@ -342,8 +342,8 @@ impl Parser {
         Ok(config)
     }
 
-    // ── withDp 인수 파싱 (v0.6) ───────────────────────────────────────────────
-    // name ":" value ("," name ":" value)* — epsilon 은 필수, 나머지는 선택.
+    // ── withDp argument parsing (v0.6) ───────────────────────────────────────────────
+    // name ":" value ("," name ":" value)* — epsilon is required, the rest are optional.
     fn parse_with_dp_args(&mut self) -> CompileResult<DpArgs> {
         let mut args = DpArgs::default();
         let mut epsilon_given = false;
@@ -356,7 +356,7 @@ impl Parser {
             first = false;
 
             let arg_name = match self.current_kind() {
-                // "seed" 는 v0.22 에서 키워드로 등록되어 Ident 로 오지 않는다
+                // "seed" was registered as a keyword in v0.22, so it does not arrive as an Ident
                 TokenKind::Seed => {
                     self.advance();
                     "seed".to_string()
@@ -446,14 +446,14 @@ impl Parser {
         Ok(args)
     }
 
-    /// 현재 Ident 토큰 뒤에 |> (Pipeline) 토큰이 오는지 확인
+    /// Checks whether a |> (Pipeline) token follows the current Ident token
     fn peek_pipeline(&self) -> bool {
         self.pos + 1 < self.tokens.len()
             && matches!(self.tokens[self.pos + 1].kind, TokenKind::Pipeline)
     }
 
-    /// expression statement 파싱: ident |> op1 |> op2 ...
-    /// 변수에 할당하지 않고 파이프라인만 실행
+    /// Parses an expression statement: ident |> op1 |> op2 ...
+    /// Runs the pipeline without assigning it to a variable
     fn parse_expr_stmt(&mut self) -> CompileResult<Stmt> {
         let (source, ops) = self.parse_pipeline_expr()?;
         self.eat(&TokenKind::Semicolon);
@@ -536,11 +536,11 @@ impl Parser {
         })
     }
 
-    // ── 파이프라인 표현식 ──────────────────────────────────────────────────────
+    // ── Pipeline expressions ──────────────────────────────────────────────────────
     // pipeline_expr = (load_expr | var_ref_expr) ("|>" pipeline_op)*
 
     fn parse_pipeline_expr(&mut self) -> CompileResult<(PipelineSource, Vec<PipelineOp>)> {
-        // 소스 결정: load(...) 또는 변수 참조
+        // Determine the source: load(...) or a variable reference
         let source = match self.current_kind() {
             TokenKind::Load => self.parse_load_source()?,
             TokenKind::Ident(name) => {
@@ -560,10 +560,10 @@ impl Parser {
             }
         };
 
-        // |> 연산자 체이닝
+        // |> operator chaining
         let mut ops: Vec<PipelineOp> = Vec::new();
         while matches!(self.current_kind(), TokenKind::Pipeline) {
-            self.advance(); // |> 소비
+            self.advance(); // consume |>
             ops.push(self.parse_pipeline_op()?);
         }
 
@@ -595,7 +595,7 @@ impl Parser {
 
         self.expect(&TokenKind::RParen)?;
 
-        // :: 뒤에 스키마 이름
+        // schema name after ::
         if !matches!(self.current_kind(), TokenKind::TypeAssign) {
             let span = self.current_span();
             return Err(CompileError::new(
@@ -617,7 +617,7 @@ impl Parser {
 
     fn parse_pipeline_op(&mut self) -> CompileResult<PipelineOp> {
         match self.current_kind() {
-            // ── 기존 연산자 ──────────────────────────────────────────────────
+            // ── Existing operators ──────────────────────────────────────────────────
             TokenKind::Filter => {
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
@@ -650,15 +650,15 @@ impl Parser {
             }
             TokenKind::Count => {
                 self.advance();
-                // count("col") 형식이면 컬럼 집계 / count() 또는 count (인수 없음) 이면 전체 행 수
+                // count("col") form means column aggregation / count() or count (no arguments) means total row count
                 if matches!(self.current_kind(), TokenKind::LParen) {
-                    self.advance(); // ( 소비
+                    self.advance(); // consume (
                     if matches!(self.current_kind(), TokenKind::RParen) {
-                        // count() — 빈 괄호 → Count(None)
-                        self.advance(); // ) 소비
+                        // count() — empty parentheses → Count(None)
+                        self.advance(); // consume )
                         Ok(PipelineOp::Count(None))
                     } else {
-                        // count("col") — 컬럼 인수 → Count(Some(col))
+                        // count("col") — column argument → Count(Some(col))
                         let col_name = self.expect_string_lit()?;
                         self.expect(&TokenKind::RParen)?;
                         Ok(PipelineOp::Count(Some(col_name)))
@@ -668,7 +668,7 @@ impl Parser {
                 }
             }
 
-            // ── v0.16 신규 집계 연산자 ────────────────────────────────────────
+            // ── v0.16 new aggregation operators ────────────────────────────────────────
             TokenKind::GroupBy => {
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
@@ -705,14 +705,14 @@ impl Parser {
                 Ok(PipelineOp::Max(col_name))
             }
 
-            // ── v0.16 정렬 / 슬라이싱 ─────────────────────────────────────────
+            // ── v0.16 sorting / slicing ─────────────────────────────────────────
             TokenKind::OrderBy => {
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
                 let col_name = self.expect_string_lit()?;
-                // 선택적 desc: true/false
+                // optional desc: true/false
                 let desc = if matches!(self.current_kind(), TokenKind::Comma) {
-                    self.advance(); // , 소비
+                    self.advance(); // consume ,
                     self.expect(&TokenKind::Desc)?;
                     self.expect(&TokenKind::Colon)?;
                     match self.current_kind() {
@@ -736,7 +736,7 @@ impl Parser {
                         }
                     }
                 } else {
-                    false // 기본값: 오름차순
+                    false // default: ascending
                 };
                 self.expect(&TokenKind::RParen)?;
                 Ok(PipelineOp::OrderBy {
@@ -761,7 +761,7 @@ impl Parser {
                         ));
                     }
                 };
-                // 음수/0은 u32 캐스팅 시 거대한 wrap-around limit 을 만들므로 거부
+                // Reject negative/zero because u32 casting would create a huge wrap-around limit
                 if n <= 0 {
                     return Err(CompileError::new(
                         ErrorKind::UnexpectedToken("take n <= 0".into()),
@@ -773,7 +773,7 @@ impl Parser {
                 Ok(PipelineOp::Take(n))
             }
 
-            // ── v0.16 Null 처리 ────────────────────────────────────────────────
+            // ── v0.16 null handling ────────────────────────────────────────────────
             TokenKind::DropNull => {
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
@@ -786,7 +786,7 @@ impl Parser {
                 self.expect(&TokenKind::LParen)?;
                 let col_name = self.expect_string_lit()?;
                 self.expect(&TokenKind::Comma)?;
-                // 전략 폼: fillNull("col", strategy: "mean")
+                // strategy form: fillNull("col", strategy: "mean")
                 if matches!(
                     self.current_kind(),
                     TokenKind::Ident(_) | TokenKind::Strategy
@@ -816,7 +816,7 @@ impl Parser {
                         value,
                     });
                 }
-                // 채우기 값: 정수, 부동소수 또는 문자열 리터럴
+                // fill value: integer, float, or string literal
                 let value = match self.current_kind() {
                     TokenKind::IntLit(n) => {
                         let n = *n;
@@ -851,7 +851,7 @@ impl Parser {
                 })
             }
 
-            // ── v0.16+ / v0.21 join() 연산자 ─────────────────────────────────
+            // ── v0.16+ / v0.21 join() operator ─────────────────────────────────
             // join(other_var, on: "key")
             // join(other_var, on: ["key1", "key2"], how: "left")
             // join(other_var, left_on: "station", right_on: "adm_name")  (v0.21)
@@ -859,7 +859,7 @@ impl Parser {
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
 
-                // other_var: 조인 대상 변수명
+                // other_var: the name of the variable being joined
                 let other = self.expect_ident()?;
                 self.expect(&TokenKind::Comma)?;
 
@@ -868,7 +868,7 @@ impl Parser {
                 let mut right_on_keys: Vec<String> = Vec::new();
                 let mut how = JoinHow::Inner;
 
-                // 명명 인수 루프 — on: / left_on: / right_on: / how: 순서 무관
+                // named-argument loop — on: / left_on: / right_on: / how: in any order
                 loop {
                     if matches!(self.current_kind(), TokenKind::RParen | TokenKind::Eof) {
                         break;
@@ -911,7 +911,7 @@ impl Parser {
                     self.eat(&TokenKind::Comma);
                 }
 
-                // 검증: on 과 left_on/right_on 은 동시 사용 불가
+                // validation: on and left_on/right_on cannot be used together
                 if !on_keys.is_empty() && (!left_on_keys.is_empty() || !right_on_keys.is_empty()) {
                     return Err(CompileError::new(
                         ErrorKind::UnexpectedToken("on/left_on 동시 사용".into()),
@@ -919,7 +919,7 @@ impl Parser {
                         "join 에서 on: 과 left_on:/right_on: 은 동시에 사용할 수 없습니다.",
                     ));
                 }
-                // left_on / right_on 은 항상 쌍으로 사용
+                // left_on / right_on are always used as a pair
                 if !left_on_keys.is_empty() && left_on_keys.len() != right_on_keys.len() {
                     return Err(CompileError::new(
                         ErrorKind::UnexpectedToken("left_on/right_on 개수 불일치".into()),
@@ -947,7 +947,7 @@ impl Parser {
                 })
             }
 
-            // ── v0.16+ withColumn() 연산자 ────────────────────────────────────
+            // ── v0.16+ withColumn() operator ────────────────────────────────────
             // withColumn("new_col", expr)
             TokenKind::WithColumn => {
                 self.advance();
@@ -962,19 +962,19 @@ impl Parser {
                 })
             }
 
-            // ── v0.19 chart { ... } 시각화 연산자 ────────────────────────────
+            // ── v0.19 chart { ... } visualization operator ────────────────────────────
             // chart {
             //   type: bar|line|pie|scatter
             //   x: col_name
             //   y: col_name
-            //   label: col_name    (pie 전용)
-            //   value: col_name    (pie 전용)
-            //   title: "제목"
+            //   label: col_name    (pie only)
+            //   value: col_name    (pie only)
+            //   title: "title"
             // }
-            // 또는 chart({ type: "bar", x: "col", ... }) 형태도 허용
+            // also allows the chart({ type: "bar", x: "col", ... }) form
             TokenKind::Chart => {
-                self.advance(); // chart 소비
-                // chart({ ... }) 형태: LParen 이 오면 소비
+                self.advance(); // consume chart
+                // chart({ ... }) form: consume the LParen if present
                 let has_paren = self.eat(&TokenKind::LParen);
                 self.expect(&TokenKind::LBrace)?;
                 let config = self.parse_chart_config()?;
@@ -985,9 +985,9 @@ impl Parser {
                 Ok(PipelineOp::Chart(config))
             }
 
-            // ── v0.20 cast("col", "type") — DSL-레벨 타입 캐스팅 ────────────
+            // ── v0.20 cast("col", "type") — DSL-level type casting ────────────
             // cast("pm10", "float")   → PipelineOp::Cast { col, to_type }
-            // 지원 타입: "float", "int", "str", "bool"
+            // supported types: "float", "int", "str", "bool"
             TokenKind::Cast => {
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
@@ -1001,7 +1001,7 @@ impl Parser {
                 })
             }
 
-            // ── v0.21 rename("old_name", "new_name") — 컬럼 이름 변경 ───────
+            // ── v0.21 rename("old_name", "new_name") — column rename ───────
             TokenKind::Rename => {
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
@@ -1012,7 +1012,7 @@ impl Parser {
                 Ok(PipelineOp::Rename { old_name, new_name })
             }
 
-            // ── v0.21 replace("col", "from", "to") — 문자열 치환 ────────────
+            // ── v0.21 replace("col", "from", "to") — string replacement ────────────
             TokenKind::Replace => {
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
@@ -1029,7 +1029,7 @@ impl Parser {
                 })
             }
 
-            // ── v0.22 sample(n) / sample(n, seed: 42) — 무작위 샘플링 ───────
+            // ── v0.22 sample(n) / sample(n, seed: 42) — random sampling ───────
             TokenKind::Sample => {
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
@@ -1055,7 +1055,7 @@ impl Parser {
                     ));
                 }
                 let seed = if matches!(self.current_kind(), TokenKind::Comma) {
-                    self.advance(); // , 소비
+                    self.advance(); // consume ,
                     self.expect(&TokenKind::Seed)?;
                     self.expect(&TokenKind::Colon)?;
                     match self.current_kind() {
@@ -1082,7 +1082,7 @@ impl Parser {
                 Ok(PipelineOp::Sample { n, seed })
             }
 
-            // ── v0.22 median("col") — 중앙값 집계 ────────────────────────────
+            // ── v0.22 median("col") — median aggregation ────────────────────────────
             TokenKind::Median => {
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
@@ -1091,7 +1091,7 @@ impl Parser {
                 Ok(PipelineOp::Median(col_name))
             }
 
-            // ── v0.22 variance("col") — 분산 집계 ────────────────────────────
+            // ── v0.22 variance("col") — variance aggregation ────────────────────────────
             TokenKind::Variance => {
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
@@ -1100,7 +1100,7 @@ impl Parser {
                 Ok(PipelineOp::Variance(col_name))
             }
 
-            // ── v0.22 std("col") — 표준편차 집계 ─────────────────────────────
+            // ── v0.22 std("col") — standard deviation aggregation ─────────────────────────────
             TokenKind::Std => {
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
@@ -1109,7 +1109,7 @@ impl Parser {
                 Ok(PipelineOp::Std(col_name))
             }
 
-            // ── v0.5 train(Model, ...) — Burn 딥러닝 학습 파이프라인 연산자 ──
+            // ── v0.5 train(Model, ...) — Burn deep-learning training pipeline operator ──
             TokenKind::Train => {
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
@@ -1119,7 +1119,7 @@ impl Parser {
                 Ok(PipelineOp::Train { model_name, config })
             }
 
-            // ── v0.6 withDp(epsilon: 1.0, ...) — 차등 프라이버시 노이즈 주입 ──
+            // ── v0.6 withDp(epsilon: 1.0, ...) — differential privacy noise injection ──
             // withDp "(" "epsilon" ":" FLOAT
             //         ("," "mechanism"   ":" ("laplace" | "gaussian"))?
             //         ("," "sensitivity" ":" FLOAT)?
@@ -1133,7 +1133,7 @@ impl Parser {
                 Ok(PipelineOp::WithDp(args))
             }
 
-            // ── v0.5 predict(model_var, as: "col") — 학습 모델 예측 연산자 ───
+            // ── v0.5 predict(model_var, as: "col") — trained-model prediction operator ───
             TokenKind::Ident(name) if name == "predict" => {
                 self.advance();
                 self.expect(&TokenKind::LParen)?;
@@ -1166,10 +1166,10 @@ impl Parser {
         }
     }
 
-    // ── chart { ... } 블록 내부 파싱 ─────────────────────────────────────────
-    // 지원 필드: type, x, y, label, value, title
-    // 필드 구분자: 쉼표(,) 또는 공백/줄바꿈 — Colon(:)으로 key: value 쌍 파싱
-    // 값: 식별자(bar) 또는 문자열 리터럴("bar") 모두 허용
+    // ── parsing inside a chart { ... } block ─────────────────────────────────────────
+    // supported fields: type, x, y, label, value, title
+    // field separator: comma (,) or whitespace/newline — parse key: value pairs with Colon(:)
+    // value: both an identifier (bar) and a string literal ("bar") are allowed
     fn parse_chart_config(&mut self) -> CompileResult<ChartConfig> {
         let span = self.current_span();
         let mut chart_type: Option<ChartType> = None;
@@ -1180,13 +1180,13 @@ impl Parser {
         let mut value: Option<String> = None;
 
         loop {
-            // 쉼표를 선택적 필드 구분자로 처리
+            // treat a comma as an optional field separator
             self.eat(&TokenKind::Comma);
 
             match self.current_kind() {
                 TokenKind::RBrace | TokenKind::Eof => break,
 
-                // type: bar|line|pie|scatter  (식별자 또는 문자열 리터럴)
+                // type: bar|line|pie|scatter  (identifier or string literal)
                 TokenKind::Type => {
                     self.advance();
                     self.expect(&TokenKind::Colon)?;
@@ -1207,7 +1207,7 @@ impl Parser {
                     })?);
                 }
 
-                // x: column_name (식별자, 키워드, 문자열 리터럴 모두 허용)
+                // x: column_name (identifier, keyword, and string literal all allowed)
                 TokenKind::Ident(key) if key == "x" => {
                     self.advance();
                     self.expect(&TokenKind::Colon)?;
@@ -1235,7 +1235,7 @@ impl Parser {
                     value = Some(self.expect_col_name_or_str()?);
                 }
 
-                // title: "문자열"
+                // title: "string"
                 TokenKind::Ident(key) if key == "title" => {
                     self.advance();
                     self.expect(&TokenKind::Colon)?;
@@ -1256,7 +1256,7 @@ impl Parser {
             }
         }
 
-        // type 필드는 필수
+        // the type field is required
         let chart_type = chart_type.ok_or_else(|| {
             CompileError::new(
                 ErrorKind::Other("VIZ001: chart 타입 미지정".into()),
@@ -1266,7 +1266,7 @@ impl Parser {
             )
         })?;
 
-        // 차트 타입별 필수 필드 검증
+        // validate the required fields for each chart type
         match &chart_type {
             ChartType::Bar | ChartType::Line => {
                 if x.is_none() || y.is_none() {
@@ -1310,13 +1310,13 @@ impl Parser {
         })
     }
 
-    // ── 표현식 파서 (우선순위 계층) ───────────────────────────────────────────
+    // ── expression parser (precedence hierarchy) ───────────────────────────────────────────
     //
-    // 우선순위 (낮음 → 높음):
-    //   1. 비교 연산자: == != < > <= >=   (parse_expr)
-    //   2. 덧셈/뺄셈:  + -               (parse_additive)
-    //   3. 곱셈/나눗셈: * /              (parse_multiplicative)
-    //   4. 단항/기본식                   (parse_primary)
+    // precedence (low → high):
+    //   1. comparison operators: == != < > <= >=   (parse_expr)
+    //   2. addition/subtraction:  + -               (parse_additive)
+    //   3. multiplication/division: * /              (parse_multiplicative)
+    //   4. unary/primary expressions               (parse_primary)
     //
     // expr = additive (cmp_op additive)?
 
@@ -1392,10 +1392,10 @@ impl Parser {
             TokenKind::Ident(s) => {
                 let s = s.clone();
                 self.advance();
-                // col("column_name") 함수 호출 형태 처리
-                // col("x") → Expr::Ident("x")  (런타임에서 polars::col("x") 로 변환됨)
+                // handle the col("column_name") function-call form
+                // col("x") → Expr::Ident("x")  (converted to polars::col("x") at runtime)
                 if s == "col" && matches!(self.current_kind(), TokenKind::LParen) {
-                    self.advance(); // ( 소비
+                    self.advance(); // consume (
                     let col_name = match self.current_kind() {
                         TokenKind::StringLit(name) => {
                             let name = name.clone();
@@ -1434,7 +1434,7 @@ impl Parser {
                 self.advance();
                 Ok(Expr::StringLit(s))
             }
-            // 불리언 리터럴 (v0.16)
+            // boolean literal (v0.16)
             TokenKind::True => {
                 self.advance();
                 Ok(Expr::BoolLit(true))
@@ -1457,7 +1457,7 @@ impl Parser {
         }
     }
 
-    // ── 유틸리티 ──────────────────────────────────────────────────────────────
+    // ── utilities ──────────────────────────────────────────────────────────────
 
     fn expect_ident(&mut self) -> CompileResult<String> {
         match self.current_kind() {
@@ -1474,7 +1474,7 @@ impl Parser {
         }
     }
 
-    /// 현재 토큰이 StringLit이면 소비하고 반환, 아니면 에러
+    /// If the current token is a StringLit, consume and return it, otherwise error
     fn expect_string_lit(&mut self) -> CompileResult<String> {
         match self.current_kind() {
             TokenKind::StringLit(s) => {
@@ -1490,7 +1490,7 @@ impl Parser {
         }
     }
 
-    /// join 의 on/left_on/right_on 값 파싱 — 단일 문자열 또는 `["a", "b"]` 리스트.
+    /// Parses the on/left_on/right_on values of join — a single string or a `["a", "b"]` list.
     fn expect_string_list(&mut self) -> CompileResult<Vec<String>> {
         if matches!(self.current_kind(), TokenKind::LBracket) {
             self.advance();
@@ -1514,8 +1514,8 @@ impl Parser {
         }
     }
 
-    /// 식별자 또는 문자열 리터럴을 수용 — chart type 값 파싱에 사용
-    /// type: bar   (Ident)  또는  type: "bar"  (StringLit) 모두 허용
+    /// Accepts an identifier or a string literal — used to parse the chart type value
+    /// type: bar   (Ident)  or  type: "bar"  (StringLit) — both allowed
     fn expect_ident_or_str(&mut self) -> CompileResult<String> {
         match self.current_kind() {
             TokenKind::Ident(s) => {
@@ -1536,8 +1536,8 @@ impl Parser {
         }
     }
 
-    /// chart 블록 내 컬럼명 파싱 — 식별자, 예약어, 문자열 리터럴 모두 허용
-    /// x: "district"  또는  x: district  둘 다 처리
+    /// Parses a column name in a chart block — identifier, reserved word, and string literal all allowed
+    /// Handles both x: "district"  and  x: district
     fn expect_col_name_or_str(&mut self) -> CompileResult<String> {
         if let TokenKind::StringLit(s) = self.current_kind() {
             let s = s.clone();
@@ -1547,12 +1547,12 @@ impl Parser {
         self.expect_col_name()
     }
 
-    /// chart 블록 내 컬럼명 파싱 — 식별자 또는 예약어(count, sum, mean 등)도 허용
-    /// 데이터프레임 컬럼명이 xazz 키워드와 같을 수 있기 때문에 필요함
+    /// Parses a column name in a chart block — identifiers or reserved words (count, sum, mean, etc.) also allowed
+    /// Needed because dataframe column names can equal xazz keywords
     fn expect_col_name(&mut self) -> CompileResult<String> {
         let name = match self.current_kind() {
             TokenKind::Ident(s) => s.clone(),
-            // 키워드도 컬럼명으로 허용 (count, sum, mean, min, max 등은 흔한 컬럼명)
+            // keywords are also allowed as column names (count, sum, mean, min, max, etc. are common column names)
             TokenKind::Count => "count".to_string(),
             TokenKind::Sum => "sum".to_string(),
             TokenKind::Mean => "mean".to_string(),
@@ -1585,7 +1585,7 @@ impl Parser {
     }
 }
 
-// ── 유닛 테스트 ───────────────────────────────────────────────────────────────
+// ── unit tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -1602,7 +1602,7 @@ mod tests {
         parser.parse()
     }
 
-    // ── 테스트 1: 변수 선언 파싱 및 VarDecl AST 빌드 ────────────────────────
+    // ── test 1: variable declaration parsing and VarDecl AST building ────────────────────────
     #[test]
     fn test_var_decl_and_pipeline_op() {
         let src = r#"v result = load("data.csv") :: AirQuality |> count;"#;
@@ -1632,7 +1632,7 @@ mod tests {
         }
     }
 
-    // ── 테스트 2: load :: filter 파싱 및 AST BinOp 검증 ─────────────────────
+    // ── test 2: load :: filter parsing and AST BinOp validation ─────────────────────
     #[test]
     fn test_load_filter_select_ast() {
         let src = r#"v air = load("seoul.csv") :: AirQuality |> filter(pm10 > 50) |> select([station, date]);"#;
@@ -1681,7 +1681,7 @@ mod tests {
         }
     }
 
-    // ── 테스트 3: TypeDecl 파싱 검증 ────────────────────────────────────────
+    // ── test 3: TypeDecl parsing validation ────────────────────────────────────────
     #[test]
     fn test_type_decl_parsing() {
         let src = r#"
@@ -1715,7 +1715,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 4: VarRef (변수 참조) 파싱 ────────────────────────────────────
+    // ── test 4: VarRef (variable reference) parsing ────────────────────────────────────
     #[test]
     fn test_var_ref_pipeline() {
         let src = r#"v filtered = air |> filter(pm25 > 10);"#;
@@ -1736,7 +1736,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 5: :: 없이 load 시 에러 ───────────────────────────────────────
+    // ── test 5: error when loading without :: ───────────────────────────────────────
     #[test]
     fn test_missing_schema_error() {
         let src = r#"v x = load("data.csv") |> count;"#;
@@ -1750,7 +1750,7 @@ type AirQuality = {
         );
     }
 
-    // ── 테스트 6: mut 변수 선언 ───────────────────────────────────────────────
+    // ── test 6: mut variable declaration ───────────────────────────────────────────────
     #[test]
     fn test_mut_var_decl() {
         let src = r#"mut v data = load("file.csv") :: Schema;"#;
@@ -1761,7 +1761,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 7 (v0.16): col("x") 표현식 파싱 ──────────────────────────────
+    // ── test 7 (v0.16): col("x") expression parsing ──────────────────────────────
     #[test]
     fn test_col_function_in_filter() {
         let src = r#"v result = data |> filter(col("income") < 1_200_000);"#;
@@ -1786,7 +1786,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 8 (v0.16): 불리언 리터럴 파싱 ────────────────────────────────
+    // ── test 8 (v0.16): boolean literal parsing ────────────────────────────────
     #[test]
     fn test_boolean_literal_in_filter() {
         let src = r#"v result = data |> filter(col("support") == false);"#;
@@ -1804,7 +1804,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 9 (v0.16): groupBy + count 파싱 ───────────────────────────────
+    // ── test 9 (v0.16): groupBy + count parsing ───────────────────────────────
     #[test]
     fn test_group_by_and_count() {
         let src = r#"v result = data |> groupBy("region") |> count("population");"#;
@@ -1819,7 +1819,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 10 (v0.16): mean + orderBy(desc) + take 파싱 ─────────────────
+    // ── test 10 (v0.16): mean + orderBy(desc) + take parsing ─────────────────
     #[test]
     fn test_mean_orderby_take() {
         let src = r#"v result = data |> groupBy("region") |> mean("income") |> orderBy("income", desc: true) |> take(10);"#;
@@ -1842,7 +1842,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 11 (v0.16): dropNull + fillNull 파싱 ──────────────────────────
+    // ── test 11 (v0.16): dropNull + fillNull parsing ──────────────────────────
     #[test]
     fn test_drop_null_and_fill_null() {
         let src = r#"v result = data |> dropNull("income") |> fillNull("income", 0);"#;
@@ -1863,7 +1863,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 12 (v0.16): sum / min / max 파싱 ─────────────────────────────
+    // ── test 12 (v0.16): sum / min / max parsing ─────────────────────────────
     #[test]
     fn test_sum_min_max_parse() {
         let src = r#"v result = data |> groupBy("region") |> sum("pop") |> min("price") |> max("price");"#;
@@ -1880,7 +1880,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 13 (v0.16): README 전체 파이프라인 파싱 ──────────────────────
+    // ── test 13 (v0.16): full README pipeline parsing ──────────────────────
     #[test]
     fn test_readme_full_pipeline() {
         let src = r#"v blind_spots = data
@@ -1919,7 +1919,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 14 (v0.16+): join 단일 키 파싱 ────────────────────────────────
+    // ── test 14 (v0.16+): join single-key parsing ────────────────────────────────
     #[test]
     fn test_join_operator_parse() {
         let src = r#"v joined = left |> join(right, on: "id");"#;
@@ -1946,7 +1946,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 15 (v0.16+): join how 지정 파싱 ───────────────────────────────
+    // ── test 15 (v0.16+): join how specification parsing ───────────────────────────────
     #[test]
     fn test_join_with_how() {
         let src = r#"v joined = left |> join(right, on: "id", how: "left");"#;
@@ -1962,7 +1962,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 16 (v0.16+): join 복합 키 파싱 ────────────────────────────────
+    // ── test 16 (v0.16+): join multi-key parsing ────────────────────────────────
     #[test]
     fn test_join_multi_key() {
         let src = r#"v joined = a |> join(b, on: ["station", "date"]);"#;
@@ -1981,7 +1981,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 17 (v0.16+): withColumn 파싱 ──────────────────────────────────
+    // ── test 17 (v0.16+): withColumn parsing ──────────────────────────────────
     #[test]
     fn test_with_column_parse() {
         let src = r#"v result = data |> withColumn("total", col("a") + col("b"));"#;
@@ -2007,7 +2007,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 18 (v0.16+): 산술 표현식 파싱 ─────────────────────────────────
+    // ── test 18 (v0.16+): arithmetic expression parsing ─────────────────────────────────
     #[test]
     fn test_arithmetic_expr() {
         let src = r#"v result = data |> withColumn("ratio", col("a") * col("b"));"#;
@@ -2029,10 +2029,10 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 19 (v0.16+): 산술 + 비교 복합 표현식 파싱 ────────────────────
+    // ── test 19 (v0.16+): arithmetic + comparison compound expression parsing ────────────────────
     #[test]
     fn test_arithmetic_comparison() {
-        // filter(col("a") + col("b") > 100) → BinOp(Add) 가 lhs, Gt 가 비교 op
+        // filter(col("a") + col("b") > 100) → BinOp(Add) is the lhs, Gt is the comparison op
         let src = r#"v result = data |> filter(col("a") + col("b") > 100);"#;
         let program = parse_src(src).expect("산술+비교 파싱 실패");
         match &program.stmts[0] {
@@ -2061,7 +2061,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 20 (v0.19): bar chart 파싱 ────────────────────────────────────
+    // ── test 20 (v0.19): bar chart parsing ────────────────────────────────────
     #[test]
     fn test_chart_bar_parse() {
         use crate::ast::{ChartConfig, ChartType};
@@ -2098,7 +2098,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 21 (v0.19): pie chart 파싱 ────────────────────────────────────
+    // ── test 21 (v0.19): pie chart parsing ────────────────────────────────────
     #[test]
     fn test_chart_pie_parse() {
         use crate::ast::{ChartConfig, ChartType};
@@ -2129,7 +2129,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 22 (v0.19): scatter chart 파싱 ────────────────────────────────
+    // ── test 22 (v0.19): scatter chart parsing ────────────────────────────────
     #[test]
     fn test_chart_scatter_parse() {
         use crate::ast::{ChartConfig, ChartType};
@@ -2155,7 +2155,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 23 (v0.19): VIZ001 — 잘못된 chart type 에러 ──────────────────
+    // ── test 23 (v0.19): VIZ001 — invalid chart type error ──────────────────
     #[test]
     fn test_chart_invalid_type_error() {
         let src = r#"v result = data |> chart { type: heatmap x: a y: b };"#;
@@ -2169,7 +2169,7 @@ type AirQuality = {
         );
     }
 
-    // ── 테스트 24 (v0.19): VIZ002 — bar chart에 x/y 누락 에러 ──────────────
+    // ── test 24 (v0.19): VIZ002 — bar chart missing x/y error ──────────────
     #[test]
     fn test_chart_missing_xy_error() {
         let src = r#"v result = data |> chart { type: bar x: region };"#;
@@ -2183,7 +2183,7 @@ type AirQuality = {
         );
     }
 
-    // ── 테스트 25 (v0.19): VIZ003 — pie chart에 label/value 누락 에러 ────────
+    // ── test 25 (v0.19): VIZ003 — pie chart missing label/value error ────────
     #[test]
     fn test_chart_pie_missing_fields_error() {
         let src = r#"v result = data |> chart { type: pie label: category };"#;
@@ -2197,7 +2197,7 @@ type AirQuality = {
         );
     }
 
-    // ── 테스트 26 (v0.19): chart 키워드 렉서 토크나이징 ─────────────────────
+    // ── test 26 (v0.19): chart keyword lexer tokenizing ─────────────────────
     #[test]
     fn test_chart_token() {
         use crate::lexer::Lexer;
@@ -2212,7 +2212,7 @@ type AirQuality = {
         );
     }
 
-    // ── 테스트 27 (v0.22): sample(n) 파싱 ────────────────────────────────────
+    // ── test 27 (v0.22): sample(n) parsing ────────────────────────────────────
     #[test]
     fn test_sample_parse() {
         let src = r#"v result = data |> sample(100);"#;
@@ -2226,7 +2226,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 28 (v0.22): sample(n, seed: 42) 파싱 ──────────────────────────
+    // ── test 28 (v0.22): sample(n, seed: 42) parsing ──────────────────────────
     #[test]
     fn test_sample_with_seed_parse() {
         let src = r#"v result = data |> sample(100, seed: 42);"#;
@@ -2245,7 +2245,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 29 (v0.22): sample(0) 은 에러 ─────────────────────────────────
+    // ── test 29 (v0.22): sample(0) is an error ─────────────────────────────────
     #[test]
     fn test_sample_zero_error() {
         let src = r#"v result = data |> sample(0);"#;
@@ -2253,7 +2253,7 @@ type AirQuality = {
         assert!(result.is_err(), "sample(0) 은 에러여야 함");
     }
 
-    // ── 테스트 30 (v0.22): median/variance/std 파싱 ──────────────────────────
+    // ── test 30 (v0.22): median/variance/std parsing ──────────────────────────
     #[test]
     fn test_median_variance_std_parse() {
         let src = r#"v result = data |> groupBy("region") |> median("score") |> variance("score") |> std("score");"#;
@@ -2270,7 +2270,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 31 (v0.6): withDp(epsilon: 1.0) 최소 형태 파싱 ────────────────
+    // ── test 31 (v0.6): withDp(epsilon: 1.0) minimal form parsing ────────────────
     #[test]
     fn test_with_dp_minimal_parse() {
         use crate::ast::{DpArgs, DpMechanism};
@@ -2293,7 +2293,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 32 (v0.6): withDp 전체 인수 파싱 ──────────────────────────────
+    // ── test 32 (v0.6): withDp full argument parsing ──────────────────────────────
     #[test]
     fn test_with_dp_full_args_parse() {
         use crate::ast::{DpArgs, DpMechanism};
@@ -2316,7 +2316,7 @@ type AirQuality = {
         }
     }
 
-    // ── 테스트 33 (v0.6): withDp epsilon 누락/비양수는 에러 ──────────────────
+    // ── test 33 (v0.6): withDp missing/non-positive epsilon is an error ──────────────────
     #[test]
     fn test_with_dp_requires_positive_epsilon() {
         assert!(
@@ -2329,7 +2329,7 @@ type AirQuality = {
         );
     }
 
-    // ── 테스트 34 (v0.6): withDp 알 수 없는 mechanism 은 에러 ────────────────
+    // ── test 34 (v0.6): withDp unknown mechanism is an error ────────────────
     #[test]
     fn test_with_dp_unknown_mechanism_error() {
         assert!(

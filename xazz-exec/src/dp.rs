@@ -22,20 +22,20 @@ use polars::prelude::{Column, DataFrame, DataType};
 use xazz_compiler::ast::{DpArgs, DpMechanism};
 use xazz_core::i18n::tr;
 
-/// gaussian 메커니즘의 기본 δ (미지정 시)
+/// Default δ for the gaussian mechanism (when unspecified)
 pub const DEFAULT_DELTA: f64 = 1e-5;
 
-/// 세션 총 프라이버시 예산 기본값 (환경변수 XAZZ_DP_BUDGET 로 재정의 가능)
+/// Default session total privacy budget (overridable via the XAZZ_DP_BUDGET env var)
 pub const DEFAULT_TOTAL_BUDGET: f64 = 10.0;
 
-/// 세션 총 δ 예산 기본값 (환경변수 XAZZ_DP_DELTA_BUDGET 로 재정의 가능)
+/// Default session total δ budget (overridable via the XAZZ_DP_DELTA_BUDGET env var)
 pub const DEFAULT_TOTAL_DELTA_BUDGET: f64 = 1e-4;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 세션 프라이버시 예산 (ε/δ 조성 회계)
+// Session privacy budget (ε/δ composition accounting)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 단일 쿼리의 소비 기록 (조성 회계의 입력 단위).
+/// Consumption record of a single query (input unit of composition accounting).
 #[derive(Debug, Clone, Copy)]
 pub struct CompositionRecord {
     pub mechanism: DpMechanism,
@@ -43,15 +43,15 @@ pub struct CompositionRecord {
     pub delta: f64,
 }
 
-/// 실행 세션 동안 누적 (ε, δ) 소모량을 추적하는 예산 관리자.
+/// Budget manager tracking cumulative (ε, δ) spending during an execution session.
 ///
-/// 조성 회계 규칙 (Dwork & Roth, 기본 순차 조성 — 정확):
-///   - k 개의 (εᵢ, δᵢ)-DP 메커니즘은 (Σεᵢ, Σδᵢ)-DP 로 합성된다.
-///   - Laplace 는 순수 ε-DP 이므로 δ 기여는 0 이다.
-///   - Gaussian 은 (ε, δ)-DP 이므로 ε 과 δ 를 모두 누적한다.
+/// Composition accounting rules (Dwork & Roth, basic sequential composition — exact):
+///   - k (εᵢ, δᵢ)-DP mechanisms compose to (Σεᵢ, Σδᵢ)-DP.
+///   - Laplace is pure ε-DP, so its δ contribution is 0.
+///   - Gaussian is (ε, δ)-DP, so both ε and δ accumulate.
 ///
-/// `withDp` 호출마다 (ε, δ) 를 차감하고, 총 ε 또는 총 δ 를 넘는 순간 에러를
-/// 반환하여 반복 질의를 통한 노이즈 평균화(재구성 공격)를 구조적으로 차단한다.
+/// Deducts (ε, δ) per `withDp` call and returns an error the moment total ε or
+/// total δ is exceeded, structurally blocking noise averaging via repeated queries (reconstruction attacks).
 #[derive(Debug, Clone)]
 pub struct PrivacyBudget {
     total_eps: f64,
@@ -72,7 +72,7 @@ impl PrivacyBudget {
         }
     }
 
-    /// ε/δ 총 예산을 모두 지정해 생성한다.
+    /// Creates a budget with both ε/δ total budgets specified.
     pub fn new_with_delta(total_eps: f64, total_delta: f64) -> Self {
         PrivacyBudget {
             total_eps,
@@ -83,7 +83,7 @@ impl PrivacyBudget {
         }
     }
 
-    /// 환경변수에서 총 예산을 읽는다 (기본 ε=10.0, δ=1e-4).
+    /// Reads the total budget from environment variables (defaults ε=10.0, δ=1e-4).
     pub fn from_env() -> Self {
         let total_eps = std::env::var("XAZZ_DP_BUDGET")
             .ok()
@@ -98,10 +98,10 @@ impl PrivacyBudget {
         PrivacyBudget::new_with_delta(total_eps, total_delta)
     }
 
-    /// (ε, δ) 만큼 예산을 소모한다. 초과 시 Err (실행 거부).
+    /// Spends (ε, δ) of budget. Returns Err when exceeded (execution refused).
     ///
-    /// Laplace 는 순수 ε-DP 이므로 δ 는 0 으로 처리된다.
-    /// 실패 시 예산은 소모되지 않는다 (원자적).
+    /// Laplace is pure ε-DP, so δ is treated as 0.
+    /// On failure the budget is not spent (atomic).
     pub fn spend(
         &mut self,
         mechanism: DpMechanism,
@@ -111,11 +111,11 @@ impl PrivacyBudget {
         self.spend_n(mechanism, epsilon, delta, 1)
     }
 
-    /// 동일 (ε, δ) 메커니즘을 `count` 개 합성해 예산을 소모한다.
+    /// Spends budget by composing `count` identical (ε, δ) mechanisms.
     ///
-    /// k 개의 독립 메커니즘(예: 노이즈를 주입한 k 개 컬럼)은 순차 조성에 따라
-    /// (k·ε, k·δ) 로 합성된다. 단일 `spend` 로 한 번만 청구하면 회계가 누락되므로,
-    /// 호출 측은 적용할 메커니즘 수를 이 메서드로 한 번에 원자적으로 청구한다.
+    /// k independent mechanisms (e.g., k columns receiving noise) compose to (k·ε, k·δ)
+    /// under sequential composition. Charging only once via a single `spend` would miss
+    /// the accounting, so callers charge the number of applied mechanisms atomically in one call.
     pub fn spend_n(
         &mut self,
         mechanism: DpMechanism,
@@ -154,7 +154,7 @@ impl PrivacyBudget {
         };
 
         let count_f = count as f64;
-        // 조성 회계: k 개 메커니즘 → (k·Σεᵢ, k·Σδᵢ)
+        // Composition accounting: k mechanisms → (k·Σεᵢ, k·Σδᵢ)
         let new_eps = self.spent_eps + epsilon * count_f;
         let new_delta = self.spent_delta + delta * count_f;
 
@@ -204,7 +204,7 @@ impl PrivacyBudget {
         self.total_delta
     }
 
-    /// 지금까지 합성된 쿼리 수 (조성 회계에 반영된 메커니즘 개수).
+    /// Number of queries composed so far (count of mechanisms reflected in composition accounting).
     pub fn query_count(&self) -> usize {
         self.queries.len()
     }
@@ -215,10 +215,10 @@ impl PrivacyBudget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 난수 생성기 (SplitMix64) — 외부 의존성 없는 결정적 RNG
+// Random number generator (SplitMix64) — deterministic RNG with no external dependency
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// SplitMix64: 단순·고품질 64bit PRNG. seed 고정 시 완전 재현 가능.
+/// SplitMix64: simple, high-quality 64-bit PRNG. Fully reproducible with a fixed seed.
 struct SplitMix64 {
     state: u64,
 }
@@ -236,10 +236,10 @@ impl SplitMix64 {
         z ^ (z >> 31)
     }
 
-    /// (0, 1) 개구간 균등분포 — 양 끝값 0/1 을 제외해 ln(0) 등 특이점 방지.
+    /// Uniform on the open interval (0, 1) — excludes endpoints 0/1 to avoid singularities like ln(0).
     fn next_f64(&mut self) -> f64 {
         loop {
-            // 상위 53bit → [0, 1) 균등
+            // Top 53 bits → uniform [0, 1)
             let u = (self.next_u64() >> 11) as f64 * (1.0 / (1u64 << 53) as f64);
             if u > 0.0 && u < 1.0 {
                 return u;
@@ -248,11 +248,11 @@ impl SplitMix64 {
     }
 }
 
-/// seed 미지정 시 OS 엔트로피(/dev/urandom) 기반 시드 생성.
+/// Generates a seed from OS entropy (/dev/urandom) when no seed is specified.
 ///
-/// 시스템 시간 단독 시드는 공격자가 벽시계 시간으로 시드 후보를 좁힐 수 있어
-/// 노이즈 역산이 가능하다 — 따라서 CSPRNG(/dev/urandom)에서 8바이트를 직접 읽는다.
-/// 읽기에 실패하면 시간+PID+주소를 혼합한 폴백을 쓴다 (예측 불가 보장은 아님).
+/// A seed from system time alone lets an attacker narrow seed candidates using
+/// wall-clock time, enabling noise inversion — so 8 bytes are read directly from
+/// a CSPRNG (/dev/urandom). On read failure, a fallback mixing time+PID+address is used (no unpredictability guarantee).
 fn os_seed() -> u64 {
     #[cfg(unix)]
     {
@@ -285,60 +285,60 @@ fn fallback_seed() -> u64 {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 노이즈 샘플링
+// Noise sampling
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Laplace(0, scale) 샘플 — 역CDF 방식.
+/// Laplace(0, scale) sample — inverse-CDF method.
 /// u ~ U(-1/2, 1/2),  x = -scale · sign(u) · ln(1 - 2|u|)
 fn laplace_sample(rng: &mut SplitMix64, scale: f64) -> f64 {
     let u = rng.next_f64() - 0.5;
     -scale * u.signum() * (1.0 - 2.0 * u.abs()).ln()
 }
 
-/// N(0, sigma²) 샘플 — Box-Muller 변환.
+/// N(0, sigma²) sample — Box-Muller transform.
 fn gaussian_sample(rng: &mut SplitMix64, sigma: f64) -> f64 {
     let u1 = rng.next_f64();
     let u2 = rng.next_f64();
     sigma * (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
 }
 
-/// Gaussian 메커니즘 표준편차: σ = Δf · √(2·ln(1.25/δ)) / ε
+/// Gaussian mechanism standard deviation: σ = Δf · √(2·ln(1.25/δ)) / ε
 /// (Dwork & Roth, The Algorithmic Foundations of Differential Privacy, Thm 3.22)
 pub fn gaussian_sigma(sensitivity: f64, epsilon: f64, delta: f64) -> f64 {
     sensitivity * (2.0 * (1.25 / delta).ln()).sqrt() / epsilon
 }
 
-/// Laplace 메커니즘 scale: b = Δf / ε
+/// Laplace mechanism scale: b = Δf / ε
 pub fn laplace_scale(sensitivity: f64, epsilon: f64) -> f64 {
     sensitivity / epsilon
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 공개 API — DataFrame 노이즈 주입
+// Public API — DataFrame noise injection
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 적용 결과 리포트 (감사로그·마커 출력용)
+/// Report of the applied result (for audit-log/marker output)
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DpReport {
     pub mechanism: String,
     pub epsilon: f64,
     pub delta: Option<f64>,
     pub sensitivity: f64,
-    /// 실제 사용된 노이즈 파라미터 (laplace: scale b / gaussian: sigma σ)
+    /// Actually used noise parameter (laplace: scale b / gaussian: sigma σ)
     pub noise_param: f64,
-    /// 노이즈가 적용된 컬럼 목록
+    /// List of columns to which noise was applied
     pub noised_columns: Vec<String>,
     pub seed: Option<i64>,
 }
 
-/// DataFrame의 모든 숫자형 컬럼에 DP 노이즈를 주입한 새 DataFrame을 반환한다.
+/// Returns a new DataFrame with DP noise injected into all numeric columns.
 ///
-/// - 숫자형(int/uint/float) 컬럼 → f64 로 승격 후 노이즈 합산
-/// - 문자열 등 비숫자 컬럼 → 원본 유지 (그룹 키 보존)
-/// - null → null 유지 (노이즈로 결측을 위장하지 않음)
+/// - Numeric (int/uint/float) columns → promoted to f64, then noise is added
+/// - Non-numeric columns (strings, etc.) → kept as-is (preserves group keys)
+/// - null → stays null (missing values are not masked with noise)
 ///
-/// 주의: 이 함수는 집계 *결과*에 적용하는 output perturbation 이다.
-/// 호출 측(runtime)은 반드시 `PrivacyBudget::spend` 로 ε을 차감한 뒤 호출해야 한다.
+/// Note: this function is output perturbation applied to aggregate *results*.
+/// The caller (runtime) must deduct ε via `PrivacyBudget::spend` before calling.
 pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), String> {
     if args.epsilon <= 0.0 {
         return Err(format!(
@@ -401,10 +401,10 @@ pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), 
         })?;
 
         if !is_numeric_dtype(column.dtype()) {
-            continue; // 그룹 키(문자열 등)는 원본 유지
+            continue; // group keys (strings, etc.) are kept as-is
         }
 
-        // f64 로 승격 (int 컬럼도 노이즈 합산 후엔 실수가 됨)
+        // Promote to f64 (int columns become floats after noise is added)
         let casted = column.cast(&DataType::Float64).map_err(|e| {
             format!(
                 "{}: {} '{name}' — {e}",
@@ -485,7 +485,7 @@ fn is_numeric_dtype(dt: &DataType) -> bool {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 테스트
+// Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -505,7 +505,7 @@ mod tests {
 
     #[test]
     fn laplace_noise_mean_is_near_zero() {
-        // 대수의 법칙: Lap(0, b) 샘플 평균은 0 근방으로 수렴
+        // Law of large numbers: the mean of Lap(0, b) samples converges near 0
         let mut rng = SplitMix64::new(42);
         let n = 100_000;
         let scale = 1.0;
@@ -538,12 +538,12 @@ mod tests {
 
         let (noised, report) = apply_dp(&frame, &test_args(DpMechanism::Laplace, 1.0, 42)).unwrap();
 
-        // 문자열 컬럼은 그대로
+        // String columns stay unchanged
         assert_eq!(
             noised.column("region").unwrap().str().unwrap().get(0),
             Some("SEOUL")
         );
-        // 숫자 컬럼은 f64 로 승격 + 노이즈 적용 (원본과 달라짐)
+        // Numeric column is promoted to f64 + noise applied (differs from the original)
         let vals = noised.column("patient_count").unwrap().f64().unwrap();
         let originals = [120.0, 85.0, 42.0];
         let changed = (0..3).any(|i| (vals.get(i).unwrap() - originals[i]).abs() > 1e-12);
@@ -590,7 +590,7 @@ mod tests {
 
     #[test]
     fn smaller_epsilon_means_larger_noise() {
-        // ε 이 작을수록 노이즈 scale 이 커야 한다 (강한 보호)
+        // The smaller ε, the larger the noise scale must be (stronger protection)
         assert!(laplace_scale(1.0, 0.1) > laplace_scale(1.0, 1.0));
         assert!(gaussian_sigma(1.0, 0.1, 1e-5) > gaussian_sigma(1.0, 1.0, 1e-5));
     }
@@ -601,10 +601,10 @@ mod tests {
         assert!(budget.spend(DpMechanism::Laplace, 1.0, 0.0).is_ok());
         assert!(budget.spend(DpMechanism::Laplace, 0.5, 0.0).is_ok());
         assert!((budget.remaining() - 0.5).abs() < 1e-12);
-        // 잔여 0.5 인데 1.0 요청 → 거부
+        // 1.0 requested while 0.5 remains → rejected
         let err = budget.spend(DpMechanism::Laplace, 1.0, 0.0).unwrap_err();
         assert!(err.contains("예산 초과"), "예산 초과 메시지 아님: {err}");
-        // 거부된 요청은 예산을 소모하지 않는다
+        // A rejected request does not consume budget
         assert!((budget.spent() - 1.5).abs() < 1e-12);
     }
 
@@ -617,7 +617,7 @@ mod tests {
 
     #[test]
     fn gaussian_composition_accumulates_delta() {
-        // gaussian 은 (ε, δ)-DP → δ 도 조성 회계에 누적된다
+        // gaussian is (ε, δ)-DP → δ also accumulates in composition accounting
         let mut budget = PrivacyBudget::new_with_delta(10.0, 1e-4);
         assert!(budget.spend(DpMechanism::Gaussian, 1.0, 1e-5).is_ok());
         assert!(budget.spend(DpMechanism::Gaussian, 1.0, 1e-5).is_ok());
@@ -628,11 +628,11 @@ mod tests {
     #[test]
     fn gaussian_delta_over_budget_is_blocked() {
         let mut budget = PrivacyBudget::new_with_delta(10.0, 1e-5);
-        // 첫 쿼리 δ=1e-5 로 총 δ 예산 소진 → 두 번째 gaussian 은 δ 초과로 거부
+        // First query's δ=1e-5 exhausts the total δ budget → second gaussian is rejected for exceeding δ
         assert!(budget.spend(DpMechanism::Gaussian, 1.0, 1e-5).is_ok());
         let err = budget.spend(DpMechanism::Gaussian, 1.0, 1e-5).unwrap_err();
         assert!(err.contains("δ"), "δ 초과 메시지 아님: {err}");
-        // 거부된 요청은 ε/δ 를 소모하지 않는다
+        // A rejected request does not consume ε/δ
         assert!((budget.spent() - 1.0).abs() < 1e-12);
         assert!((budget.spent_delta() - 1e-5).abs() < 1e-12);
     }
@@ -647,7 +647,7 @@ mod tests {
 
     #[test]
     fn spend_n_charges_per_mechanism_for_multi_column() {
-        // k 개 컬럼 = k 개 메커니즘 → k·ε 청구 (순차 조성)
+        // k columns = k mechanisms → billed k·ε (sequential composition)
         let mut budget = PrivacyBudget::new(10.0);
         assert!(budget.spend_n(DpMechanism::Laplace, 1.0, 0.0, 3).is_ok());
         assert!((budget.spent() - 3.0).abs() < 1e-12);
@@ -656,13 +656,13 @@ mod tests {
 
     #[test]
     fn spend_n_blocks_when_multi_column_exceeds_budget() {
-        // 잔여가 2ε 인데 3 컬럼에 노이즈 → 3ε 청구는 거부 (k 메커니즘 반영)
+        // Noise on 3 columns while 2ε remains → 3ε charge is rejected (k mechanisms reflected)
         let mut budget = PrivacyBudget::new(2.0);
         let err = budget
             .spend_n(DpMechanism::Laplace, 1.0, 0.0, 3)
             .unwrap_err();
         assert!(err.contains("예산 초과"), "예산 초과 메시지 아님: {err}");
-        // 거부 시 예산 미소모
+        // No budget is spent on rejection
         assert!((budget.spent() - 0.0).abs() < 1e-12);
         assert_eq!(budget.query_count(), 0);
     }

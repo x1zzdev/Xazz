@@ -33,9 +33,9 @@ impl<'src> Lexer<'src> {
         }
     }
 
-    // ── 기본 헬퍼 ────────────────────────────────────────────────────────────
+    // ── basic helpers ────────────────────────────────────────────────────────────
 
-    /// 이터레이터를 끝까지 소비했는지 확인 (source 필드 참조)
+    /// Checks whether the iterator has been fully consumed (see the source field)
     fn is_at_end(&self) -> bool {
         self.pos >= self.source.len()
     }
@@ -44,7 +44,7 @@ impl<'src> Lexer<'src> {
         self.chars.peek().copied()
     }
 
-    /// 한 문자를 소비하고 pos / line / col 갱신
+    /// Consumes one character and updates pos / line / col
     fn advance(&mut self) -> Option<char> {
         match self.chars.next() {
             Some(c) => {
@@ -65,9 +65,9 @@ impl<'src> Lexer<'src> {
         Span::new(self.line, self.col)
     }
 
-    // ── 문자열 리터럴 ────────────────────────────────────────────────────────
+    // ── string literals ────────────────────────────────────────────────────────
 
-    /// 여는 '"' 이미 소비된 상태에서 호출
+    /// Called when the opening '"' has already been consumed
     fn read_string(&mut self, open_span: Span) -> CompileResult<TokenKind> {
         let mut s = String::new();
         loop {
@@ -100,15 +100,15 @@ impl<'src> Lexer<'src> {
         Ok(TokenKind::StringLit(s))
     }
 
-    // ── 숫자 리터럴 ──────────────────────────────────────────────────────────
+    // ── numeric literals ──────────────────────────────────────────────────────────
 
-    /// 첫 번째 자리(first)는 이미 소비된 상태
-    /// underscore(_)를 허용: 1_200_000 → IntLit(1200000)
+    /// The first digit (first) has already been consumed
+    /// Allows underscores (_): 1_200_000 → IntLit(1200000)
     fn read_number(&mut self, first: char, span: &Span) -> CompileResult<TokenKind> {
         let mut buf = String::new();
         buf.push(first);
 
-        // 정수 부분 (underscore 무시)
+        // integer part (ignore underscores)
         while self
             .peek()
             .map_or(false, |c| c.is_ascii_digit() || c == '_')
@@ -119,9 +119,9 @@ impl<'src> Lexer<'src> {
             }
         }
 
-        // 소수점 + 소수 부분
+        // decimal point + fractional part
         if self.peek() == Some('.') {
-            self.advance(); // '.' 소비
+            self.advance(); // consume '.'
             buf.push('.');
             while self
                 .peek()
@@ -152,7 +152,7 @@ impl<'src> Lexer<'src> {
         Ok(TokenKind::IntLit(value))
     }
 
-    // ── 식별자 · 키워드 ──────────────────────────────────────────────────────
+    // ── identifiers · keywords ──────────────────────────────────────────────────────
 
     fn read_ident(&mut self, first: char) -> TokenKind {
         let mut buf = String::new();
@@ -168,7 +168,7 @@ impl<'src> Lexer<'src> {
 
     fn keyword_or_ident(s: String) -> TokenKind {
         match s.as_str() {
-            // ── 기존 키워드 ──────────────────────────────────
+            // ── existing keywords ──────────────────────────────────
             "type" => TokenKind::Type,
             "load" => TokenKind::Load,
             "filter" => TokenKind::Filter,
@@ -177,7 +177,7 @@ impl<'src> Lexer<'src> {
             "v" => TokenKind::V,
             "mut" => TokenKind::Mut,
             "Option" => TokenKind::OptionKw,
-            // ── v0.16 신규 파이프라인 연산 키워드 ────────────
+            // ── v0.16 new pipeline operator keywords ────────────
             "groupBy" => TokenKind::GroupBy,
             "sum" => TokenKind::Sum,
             "mean" => TokenKind::Mean,
@@ -187,31 +187,31 @@ impl<'src> Lexer<'src> {
             "take" => TokenKind::Take,
             "dropNull" => TokenKind::DropNull,
             "fillNull" => TokenKind::FillNull,
-            // ── v0.16+ 신규 파이프라인 연산 키워드 ───────────
+            // ── v0.16+ new pipeline operator keywords ───────────
             "join" => TokenKind::Join,
             "withColumn" => TokenKind::WithColumn,
             "on" => TokenKind::On,
             "how" => TokenKind::How,
-            // ── v0.16 리터럴 / 명명 인수 키워드 ─────────────
+            // ── v0.16 literal / named-argument keywords ─────────────
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             "desc" => TokenKind::Desc,
-            // ── v0.19 시각화 키워드 ───────────────────────────
+            // ── v0.19 visualization keywords ───────────────────────────
             "chart" => TokenKind::Chart,
-            // ── v0.20 타입 캐스팅 키워드 ─────────────────────
+            // ── v0.20 type casting keywords ─────────────────────
             "cast" => TokenKind::Cast,
-            // ── v0.21 신규 파이프라인 연산 키워드 ────────────────
+            // ── v0.21 new pipeline operator keywords ────────────────
             "rename" => TokenKind::Rename,
             "replace" => TokenKind::Replace,
             "left_on" => TokenKind::LeftOn,
             "right_on" => TokenKind::RightOn,
-            // ── v0.22 신규 파이프라인 연산 키워드 ────────────────
+            // ── v0.22 new pipeline operator keywords ────────────────
             "sample" => TokenKind::Sample,
             "median" => TokenKind::Median,
             "variance" => TokenKind::Variance,
             "std" => TokenKind::Std,
             "seed" => TokenKind::Seed,
-            // ── v0.3 딥러닝 키워드 ───────────────────────────────
+            // ── v0.3 deep-learning keywords ───────────────────────────────
             "model" => TokenKind::Model,
             "run" => TokenKind::Run,
             "train" => TokenKind::Train,
@@ -220,21 +220,21 @@ impl<'src> Lexer<'src> {
             "target" => TokenKind::Target,
             "strategy" => TokenKind::Strategy,
 
-            // ── 식별자 ───────────────────────────────────────────
+            // ── identifier ───────────────────────────────────────────
             _ => TokenKind::Ident(s),
         }
     }
 
-    // ── 메인 상태 머신 ────────────────────────────────────────────────────────
+    // ── main state machine ────────────────────────────────────────────────────────
 
-    /// 다음 Token을 하나 반환 (상태 머신 핵심)
+    /// Returns the next Token (core of the state machine)
     pub fn next_token(&mut self) -> CompileResult<Token> {
-        // 공백 건너뛰기
+        // skip whitespace
         while self.peek().map_or(false, |c| c.is_whitespace()) {
             self.advance();
         }
 
-        // 파일 끝
+        // end of file
         if self.is_at_end() {
             return Ok(Token::new(TokenKind::Eof, self.span()));
         }
@@ -246,9 +246,9 @@ impl<'src> Lexer<'src> {
         };
 
         let kind = match ch {
-            // ── 주석 ──────────────────────────────────────────────────
+            // ── comments ──────────────────────────────────────────────────
             '/' if self.peek() == Some('/') => {
-                // 줄 끝까지 소비 후 재귀 호출
+                // consume to end of line, then recurse
                 while self.peek().map_or(false, |c| c != '\n') {
                     self.advance();
                 }
@@ -256,10 +256,10 @@ impl<'src> Lexer<'src> {
             }
             '/' => TokenKind::Slash,
 
-            // ── 문자열 ────────────────────────────────────────────────
+            // ── strings ────────────────────────────────────────────────
             '"' => self.read_string(span.clone())?,
 
-            // ── 두 문자 연산자 ─────────────────────────────────────────
+            // ── two-character operators ─────────────────────────────────────────
             '|' if self.peek() == Some('>') => {
                 self.advance();
                 TokenKind::Pipeline
@@ -289,7 +289,7 @@ impl<'src> Lexer<'src> {
                 TokenKind::Arrow
             }
 
-            // ── 단일 문자 연산자 ───────────────────────────────────────
+            // ── single-character operators ───────────────────────────────────────
             '=' => TokenKind::Assign,
             '<' => TokenKind::Lt,
             '>' => TokenKind::Gt,
@@ -299,12 +299,12 @@ impl<'src> Lexer<'src> {
             '.' => TokenKind::Dot,
             ':' => TokenKind::Colon,
 
-            // ── 음수 또는 Minus ────────────────────────────────────────
+            // ── negative number or Minus ────────────────────────────────────────
             '-' if self.peek().map_or(false, |c| c.is_ascii_digit()) => {
                 let digit = self.advance().unwrap();
                 match self.read_number(digit, &span)? {
                     TokenKind::IntLit(n) => {
-                        // -i64::MIN 은 오버플로되므로 명시적으로 거부
+                        // -i64::MIN would overflow, so explicitly reject it
                         if n == i64::MIN {
                             return Err(CompileError::new(
                                 ErrorKind::Other(
@@ -322,7 +322,7 @@ impl<'src> Lexer<'src> {
             }
             '-' => TokenKind::Minus,
 
-            // ── 구분자 ────────────────────────────────────────────────
+            // ── delimiters ────────────────────────────────────────────────
             '{' => TokenKind::LBrace,
             '}' => TokenKind::RBrace,
             '(' => TokenKind::LParen,
@@ -332,13 +332,13 @@ impl<'src> Lexer<'src> {
             ',' => TokenKind::Comma,
             ';' => TokenKind::Semicolon,
 
-            // ── 숫자 ───────────────────────────────────────────────────
+            // ── numbers ───────────────────────────────────────────────────
             c if c.is_ascii_digit() => self.read_number(c, &span)?,
 
-            // ── 식별자 / 키워드 ────────────────────────────────────────
+            // ── identifiers / keywords ────────────────────────────────────────
             c if c.is_alphabetic() || c == '_' => self.read_ident(c),
 
-            // ── 알 수 없는 문자 ────────────────────────────────────────
+            // ── unknown character ────────────────────────────────────────
             other => {
                 return Err(CompileError::new(
                     ErrorKind::UnexpectedChar(other),
@@ -351,7 +351,7 @@ impl<'src> Lexer<'src> {
         Ok(Token::new(kind, span))
     }
 
-    /// 소스 전체를 토크나이징하여 Vec<Token> 반환
+    /// Tokenizes the entire source and returns Vec<Token>
     pub fn tokenize(&mut self) -> CompileResult<Vec<Token>> {
         let mut tokens = Vec::new();
         loop {
@@ -366,7 +366,7 @@ impl<'src> Lexer<'src> {
     }
 }
 
-// ── 렉서 유닛 테스트 ─────────────────────────────────────────────────────────
+// ── lexer unit tests ─────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -383,7 +383,7 @@ mod tests {
             .collect()
     }
 
-    // ── 테스트 1: 변수 선언 키워드 + 파이프라인 연산자(|>) 토크나이징 ────────
+    // ── test 1: variable declaration keyword + pipeline operator (|>) tokenizing ────────
     #[test]
     fn test_var_decl_and_pipeline_token() {
         let kinds = tokenize("v result = load(\"data.csv\") :: MySchema |> count");
@@ -406,7 +406,7 @@ mod tests {
         );
     }
 
-    // ── 테스트 2: mut 키워드 + 음수 리터럴 ──────────────────────────────────
+    // ── test 2: mut keyword + negative literal ──────────────────────────────────
     #[test]
     fn test_mut_keyword_and_negative_literal() {
         let kinds = tokenize("mut v x = -42");
@@ -415,7 +415,7 @@ mod tests {
         assert!(kinds.contains(&TokenKind::IntLit(-42)), "IntLit(-42) 없음");
     }
 
-    // ── 테스트 3: Option<float> 타입 토크나이징 ─────────────────────────────
+    // ── test 3: Option<float> type tokenizing ─────────────────────────────
     #[test]
     fn test_option_type_tokens() {
         let kinds = tokenize("pm10: Option<float>");
@@ -429,7 +429,7 @@ mod tests {
         assert!(kinds.contains(&TokenKind::Gt), "Gt(>) 없음");
     }
 
-    // ── 테스트 4: 비교 연산자 전체 ──────────────────────────────────────────
+    // ── test 4: all comparison operators ──────────────────────────────────────────
     #[test]
     fn test_comparison_operators() {
         let kinds = tokenize("a == b != c < d > e <= f >= g");
@@ -441,11 +441,11 @@ mod tests {
         assert!(kinds.contains(&TokenKind::GtEq));
     }
 
-    // ── 테스트 5: 주석 무시 ─────────────────────────────────────────────────
+    // ── test 5: comment ignoring ─────────────────────────────────────────────────
     #[test]
     fn test_comment_ignored() {
         let kinds = tokenize("v x = 1 // this is a comment\n");
-        // 주석 내용은 토큰으로 나타나지 않아야 함
+        // comment content must not appear as tokens
         assert!(
             !kinds.contains(&TokenKind::Slash),
             "Slash 토큰이 주석에서 생성됨"
@@ -454,22 +454,22 @@ mod tests {
         assert!(kinds.contains(&TokenKind::IntLit(1)));
     }
 
-    // ── 테스트 6: 문자열 이스케이프 ─────────────────────────────────────────
+    // ── test 6: string escaping ─────────────────────────────────────────
     #[test]
     fn test_string_escape_sequences() {
         let kinds = tokenize(r#""hello\nworld""#);
         assert!(kinds.contains(&TokenKind::StringLit("hello\nworld".into())));
     }
 
-    // ── 테스트 7: Span(위치) 추적 정확성 ────────────────────────────────────
+    // ── test 7: Span (position) tracking accuracy ────────────────────────────────────
     #[test]
     fn test_span_tracking() {
         let src = "v\n result";
         let mut lexer = Lexer::new(src);
         let tokens = lexer.tokenize().unwrap();
-        // 첫 토큰 'v' → line 1
+        // first token 'v' → line 1
         assert_eq!(tokens[0].span.line, 1);
-        // 두 번째 토큰 'result' → line 2
+        // second token 'result' → line 2
         let result_tok = tokens
             .iter()
             .find(|t| t.kind == TokenKind::Ident("result".into()));
@@ -477,7 +477,7 @@ mod tests {
         assert_eq!(result_tok.unwrap().span.line, 2);
     }
 
-    // ── 테스트 8: 알 수 없는 문자 에러 ─────────────────────────────────────
+    // ── test 8: unknown character error ─────────────────────────────────────
     #[test]
     fn test_unknown_char_error() {
         let mut lexer = Lexer::new("v @ x");
@@ -490,7 +490,7 @@ mod tests {
         ));
     }
 
-    // ── 테스트 9 (v0.16): 신규 파이프라인 키워드 토크나이징 ──────────────────
+    // ── test 9 (v0.16): new pipeline keyword tokenizing ──────────────────
     #[test]
     fn test_new_pipeline_keywords() {
         let src = "groupBy sum mean min max orderBy take dropNull fillNull";
@@ -506,7 +506,7 @@ mod tests {
         assert!(kinds.contains(&TokenKind::FillNull), "FillNull 없음");
     }
 
-    // ── 테스트 10 (v0.16): 불리언 키워드 ────────────────────────────────────
+    // ── test 10 (v0.16): boolean keywords ────────────────────────────────────
     #[test]
     fn test_boolean_keywords() {
         let kinds = tokenize("true false");
@@ -514,7 +514,7 @@ mod tests {
         assert!(kinds.contains(&TokenKind::False), "False 없음");
     }
 
-    // ── 테스트 11 (v0.16): 숫자 underscore ──────────────────────────────────
+    // ── test 11 (v0.16): numeric underscore ──────────────────────────────────
     #[test]
     fn test_number_underscore() {
         let kinds = tokenize("1_200_000");
@@ -525,14 +525,14 @@ mod tests {
         );
     }
 
-    // ── 테스트 12 (v0.16): desc 키워드 ──────────────────────────────────────
+    // ── test 12 (v0.16): desc keyword ──────────────────────────────────────
     #[test]
     fn test_desc_keyword() {
         let kinds = tokenize("desc");
         assert!(kinds.contains(&TokenKind::Desc), "Desc 없음");
     }
 
-    // ── 테스트 13 (v0.22): sample/median/variance/std/seed 키워드 ──────────
+    // ── test 13 (v0.22): sample/median/variance/std/seed keywords ──────────
     #[test]
     fn test_new_v22_keywords() {
         let kinds = tokenize("sample median variance std seed");

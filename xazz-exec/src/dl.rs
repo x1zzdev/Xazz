@@ -1,13 +1,13 @@
-//! xazz-exec/src/dl.rs — Burn 딥러닝 실행 엔진 (v0.4)
+//! xazz-exec/src/dl.rs — Burn deep-learning execution engine (v0.4)
 //!
-//! .xzz 스크립트의 `model {}` 선언과 `run v |> train(...)` 구문을 실제 Burn
-//! 신경망 학습으로 변환하여 실행한다.
+//! Translates `.xzz` `model {}` declarations and `run v |> train(...)` syntax into
+//! actual Burn neural-network training and executes it.
 //!
-//! 백엔드: burn-ndarray (순수 Rust CPU). `Backend` 제네릭으로 구조화되어 있어
-//! torch / wgpu 로 전환 시 이 모듈의 `AD`/`Plain` 타입 별칭만 교체하면 된다.
+//! Backend: burn-ndarray (pure Rust CPU). Structured around the `Backend` generic,
+//! so switching to torch / wgpu only requires swapping this module's `AD`/`Plain` type aliases.
 //!
-//!   - AD    = NdArrayAutodiff<f32>  (학습용: autodiff 그래프 활성)
-//!   - Plain = NdArray<f32>          (추론용)
+//!   - AD    = NdArrayAutodiff<f32>  (for training: autodiff graph enabled)
+//!   - Plain = NdArray<f32>          (for inference)
 
 use std::collections::HashMap;
 
@@ -30,15 +30,15 @@ use xazz_core::i18n::tr;
 
 use crate::tensor_bridge::{extract_data, series_to_f32};
 
-/// 학습용 autodiff 백엔드 (CPU): NdArray + Autodiff 래퍼.
+/// Autodiff backend for training (CPU): NdArray + Autodiff wrapper.
 pub type AD = Autodiff<NdArray<f32>>;
-/// 추론용 순수 백엔드 (CPU).
+/// Pure backend for inference (CPU).
 pub type Plain = NdArray<f32>;
 
-/// 검증 분할 비율 상한 — 데이터의 이 비율까지만 검증 세트로 떼어낼 수 있다.
+/// Upper bound of the validation split ratio — at most this fraction of the data can be held out for validation.
 const MAX_VALIDATION_SPLIT: f64 = 0.9;
 
-/// dsL 모델 블록의 활성화/정규화 레이어 종류.
+/// DSL model block activation/normalization layer kinds.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Activation {
     None,
@@ -49,8 +49,8 @@ enum Activation {
     Dropout(f64),
 }
 
-/// 레이어별 활성화 함수 적용.
-/// Dropout 은 학습(training=true)에서만 적용하고, 추론에서는 항등 함수로 통과시킨다.
+/// Applies the per-layer activation function.
+/// Dropout is applied only during training (training=true); inference passes it through as the identity function.
 fn apply_activation<B: Backend, const D: usize>(
     act: &Activation,
     x: Tensor<B, D>,
@@ -72,22 +72,22 @@ fn apply_activation<B: Backend, const D: usize>(
     }
 }
 
-/// DSL `model { Dense -> ReLU -> ... }` 를 동적 다층 퍼셉트론(MLP)으로 표현한 Burn 모듈.
-// (Burn Module derive 가 Clone 을 제공한다)
+/// Burn module expressing the DSL `model { Dense -> ReLU -> ... }` as a dynamic multi-layer perceptron (MLP).
+// (The Burn Module derive provides Clone)
 #[derive(Module, Debug)]
 pub struct Mlp<B: Backend> {
-    /// Dense(units) 레이어 시퀀스.
+    /// Sequence of Dense(units) layers.
     layers: Vec<Linear<B>>,
-    /// 각 Dense 뒤에 적용할 활성화 함수 (마지막 레이어 포함).
+    /// Activation function applied after each Dense (including the last layer).
     #[module(skip)]
     activations: Vec<Activation>,
-    /// 학습 모드 여부 — Dropout 적용을 결정한다 (추론 시 false).
+    /// Whether in training mode — determines Dropout application (false during inference).
     #[module(skip)]
     training: bool,
 }
 
 impl<B: Backend> Mlp<B> {
-    /// 순전파: [batch, input_dim] → [batch, output_dim].
+    /// Forward pass: [batch, input_dim] → [batch, output_dim].
     fn forward<const D: usize>(&self, input: Tensor<B, D>) -> Tensor<B, D> {
         let mut x = input;
         for i in 0..self.layers.len() {
@@ -101,7 +101,7 @@ impl<B: Backend> Mlp<B> {
     }
 }
 
-/// DSM 레이어 목록과 입력 차원으로 MLP 를 구성한다.
+/// Builds the MLP from the DSL layer list and input dimension.
 fn build_mlp<B: Backend>(
     layers: &[LayerKind],
     input_dim: usize,
@@ -115,7 +115,7 @@ fn build_mlp<B: Backend>(
         match layer {
             LayerKind::Dense(n) if *n > 0 => {
                 linears.push(LinearConfig::new(cur, *n).init(device));
-                activations.push(Activation::None); // DSL 활성화가 있으면 덮어씀
+                activations.push(Activation::None); // overwritten if a DSL activation follows
                 cur = *n;
             }
             LayerKind::Dense(_) => {
@@ -130,7 +130,7 @@ fn build_mlp<B: Backend>(
             LayerKind::Tanh => set_activation(&mut activations, Activation::Tanh),
             LayerKind::Softmax => set_activation(&mut activations, Activation::Softmax),
             LayerKind::Dropout(r) => set_activation(&mut activations, Activation::Dropout(*r)),
-            // BatchNorm(1D MLP)은 Burn v2D BatchNorm 과 레이아웃이 달라 생략한다.
+            // BatchNorm (1D MLP) is omitted because its layout differs from Burn's 2D BatchNorm.
             LayerKind::BatchNorm => { /* pass-through */ }
         }
     }
@@ -149,7 +149,7 @@ fn build_mlp<B: Backend>(
     })
 }
 
-/// 마지막 Dense 뒤에 활성화를 기록한다 (연속 활성화는 마지막 것만 적용).
+/// Records the activation after the last Dense (consecutive activations keep only the last one).
 fn set_activation(acts: &mut Vec<Activation>, act: Activation) {
     if let Some(last) = acts.last_mut() {
         *last = act;
@@ -157,7 +157,7 @@ fn set_activation(acts: &mut Vec<Activation>, act: Activation) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 학습 결과 리포트
+// Training result report
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -178,28 +178,28 @@ pub struct TrainReport {
     pub checkpoint_path: String,
 }
 
-/// 학습된 모델 — 예측(predict)에 필요한 표준화 통계까지 보유한다.
+/// Trained model — also holds the standardization statistics needed for predict().
 #[derive(Debug, Clone)]
 pub struct TrainedModel {
-    /// 추론용 순수 모델 (autodiff 그래프 없음).
+    /// Pure model for inference (no autodiff graph).
     pub model: Mlp<Plain>,
-    /// 학습 결과 리포트 (마커/로그용).
+    /// Training result report (for markers/logs).
     pub report: TrainReport,
-    /// 특성 컬럼 순서 (표준화 통계와 1:1 대응).
+    /// Feature column order (1:1 correspondence with standardization statistics).
     pub feature_names: Vec<String>,
-    /// 특성별 평균 (z-score).
+    /// Per-feature mean (z-score).
     pub fmean: Vec<f64>,
-    /// 특성별 표준편차 (z-score).
+    /// Per-feature standard deviation (z-score).
     pub fstd: Vec<f64>,
-    /// 학습 대상 컬럼.
+    /// Training target column.
     pub target: String,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 공개 API
+// Public API
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// `dataset |> train(<model>, target: "...", ...)` 를 실행하고 학습된 모델을 반환한다.
+/// Runs `dataset |> train(<model>, target: "...", ...)` and returns the trained model.
 pub fn train(
     df: &DataFrame,
     model_name: &str,
@@ -220,7 +220,7 @@ pub fn train(
         return Err(tr("Training data is empty.", "학습 데이터가 비어 있습니다.").into());
     }
 
-    // ── 특성 표준화 통계 (NaN → 평균 대체) ─────────────────────────────────
+    // ── Feature standardization statistics (NaN → mean imputation) ────────────────
     let mut fmean = vec![0f64; input_dim];
     let mut fstd = vec![1f64; input_dim];
     for j in 0..input_dim {
@@ -286,7 +286,7 @@ pub fn train(
         })
         .collect();
 
-    // ── train / validation 분할 ────────────────────────────────────────────
+    // ── train / validation split ────────────────────────────────────────────
     let val_split = config
         .validation_split
         .unwrap_or(0.0)
@@ -324,7 +324,7 @@ pub fn train(
     let mut final_val_loss: Option<f64> = None;
 
     for epoch in 0..config.epochs {
-        // 결정론적 셔플 (epoch 시드)
+        // Deterministic shuffle (epoch seed)
         let mut order: Vec<usize> = (0..train_n).collect();
         let mut seed = epoch as u64 + 1;
         for i in (1..order.len()).rev() {
@@ -382,7 +382,7 @@ pub fn train(
         );
     }
 
-    // ── 샘플 예측 (in-sample) ──────────────────────────────────────────────
+    // ── Sample predictions (in-sample) ──────────────────────────────────────
     let n_pred = n.min(10);
     let device_plain: Device<Plain> = Default::default();
     let mut xv = Vec::with_capacity(n_pred * input_dim);
@@ -406,7 +406,7 @@ pub fn train(
         .map(|l| l.weight.shape().dims::<2>()[1])
         .unwrap_or(1);
 
-    // ── 체크포인트 저장 ────────────────────────────────────────────────────
+    // ── Checkpoint save ────────────────────────────────────────────────────
     let ckpt_dir = "checkpoints";
     std::fs::create_dir_all(ckpt_dir).map_err(|e| {
         format!(
@@ -456,9 +456,9 @@ pub fn train(
     })
 }
 
-/// `dataset |> predict(model_var, as: "col")` — 학습된 모델로 예측 컬럼을 추가한다.
+/// `dataset |> predict(model_var, as: "col")` — adds a prediction column using the trained model.
 ///
-/// 예측 컬럼명 기본값: `<target>_pred`.
+/// Default prediction column name: `<target>_pred`.
 pub fn predict(
     trained: &TrainedModel,
     df: &DataFrame,
@@ -524,5 +524,5 @@ pub fn predict(
     Ok(out)
 }
 
-/// Layered model registry helper: <model 이름, LayerKind 목록>.
+/// Layered model registry helper: <model name, LayerKind list>.
 pub type ModelRegistry = HashMap<String, Vec<LayerKind>>;

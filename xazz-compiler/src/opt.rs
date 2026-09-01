@@ -1,25 +1,25 @@
-// xazz-compiler/src/opt.rs — IR 최적화 패스 (v0.3)
+// xazz-compiler/src/opt.rs — IR optimization passes (v0.3)
 //
-// Typed IR 위에서 의미를 보존하는 최적화를 수행한다.
+// Performs semantics-preserving optimizations on the Typed IR.
 //
-// 패스 (전부 의미 보존 — Xazz 표현식은 순수하며 부작용이 없다):
-//   1. fold_constants   — 리터럴 이항식 상수 폴딩
-//   2. merge_selects    — 연속 Select 병합 (projection 축소)
-//   3. pushdown_filters — Select/WithColumn 뒤의 Filter 를 앞으로 (조건 푸시다운)
+// passes (all semantics-preserving — Xazz expressions are pure and have no side effects):
+//   1. fold_constants   — constant folding of literal binary expressions
+//   2. merge_selects    — merge consecutive Selects (projection reduction)
+//   3. pushdown_filters — move Filters after Select/WithColumn forward (predicate pushdown)
 //
-// null 의미론 주의:
-//   - DSL 필터는 "식이 true 인 행"만 유지한다 (null 은 false 처리).
-//   - Filter 재배치는 필터 식이 참조하는 컬럼이 이동 대상 경계를 통과해도
-//     동일하게 존재할 때만 허용한다 (ex: Select 가 해당 컬럼을 유지할 때).
-//   - 이는 Polars LazyFrame 이 내부에서 수행하는 푸시다운을 **언어 수준에서**
-//     명시적으로 정의하는 계층이다. (backend 미의존, 향후 후행 백엔드 대비)
+// null-semantics note:
+//   - the DSL filter keeps only rows where "the expression is true" (null is treated as false).
+//   - Filter relocation is allowed only when the columns referenced by the filter expression
+//     still exist identically across the relocation boundary (e.g., when Select keeps those columns).
+//   - this is a layer that explicitly defines at the **language level** the pushdown
+//     that Polars LazyFrame performs internally. (backend-independent, in preparation for future backends)
 
 use std::collections::HashSet;
 
 use crate::ast::BinOpKind;
 use crate::ir::{ColType, DataOp, Step, TypedExpr, TypedExprKind, TypedProgram};
 
-/// 프로그램 전체를 최적화한 새 IR 을 반환한다 (입력은 불변).
+/// Returns a new IR with the whole program optimized (the input is immutable).
 pub fn optimize_program(program: &TypedProgram) -> TypedProgram {
     let mut out = program.clone();
     for node in &mut out.pipelines {
@@ -31,10 +31,10 @@ pub fn optimize_program(program: &TypedProgram) -> TypedProgram {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. 상수 폴딩
+// 1. constant folding
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// TypedExpr 를 담는 모든 연산(Filter/WithColumn)의 리터럴 이항식을 접는다.
+/// Folds literal binary expressions in every operation (Filter/WithColumn) that holds a TypedExpr.
 fn fold_constants(steps: &mut [Step]) {
     for step in steps.iter_mut() {
         if let Step::Data(op) = step {
@@ -47,7 +47,7 @@ fn fold_constants(steps: &mut [Step]) {
     }
 }
 
-/// 리터럴 노드 (폴딩 피연산자용).
+/// Literal node (for folding operands).
 #[derive(Debug, Clone, PartialEq)]
 enum Lit {
     Int(i64),
@@ -86,7 +86,7 @@ fn int_expr(v: i64) -> TypedExpr {
     TypedExpr::new(TypedExprKind::Int(v), ColType::Int)
 }
 
-/// 표현식을 재귀적으로 폴딩한다. (폴딩 불가 시 원형 유지)
+/// Recursively folds an expression. (Keeps the original when it cannot be folded.)
 fn fold_expr(expr: TypedExpr) -> TypedExpr {
     let TypedExpr { kind, ty } = expr;
     match kind {
@@ -114,10 +114,10 @@ fn fold_expr(expr: TypedExpr) -> TypedExpr {
 
 fn fold_binop(op: BinOpKind, a: &Lit, b: &Lit) -> Option<TypedExpr> {
     use BinOpKind::*;
-    // ── 산술 ─────────────────────────────────────────────
+    // ── arithmetic ─────────────────────────────────────────────
     match op {
         Add | Sub | Mul | Div => {
-            // int·int 산술 (Div 는 float 로 폴딩 — Polars 정수 나눗셈 결과가 실수이기 때문)
+            // int·int arithmetic (Div folds to float — because Polars integer division produces a float)
             if let (Lit::Int(x), Lit::Int(y)) = (a, b)
                 && op != Div
             {
@@ -132,7 +132,7 @@ fn fold_binop(op: BinOpKind, a: &Lit, b: &Lit) -> Option<TypedExpr> {
             let x = num(a)?;
             let y = num(b)?;
             if op == Div && y == 0.0 {
-                return None; // 0 나눗셈은 런타임 의미를 보존 (폴딩 금지)
+                return None; // division by zero preserves runtime semantics (no folding)
             }
             let v = match op {
                 Add => x + y,
@@ -143,7 +143,7 @@ fn fold_binop(op: BinOpKind, a: &Lit, b: &Lit) -> Option<TypedExpr> {
             };
             Some(float_expr(v))
         }
-        // ── 비교 ─────────────────────────────────────────
+        // ── comparison ─────────────────────────────────────────
         Eq | NotEq => match (a, b) {
             (Lit::Int(x), Lit::Int(y)) => Some(bool_expr(if op == Eq { x == y } else { x != y })),
             (Lit::Float(x), Lit::Float(y)) => {
@@ -173,7 +173,7 @@ fn fold_binop(op: BinOpKind, a: &Lit, b: &Lit) -> Option<TypedExpr> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. 연속 Select 병합 (projection 축소)
+// 2. consecutive Select merging (projection reduction)
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn merge_selects(steps: &mut Vec<Step>) {
@@ -197,7 +197,7 @@ fn merge_selects(steps: &mut Vec<Step>) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. 조건 푸시다운 (Filter 를 Select/WithColumn 앞으로)
+// 3. predicate pushdown (move Filter before Select/WithColumn)
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn expr_columns(e: &TypedExpr, out: &mut HashSet<String>) {
@@ -217,7 +217,7 @@ fn pushdown_filters(steps: &mut Vec<Step>) {
     let mut i = 1;
     while i < steps.len() {
         let can_move = match &steps[i - 1] {
-            // Select 는 기존 컬럼만 유지/축소 → 필요한 컬럼이 모두 유지되면 앞으로 이동 가능.
+            // Select only keeps/reduces existing columns → can move forward if all the needed columns are kept.
             Step::Data(DataOp::Select(cols)) => {
                 if let Step::Data(DataOp::Filter(expr)) = &steps[i] {
                     let mut needed = HashSet::new();
@@ -228,7 +228,7 @@ fn pushdown_filters(steps: &mut Vec<Step>) {
                     false
                 }
             }
-            // WithColumn 은 새 컬럼 1개를 추가 → 그 컬럼을 참조하지 않을 때만 이동 가능.
+            // WithColumn adds one new column → can only move when it does not reference that column.
             Step::Data(DataOp::WithColumn { name, .. }) => {
                 if let Step::Data(DataOp::Filter(expr)) = &steps[i] {
                     let mut needed = HashSet::new();
@@ -248,7 +248,7 @@ fn pushdown_filters(steps: &mut Vec<Step>) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 테스트
+// tests
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn folds_division_when_safe_keeps_zero_div() {
-        // 8 / 2 는 float 4.0 으로 폴딩
+        // 8 / 2 folds to float 4.0
         let src = "type X = { a: float };
              v p = load(\"x.csv\") :: X |> withColumn(\"c\", 8 / 2);";
         let ir = analyze(src);
@@ -296,7 +296,7 @@ mod tests {
             other => panic!("withColumn 아님: {:?}", other),
         }
 
-        // 8 / 0 은 런타임 의미 보존을 위해 폴딩 금지
+        // 8 / 0 is not folded to preserve runtime semantics
         let src2 = "type X = { a: float };
              v p = load(\"x.csv\") :: X |> withColumn(\"c\", 8 / 0);";
         let ir2 = analyze(src2);
@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn pushes_filter_before_select() {
-        // 피드백 예시: filter |> select |> filter → filter |> filter |> select
+        // feedback example: filter |> select |> filter → filter |> filter |> select
         let src = "type X = { a: float, b: float };
              v p = load(\"x.csv\") :: X |> filter(a > 0) |> select([a, b]) |> filter(b > 0);";
         let ir = analyze(src);
@@ -346,7 +346,7 @@ mod tests {
 
     #[test]
     fn does_not_push_filter_using_new_column() {
-        // withColumn(new) |> filter(new > 0) — new 를 참조하므로 재배치 금지
+        // withColumn(new) |> filter(new > 0) — references new, so relocation is forbidden
         let src = "type X = { a: float };
              v p = load(\"x.csv\") :: X |> withColumn(\"b\", a * 2) |> filter(b > 0);";
         let ir = analyze(src);

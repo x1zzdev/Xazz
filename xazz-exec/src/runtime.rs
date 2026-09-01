@@ -15,24 +15,24 @@ use xazz_compiler::ir::{ColType, MLOp, PipelineNode, Schema, SideOp, Source, Ste
 use xazz_compiler::{Lexer, Parser};
 use xazz_core::i18n::{is_korean, tr};
 
-/// CSV 스키마 추론에 검사할 최대 행 수.
+/// Maximum number of rows to inspect for CSV schema inference.
 const SCHEMA_INFERENCE_ROWS: usize = 200;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ── 최상위 공개 진입점 ─────────────────────────────────────────────────────────
+// ── Top-level public entry point ──────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// .xzz 소스 파일 경로를 받아 전체 컴파일+런타임 파이프라인을 실행한다.
+/// Runs the full compile+runtime pipeline for a given .xzz source file path.
 ///
-/// - `verbose`: true 이면 Lexer 토큰 스트림과 AST 를 stdout 에 출력한다.
-/// - `output_csv`: Some(path) 이면 마지막 DataFrame 결과를 CSV 파일로 저장한다.
+/// - `verbose`: if true, prints the Lexer token stream and AST to stdout.
+/// - `output_csv`: if Some(path), saves the final DataFrame result to a CSV file.
 pub fn run_pipeline(
     source_path: &str,
     verbose: bool,
     output_csv: Option<&str>,
     optimize: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // ── STEP 1: 소스 파일 읽기 ───────────────────────────────────────────────
+    // ── STEP 1: Read source file ────────────────────────────────────────────
     let source = fs::read_to_string(source_path).map_err(|e| {
         if is_korean() {
             format!("IO 에러: 파일 읽기 실패 '{}' — {}", source_path, e)
@@ -48,7 +48,7 @@ pub fn run_pipeline(
         source.len()
     );
 
-    // ── STEP 2: Lexer — 토크나이징 ──────────────────────────────────────────
+    // ── STEP 2: Lexer — tokenizing ─────────────────────────────────────────
     let mut lexer = Lexer::new(&source);
     let tokens = lexer
         .tokenize()
@@ -74,7 +74,7 @@ pub fn run_pipeline(
         println!();
     }
 
-    // ── STEP 3: Parser — AST 구축 ───────────────────────────────────────────
+    // ── STEP 3: Parser — build AST ─────────────────────────────────────────
     let mut parser = Parser::new(tokens);
     let program = parser
         .parse()
@@ -87,8 +87,8 @@ pub fn run_pipeline(
         tr("nodes", "노드")
     );
 
-    // ── STEP 3.5: 정적 의미 분석 (Type Checker) + Typed IR 생성 — 실행 전 결함 검출 ─
-    // analyze_program 은 진단과 IR 을 **단일 순회**로 만들어 이중 추론을 제거한다.
+    // ── STEP 3.5: Static semantic analysis (Type Checker) + Typed IR generation — pre-execution defect detection ─
+    // analyze_program produces diagnostics and IR in a **single pass**, eliminating double inference.
     let (check, mut ir) = xazz_compiler::analyze_program(&program);
     if !check.errors.is_empty() || !check.warnings.is_empty() {
         eprintln!(
@@ -105,7 +105,7 @@ pub fn run_pipeline(
         for warn in &check.warnings {
             eprintln!("  [xazz DIAGNOSTIC WARN]  {}", warn.message);
         }
-        // [xazz:diagnostics] JSON 마커 — 서버/IDE에서 파싱 가능
+        // [xazz:diagnostics] JSON marker — parseable by server/IDE
         let diag_json = serde_json::json!({
             "errors": check.errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>(),
             "warnings": check.warnings.iter().map(|e| e.message.clone()).collect::<Vec<_>>(),
@@ -116,9 +116,9 @@ pub fn run_pipeline(
         );
     }
 
-    // ── STEP 3.55: 타입체커 오류는 실행을 차단한다 (fail-closed) ─────────────
-    // 어드바이저리로만 흘려보내면 잘못된 데이터로 Polars 가 더 불명확한 panic 을
-    // 일으키므로, 의미 오류가 있으면 실행을 중단한다. (경고는 비차단 유지)
+    // ── STEP 3.55: Type-checker errors block execution (fail-closed) ───────
+    // If semantic errors were passed through as advisory only, Polars would raise
+    // more obscure panics on bad data, so execution stops on semantic errors. (Warnings remain non-blocking)
     if !check.errors.is_empty() {
         return Err(format!(
             "[xazz TYPECHECK ERROR] {} {} {} — {}. {}: {}",
@@ -132,13 +132,13 @@ pub fn run_pipeline(
         .into());
     }
 
-    // ── STEP 3.6: Policy-as-Code 정적 가드레일 — 실행 전 보안 차단 (issue #2) ─
+    // ── STEP 3.6: Policy-as-Code static guardrail — pre-execution security block (issue #2) ─
     //
-    // 이 게이트가 최종 관문이다. CLI(`xazz run`)와 API 서버(`POST /execute`)도
-    // 각자 앞단에서 같은 검사를 하지만, 실제로 Polars 를 돌리는 곳은 여기뿐이므로
-    // 어떤 경로로 들어오든 이 지점을 지나야 한다.
+    // This gate is the final checkpoint. The CLI (`xazz run`) and API server
+    // (`POST /execute`) each run the same check at their front end, but this is
+    // the only place that actually runs Polars, so every path must pass through here.
     //
-    // 정책을 불러오지 못하면 실행을 **거부**한다 (fail-closed).
+    // If the policy cannot be loaded, execution is **refused** (fail-closed).
     let active = xazz_compiler::load_active_policy().map_err(|e| {
         let report = xazz_compiler::policy_load_failure_report(&e);
         emit_policy_marker(&report);
@@ -190,12 +190,12 @@ pub fn run_pipeline(
         println!();
     }
 
-    // ── STEP 4: Codegen — Polars 흐름 매핑 문자열 생성 ──────────────────────
+    // ── STEP 4: Codegen — generate Polars flow mapping string ─────────────────
     //
-    // (Typed IR 도입으로 문자열 codegen 은 더 이상 실행 경로에서 사용하지 않는다.
-    //  raw AST 해석 대신 IR 을 lowering 한다. `xazz emit` 경로만 별도로 유지.)
+    // (With Typed IR, string codegen is no longer used in the execution path.
+    //  Instead of interpreting the raw AST, we lower the IR. Only the `xazz emit` path keeps it separately.)
 
-    // ── STEP 4.5: IR 최적화 (선택) — 상수 폴딩 / Select 병합 / 조건 푸시다운 ──
+    // ── STEP 4.5: IR optimization (optional) — constant folding / Select merging / predicate pushdown ──
     if optimize {
         let before = ir.pipelines.iter().map(|p| p.steps.len()).sum::<usize>();
         ir = xazz_compiler::optimize_program(&ir);
@@ -210,23 +210,23 @@ pub fn run_pipeline(
         );
     }
 
-    // ── STEP 5: 런타임 엔진 (Typed IR 소비) ─────────────────────────────────
+    // ── STEP 5: Runtime engine (consumes Typed IR) ─────────────────────────
 
-    // 파이프라인 실행만의 지연을 측정한다 — 프로세스 부팅·렉서·파서·체커는 제외.
-    // 벤치마크가 [xazz:timing] 마커를 파싱해 "파이프라인 실행 시간"만 비교할 수 있다.
+    // Measures only the pipeline execution latency — excludes process boot, lexer, parser, checker.
+    // Benchmarks can parse the [xazz:timing] marker to compare "pipeline execution time" alone.
     let timing_start = std::time::Instant::now();
 
-    // 5-A: ModelRegistry 구축 — ModelDecl 수집 + 로깅 (선언 순서와 무관하게 사용 가능)
+    // 5-A: Build ModelRegistry — collect ModelDecls + log (usable regardless of declaration order)
     let mut model_registry: HashMap<String, Vec<LayerKind>> = HashMap::new();
     for m in &ir.models {
         model_registry.insert(m.name.clone(), m.layers.clone());
         handle_model_decl(&m.name, &m.layers);
     }
 
-    // 5-B: 파이프라인 순차 실행 + SymbolTable 관리
+    // 5-B: Sequential pipeline execution + SymbolTable management
     let mut symbol_table: HashMap<String, polars::frame::DataFrame> = HashMap::new();
     let mut model_table: HashMap<String, crate::dl::TrainedModel> = HashMap::new();
-    // 세션 프라이버시 예산 (ε-budget) — withDp 호출마다 차감, 초과 시 해당 파이프라인 거부
+    // Session privacy budget (ε-budget) — deducted per withDp call, rejects the pipeline when exceeded
     let mut dp_budget = crate::dp::PrivacyBudget::from_env();
     let mut pipeline_count = 0usize;
     let mut last_var_name: Option<String> = None;
@@ -308,14 +308,14 @@ pub fn run_pipeline(
         tr("pipelines", "파이프라인")
     );
 
-    // ── [xazz:timing] 마커 — 벤치마크/모니터링용 파이프라인 실행 지연(ms) ──
+    // ── [xazz:timing] marker — pipeline execution latency (ms) for benchmarks/monitoring ──
     let pipeline_ms = timing_start.elapsed().as_secs_f64() * 1000.0;
     println!(
         "[xazz:timing] {}",
         serde_json::json!({ "pipeline_ms": pipeline_ms }).to_string()
     );
 
-    // ── STEP 6: 최종 DataFrame 자동 출력 (Top 5) ────────────────────────────
+    // ── STEP 6: Automatic final DataFrame output (Top 5) ───────────────────
     if let Some(ref name) = last_var_name {
         if let Some(df) = symbol_table.get(name) {
             let row_count = df.height().min(5);
@@ -328,7 +328,7 @@ pub fn run_pipeline(
             println!("{}", "─".repeat(60));
             println!("{}", top5);
 
-            // ── [xazz:result] JSON 마커 ──────────────────────────────────────
+            // ── [xazz:result] JSON marker ──────────────────────────────────────
             let api_limit = df.height().min(500);
             let api_df = df.head(Some(api_limit));
             let api_rows = df_to_json_array(&api_df).unwrap_or(serde_json::Value::Array(vec![]));
@@ -349,7 +349,7 @@ pub fn run_pipeline(
                 serde_json::to_string(&result_json).unwrap_or_default()
             );
 
-            // ── STEP 7: CSV Export (--output 플래그) ──────────────────────────
+            // ── STEP 7: CSV Export (--output flag) ──────────────────────────
             if let Some(csv_path) = output_csv {
                 match save_df_as_csv(df, csv_path) {
                     Ok(_) => {
@@ -367,7 +367,7 @@ pub fn run_pipeline(
     Ok(())
 }
 
-// ── CSV 저장 헬퍼 ─────────────────────────────────────────────────────────────
+// ── CSV save helper ─────────────────────────────────────────────────────────
 fn save_df_as_csv(
     df: &polars::frame::DataFrame,
     path: &str,
@@ -418,7 +418,7 @@ fn apply_schema_cast(
     }
 }
 
-/// IR ColType → Polars DataType (컬럼 캐스팅용).
+/// IR ColType → Polars DataType (for column casting).
 fn ir_col_to_dtype(ty: &ColType) -> Option<polars::prelude::DataType> {
     use polars::prelude::DataType;
     match ty.inner() {
@@ -461,7 +461,7 @@ fn apply_dynamic_bridge(
     }
 }
 
-// ── 타입 검증 / Null 처리 ─────────────────────────────────────────────────────
+// ── Type validation / Null handling ─────────────────────────────────────────
 fn validate_schema_types(df: &polars::frame::DataFrame, label: &str, schema: &Schema) {
     for field in &schema.fields {
         let is_optional = field.ty.is_option();
@@ -488,7 +488,7 @@ fn validate_schema_types(df: &polars::frame::DataFrame, label: &str, schema: &Sc
     }
 }
 
-// ── CSV 로더 (인코딩 자동 처리 + Dirty-data null 정규화) ──────────────────────
+// ── CSV loader (automatic encoding handling + dirty-data null normalization) ──
 fn load_csv_as_df(file_path: &str) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
     use polars::prelude::{CsvParseOptions, CsvReadOptions, NullValues, SerReader};
     use std::io::Cursor;
@@ -528,10 +528,10 @@ fn load_csv_as_df(file_path: &str) -> Result<polars::frame::DataFrame, Box<dyn s
     Ok(df)
 }
 
-// ── 단일 파이프라인 노드 실행 (Typed IR 소비) ────────────────────────────────
+// ── Single pipeline node execution (consumes Typed IR) ──────────────────
 //
-// raw AST 해석 대신 타입체커가 만든 PipelineNode 를 1회 소비하여
-// 데이터(lower::lower_data)/ML(dl::train/predict)/부수(chart/dp)로 분기한다.
+// Consumes the type-checker's PipelineNode once instead of interpreting the raw AST,
+// branching into data (lower::lower_data)/ML (dl::train/predict)/side (chart/dp).
 fn execute_node(
     node: &PipelineNode,
     symbol_table: &HashMap<String, polars::frame::DataFrame>,
@@ -560,8 +560,8 @@ fn execute_node(
                 None => lf_raw,
             };
 
-            // 스키마 Null/타입 검증은 집계 등 파이프라인 연산 적용 전,
-            // load() 직후의 원본(브리지/캐스트된) 프레임을 대상으로 수행한다.
+            // Schema null/type validation runs on the original (bridged/cast) frame
+            // right after load(), before pipeline ops such as aggregation are applied.
             if let Some(fields) = schema {
                 let df_loaded = lf_bridged.clone().collect()?;
                 validate_schema_types(&df_loaded, file_path, fields);
@@ -656,8 +656,8 @@ fn execute_node(
             IrStep::Side(SideOp::Chart(config)) => {
                 let snapshot = lf.clone().collect()?;
                 let spec = build_chart_spec(config, &snapshot)?;
-                // 단일 라인 셀프-컨테이닝 마커 — 줄바꿈/이모지가 JSON 을 끊어도
-                // 파서가 손상되지 않도록 한다. (이전: 마커와 JSON 이 두 줄에 걸침)
+                // Single-line self-contained marker — keeps the parser intact even if
+                // newlines/emoji would break the JSON. (Previously: marker and JSON spanned two lines)
                 println!("[xazz:chart] {}", serde_json::to_string(&spec)?);
 
                 let safe_base = node.name.clone().unwrap_or_else(|| match &node.source {
@@ -711,13 +711,13 @@ fn execute_node(
                 lf = snapshot.lazy();
             }
             IrStep::Side(SideOp::WithDp(args)) => {
-                // 1) 현재까지의 파이프라인을 collect 후 출력 섭동(output perturbation)
+                // 1) Collect the pipeline so far, then apply output perturbation
                 let snapshot = lf.clone().collect()?;
                 let (noised, report) = crate::dp::apply_dp(&snapshot, args)?;
 
-                // 2) 노이즈 주입이 성공한 뒤에만 예산을 차감한다 (원자적 조성 회계).
-                //    - k 개 컬럼에 노이즈를 주입하면 k 개 독립 메커니즘이므로 k·ε 로 청구.
-                //    - apply_dp 가 실패했으면 예산을 건드리지 않는다 (실패해도 ε 소모 방지).
+                // 2) Deduct budget only after noise injection succeeds (atomic composition accounting).
+                //    - Injecting noise into k columns is k independent mechanisms, so bill as k·ε.
+                //    - If apply_dp fails, the budget is untouched (no ε spent on failure).
                 let delta = args.delta.unwrap_or(crate::dp::DEFAULT_DELTA);
                 dp_budget.spend_n(
                     args.mechanism,
@@ -744,7 +744,7 @@ fn execute_node(
                         serde_json::json!(dp_budget.query_count()),
                     );
                 }
-                // 단일 라인 셀프-컨테이닝 마커 (줄바꿈/이모지로 끊겨도 파싱 안전).
+                // Single-line self-contained marker (parse-safe even if broken by newlines/emoji).
                 println!("[xazz:dp] {}", dp_json);
                 eprintln!(
                     "[xazz] DP {}: {} (ε={}, δ={}, Δf={}, {}={:.4}) — {} {:?} | {} ε {:.2}/{:.2} · δ {:.2e}/{:.2e}",
@@ -776,9 +776,9 @@ fn execute_node(
     Ok(Some(df))
 }
 
-// ── Burn 딥러닝 실행 (v0.4) ───────────────────────────────────────────────────
+// ── Burn deep-learning execution (v0.4) ───────────────────────────────────
 
-/// ModelDecl 처리 — 모델 정의를 로깅하고 학습에 사용할 레이어 정보를 등록한다.
+/// ModelDecl handling — logs the model definition and registers layer info for training.
 fn handle_model_decl(name: &str, layers: &[LayerKind]) {
     println!();
     println!("🧠 [xazz Model Declaration: {}]", name);
@@ -802,7 +802,7 @@ fn handle_model_decl(name: &str, layers: &[LayerKind]) {
     }
     println!();
 
-    // [xazz:model] JSON 마커 — 서버/IDE에서 모델 정보를 파싱할 수 있도록 출력
+    // [xazz:model] JSON marker — emitted so the server/IDE can parse model info
     let model_json = serde_json::json!({
         "type": "model_decl",
         "name": name,
@@ -815,7 +815,7 @@ fn handle_model_decl(name: &str, layers: &[LayerKind]) {
     );
 }
 
-/// 학습된 모델(TrainedModel)의 리포트를 콘솔에 출력한다.
+/// Prints the trained model's (TrainedModel) report to the console.
 fn print_train_report(trained: &crate::dl::TrainedModel) {
     let report = &trained.report;
     println!("{}", "─".repeat(60));
@@ -868,11 +868,11 @@ fn print_train_report(trained: &crate::dl::TrainedModel) {
     println!();
 }
 
-/// `[xazz:policy]` 마커로 정책 리포트를 stdout 에 내보낸다.
+/// Exports the policy report to stdout via the `[xazz:policy]` marker.
 ///
-/// 서버/IDE 는 이 마커를 파싱해 차단 사유와 보정 힌트를 그대로 보여 준다.
-/// 차단·통과 여부와 무관하게 항상 내보내므로, 프런트엔드는 "검사를 했다"는
-/// 사실 자체를 신뢰할 수 있다.
+/// The server/IDE parses this marker to show the block reason and remediation hint.
+/// It is always emitted regardless of block/pass, so the frontend can trust that
+/// "the check ran".
 fn emit_policy_marker(report: &xazz_compiler::PolicyReport) {
     match serde_json::to_string(report) {
         Ok(json) => println!("[xazz:policy] {}", json),

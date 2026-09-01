@@ -1,10 +1,10 @@
-//! xazz-exec/src/lower.rs — Data IR → Polars 백엔드 lowering (v0.19)
+//! xazz-exec/src/lower.rs — Data IR → Polars backend lowering (v0.19)
 //!
-//! Typed IR 의 `DataOp` 와 `TypedExpr` 를 Polars `LazyFrame` / `Expr` 로 변환한다.
-//! 이 모듈은 **데이터 계층만** 알고 있다 (ML 은 dl.rs, DP 는 dp.rs, 차트는 runtime.rs).
+//! Converts Typed IR `DataOp` and `TypedExpr` into Polars `LazyFrame` / `Expr`.
+//! This module knows **only the data layer** (ML is in dl.rs, DP in dp.rs, charts in runtime.rs).
 //!
-//! 런타임은 raw AST 를 해석하지 않고, 타입체커가 만든 Typed IR 을 여기로 흘려보낸다.
-//! → 이중 해석 제거 + backend 지식의 단일 위치화 (DataOp 하나 = Polars 변환 한 곳).
+//! The runtime does not interpret the raw AST; it feeds the type-checker's Typed IR here.
+//! → eliminates double interpretation + centralizes backend knowledge in one place (one DataOp = one Polars translation).
 
 use std::collections::HashMap;
 
@@ -16,10 +16,10 @@ use xazz_compiler::ir::{AggKind, DataOp, FillValue, TypedExpr, TypedExprKind};
 use xazz_core::i18n::tr;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 표현식 lowering
+// Expression lowering
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 타입이 붙은 IR 표현식을 Polars `Expr` 로 변환한다. (타입 정보는 검사 단계에서 소비됨)
+/// Converts a typed IR expression to a Polars `Expr`. (Type info is consumed at the check stage)
 pub fn typed_expr_to_polars(expr: &TypedExpr) -> polars::prelude::Expr {
     match &expr.kind {
         TypedExprKind::Column(s) => col(s.as_str()),
@@ -47,10 +47,10 @@ pub fn typed_expr_to_polars(expr: &TypedExpr) -> polars::prelude::Expr {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 연산 lowering
+// Operation lowering
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// JoinHow(AST) → Polars JoinType 변환.
+/// Converts JoinHow (AST) → Polars JoinType.
 fn to_polars_join_type(how: &xazz_compiler::ast::JoinHow) -> JoinType {
     use xazz_compiler::ast::JoinHow;
     match how {
@@ -61,10 +61,10 @@ fn to_polars_join_type(how: &xazz_compiler::ast::JoinHow) -> JoinType {
     }
 }
 
-/// 단일 `DataOp` 를 현재 `LazyFrame` 에 적용한다.
+/// Applies a single `DataOp` to the current `LazyFrame`.
 ///
-/// - `pending_group`: 선행 `GroupBy` 가 있을 때 집계를 그룹 집계로 바꾸는 상태.
-/// - `symbol_table`: `Join` 이 참조하는 상대 DataFrame.
+/// - `pending_group`: state that turns an aggregate into a group aggregate when a preceding `GroupBy` exists.
+/// - `symbol_table`: the counterpart DataFrame referenced by `Join`.
 pub fn lower_data(
     op: &DataOp,
     lf: &mut LazyFrame,
@@ -212,7 +212,7 @@ pub fn lower_data(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 테스트
+// Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -308,7 +308,7 @@ mod tests {
         assert_eq!(col_a.null_count(), 0);
     }
 
-    // ── 최적화 전/후 결과 동치 검증 (IR 최적화 계층의 정당성 증명) ─────────────
+    // ── Equivalence check of pre/post-optimization results (proves the IR optimization layer's correctness) ──
 
     fn gt_col(name: &str, n: i64) -> DataOp {
         DataOp::Filter(TypedExpr::new(
@@ -368,7 +368,7 @@ mod tests {
         let orig = collect_pipeline(frame.clone(), &only_data_ops(&steps)).unwrap();
         let optimized = collect_pipeline(frame, &only_data_ops(&opt_steps)).unwrap();
 
-        // filter |> select |> filter  를  filter |> filter |> select 로 바꿔도 결과 동일
+        // Rewriting filter |> select |> filter into filter |> filter |> select still yields identical results
         assert_eq!(orig, optimized);
     }
 }
