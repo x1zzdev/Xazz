@@ -13,7 +13,7 @@
 /// 한 곳에만 존재한다.
 use std::collections::HashMap;
 
-use crate::ast::{BinOpKind, Expr};
+use crate::ast::{BinOpKind, Expr, FillNullValue};
 use crate::policy::printer::escape;
 
 /// AST 표현식 → Polars Rust 소스 문자열.
@@ -65,6 +65,20 @@ pub fn expr_to_polars(expr: &Expr, col_types: Option<&HashMap<String, String>>) 
             };
             format!("{}.{}({})", l, op_method, r)
         }
+    }
+}
+
+/// fillNull 채우기 값 → Polars 표현식 소스 문자열 (codegen/emitter 공유).
+///
+/// `col` 은 채울 대상 컬럼명 — mean/median 전략이 그 컬럼의 집계를 참조한다.
+pub fn fill_value_to_polars(value: &FillNullValue, col: &str) -> String {
+    match value {
+        FillNullValue::Mean => format!("col(\"{}\").mean()", escape(col)),
+        FillNullValue::Median => format!("col(\"{}\").median()", escape(col)),
+        FillNullValue::Zero => "lit(0)".to_string(),
+        FillNullValue::Int(n) => format!("lit({}i64)", n),
+        FillNullValue::Float(f) => format!("lit({}f64)", f),
+        FillNullValue::Str(s) => format!("lit(\"{}\")", escape(s)),
     }
 }
 
@@ -138,5 +152,34 @@ mod tests {
             rhs: Box::new(int(3)),
         };
         assert_eq!(expr_to_polars(&expr, None), "col(\"pm10\").add(lit(3i64))");
+    }
+
+    #[test]
+    fn fill_value_maps_each_strategy() {
+        assert_eq!(
+            fill_value_to_polars(&FillNullValue::Mean, "a"),
+            "col(\"a\").mean()"
+        );
+        assert_eq!(
+            fill_value_to_polars(&FillNullValue::Median, "a"),
+            "col(\"a\").median()"
+        );
+        assert_eq!(fill_value_to_polars(&FillNullValue::Zero, "a"), "lit(0)");
+        assert_eq!(
+            fill_value_to_polars(&FillNullValue::Int(3), "a"),
+            "lit(3i64)"
+        );
+        assert_eq!(
+            fill_value_to_polars(&FillNullValue::Float(2.5), "a"),
+            "lit(2.5f64)"
+        );
+        assert_eq!(
+            fill_value_to_polars(&FillNullValue::Str("x".into()), "a"),
+            "lit(\"x\")"
+        );
+        assert_eq!(
+            fill_value_to_polars(&FillNullValue::Str("a\"b".into()), "a"),
+            "lit(\"a\\\"b\")"
+        );
     }
 }

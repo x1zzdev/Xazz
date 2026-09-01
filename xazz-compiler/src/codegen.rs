@@ -15,8 +15,7 @@
 ///     사용한다 (이 모듈과 emitter.rs 가 공유).
 ///   - 런타임 op→Polars 매핑은 xazz-exec/src/lower.rs (Typed IR) 한 곳에만 존재한다.
 use crate::ast::{
-    BinOpKind, Expr, FillNullValue, LayerKind, PipelineOp, PipelineSource, Program, Stmt,
-    TrainConfig,
+    BinOpKind, Expr, LayerKind, PipelineOp, PipelineSource, Program, Stmt, TrainConfig,
 };
 
 /// 코드 생성기 — 유닛 구조체
@@ -336,14 +335,7 @@ impl Codegen {
                 )
             }
             PipelineOp::FillNull { col, value } => {
-                let lit_str = match value {
-                    FillNullValue::Mean => format!("col(\"{}\").mean()", esc(col)),
-                    FillNullValue::Median => format!("col(\"{}\").median()", esc(col)),
-                    FillNullValue::Zero => "lit(0)".to_string(),
-                    FillNullValue::Int(n) => format!("lit({}i64)", n),
-                    FillNullValue::Float(f) => format!("lit({}f64)", f),
-                    FillNullValue::Str(s) => format!("lit(\"{}\")", esc(s)),
-                };
+                let lit_str = crate::polars_text::fill_value_to_polars(value, col);
                 format!(
                     "  .with_columns([col(\"{}\").fill_null({})])  // |> fillNull(\"{}\", ...)",
                     esc(col),

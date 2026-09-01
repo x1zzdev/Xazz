@@ -23,9 +23,7 @@
 use std::collections::HashMap;
 use std::fs;
 
-use crate::ast::{
-    Expr, FillNullValue, LayerKind, PipelineOp, PipelineSource, Program, Stmt, TrainConfig,
-};
+use crate::ast::{Expr, LayerKind, PipelineOp, PipelineSource, Program, Stmt, TrainConfig};
 use crate::policy::printer::escape;
 use crate::{Codegen, Lexer, Parser, StructField};
 
@@ -370,16 +368,7 @@ fn generate_rust_src(
                         col: fill_col,
                         value,
                     } => {
-                        let lit_str = match value {
-                            FillNullValue::Mean => format!("col(\"{}\").mean()", escape(fill_col)),
-                            FillNullValue::Median => {
-                                format!("col(\"{}\").median()", escape(fill_col))
-                            }
-                            FillNullValue::Zero => "lit(0)".to_string(),
-                            FillNullValue::Int(n) => format!("lit({}i64)", n),
-                            FillNullValue::Float(f) => format!("lit({}f64)", f),
-                            FillNullValue::Str(s) => format!("lit(\"{}\")", escape(s)),
-                        };
+                        let lit_str = crate::polars_text::fill_value_to_polars(value, fill_col);
                         out.push_str(&format!(
                             "        .with_columns([col(\"{}\").fill_null({})])  // |> fillNull(\"{}\", ...)\n",
                             escape(fill_col), lit_str, fill_col
