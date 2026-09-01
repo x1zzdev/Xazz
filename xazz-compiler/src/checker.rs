@@ -31,14 +31,14 @@ const MAX_EPSILON_WARN: f64 = 10.0;
 
 /// 컬럼 타입 정보 (canonical name + nullable 여부)
 #[derive(Debug, Clone, PartialEq)]
-pub struct ColType {
+pub struct CheckerColType {
     pub name: String,
     pub option: bool,
 }
 
-impl ColType {
+impl CheckerColType {
     fn new(name: &str, option: bool) -> Self {
-        ColType {
+        CheckerColType {
             name: name.to_string(),
             option,
         }
@@ -83,7 +83,7 @@ struct Analyzer {
 /// 변수에 대한 추론된 컬럼 스키마
 #[derive(Debug, Clone, Default)]
 struct VarInfo {
-    columns: HashMap<String, ColType>,
+    columns: HashMap<String, CheckerColType>,
 }
 
 /// 분석기의 최상위 진입점 — Program AST 를 검사한다.
@@ -459,7 +459,7 @@ impl Analyzer {
         source: &PipelineSource,
         ops: &[PipelineOp],
     ) -> bool {
-        let mut columns: Option<HashMap<String, ColType>> = None;
+        let mut columns: Option<HashMap<String, CheckerColType>> = None;
         let mut yields_model = false;
         let mut steps: Vec<ir::Step> = Vec::new();
 
@@ -588,7 +588,7 @@ impl Analyzer {
                         );
                     }
                     if let Some(name) = as_col {
-                        cols.insert(name.clone(), ColType::new("float", true));
+                        cols.insert(name.clone(), CheckerColType::new("float", true));
                     }
                     steps.push(ir::Step::ML(ir::MLOp::Predict {
                         model: model_var.clone(),
@@ -707,7 +707,7 @@ impl Analyzer {
                             },
                         );
                     } else if let Some(var) = self.vars.get(other) {
-                        let right_cols: HashMap<String, ColType> = var.columns.clone();
+                        let right_cols: HashMap<String, CheckerColType> = var.columns.clone();
                         for k in right_on {
                             self.check_column(k, "join(right_on)", &right_cols);
                         }
@@ -762,7 +762,7 @@ impl Analyzer {
                     self.check_column(col, "cast", &cols);
                     if let Some(t) = cols.get(col).cloned() {
                         let nt = normalize_type(to_type);
-                        cols.insert(col.clone(), ColType::new(nt, t.option));
+                        cols.insert(col.clone(), CheckerColType::new(nt, t.option));
                     }
                     steps.push(ir::Step::Data(ir::DataOp::Cast {
                         col: col.clone(),
@@ -793,7 +793,7 @@ impl Analyzer {
                     // 노이즈 주입 후 숫자형 컬럼은 float 로 승격된다
                     for (_, t) in cols.iter_mut() {
                         if t.is_numeric() {
-                            *t = ColType::new("float", t.option);
+                            *t = CheckerColType::new("float", t.option);
                         }
                     }
                     if args.epsilon > MAX_EPSILON_WARN {
@@ -849,7 +849,7 @@ impl Analyzer {
         yields_model
     }
 
-    fn check_agg_column(&mut self, col: &str, cols: &HashMap<String, ColType>) {
+    fn check_agg_column(&mut self, col: &str, cols: &HashMap<String, CheckerColType>) {
         match cols.get(col) {
             Some(t) if !t.is_numeric() => {
                 self.warning(if is_korean() {
@@ -879,7 +879,7 @@ impl Analyzer {
         &mut self,
         col: &str,
         value: &FillNullValue,
-        cols: &HashMap<String, ColType>,
+        cols: &HashMap<String, CheckerColType>,
     ) {
         if let Some(t) = cols.get(col) {
             let is_str_fill = matches!(value, FillNullValue::Str(_));
@@ -911,7 +911,7 @@ impl Analyzer {
         }
     }
 
-    fn check_chart(&mut self, config: &ChartConfig, cols: &HashMap<String, ColType>) {
+    fn check_chart(&mut self, config: &ChartConfig, cols: &HashMap<String, CheckerColType>) {
         let checks: [Option<&str>; 2] = match config.chart_type.as_str() {
             "pie" => [config.label.as_deref(), config.value.as_deref()],
             _ => [config.x.as_deref(), config.y.as_deref()],
@@ -921,7 +921,7 @@ impl Analyzer {
         }
     }
 
-    fn check_expr_columns(&mut self, expr: &Expr, cols: &HashMap<String, ColType>) {
+    fn check_expr_columns(&mut self, expr: &Expr, cols: &HashMap<String, CheckerColType>) {
         match expr {
             Expr::Ident(c) => {
                 self.check_column(
@@ -972,7 +972,7 @@ impl Analyzer {
         }
     }
 
-    fn check_column(&mut self, col: &str, ctx: &str, cols: &HashMap<String, ColType>) {
+    fn check_column(&mut self, col: &str, ctx: &str, cols: &HashMap<String, CheckerColType>) {
         if !cols.contains_key(col) {
             self.column_missing_with_available(col, ctx, cols);
         }
@@ -988,7 +988,7 @@ impl Analyzer {
         &mut self,
         col: &str,
         ctx: &str,
-        cols: &HashMap<String, ColType>,
+        cols: &HashMap<String, CheckerColType>,
     ) {
         let mut available: Vec<String> = cols.keys().cloned().collect();
         if available.is_empty() {
@@ -1118,12 +1118,12 @@ fn format_expr_display(expr: &Expr) -> String {
     }
 }
 
-/// 스키마 field_type 문자열 → ColType 변환 (Option<T> 지원)
-fn col_type_of_field(field_type: &str) -> ColType {
+/// 스키마 field_type 문자열 → CheckerColType 변환 (Option<T> 지원)
+fn col_type_of_field(field_type: &str) -> CheckerColType {
     if let Some(inner) = field_type.strip_prefix("Option<") {
-        ColType::new(normalize_type(inner.trim_end_matches('>')), true)
+        CheckerColType::new(normalize_type(inner.trim_end_matches('>')), true)
     } else {
-        ColType::new(normalize_type(field_type), false)
+        CheckerColType::new(normalize_type(field_type), false)
     }
 }
 
@@ -1139,7 +1139,7 @@ fn normalize_type(t: &str) -> &'static str {
 
 /// 표현식의 결과 타입을 추론해 타입이 붙은 IR 표현식을 생성한다.
 /// (withColumn / filter 등에 사용 — 단일 추론 지점.)
-fn type_expr(expr: &Expr, cols: &HashMap<String, ColType>) -> ir::TypedExpr {
+fn type_expr(expr: &Expr, cols: &HashMap<String, CheckerColType>) -> ir::TypedExpr {
     match expr {
         Expr::Ident(c) => {
             let ty = cols
@@ -1180,8 +1180,8 @@ fn type_expr(expr: &Expr, cols: &HashMap<String, ColType>) -> ir::TypedExpr {
     }
 }
 
-/// checker 로컬 ColType → IR ColType 변환.
-fn to_ir_col_type(ct: &ColType) -> ir::ColType {
+/// checker 로컬 CheckerColType → IR ColType 변환.
+fn to_ir_col_type(ct: &CheckerColType) -> ir::ColType {
     let base = match ct.name.as_str() {
         "string" => ir::ColType::String,
         "int" => ir::ColType::Int,
@@ -1196,11 +1196,11 @@ fn to_ir_col_type(ct: &ColType) -> ir::ColType {
     }
 }
 
-/// IR ColType → checker 로컬 ColType 변환.
-fn ir_col_type_to_checker(ty: &ir::ColType) -> ColType {
+/// IR ColType → checker 로컬 CheckerColType 변환.
+fn ir_col_type_to_checker(ty: &ir::ColType) -> CheckerColType {
     match ty {
-        ir::ColType::Nullable(inner) => ColType::new(inner.name(), true),
-        other => ColType::new(other.name(), false),
+        ir::ColType::Nullable(inner) => CheckerColType::new(inner.name(), true),
+        other => CheckerColType::new(other.name(), false),
     }
 }
 
@@ -1220,7 +1220,7 @@ fn ir_schema_from_fields(fields: &[StructField]) -> ir::Schema {
 }
 
 /// checker 컬럼 맵 → IR Schema 변환 (파이프라인 입출력용, 이름순 정렬로 결정적).
-fn ir_schema_from_map(cols: &HashMap<String, ColType>) -> ir::Schema {
+fn ir_schema_from_map(cols: &HashMap<String, CheckerColType>) -> ir::Schema {
     let mut fields: Vec<ir::SchemaField> = cols
         .iter()
         .map(|(k, v)| ir::SchemaField::new(k.clone(), to_ir_col_type(v)))
@@ -1255,7 +1255,7 @@ fn aggregate_kind_col(op: &PipelineOp) -> (ir::AggKind, String) {
     }
 }
 
-fn sorted_keys(map: &HashMap<String, ColType>) -> Vec<String> {
+fn sorted_keys(map: &HashMap<String, CheckerColType>) -> Vec<String> {
     let mut keys: Vec<String> = map.keys().cloned().collect();
     keys.sort();
     keys

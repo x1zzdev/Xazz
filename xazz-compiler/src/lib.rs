@@ -42,7 +42,9 @@ pub use ast::{
 pub use error::{CompileError, CompileResult, ErrorKind};
 
 // ── 핵심 컴포넌트 상위 노출 ──────────────────────────────────────────────────
-pub use checker::{CheckResult, ColType, analyze_program, check_program, check_source, compile_ir};
+pub use checker::{
+    CheckResult, CheckerColType, analyze_program, check_program, check_source, compile_ir,
+};
 pub use codegen::Codegen;
 pub use lexer::Lexer;
 pub use opt::optimize_program;

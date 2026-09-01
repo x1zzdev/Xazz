@@ -10,7 +10,7 @@ const SCHEMA_SAMPLE_ROWS: usize = 100;
 // ─── 타입 추론 ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
-enum ColType {
+enum InferredType {
     Bool,
     Int,
     Float,
@@ -18,19 +18,19 @@ enum ColType {
 }
 
 /// 단일 셀 값에서 타입을 추론합니다.
-fn infer_type(value: &str) -> ColType {
+fn infer_type(value: &str) -> InferredType {
     let trimmed = value.trim();
     match trimmed.to_lowercase().as_str() {
-        "true" | "false" => return ColType::Bool,
+        "true" | "false" => return InferredType::Bool,
         _ => {}
     }
     if trimmed.parse::<i64>().is_ok() {
-        return ColType::Int;
+        return InferredType::Int;
     }
     if trimmed.parse::<f64>().is_ok() {
-        return ColType::Float;
+        return InferredType::Float;
     }
-    ColType::String
+    InferredType::String
 }
 
 /// 두 타입을 병합합니다 (타입 승격 규칙).
@@ -43,8 +43,8 @@ fn infer_type(value: &str) -> ColType {
 /// Bool + Int   = String
 /// Bool + Float = String
 /// Anything + String = String
-fn merge_type(a: ColType, b: ColType) -> ColType {
-    use ColType::*;
+fn merge_type(a: InferredType, b: InferredType) -> InferredType {
+    use InferredType::*;
     match (a, b) {
         (Bool, Bool) => Bool,
         (Int, Int) => Int,
@@ -161,7 +161,7 @@ pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
     let col_count = headers.len();
 
     // 열별 현재 추론 타입 (초기값 없음 → Option)
-    let mut col_types: Vec<Option<ColType>> = vec![None; col_count];
+    let mut col_types: Vec<Option<InferredType>> = vec![None; col_count];
     // 열별 nullable 여부
     let mut col_nullable: Vec<bool> = vec![false; col_count];
 
@@ -186,9 +186,9 @@ pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
     }
 
     // 타입이 한 번도 채워지지 않은 열(모두 공백)은 String 처리
-    let col_types: Vec<ColType> = col_types
+    let col_types: Vec<InferredType> = col_types
         .into_iter()
-        .map(|t| t.unwrap_or(ColType::String))
+        .map(|t| t.unwrap_or(InferredType::String))
         .collect();
 
     // ─── 코드 생성 ───────────────────────────────────────────────────────────
@@ -200,10 +200,10 @@ pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
 
     for (i, header) in headers.iter().enumerate() {
         let base = match &col_types[i] {
-            ColType::Bool => "bool",
-            ColType::Int => "int",
-            ColType::Float => "float",
-            ColType::String => "string",
+            InferredType::Bool => "bool",
+            InferredType::Int => "int",
+            InferredType::Float => "float",
+            InferredType::String => "string",
         };
         let type_str = if col_nullable[i] {
             format!("Option<{}>", base)
