@@ -691,6 +691,10 @@ struct VerifyResponse {
     algorithm: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     logged: Option<bool>,
+    /// 검증의 의미론적 한계를 명시한다 — `valid` 는 "입력 해시 == 감사 로그에
+    /// 기록된 해시"만 증명하며, 그 코드가 실제로 실행되었음을 증명하지는 않는다.
+    /// 실행 여부는 레코드의 `outcome` 필드로만 추론 가능하다.
+    note: String,
 }
 
 async fn handle_security_verify(Json(payload): Json<VerifyRequest>) -> Json<VerifyResponse> {
@@ -711,6 +715,7 @@ async fn handle_security_verify(Json(payload): Json<VerifyRequest>) -> Json<Veri
         provided_hash: payload.hash,
         algorithm: "SHA-256".to_string(),
         logged,
+        note: "sha256(input) == recorded hash only proves the code was audited; it does not prove the code was executed. Check the record's outcome for execution status.".to_string(),
     })
 }
 

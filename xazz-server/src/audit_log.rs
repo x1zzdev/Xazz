@@ -105,10 +105,24 @@ fn append_to_path(
     outcome: Option<&str>,
     file_path: &std::path::Path,
 ) -> Result<AuditRecord, String> {
-    // 동시 append 의 read-modify-write 를 직렬화한다. (TOCTOU 방지)
+    // 1) 프로세스 내 동시 append 의 read-modify-write 를 직렬화한다. (TOCTOU 방지)
     let _guard = APPEND_LOCK
         .lock()
         .map_err(|_| "failed to acquire audit-log lock (poisoned)".to_string())?;
+
+    // 2) 다중 인스턴스(multi-process)에서도 체인이 깨지지 않도록 OS 배타 파일 잠금을 건다.
+    //    flock 은 프로세스 경계를 넘어 적용되므로, 여러 xazz-server 가 같은 로그에
+    //    동시에 append 해도 index/prev_hash 가 원자적으로 계산된다.
+    use fs2::FileExt;
+    use std::io::Write;
+    let mut lock_file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(file_path)
+        .map_err(|e| format!("failed to open audit-log file for lock: {e}"))?;
+    lock_file
+        .lock_exclusive()
+        .map_err(|e| format!("failed to lock audit-log file: {e}"))?;
 
     let existing = read_all(file_path).map_err(|e| format!("failed to read audit log: {e}"))?;
     let index = existing.len() as u64;
@@ -133,7 +147,6 @@ fn append_to_path(
     };
 
     // append-only: OpenOptions에 append(true) 사용
-    use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -142,6 +155,16 @@ fn append_to_path(
     let line =
         serde_json::to_string(&record).map_err(|e| format!("JSON serialization failed: {e}"))?;
     writeln!(file, "{}", line).map_err(|e| format!("failed to write audit log: {e}"))?;
+
+    // 내구성: 파일 버퍼를 OS 로 플러시하고 디스크에 동기화한다.
+    // fsync 없이는 프로세스/OS 크래시 시 버퍼에만 남은 레코드가 유실된다.
+    file.flush()
+        .map_err(|e| format!("failed to flush audit log: {e}"))?;
+    file.sync_all()
+        .map_err(|e| format!("failed to fsync audit log: {e}"))?;
+
+    // 배타 잠금 해제 (파일이 스코프에서 벗어날 때도 자동 해제)
+    let _ = lock_file.unlock();
 
     Ok(record)
 }
