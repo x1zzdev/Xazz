@@ -115,7 +115,7 @@ fn append_to_path(
     //    동시에 append 해도 index/prev_hash 가 원자적으로 계산된다.
     use fs2::FileExt;
     use std::io::Write;
-    let mut lock_file = std::fs::OpenOptions::new()
+    let lock_file = std::fs::OpenOptions::new()
         .create(true)
         .write(true)
         .open(file_path)

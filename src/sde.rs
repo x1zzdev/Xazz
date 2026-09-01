@@ -41,7 +41,7 @@ impl SplitMix64 {
 /// - `feature_x`, `feature_y`: 입력 특성 (정규분포-ish, [-10, 10])
 /// - `category`: 4개 범주 중 하나 (분류용)
 /// - `label`: 선형 관계 + 노이즈 (회귀용)
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 struct Pair {
     feature_x: f64,
     feature_y: f64,
