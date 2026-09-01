@@ -43,6 +43,12 @@ pub enum Commands {
         /// 예: xazz run examples/poc_script.xzz --json
         #[arg(long)]
         json: bool,
+
+        /// Typed IR 최적화 패스를 활성화합니다 (filter 재배치 등)
+        ///
+        /// 예: xazz run examples/pipeline.xzz --opt
+        #[arg(long)]
+        opt: bool,
     },
 
     /// .xzz 코드를 실행 전에 정적 의미 분석(Type Checker)합니다

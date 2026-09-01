@@ -24,6 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             verbose,
             output,
             json,
+            opt,
         } => {
             let source_path = match file.to_str() {
                 Some(p) => p.to_owned(),
@@ -71,6 +72,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(out_str) = out.to_str() {
                     cmd.arg("--output").arg(out_str);
                 }
+            }
+            if opt {
+                cmd.arg("--opt");
             }
 
             // ── --json: 구조화된 JSON 실행 결과 출력 ────────────────────────
