@@ -1,25 +1,25 @@
-// xazz-exec 통합 테스트 — 실제 .xzz 스크립트를 Polars 런타임으로 실행한다.
+// xazz-exec integration tests — run real .xzz scripts through the Polars runtime.
 //
-// 시스템 임시 디렉터리에 CSV 와 .xzz 스크립트를 생성하고 run_pipeline() 을
-// 호출해 전체 Lexer → Parser → TypeChecker → Polars 실행 흐름을 검증한다.
+// Creates a CSV and .xzz script in a system temp directory and calls
+// run_pipeline() to verify the full Lexer → Parser → TypeChecker → Polars flow.
 //
-// ⚠️ run_pipeline() 은 stdout/stderr 로 로그를 출력한다. 테스트는 반환
-//    Result 만 검증한다. 임시 폴더는 std 만으로 관리한다 (외부 의존성 없음).
+// ⚠️ run_pipeline() writes logs to stdout/stderr. The tests only check the
+//    returned Result. Temp folders are managed with std only (no external deps).
 //
-// ⚠️ Policy-as-Code 는 절대 경로 load() 를 fail-closed 로 차단한다. 따라서
-//    테스트는 임시 디렉터리로 chdir 한 뒤 **상대 경로** 로 CSV 를 참조한다.
-//    chdir 는 프로세스 전역 상태이므로, 병렬 테스트 충돌을 막기 위해 전역
-//    Mutex 로 직렬화한다.
+// ⚠️ Policy-as-Code blocks absolute-path load() with a fail-closed rule. So the
+//    tests chdir into their temp dir and reference the CSV with a **relative
+//    path**. Since chdir is process-global, a global Mutex serializes the tests
+//    to avoid parallel collisions.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use xazz_exec::run_pipeline;
 
-/// chdir 를 프로세스 전역으로 바꾸는 테스트들이 서로 간섭하지 않도록 직렬화.
+/// Serializes tests that change the process-global CWD so they don't interfere.
 static CWD_LOCK: Mutex<()> = Mutex::new(());
 
-/// 임시 폴더를 하나 만들어 반환한다 (프로세스 종료 시 정리).
+/// Creates and returns a unique temp folder (cleaned up on process exit).
 fn temp_dir() -> PathBuf {
     let base = std::env::temp_dir();
     let unique = format!(
@@ -35,24 +35,24 @@ fn temp_dir() -> PathBuf {
     dir
 }
 
-/// 임시 폴더에 CSV 파일을 생성하고 경로를 반환한다.
+/// Creates a CSV file in the temp folder and returns its path.
 fn write_csv(dir: &Path, contents: &str) -> PathBuf {
     let path = dir.join("data.csv");
     std::fs::write(&path, contents).unwrap();
     path
 }
 
-/// CSV 옆에 .xzz 스크립트를 작성하고 경로를 반환한다.
+/// Writes a .xzz script next to the CSV and returns its path.
 fn write_xzz(csv: &Path, script: &str) -> PathBuf {
     let xzz_path = csv.with_file_name("pipeline.xzz");
     std::fs::write(&xzz_path, script).unwrap();
     xzz_path
 }
 
-/// 임시 디렉터리로 chdir 하고 스크립트를 **상대 경로** 로 실행한다.
+/// Chdirs into the temp dir and runs the script via a **relative path**.
 ///
-/// 반환한 가드는 스코프를 벗어나면 원래 CWD 로 복원한다. (절대 경로는
-/// Policy-as-Code 가 차단하므로 테스트는 상대 경로를 써야 한다.)
+/// The returned guard restores the original CWD when it goes out of scope.
+/// (Policy-as-Code blocks absolute paths, so the tests must use relative ones.)
 fn run_in_dir(dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let _guard = CWD_LOCK.lock().unwrap();
     let original = std::env::current_dir().unwrap();

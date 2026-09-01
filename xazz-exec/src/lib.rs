@@ -1,13 +1,13 @@
-/// xazz-exec — Polars LazyFrame 실행 엔진 (v0.1)
+/// xazz-exec — Polars LazyFrame execution engine (v0.1)
 ///
-/// 이 크레이트는 무거운 런타임 의존성(Polars, encoding_rs)을 격리한다.
-/// CLI 바이너리(xazz)는 이 크레이트에 직접 의존하지 않는다.
-/// xazz-runner 바이너리가 이 크레이트를 사용하며,
-/// CLI는 xazz-runner를 서브프로세스로 스폰한다.
+/// This crate isolates the heavy runtime dependencies (Polars, encoding_rs).
+/// The CLI binary (xazz) does not depend on this crate directly.
+/// The xazz-runner binary uses this crate, and the CLI spawns xazz-runner
+/// as a subprocess.
 ///
-/// 의존성 그래프:
+/// Dependency graph:
 ///   xazz (CLI)   → xazz-compiler (NO Polars) ✓
-///   xazz-runner  → xazz-exec → Polars        ✓ (분리된 바이너리)
+///   xazz-runner  → xazz-exec → Polars        ✓ (separate binary)
 pub mod chart;
 pub mod dl;
 pub mod dp;

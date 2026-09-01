@@ -1,26 +1,26 @@
 // xazz-exec/src/main.rs
 //
-// xazz 실행 엔진 바이너리 — Polars LazyFrame 런타임
+// xazz execution-engine binary — Polars LazyFrame runtime
 //
-// ⚠️  이 바이너리는 Polars/encoding_rs/tokio/rayon을 정적 링크한다.
-//     xazz CLI는 절대 이 크레이트를 직접 링크하지 않는다.
-//     xazz-runner 가 이 바이너리를 서브프로세스로 스폰한다.
+// ⚠️  This binary statically links Polars/encoding_rs/tokio/rayon.
+//     The xazz CLI never links this crate directly.
+//     xazz-runner spawns this binary as a subprocess.
 //
-// 사용법:
+// Usage:
 //   xazz-exec <file.xzz> [--verbose] [--output <path.csv>]
-//   xazz-exec <file.csv> [--verbose]   (CSV 직접 입력 → 벤치마크 파이프라인)
+//   xazz-exec <file.csv> [--verbose]   (direct CSV input → benchmark pipeline)
 //
-// 통신 프로토콜:
-//   - 입력:  CLI args + (선택적) stdin JSON
-//   - 출력:  stdout (결과 테이블, [xazz:result] JSON 마커, 차트 마커)
-//   - 에러:  stderr
-//   - 종료 코드: 0 = 성공, 1 = 실패
+// Communication protocol:
+//   - input:  CLI args + (optional) stdin JSON
+//   - output: stdout (result table, [xazz:result] JSON marker, chart markers)
+//   - errors: stderr
+//   - exit code: 0 = success, 1 = failure
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let usage = "[xazz-exec] usage: xazz-exec <file.xzz|file.csv> [--verbose] [--output <path.csv>] [--opt]";
 
-    // ── 도우미 플래그 ───────────────────────────────────────────────────────
+    // ── Helper flags ────────────────────────────────────────────────────────
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("xazz-exec {}", env!("CARGO_PKG_VERSION"));
         return;
@@ -40,27 +40,27 @@ fn main() {
     let verbose = args.iter().any(|a| a == "--verbose" || a == "-v");
     let optimize = args.iter().any(|a| a == "--opt" || a == "--optimize");
 
-    // --output <path> 파싱
+    // parse --output <path>
     let output_csv: Option<String> = args
         .windows(2)
         .find(|w| w[0] == "--output" || w[0] == "-o")
         .map(|w| w[1].clone());
 
-    // ── CSV 직접 입력 → 벤치마크 파이프라인 자동 생성 ───────────────────────
+    // ── Direct CSV input → auto-generate benchmark pipeline ─────────────────
     if input_path.to_lowercase().ends_with(".csv") {
         run_csv_benchmark(input_path, verbose);
         return;
     }
 
-    // ── .xzz 파일 실행 ──────────────────────────────────────────────────────
+    // ── Run .xzz file ───────────────────────────────────────────────────────
     if let Err(e) = xazz_exec::run_pipeline(input_path, verbose, output_csv.as_deref(), optimize) {
         eprintln!("{}", e);
         std::process::exit(1);
     }
 }
 
-/// CSV 경로를 받아 벤치마크용 .xzz 스크립트를 임시 파일로 생성한 뒤
-/// run_pipeline() 으로 실행하고 임시 파일을 정리한다.
+/// Creates a temporary benchmark .xzz script from a CSV path, runs it through
+/// run_pipeline(), and cleans up the temporary file.
 fn run_csv_benchmark(csv_path: &str, verbose: bool) {
     let posix_path = csv_path.replace('\\', "/");
     let stem_sanitized: String = std::path::Path::new(csv_path)
@@ -111,8 +111,9 @@ v filled = raw
         posix_path = posix_path
     );
 
-    // 시스템 임시 디렉터리에 프로세스 고유 이름으로 생성한다.
-    // (결정적 이름/입력 CSV 옆 배치로 인한 경쟁·누수·읽기전용 실패를 방지)
+    // Write to the system temp dir with a process-unique name.
+    // (A deterministic name or placing it next to the input CSV could cause
+    // races, leaks, or read-only failures.)
     let unique = format!(
         "xazz_bench_{}_{}_{}.xzz",
         std::process::id(),
@@ -124,7 +125,7 @@ v filled = raw
     );
     let tmp_xzz_path = std::env::temp_dir().join(&unique);
 
-    // RAII 가드 — 성공/실패 여부와 무관하게 임시 파일을 반드시 정리한다.
+    // RAII guard — removes the temp file regardless of success/failure.
     struct TempFileGuard(std::path::PathBuf);
     impl Drop for TempFileGuard {
         fn drop(&mut self) {
@@ -144,7 +145,7 @@ v filled = raw
 
     let result =
         xazz_exec::run_pipeline(&tmp_xzz_path.to_str().unwrap_or(""), verbose, None, false);
-    // 가드가 drop 되며 임시 파일이 정리된다.
+    // The guard drops and removes the temp file here.
 
     if let Err(e) = result {
         eprintln!("{}", e);

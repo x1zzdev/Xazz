@@ -1,11 +1,11 @@
 // xazz-compiler/src/main.rs  (v0.18 → compile-only)
 //
-// 컴파일러 직접 실행 엔트리포인트 — 파싱 + AST 출력 전용.
+// Direct compiler execution entry point — parsing + AST output only.
 //
-// ⚠️  런타임 실행(Polars pipeline)은 xazz-runner 바이너리를 사용하세요.
-//     이 바이너리는 컴파일 단계(Lexer → Parser → Codegen)만 수행합니다.
+// ⚠️  For runtime execution (Polars pipeline) use the xazz-runner binary.
+//     This binary only performs the compile steps (Lexer → Parser → Codegen).
 //
-// 사용 예:
+// Usage examples:
 //   cargo run -p xazz-compiler -- examples/poc_script.xzz
 //   cargo run -p xazz-compiler -- examples/poc_script.xzz --verbose
 
@@ -18,17 +18,17 @@ fn main() {
 
     let verbose = args.iter().any(|a| a == "--verbose" || a == "-v");
 
-    // ── 소스 파일 읽기 ──────────────────────────────────────────────────────
+    // ── Read source file ─────────────────────────────────────────────────────
     let source = match std::fs::read_to_string(input_path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("[xazz-compiler] IO 에러: '{}' — {}", input_path, e);
+            eprintln!("[xazz-compiler] IO error: '{}' — {}", input_path, e);
             std::process::exit(1);
         }
     };
 
     eprintln!(
-        "[xazz-compiler] 입력: {}  ({} bytes)",
+        "[xazz-compiler] input: {}  ({} bytes)",
         input_path,
         source.len()
     );
@@ -42,7 +42,7 @@ fn main() {
             std::process::exit(1);
         }
     };
-    eprintln!("[xazz-compiler] Lexer 완료: {} 토큰", tokens.len());
+    eprintln!("[xazz-compiler] Lexer done: {} tokens", tokens.len());
 
     if verbose {
         println!("\n⚡ STEP 1. Tokenized Stream");
@@ -65,7 +65,7 @@ fn main() {
         }
     };
     eprintln!(
-        "[xazz-compiler] Parser 완료: {} AST 노드",
+        "[xazz-compiler] Parser done: {} AST nodes",
         program.stmts.len()
     );
 
@@ -83,9 +83,9 @@ fn main() {
     println!("{}", "─".repeat(60));
     println!("{}", codegen_output);
 
-    eprintln!("[xazz-compiler] 컴파일 완료");
+    eprintln!("[xazz-compiler] compile complete");
     eprintln!(
-        "[xazz-compiler] ℹ️  실행(run)은 'xazz run {}' 를 사용하세요.",
+        "[xazz-compiler] ℹ️  to run it, use 'xazz run {}'.",
         input_path
     );
 }
