@@ -18,10 +18,11 @@
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
 
 use axum::{
     Router,
-    extract::{Multipart, Path},
+    extract::{Multipart, Path, State},
     http::{HeaderValue, StatusCode, header::AUTHORIZATION},
     middleware::{self, Next},
     response::{IntoResponse, Json},
@@ -29,12 +30,26 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use tokio::sync::Semaphore;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::ServeDir;
 
 mod audit_log;
 mod guardrail;
 mod slm;
+
+/// 동시에 실행되는 `xazz run` 프로세스 상한 — 실행 DoS 방지.
+/// 초과 요청은 즉시 429 로 거부한다 (큐에 쌓지 않음 → 후속 요청 대기 폭주 방지).
+const MAX_CONCURRENT_EXECUTIONS: usize = 4;
+
+/// /schema 업로드 허용 최대 크기 (바이트).
+const MAX_UPLOAD_BYTES: usize = 50 * 1024 * 1024;
+
+/// AppState — 요청 전반에 공유되는 실행 세마포어.
+#[derive(Clone)]
+struct AppState {
+    exec_permits: Arc<Semaphore>,
+}
 
 // ── 요청 / 응답 타입 ────────────────────────────────────────────────────────
 
@@ -118,6 +133,9 @@ async fn main() {
         .route("/security/policy", get(handle_policy_info))
         .route("/security/policy/check", post(handle_policy_check))
         .route("/security/remediate", post(handle_remediate))
+        .with_state(AppState {
+            exec_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_EXECUTIONS)),
+        })
         .layer(cors);
 
     // ── 선택적 Bearer 토큰 인증 ─────────────────────────────────────────────
@@ -133,8 +151,42 @@ async fn main() {
     let addr = "127.0.0.1:8005";
     println!("[xazz-server] 🚀 Listening on http://{}", addr);
 
+    // ── 주기적 uploads/ 정리 — 스키마 추론용 업로드 파일은 장기 보관이 필요 없다. ──
+    // 24시간마다 1시간보다 오래된 파일을 삭제한다 (Disk DoS 방지).
+    tokio::spawn(async {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(24 * 60 * 60)).await;
+            clean_stale_uploads();
+        }
+    });
+
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+/// uploads/ 에서 1시간보다 오래된 파일을 삭제한다.
+fn clean_stale_uploads() {
+    const MAX_AGE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+    let Ok(entries) = std::fs::read_dir("uploads") else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if meta.is_dir() {
+            continue;
+        }
+        let stale = meta
+            .modified()
+            .ok()
+            .and_then(|m| now.duration_since(m).ok())
+            .is_some_and(|age| age > MAX_AGE);
+        if stale {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 // ── 선택적 Bearer 토큰 인증 미들웨어 ─────────────────────────────────────────
@@ -208,8 +260,31 @@ fn serve_index() -> tower_http::services::ServeFile {
 // ── POST /execute ─────────────────────────────────────────────────────────────
 
 async fn handle_execute(
+    State(state): State<AppState>,
     Json(payload): Json<ExecuteRequest>,
 ) -> Result<Json<ExecuteResponse>, (StatusCode, Json<ExecuteResponse>)> {
+    // 0a. 동시 실행 세마포어 — 허가가 없으면 실행을 거부한다 (fail-closed, no queue).
+    let _permit = match state.exec_permits.try_acquire() {
+        Ok(p) => p,
+        Err(_) => {
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(ExecuteResponse {
+                    success: false,
+                    rows: json!([]),
+                    schema: json!([]),
+                    logs: vec![],
+                    stdout: String::new(),
+                    training: None,
+                    dp: None,
+                    diagnostics: None,
+                    policy: None,
+                    error: Some("server is at capacity; try again shortly".to_string()),
+                }),
+            ));
+        }
+    };
+
     // 0. Policy-as-Code 정적 가드레일 (issue #2)
     //
     //    위반이면 여기서 끝난다 — 임시 파일도 만들지 않고 xazz 실행기도 스폰하지 않는다.
@@ -412,6 +487,16 @@ async fn handle_schema(
                 .bytes()
                 .await
                 .map_err(|e| (StatusCode::BAD_REQUEST, format!("파일 읽기 실패: {}", e)))?;
+            // 업로드 크기 상한 — 초과 시 거부 (Disk DoS 방지).
+            if data.len() > MAX_UPLOAD_BYTES {
+                return Err((
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    format!(
+                        "파일이 너무 큽니다. 최대 {} MB 까지 허용됩니다.",
+                        MAX_UPLOAD_BYTES / (1024 * 1024)
+                    ),
+                ));
+            }
             file_bytes = Some(data.to_vec());
         }
     }
@@ -768,11 +853,15 @@ fn find_xazz_exe() -> Result<PathBuf, String> {
             }
         }
     }
-    // 3. target/release (CWD 기준, 프로젝트 로컬)
-    for name in names {
-        let candidate = PathBuf::from("target/release").join(name);
-        if candidate.exists() {
-            return Ok(candidate);
+    // 3. target/release (CWD 기준, 프로젝트 로컬) — CWD 가 Xazz 저장소 루트로
+    //    보일 때만 허용한다 (Cargo.toml 이 있는 디렉터리). 임의 CWD 에서 상대
+    //    경로 셰도잉으로 실행 파일을 위장하는 것을 방지한다.
+    if std::path::Path::new("Cargo.toml").is_file() {
+        for name in names {
+            let candidate = PathBuf::from("target/release").join(name);
+            if candidate.exists() {
+                return Ok(candidate);
+            }
         }
     }
     // PATH 폴백은 수행하지 않는다 (PATH 셰도잉 방지, fail-closed)
@@ -811,6 +900,13 @@ fn internal_err(msg: String) -> (StatusCode, Json<ExecuteResponse>) {
 mod tests {
     use super::*;
 
+    /// 테스트용 AppState — 실행 세마포어가 테스트 동시성 제한을 만들지 않게 충분히 큰 허가 수.
+    fn test_state() -> AppState {
+        AppState {
+            exec_permits: Arc::new(Semaphore::new(64)),
+        }
+    }
+
     const UNSAFE_CODE: &str =
         "type Patient = { patient_id: string, name: string, age_band: string };
 v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);";
@@ -818,9 +914,12 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
     /// 위반 코드는 422 로 거부되고, 리포트가 본문에 실린다.
     #[tokio::test]
     async fn violating_code_is_rejected_with_422() {
-        let result = handle_execute(Json(ExecuteRequest {
-            code: UNSAFE_CODE.to_string(),
-        }))
+        let result = handle_execute(
+            State(test_state()),
+            Json(ExecuteRequest {
+                code: UNSAFE_CODE.to_string(),
+            }),
+        )
         .await;
 
         let (status, body) = result.err().expect("위반 코드가 거부되지 않았다");
@@ -843,9 +942,12 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
     async fn rejected_request_never_invokes_runner() {
         let before = guardrail::runner_invocations();
 
-        let _ = handle_execute(Json(ExecuteRequest {
-            code: UNSAFE_CODE.to_string(),
-        }))
+        let _ = handle_execute(
+            State(test_state()),
+            Json(ExecuteRequest {
+                code: UNSAFE_CODE.to_string(),
+            }),
+        )
         .await;
 
         assert_eq!(
@@ -860,9 +962,12 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
     async fn unparseable_code_is_rejected_without_running() {
         let before = guardrail::runner_invocations();
 
-        let result = handle_execute(Json(ExecuteRequest {
-            code: "v x = |> |> ???".to_string(),
-        }))
+        let result = handle_execute(
+            State(test_state()),
+            Json(ExecuteRequest {
+                code: "v x = |> |> ???".to_string(),
+            }),
+        )
         .await;
 
         let (status, _) = result.err().expect("파싱 불가 코드가 거부되지 않았다");
@@ -876,9 +981,12 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
         let code = "// AKIAIOSFODNN7EXAMPLE\n\
                     type P = { age_band: string };\n\
                     v x = load(\"d.csv\") :: P |> select([age_band]);";
-        let result = handle_execute(Json(ExecuteRequest {
-            code: code.to_string(),
-        }))
+        let result = handle_execute(
+            State(test_state()),
+            Json(ExecuteRequest {
+                code: code.to_string(),
+            }),
+        )
         .await;
         let (status, body) = result.err().expect("비밀키가 있는데 통과했다");
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -930,6 +1038,31 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
             recheck.safe_to_execute,
             "보정 코드가 여전히 위반이다: {}",
             recheck.render()
+        );
+    }
+
+    /// 실행 세마포어가 모두 점유되면 /execute 는 429 로 거부한다 (no queue).
+    #[test]
+    fn execute_rejects_when_semaphore_exhausted() {
+        let state = AppState {
+            exec_permits: Arc::new(Semaphore::new(0)),
+        };
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let result = rt.block_on(handle_execute(
+            State(state),
+            Json(ExecuteRequest {
+                code: "type P = { a: string }; v x = load(\"data/a.csv\") :: P;".to_string(),
+            }),
+        ));
+        let (status, body) = result.err().expect("허가 없음에도 실행이 허용되었다");
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert!(
+            body.0.error.as_deref().unwrap_or("").contains("capacity"),
+            "오류 메시지가 없음: {:?}",
+            body.0.error
         );
     }
 
