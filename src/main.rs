@@ -2,6 +2,7 @@ mod cli;
 mod policy_cli;
 mod project;
 mod schema;
+mod sde;
 mod whoami;
 
 use clap::Parser;
@@ -320,13 +321,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // ── sde: 합성 데이터 생성 ────────────────────────────────────────────
-        Commands::Sde { rows, output } => {
-            println!("[Preview] xazz sde — Synthetic Data Engine");
-            println!("  This feature is currently in Preview. CLI integration is in progress.");
-            println!();
-            println!("  rows: {}  │  output: {}", rows, output.display());
-            println!("  xazz-sde engine integration planned.");
-        }
+        Commands::Sde { rows, output } => match sde::generate(rows, &output) {
+            Ok(()) => {
+                println!(
+                    "✅ synthetic data generated: {} rows → {}",
+                    rows,
+                    output.display()
+                );
+            }
+            Err(e) => {
+                eprintln!("[xazz sde] error: {}", e);
+                std::process::exit(1);
+            }
+        },
 
         // ── new: 새 프로젝트 생성 ─────────────────────────────────────────────
         Commands::New { name } => {

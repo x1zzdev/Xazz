@@ -285,7 +285,7 @@ python benches/render_benchmark_chart.py        # regenerate the chart above
 | `Option<T>` type system | Null-safe column declarations — `fillNull` on a non-nullable column is a compile error | Stable |
 | 25 pipeline operators | `filter`, `groupBy`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
 | Visual IDE | Node-based pipeline editor + monitor, served by `xazz-server` | Stable |
-| `xazz sde` | Synthetic data generation engine | Preview |
+| `xazz sde` | Synthetic data generation engine | Stable |
 
 ---
 
