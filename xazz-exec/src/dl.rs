@@ -35,6 +35,9 @@ pub type AD = Autodiff<NdArray<f32>>;
 /// 추론용 순수 백엔드 (CPU).
 pub type Plain = NdArray<f32>;
 
+/// 검증 분할 비율 상한 — 데이터의 이 비율까지만 검증 세트로 떼어낼 수 있다.
+const MAX_VALIDATION_SPLIT: f64 = 0.9;
+
 /// dsL 모델 블록의 활성화/정규화 레이어 종류.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Activation {
@@ -284,7 +287,10 @@ pub fn train(
         .collect();
 
     // ── train / validation 분할 ────────────────────────────────────────────
-    let val_split = config.validation_split.unwrap_or(0.0).clamp(0.0, 0.9);
+    let val_split = config
+        .validation_split
+        .unwrap_or(0.0)
+        .clamp(0.0, MAX_VALIDATION_SPLIT);
     let val_n = (n as f64 * val_split) as usize;
     let train_n = n - val_n;
     let val_idx: Vec<usize> = (train_n..n).collect();

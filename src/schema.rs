@@ -2,6 +2,11 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::io::Read;
 
+// ─── 상수 ──────────────────────────────────────────────────────────────────
+
+/// 스키마 추론에 검사할 최대 샘플 행 수.
+const SCHEMA_SAMPLE_ROWS: usize = 100;
+
 // ─── 타입 추론 ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
@@ -160,7 +165,7 @@ pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
     // 열별 nullable 여부
     let mut col_nullable: Vec<bool> = vec![false; col_count];
 
-    for result in rdr.records().take(100) {
+    for result in rdr.records().take(SCHEMA_SAMPLE_ROWS) {
         let record = result.with_context(|| "CSV 레코드 읽기 실패")?;
 
         for (i, field) in record.iter().enumerate() {

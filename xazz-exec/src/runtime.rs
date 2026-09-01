@@ -15,6 +15,9 @@ use xazz_compiler::ir::{ColType, MLOp, PipelineNode, Schema, SideOp, Source, Ste
 use xazz_compiler::{Lexer, Parser};
 use xazz_core::i18n::{is_korean, tr};
 
+/// CSV 스키마 추론에 검사할 최대 행 수.
+const SCHEMA_INFERENCE_ROWS: usize = 200;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ── 최상위 공개 진입점 ─────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
@@ -506,7 +509,7 @@ fn load_csv_as_df(file_path: &str) -> Result<polars::frame::DataFrame, Box<dyn s
 
     let cursor = Cursor::new(utf8_string.into_bytes());
     let df = CsvReadOptions::default()
-        .with_infer_schema_length(Some(200))
+        .with_infer_schema_length(Some(SCHEMA_INFERENCE_ROWS))
         .with_parse_options(CsvParseOptions::default().with_null_values(Some(null_vals)))
         .into_reader_with_file_handle(cursor)
         .finish()?;

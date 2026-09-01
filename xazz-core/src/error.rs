@@ -203,18 +203,18 @@ fn generate_suggestion(kind: &ErrorKind) -> Option<String> {
         }
         ErrorKind::DivisionByZero {
             col,
-            row_count,
+            row_count: _,
             expr_context: _,
         } => {
             if ko {
                 Some(format!(
-                    "컬럼 '{}' 에 0이 {} 개 포함되어 있습니다. → filter({} != 0) 또는 fillNull(\"{}\", 1) 등을 파이프라인에 추가하세요.",
-                    col, row_count, col, col
+                    "0 으로 나누는 연산이 감지되었습니다. → filter({} != 0) 또는 fillNull(\"{}\", 1) 등을 파이프라인에 추가하세요.",
+                    col, col
                 ))
             } else {
                 Some(format!(
-                    "Column '{}' contains {} zero values. → add filter({} != 0) or fillNull(\"{}\", 1) to the pipeline.",
-                    col, row_count, col, col
+                    "Division by zero detected. → add filter({} != 0) or fillNull(\"{}\", 1) to the pipeline.",
+                    col, col
                 ))
             }
         }
@@ -386,6 +386,10 @@ mod tests {
         );
         assert!(display.contains("💡"), "제안 없음: {}", display);
         assert!(display.contains("pm25"), "컬럼명 포함 안 됨: {}", display);
-        assert!(display.contains("3"), "0 개수 포함 안 됨: {}", display);
+        assert!(
+            display.contains("filter(pm25 != 0)"),
+            "분모 처리 제안 누락: {}",
+            display
+        );
     }
 }

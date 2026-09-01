@@ -316,7 +316,7 @@ impl LayerKind {
             LayerKind::Tanh => "activation::tanh()".to_string(),
             LayerKind::Softmax => "activation::softmax(dim=1)".to_string(),
             LayerKind::Dropout(r) => format!("nn::DropoutConfig::new({})", r),
-            LayerKind::BatchNorm => "BatchNorm(생략)".to_string(),
+            LayerKind::BatchNorm => "// BatchNorm: not supported for 1D MLP, skipped".to_string(),
         }
     }
 }

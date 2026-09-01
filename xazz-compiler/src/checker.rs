@@ -26,6 +26,9 @@ use crate::error::{CompileError, ErrorKind};
 use crate::ir;
 use xazz_core::i18n::is_korean;
 
+/// withDp() ε 상한 — 이를 초과하면 프라이버시 보호가 사실상 없어 경고한다.
+const MAX_EPSILON_WARN: f64 = 10.0;
+
 /// 컬럼 타입 정보 (canonical name + nullable 여부)
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColType {
@@ -310,6 +313,19 @@ impl Analyzer {
                     )
                 },
             );
+        }
+        if layers.iter().any(|l| matches!(l, LayerKind::BatchNorm)) {
+            self.warning(if is_korean() {
+                format!(
+                    "모델 '{}' 에 BatchNorm() 이 포함되어 있지만 1D MLP 에서는 지원하지 않아 무시됩니다.",
+                    name
+                )
+            } else {
+                format!(
+                    "Model '{}' contains BatchNorm(), which is not supported for 1D MLP and will be ignored.",
+                    name
+                )
+            });
         }
         self.models.insert(name.to_string(), layers.to_vec());
         self.ir.models.push(ir::ModelGraph {
@@ -780,7 +796,7 @@ impl Analyzer {
                             *t = ColType::new("float", t.option);
                         }
                     }
-                    if args.epsilon > 10.0 {
+                    if args.epsilon > MAX_EPSILON_WARN {
                         self.warning(if is_korean() {
                             format!(
                                 "withDp(epsilon: {}) : ε 이 10을 초과하면 프라이버시 보호 효과가 사실상 없습니다. 1.0 이하 권장.",
@@ -934,9 +950,9 @@ impl Analyzer {
             Expr::BinOp { lhs, op, rhs } => {
                 if *op == BinOpKind::Div && is_zero_literal(rhs.as_ref()) {
                     let message = if is_korean() {
-                        "0으로 나누기 감지 — DivisionByZero. 필터/치환으로 분모 0 을 처리하세요."
+                        "리터럴 0 으로 나누기 감지 (컴파일 타임) — DivisionByZero. 분모가 데이터에 따라 0 이 될 수 있는 경우 filter/치환으로 처리하세요."
                     } else {
-                        "Division by zero detected — DivisionByZero. Handle zero denominators with a filter or replacement."
+                        "Division by a literal zero detected (compile-time) — DivisionByZero. If the denominator can become 0 in data, handle it with a filter or replacement."
                     };
                     let span = self.resolve_span(message);
                     self.warnings.push(CompileError::new(

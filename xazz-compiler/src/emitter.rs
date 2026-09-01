@@ -25,6 +25,11 @@ use crate::ast::{
 use crate::policy::printer::escape;
 use crate::{Codegen, Lexer, Parser, StructField};
 
+/// 학습 배치 크기 기본값 (생성 코드의 기본).
+const DEFAULT_BATCH_SIZE: usize = 32;
+/// 검증 분할 비율 상한 (생성 코드의 클램프).
+const MAX_VALIDATION_SPLIT: f64 = 0.9;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ── 공개 진입점 ───────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
@@ -793,8 +798,11 @@ fn emit_dl_train_call(source_var: &str, model_name: &str, config: &TrainConfig) 
     let target = &config.target;
     let epochs = config.epochs.max(1);
     let lr = config.learning_rate;
-    let batch_size = config.batch_size.unwrap_or(32).max(1);
-    let val_split = config.validation_split.unwrap_or(0.0).clamp(0.0, 0.9);
+    let batch_size = config.batch_size.unwrap_or(DEFAULT_BATCH_SIZE).max(1);
+    let val_split = config
+        .validation_split
+        .unwrap_or(0.0)
+        .clamp(0.0, MAX_VALIDATION_SPLIT);
 
     format!(
         r#"    // ── Deep Learning: run {source_var} |> train({model_name}, target: "{target}") ──────
