@@ -276,13 +276,14 @@ python benches/render_benchmark_chart.py        # regenerate the chart above
 |---------|-------------|--------|
 | `xazz run` | Compile and execute `.xzz` pipelines (`--json` for machine-readable results) | Stable |
 | `xazz check` | Static semantic analysis — undeclared variables/columns, duplicate declarations, invalid casts, with did-you-mean hints and `line:col` spans | Stable |
-| `xazz import` | Auto-infer CSV schema → generate type block (EUC-KR/CP949 auto-detected) | Stable |
+| `xazz import` | Auto-infer schema → generate `type` block (CSV EUC-KR/CP949 auto-detected) | Stable |
 | `xazz new` | Scaffold project with sample CSV and runnable example | Stable |
 | `xazz emit rust` | Transpile `.xzz` → Rust source (Polars LazyFrame + Burn) | Stable |
 | `xazz policy` | Policy-as-Code guardrail — block PII/secret leaks pre-execution | Stable |
 | `model {}` + `train()` | Burn DL model declaration & training (Adam + MSE, checkpoints) | Stable |
 | `withDp(epsilon:)` | Differential-privacy noise (laplace / gaussian) with budget tracking | Stable |
 | Built-in `chart {}` | Render results as bar / line / pie / scatter (HTML) | Stable |
+| `load()` + `save()` | Columnar sources (`.parquet`/`.arrow`) auto-detected by extension; write CSV/Parquet/Arrow artifacts | Stable |
 | `Option<T>` type system | Null-safe column declarations — `fillNull` on a non-nullable column is a compile error | Stable |
 | 25 pipeline operators | `filter`, `groupBy`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
 | Visual IDE | Node-based pipeline editor + monitor, served by `xazz-server` | Stable |
@@ -299,6 +300,7 @@ python benches/render_benchmark_chart.py        # regenerate the chart above
 | Phase 3 — IDE Integration | Visual IDE, graphical pipeline editor | ✅ Complete |
 | Phase 4 — Typed IR & Optimizer | Single typed intermediate representation, double-parse removal, IR optimizer (`--opt`) | ✅ Complete (v0.3.0) |
 | Phase 5 — Expanded Language | More operators, join improvements, schema evolution | 🚧 In progress |
+| Phase 5.5 — Data Scale | Columnar sources & artifact output (`load`/`save`: Parquet, Arrow) | ✅ save/load (#52) |
 | Phase 6 — AI Expansion | GPU backends (burn-tch / burn-wgpu), distributed training, NQP | 🔭 Planned |
 
 **Scale roadmap:** the full plan to grow data volume, program size, team/org reach, and ML depth — with per-item GitHub issues and an execution order — lives in [docs/ROADMAP.md](docs/ROADMAP.md).

@@ -7,6 +7,20 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [Unreleased]
+
+### Added — 데이터 스케일 기반 (#52)
+
+- **`save()` 출력 연산자**: 파이프라인 결과를 아티팩트 파일로 기록 — `save("out.csv")`,
+  `save("out.parquet")`, `save("out.arrow", format: "arrow")`. 포맷은 확장자에서 추론하거나
+  `format:` 인수로 명시 (미지원 포맷·미확정 포맷은 파싱 에러)
+- **컬럼형 소스 로드**: `load()`가 확장자 기반으로 디스패치 — `.parquet`/`.pq`,
+  `.arrow`/`.ipc`/`.feather`, 나머지는 기존 CSV 경로(EUC-KR 자동감지 + null 정규화) 유지
+- Polars `parquet`/`ipc` features 활성화 (`xazz-exec`)
+- 통합 테스트: Parquet/Arrow save→load 왕복 (Schema cast 경유)
+
+---
+
 ## [v0.3.1] — 2026-08-31
 
 > **정확성·보안·국제화 정비 릴리스.** 언어 자체의 동작 버그와 보안 하드닝, 그리고

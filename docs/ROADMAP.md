@@ -29,11 +29,11 @@ value-per-effort step**, and later issues depend on earlier ones.
 A data-pipeline language that can only read CSV into memory is bounded to laptop-scale
 datasets. This track makes Xazz handle real workloads.
 
-### A1. `save()` output operator + Parquet/Arrow load — **start here**
-- [ ] `load("x.parquet")` / `load("x.arrow")` → Polars lazy scan (schema flows into the existing `:: Type` annotation path)
-- [ ] `|> save("out.parquet", format: "parquet")` and `save("out.csv")` — today results only reach stdout/HTML chart
+### A1. `save()` output operator + Parquet/Arrow load — ✅ done (issue #52)
+- [x] `load("x.parquet")` / `load("x.arrow")` → extension-dispatched loader (schema flows into the existing `:: Type` annotation path)
+- [x] `|> save("out.parquet", format: "parquet")` and `save("out.csv")` — artifacts written directly from the pipeline
 - [ ] `xazz check`/`xazz run` handle compressed + multi-file glob sources
-- Acceptance: `xazz run` a script that loads Parquet and writes a Parquet artifact, with `[xazz:result]` unchanged.
+- Acceptance: `xazz run` a script that loads Parquet and writes a Parquet artifact, with `[xazz:result]` unchanged. ✅
 
 ### A2. Out-of-core / streaming execution + large-scale benchmark
 - [ ] Switch CSV/Parquet load to `LazyFrame::scan_*` + Polars `streaming` feature
@@ -130,7 +130,7 @@ Efficiency rule: **value-per-effort first, then dependency chain.** Do not start
 
 | Step | Issue | Rationale |
 | :--- | :--- | :--- |
-| 1 | A1 — save + Parquet/Arrow load | Smallest change, unlocks every downstream data feature; Polars already supports it |
+| 1 | ~~A1 — save + Parquet/Arrow load~~ | ✅ Done — issue #52 |
 | 2 | A2 — out-of-core + big benchmark | Proves "scale" with numbers; extends existing bench infra |
 | 3 | A4 — import extension | Reuses A1's loader; completes the load→schema→run loop for new formats |
 | 4 | B1 — module system | Unlocks reuse; prerequisite for stdlib |
