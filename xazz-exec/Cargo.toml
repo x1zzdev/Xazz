@@ -21,7 +21,8 @@ xazz-core     = { path = "../xazz-core" }
 xazz-compiler = { path = "../xazz-compiler" }
 
 # ── 무거운 런타임 의존성 (CLI 바이너리에 절대 포함되면 안 됨) ─────────────────
-polars = { version = "0.53", features = ["lazy", "csv", "strings", "regex"] }
+# `parquet`/`ipc` features: out-of-core columnar sources + save() artifacts (issue #52)
+polars = { version = "0.53", features = ["lazy", "csv", "strings", "regex", "parquet", "ipc"] }
 
 # 한국 공공데이터 EUC-KR → UTF-8 디코딩
 encoding_rs = "0.8"
