@@ -152,8 +152,11 @@ pub enum TokenKind {
     Lr,
     /// target  (named argument of train)
     Target,
+    /// withDp named-argument keywords (v0.6)
     /// strategy  (named argument of fillNull)
     Strategy,
+    /// save  (output artifact operator — save("out.parquet", format: "parquet"), issue #52)
+    Save,
     /// ->  (layer-chaining operator)
     Arrow,
 
