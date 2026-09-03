@@ -10,7 +10,7 @@
 ///   - Data/ML/side effects are split into domain enums (DataOp/MLOp/SideOp), but
 ///     stored as a sequential `Step`-tagged sequence to **preserve pipeline order**.
 ///     (e.g. `filter |> withDp |> select` and `filter |> select |> withDp` differ.)
-use crate::ast::{BinOpKind, ChartConfig, DpArgs, JoinHow, LayerKind, TrainConfig};
+use crate::ast::{BinOpKind, ChartConfig, DpArgs, JoinHow, LayerKind, SaveFormat, TrainConfig};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Column types / schema
@@ -240,6 +240,11 @@ pub enum MLOp {
 pub enum SideOp {
     Chart(ChartConfig),
     WithDp(DpArgs),
+    /// Write the pipeline result to an artifact file (issue #52).
+    Save {
+        path: String,
+        format: SaveFormat,
+    },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -45,7 +45,7 @@
 ///   - arithmetic precedence: * / > + - > comparison operators
 use crate::ast::{
     BinOpKind, ChartConfig, ChartType, DpArgs, DpMechanism, Expr, FillNullValue, JoinHow,
-    LayerKind, PipelineOp, PipelineSource, Program, Stmt, StructField, TrainConfig,
+    LayerKind, PipelineOp, PipelineSource, Program, SaveFormat, Stmt, StructField, TrainConfig,
 };
 use crate::error::{CompileError, CompileResult, ErrorKind};
 use crate::token::{Span, Token, TokenKind};
@@ -458,6 +458,57 @@ impl Parser {
         let (source, ops) = self.parse_pipeline_expr()?;
         self.eat(&TokenKind::Semicolon);
         Ok(Stmt::ExprStmt { source, ops })
+    }
+
+    /// Parses the save() output operator: save("out.parquet", format: "parquet") (issue #52)
+    fn parse_save_op(&mut self) -> CompileResult<PipelineOp> {
+        self.expect(&TokenKind::Save)?;
+        self.expect(&TokenKind::LParen)?;
+
+        let path = self.expect_string_lit()?;
+        let mut format: Option<SaveFormat> = SaveFormat::from_ext(
+            std::path::Path::new(&path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or(""),
+        );
+
+        if self.eat(&TokenKind::Comma) {
+            let arg_name = self.expect_ident()?;
+            if arg_name != "format" {
+                return Err(CompileError::new(
+                    ErrorKind::UnexpectedToken(arg_name.clone()),
+                    self.current_span(),
+                    format!(
+                        "save() 지원 인수: format. 실제: '{}' — 예: save(\"out.parquet\", format: \"parquet\")",
+                        arg_name
+                    ),
+                ));
+            }
+            self.expect(&TokenKind::Colon)?;
+            let fmt = self.expect_ident_or_str()?;
+            format = Some(SaveFormat::from_ext(&fmt).ok_or_else(|| {
+                CompileError::new(
+                    ErrorKind::UnexpectedToken(fmt.clone()),
+                    self.current_span(),
+                    format!(
+                        "save() 의 format 은 csv/parquet/arrow 중 하나여야 합니다. 실제: '{fmt}'"
+                    ),
+                )
+            })?);
+        }
+
+        self.expect(&TokenKind::RParen)?;
+        let format = format.ok_or_else(|| {
+            CompileError::new(
+                ErrorKind::UnexpectedToken("unknown save format".into()),
+                self.current_span(),
+                format!(
+                    "save() 의 format 을 지정하거나 경로를 .csv/.parquet/.arrow 로 끝내야 합니다. 실제 경로: '{path}'"
+                ),
+            )
+        })?;
+        Ok(PipelineOp::Save { path, format })
     }
 
     // ── TypeDecl ──────────────────────────────────────────────────────────────
@@ -1132,6 +1183,9 @@ impl Parser {
                 self.expect(&TokenKind::RParen)?;
                 Ok(PipelineOp::WithDp(args))
             }
+
+            // ── v0.3.2 save("out.parquet", format: "parquet") — output artifact operator (issue #52) ──
+            TokenKind::Save => self.parse_save_op(),
 
             // ── v0.5 predict(model_var, as: "col") — trained-model prediction operator ───
             TokenKind::Ident(name) if name == "predict" => {
@@ -2335,6 +2389,53 @@ type AirQuality = {
         assert!(
             parse_src(r#"v r = data |> withDp(epsilon: 1.0, mechanism: exponential);"#).is_err(),
             "미지원 mechanism 은 에러여야 함"
+        );
+    }
+
+    // ── test 35 (v0.3.2): save() format inference from extension (issue #52) ──
+    #[test]
+    fn test_save_infers_format_from_extension() {
+        let program = parse_src(r#"v out = data |> save("result.parquet");"#)
+            .expect("save() 파싱 실패");
+        match &program.stmts[0] {
+            Stmt::VarDecl { ops, .. } => {
+                assert_eq!(
+                    ops[0],
+                    PipelineOp::Save {
+                        path: "result.parquet".into(),
+                        format: SaveFormat::Parquet,
+                    }
+                );
+            }
+            other => panic!("VarDecl 예상: {:?}", other),
+        }
+    }
+
+    // ── test 36 (v0.3.2): save() explicit format argument (issue #52) ────────
+    #[test]
+    fn test_save_explicit_format_argument() {
+        let program = parse_src(r#"v out = data |> save("result", format: "arrow");"#)
+            .expect("save() format 인자 파싱 실패");
+        match &program.stmts[0] {
+            Stmt::VarDecl { ops, .. } => {
+                assert_eq!(
+                    ops[0],
+                    PipelineOp::Save {
+                        path: "result".into(),
+                        format: SaveFormat::Arrow,
+                    }
+                );
+            }
+            other => panic!("VarDecl 예상: {:?}", other),
+        }
+    }
+
+    // ── test 37 (v0.3.2): save() unknown format is an error (issue #52) ─────
+    #[test]
+    fn test_save_unknown_format_error() {
+        assert!(
+            parse_src(r#"v out = data |> save("out.json", format: "json");"#).is_err(),
+            "미지원 format 은 에러여야 함"
         );
     }
 }
