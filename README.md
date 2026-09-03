@@ -301,6 +301,8 @@ python benches/render_benchmark_chart.py        # regenerate the chart above
 | Phase 5 — Expanded Language | More operators, join improvements, schema evolution | 🚧 In progress |
 | Phase 6 — AI Expansion | GPU backends (burn-tch / burn-wgpu), distributed training, NQP | 🔭 Planned |
 
+**Scale roadmap:** the full plan to grow data volume, program size, team/org reach, and ML depth — with per-item GitHub issues and an execution order — lives in [docs/ROADMAP.md](docs/ROADMAP.md).
+
 ---
 
 ## Contributing
