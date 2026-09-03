@@ -160,3 +160,52 @@ fn save_arrow_then_load_back() {
     let arrow_path = dir.join("out.arrow");
     assert!(arrow_path.exists(), "save() 가 out.arrow 을 생성하지 못함");
 }
+
+// ── issue #53: streaming engine on the benchmark-shaped pipeline ─────────────
+
+/// Runs the same composite workload as benches/bench_scale_small.xzz
+/// (dropNull → dual filter → groupBy+sum → groupBy+mean → orderBy → take →
+/// fillNull → count) with the out-of-core streaming engine enabled, proving the
+/// streaming collect path handles the benchmark operator set.
+#[test]
+fn streaming_engine_runs_benchmark_shaped_pipeline() {
+    let dir = temp_dir();
+    write_csv(
+        &dir,
+        "date,station,pm10,pm25\n\
+         2026-01-01,gangnam,80,25\n\
+         2026-01-02,gangnam,45,12\n\
+         2026-01-03,seocho,120,40\n\
+         2026-01-04,seocho,90,30\n",
+    );
+    write_xzz(
+        &dir.join("data.csv"),
+        "type AQ = { date: string, station: string, pm10: Option<float>, pm25: Option<float> };
+         v p2 = load(\"data.csv\") :: AQ
+           |> dropNull(\"pm10\")
+           |> filter(pm10 < 120)
+           |> filter(pm25 > 10);
+         v p3 = p2 |> groupBy(\"station\") |> sum(\"pm10\");
+         v p4 = p2 |> groupBy(\"station\") |> mean(\"pm10\")
+           |> orderBy(\"pm10\", desc: true) |> take(10);
+         v p7 = load(\"data.csv\") :: AQ
+           |> fillNull(\"pm25\", 0)
+           |> filter(pm10 > 50)
+           |> groupBy(\"station\") |> count(\"pm25\")
+           |> orderBy(\"pm25\", desc: true) |> take(5);",
+    );
+
+    let _guard = CWD_LOCK.lock().unwrap();
+    let original = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&dir).unwrap();
+    // Enable the streaming engine for the whole process during this test.
+    unsafe { std::env::set_var("XAZZ_STREAMING", "1") };
+    let result = run_pipeline("pipeline.xzz", false, None, false);
+    unsafe { std::env::remove_var("XAZZ_STREAMING") };
+    std::env::set_current_dir(original).unwrap();
+    assert!(
+        result.is_ok(),
+        "streaming 엔진 벤치 파이프라인 실행 실패: {:?}",
+        result
+    );
+}
