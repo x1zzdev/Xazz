@@ -212,10 +212,7 @@ pub enum PipelineOp {
     /// withDp(epsilon: 1.0, mechanism: laplace, ...) — differential privacy noise injection (v0.6)
     WithDp(DpArgs),
     /// save("out.parquet", format: "parquet")  — write the pipeline result to an artifact file (v0.3.2, issue #52)
-    Save {
-        path: String,
-        format: SaveFormat,
-    },
+    Save { path: String, format: SaveFormat },
 }
 
 /// Output artifact format for `save()` (v0.3.2, issue #52)

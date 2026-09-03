@@ -421,13 +421,15 @@ fn save_df_as_parquet(
             format!("failed to create Parquet file '{}' — {}", path, e)
         }
     })?;
-    ParquetWriter::new(file).finish(&mut df.clone()).map_err(|e| {
-        if is_korean() {
-            format!("Parquet 쓰기 실패 — {}", e)
-        } else {
-            format!("Parquet write failed — {}", e)
-        }
-    })?;
+    ParquetWriter::new(file)
+        .finish(&mut df.clone())
+        .map_err(|e| {
+            if is_korean() {
+                format!("Parquet 쓰기 실패 — {}", e)
+            } else {
+                format!("Parquet write failed — {}", e)
+            }
+        })?;
     Ok(())
 }
 
@@ -550,7 +552,9 @@ fn validate_schema_types(df: &polars::frame::DataFrame, label: &str, schema: &Sc
 // ── Loader — format dispatch (issue #52) ───────────────────────────────────
 // Chooses the Polars reader by file extension: .parquet/.pq, .arrow/.ipc/.feather,
 // everything else falls back to the CSV path (EUC-KR auto-detect + null normalization).
-fn load_source_as_df(file_path: &str) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+fn load_source_as_df(
+    file_path: &str,
+) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
     let ext = std::path::Path::new(file_path)
         .extension()
         .and_then(|e| e.to_str())
@@ -563,14 +567,19 @@ fn load_source_as_df(file_path: &str) -> Result<polars::frame::DataFrame, Box<dy
     }
 }
 
-fn load_parquet_as_df(file_path: &str) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+fn load_parquet_as_df(
+    file_path: &str,
+) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
     use polars::prelude::{ParquetReader, SerReader};
 
     let file = std::fs::File::open(file_path).map_err(|e| {
         if is_korean() {
             format!("IO 에러: Parquet 파일 읽기 실패 '{}' — {}", file_path, e)
         } else {
-            format!("IO error: failed to read Parquet file '{}' — {}", file_path, e)
+            format!(
+                "IO error: failed to read Parquet file '{}' — {}",
+                file_path, e
+            )
         }
     })?;
     let df = ParquetReader::new(file).finish().map_err(|e| {
@@ -583,14 +592,19 @@ fn load_parquet_as_df(file_path: &str) -> Result<polars::frame::DataFrame, Box<d
     Ok(df)
 }
 
-fn load_arrow_as_df(file_path: &str) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+fn load_arrow_as_df(
+    file_path: &str,
+) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
     use polars::prelude::{IpcReader, SerReader};
 
     let file = std::fs::File::open(file_path).map_err(|e| {
         if is_korean() {
             format!("IO 에러: Arrow 파일 읽기 실패 '{}' — {}", file_path, e)
         } else {
-            format!("IO error: failed to read Arrow file '{}' — {}", file_path, e)
+            format!(
+                "IO error: failed to read Arrow file '{}' — {}",
+                file_path, e
+            )
         }
     })?;
     let df = IpcReader::new(file).finish().map_err(|e| {

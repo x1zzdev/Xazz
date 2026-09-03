@@ -2395,8 +2395,8 @@ type AirQuality = {
     // ── test 35 (v0.3.2): save() format inference from extension (issue #52) ──
     #[test]
     fn test_save_infers_format_from_extension() {
-        let program = parse_src(r#"v out = data |> save("result.parquet");"#)
-            .expect("save() 파싱 실패");
+        let program =
+            parse_src(r#"v out = data |> save("result.parquet");"#).expect("save() 파싱 실패");
         match &program.stmts[0] {
             Stmt::VarDecl { ops, .. } => {
                 assert_eq!(

@@ -492,7 +492,10 @@ impl Codegen {
             // ── v0.3.2 save — output artifact write (issue #52) ──────────────────────
             PipelineOp::Save { path, format } => format!(
                 "  .collect()? → save {} ({})  // |> save(\"{}\", format: \"{}\")",
-                path, format.as_str(), path, format.as_str()
+                path,
+                format.as_str(),
+                path,
+                format.as_str()
             ),
         }
     }
