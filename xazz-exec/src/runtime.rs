@@ -763,11 +763,11 @@ fn execute_node(
             // right after load(), before pipeline ops such as aggregation are applied.
             // For large sources this eager collect would defeat out-of-core execution,
             // so it is gated by file size (small files get the full warning surface).
-            if let Some(fields) = schema {
-                if source_is_small(file_path) {
-                    let df_loaded = lf_bridged.clone().collect()?;
-                    validate_schema_types(&df_loaded, file_path, fields);
-                }
+            if let Some(fields) = schema
+                && source_is_small(file_path)
+            {
+                let df_loaded = lf_bridged.clone().collect()?;
+                validate_schema_types(&df_loaded, file_path, fields);
             }
 
             (lf_bridged, schema.as_ref())
