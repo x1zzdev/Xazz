@@ -7,10 +7,14 @@ UTF-8 · 영문 헤더(date, station, pm10, pm25) 스케일 파일 3종을 생�
   scale_small.csv  : 2022년 1개 파일           (~228K rows)
   scale_medium.csv : 2020-2021 ~ 2023 3개 파일 (~912K rows)
   scale_large.csv  : 전체 8개 파일             (~4.09M rows)
+  scale_xlarge.csv : --xlarge 옵션 시 49회 반복  (~200M rows, 수 GB)
 
 사용법:
     python benches/make_scale_data.py
+    python benches/make_scale_data.py --xlarge   # 200M 행 생성 (선택)
 """
+import sys
+
 import pandas as pd
 from pathlib import Path
 
@@ -36,6 +40,14 @@ GROUPS = {
     ],
 }
 
+# 스케일별 반복 횟수 (xlarge 는 선택 옵션 — 49회 반복 ≈ 200M 행, ~8GB)
+REPEATS = {
+    "small": 1,
+    "medium": 1,
+    "large": 1,
+    "xlarge": 49,
+}
+
 
 def load_frame(path: Path) -> pd.DataFrame:
     """EUC-KR 원본(또는 UTF-8 정규본)을 읽어 표준 4컬럼으로 정규화한다."""
@@ -58,13 +70,20 @@ def load_frame(path: Path) -> pd.DataFrame:
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    for label, files in GROUPS.items():
+
+    # xlarge 는 --xlarge 로만 생성 (약 200M 행, 수 GB — 기본 실행에 포함하면 너무 느림)
+    labels = ["small", "medium", "large"]
+    if "--xlarge" in sys.argv:
+        labels.append("xlarge")
+
+    for label in labels:
         frames = []
-        for name in files:
+        for name in GROUPS[label]:
             df = load_frame(SRC / name)
             frames.append(df)
             print(f"  {label}/{name}: {len(df):,} rows")
-        merged = pd.concat(frames, ignore_index=True)
+        base = pd.concat(frames, ignore_index=True)
+        merged = pd.concat([base] * REPEATS[label], ignore_index=True)
         dest = OUT / f"scale_{label}.csv"
         merged.to_csv(dest, index=False, encoding="utf-8")
         size_mb = dest.stat().st_size / 1_048_576

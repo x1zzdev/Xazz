@@ -19,6 +19,7 @@ Python Pandas(eager)와 Xazz(Rust + Polars LazyFrame)로 실행해 측정한다.
 from __future__ import annotations
 
 import json
+import os
 import statistics
 import subprocess
 import sys
@@ -39,16 +40,22 @@ RUNS = 3
 POLL_MS = 3
 
 
-def measure_tree(cmd: list[str], cwd: Path, capture: bool = False) -> tuple[float, float, str]:
+def measure_tree(
+    cmd: list[str], cwd: Path, capture: bool = False, env: dict | None = None
+) -> tuple[float, float, str]:
     """서브프로세스 트리 전체의 wall-clock 지연과 피크 RSS(MB)를 측정한다.
 
     capture=True 면 stdout 을 돌려받는다 — [xazz:timing] 마커 파싱용.
     """
+    proc_env = os.environ.copy()
+    if env:
+        proc_env.update(env)
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         cwd=cwd,
+        env=proc_env,
     )
     parent = psutil.Process(proc.pid)
     peak_mb = 0.0
@@ -117,7 +124,7 @@ def bench_xazz(csv: Path) -> dict:
     cmd = [str(XAZZ_BIN), "run", str(script)]
     runs = []
     for i in range(RUNS + 1):
-        wall_ms, peak, stdout = measure_tree(cmd, ROOT, capture=True)
+        wall_ms, peak, stdout = measure_tree(cmd, ROOT, capture=True, env={"XAZZ_STREAMING": "1"})
         if i == 0:
             continue  # 워밍업
         pipeline_ms = parse_xazz_timing(stdout)
@@ -157,6 +164,9 @@ def summarize(runs: list[dict]) -> dict:
 def main() -> None:
     quick = "--quick" in sys.argv
     scales = ["small"] if quick else SCALES
+    # 200M 행 스케일은 선택 — make_scale_data.py --xlarge 로 데이터 생성 후 --xlarge 로 측정
+    if "--xlarge" in sys.argv and DATA.joinpath("scale_xlarge.csv").exists():
+        scales = scales + ["xlarge"]
     results: dict = {}
     for scale in scales:
         csv = DATA / f"scale_{scale}.csv"
