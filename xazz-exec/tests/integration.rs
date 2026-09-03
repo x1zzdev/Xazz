@@ -110,3 +110,53 @@ fn run_join_between_two_pipelines() {
     let result = run_in_dir(&dir);
     assert!(result.is_ok(), "join 파이프라인 실행 실패: {:?}", result);
 }
+
+// ── issue #52: save() + columnar load round-trip ─────────────────────────────
+
+/// Writes a .xzz script that loads CSV → filters → saves Parquet, then runs it
+/// and asserts the artifact exists. Also loads the artifact back in a second
+/// pipeline to prove the load() columnar path works.
+#[test]
+fn save_parquet_then_load_back() {
+    let dir = temp_dir();
+    write_csv(&dir, "a,b\n1,10\n2,20\n3,30\n");
+    write_xzz(
+        &dir.join("data.csv"),
+        "type S = { a: int, b: int };
+         v p = load(\"data.csv\") :: S
+           |> filter(a > 1)
+           |> save(\"out.parquet\");
+         v q = load(\"out.parquet\") :: S
+           |> sum(\"b\");",
+    );
+    let result = run_in_dir(&dir);
+    assert!(result.is_ok(), "parquet save/load 실패: {:?}", result);
+    let parquet_path = dir.join("out.parquet");
+    assert!(
+        parquet_path.exists(),
+        "save() 가 out.parquet 을 생성하지 못함"
+    );
+    assert!(
+        std::fs::metadata(&parquet_path).unwrap().len() > 0,
+        "out.parquet 이 비어 있음"
+    );
+}
+
+/// Arrow format round-trip through save() + load().
+#[test]
+fn save_arrow_then_load_back() {
+    let dir = temp_dir();
+    write_csv(&dir, "x\n5\n7\n9\n");
+    write_xzz(
+        &dir.join("data.csv"),
+        "type S = { x: int };
+         v p = load(\"data.csv\") :: S
+           |> save(\"out.arrow\", format: \"arrow\");
+         v q = load(\"out.arrow\") :: S
+           |> mean(\"x\");",
+    );
+    let result = run_in_dir(&dir);
+    assert!(result.is_ok(), "arrow save/load 실패: {:?}", result);
+    let arrow_path = dir.join("out.arrow");
+    assert!(arrow_path.exists(), "save() 가 out.arrow 을 생성하지 못함");
+}

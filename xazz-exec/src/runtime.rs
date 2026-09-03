@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fs;
 
 use crate::chart::{build_chart_spec, df_to_json_array, write_chart_html};
-use xazz_compiler::ast::LayerKind;
+use xazz_compiler::ast::{LayerKind, SaveFormat};
 use xazz_compiler::ir::{ColType, MLOp, PipelineNode, Schema, SideOp, Source, Step as IrStep};
 use xazz_compiler::{Lexer, Parser};
 use xazz_core::i18n::{is_korean, tr};
@@ -395,6 +395,65 @@ fn save_df_as_csv(
     Ok(())
 }
 
+/// Writes a DataFrame to an artifact file in the requested format (issue #52).
+fn save_dataframe(
+    df: &polars::frame::DataFrame,
+    path: &str,
+    format: SaveFormat,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match format {
+        SaveFormat::Csv => save_df_as_csv(df, path),
+        SaveFormat::Parquet => save_df_as_parquet(df, path),
+        SaveFormat::Arrow => save_df_as_arrow(df, path),
+    }
+}
+
+fn save_df_as_parquet(
+    df: &polars::frame::DataFrame,
+    path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use polars::prelude::ParquetWriter;
+
+    let file = std::fs::File::create(path).map_err(|e| {
+        if is_korean() {
+            format!("Parquet 파일 생성 실패 '{}' — {}", path, e)
+        } else {
+            format!("failed to create Parquet file '{}' — {}", path, e)
+        }
+    })?;
+    ParquetWriter::new(file).finish(&mut df.clone()).map_err(|e| {
+        if is_korean() {
+            format!("Parquet 쓰기 실패 — {}", e)
+        } else {
+            format!("Parquet write failed — {}", e)
+        }
+    })?;
+    Ok(())
+}
+
+fn save_df_as_arrow(
+    df: &polars::frame::DataFrame,
+    path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use polars::prelude::{IpcWriter, SerWriter};
+
+    let file = std::fs::File::create(path).map_err(|e| {
+        if is_korean() {
+            format!("Arrow 파일 생성 실패 '{}' — {}", path, e)
+        } else {
+            format!("failed to create Arrow file '{}' — {}", path, e)
+        }
+    })?;
+    IpcWriter::new(file).finish(&mut df.clone()).map_err(|e| {
+        if is_korean() {
+            format!("Arrow 쓰기 실패 — {}", e)
+        } else {
+            format!("Arrow write failed — {}", e)
+        }
+    })?;
+    Ok(())
+}
+
 // ── Schema-Based Type Cast ────────────────────────────────────────────────────
 fn apply_schema_cast(
     lf: polars::prelude::LazyFrame,
@@ -488,6 +547,62 @@ fn validate_schema_types(df: &polars::frame::DataFrame, label: &str, schema: &Sc
     }
 }
 
+// ── Loader — format dispatch (issue #52) ───────────────────────────────────
+// Chooses the Polars reader by file extension: .parquet/.pq, .arrow/.ipc/.feather,
+// everything else falls back to the CSV path (EUC-KR auto-detect + null normalization).
+fn load_source_as_df(file_path: &str) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    let ext = std::path::Path::new(file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match ext.as_str() {
+        "parquet" | "pq" => load_parquet_as_df(file_path),
+        "arrow" | "ipc" | "feather" => load_arrow_as_df(file_path),
+        _ => load_csv_as_df(file_path),
+    }
+}
+
+fn load_parquet_as_df(file_path: &str) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    use polars::prelude::{ParquetReader, SerReader};
+
+    let file = std::fs::File::open(file_path).map_err(|e| {
+        if is_korean() {
+            format!("IO 에러: Parquet 파일 읽기 실패 '{}' — {}", file_path, e)
+        } else {
+            format!("IO error: failed to read Parquet file '{}' — {}", file_path, e)
+        }
+    })?;
+    let df = ParquetReader::new(file).finish().map_err(|e| {
+        if is_korean() {
+            format!("Parquet 읽기 실패 '{}' — {}", file_path, e)
+        } else {
+            format!("Parquet read failed '{}' — {}", file_path, e)
+        }
+    })?;
+    Ok(df)
+}
+
+fn load_arrow_as_df(file_path: &str) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    use polars::prelude::{IpcReader, SerReader};
+
+    let file = std::fs::File::open(file_path).map_err(|e| {
+        if is_korean() {
+            format!("IO 에러: Arrow 파일 읽기 실패 '{}' — {}", file_path, e)
+        } else {
+            format!("IO error: failed to read Arrow file '{}' — {}", file_path, e)
+        }
+    })?;
+    let df = IpcReader::new(file).finish().map_err(|e| {
+        if is_korean() {
+            format!("Arrow 읽기 실패 '{}' — {}", file_path, e)
+        } else {
+            format!("Arrow read failed '{}' — {}", file_path, e)
+        }
+    })?;
+    Ok(df)
+}
+
 // ── CSV loader (automatic encoding handling + dirty-data null normalization) ──
 fn load_csv_as_df(file_path: &str) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
     use polars::prelude::{CsvParseOptions, CsvReadOptions, NullValues, SerReader};
@@ -543,7 +658,7 @@ fn execute_node(
 
     let (mut lf, _schema_opt): (polars::prelude::LazyFrame, Option<&Schema>) = match &node.source {
         Source::Load { file_path, schema } => {
-            let df_raw = load_csv_as_df(file_path)?;
+            let df_raw = load_source_as_df(file_path)?;
             let csv_headers: Vec<String> = df_raw
                 .get_column_names()
                 .iter()
@@ -768,6 +883,19 @@ fn execute_node(
                 );
 
                 lf = noised.lazy();
+            }
+            IrStep::Side(SideOp::Save { path, format }) => {
+                let snapshot = lf.clone().collect()?;
+                save_dataframe(&snapshot, path, *format)?;
+                eprintln!(
+                    "[xazz] save('{}') {}: {} {} × {}",
+                    path,
+                    tr("done", "완료"),
+                    format.as_str(),
+                    snapshot.height(),
+                    snapshot.width()
+                );
+                lf = snapshot.lazy();
             }
         }
     }
