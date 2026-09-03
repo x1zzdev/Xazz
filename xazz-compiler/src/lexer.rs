@@ -219,6 +219,8 @@ impl<'src> Lexer<'src> {
             "lr" => TokenKind::Lr,
             "target" => TokenKind::Target,
             "strategy" => TokenKind::Strategy,
+            // ── v0.3.2 output artifact keyword (issue #52) ──────────
+            "save" => TokenKind::Save,
 
             // ── identifier ───────────────────────────────────────────
             _ => TokenKind::Ident(s),
