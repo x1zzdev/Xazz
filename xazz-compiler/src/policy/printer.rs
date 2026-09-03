@@ -189,6 +189,11 @@ pub fn print_op(op: &PipelineOp) -> String {
             None => format!("predict({})", model_var),
         },
         PipelineOp::WithDp(args) => print_with_dp(args),
+        PipelineOp::Save { path, format } => format!(
+            "save(\"{}\", format: \"{}\")",
+            escape(path),
+            format.as_str()
+        ),
     }
 }
 

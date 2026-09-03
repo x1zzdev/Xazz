@@ -567,6 +567,13 @@ fn generate_rust_src(
                             args.mechanism.as_str()
                         ));
                     }
+                    // ── v0.3.2 save — writes the result artifact at xazz execution (issue #52) ──
+                    PipelineOp::Save { path, format } => {
+                        out.push_str(&format!(
+                            "        // |> save(\"{}\", format: \"{}\")  → result artifact written at xazz execution\n",
+                            path, format.as_str()
+                        ));
+                    }
                 }
             }
 
@@ -1020,6 +1027,9 @@ fn validate_op_columns(
 
         // v0.6 withDp: no column argument — argument ranges validated by the parser (skip validation)
         PipelineOp::WithDp(_) => {}
+
+        // v0.3.2 save: path/format validated by the parser (skip validation)
+        PipelineOp::Save { .. } => {}
     }
     Ok(())
 }

@@ -367,7 +367,8 @@ pub fn infer_shape(
             | PipelineOp::Cast { .. }
             | PipelineOp::Replace { .. }
             | PipelineOp::Chart(_)
-            | PipelineOp::Train { .. } => {}
+            | PipelineOp::Train { .. }
+            | PipelineOp::Save { .. } => {}
         }
     }
 

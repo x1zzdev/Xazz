@@ -483,11 +483,16 @@ impl Codegen {
 
             // ── v0.6 withDp — differential privacy noise injection ───────────────────
             PipelineOp::WithDp(args) => format!(
-                "  .collect()?  → dp::apply_dp(ε={}, {}, Δf={})  // |> withDp(epsilon: {})",
+                "  .collect().  → dp::apply_dp(ε={}, {}, Δf={})  // |> withDp(epsilon: {})",
                 args.epsilon,
                 args.mechanism.as_str(),
                 args.sensitivity,
                 args.epsilon
+            ),
+            // ── v0.3.2 save — output artifact write (issue #52) ──────────────────────
+            PipelineOp::Save { path, format } => format!(
+                "  .collect()? → save {} ({})  // |> save(\"{}\", format: \"{}\")",
+                path, format.as_str(), path, format.as_str()
             ),
         }
     }

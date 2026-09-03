@@ -656,6 +656,7 @@ impl Analyzer {
             }
             PipelineOp::Replace { col, from, to } => self.check_replace_op(col, from, to, st),
             PipelineOp::WithDp(args) => self.check_withdp_op(args, st),
+            PipelineOp::Save { path, format } => self.check_save_op(path, format, st),
         }
     }
 
@@ -1007,6 +1008,22 @@ impl Analyzer {
         }
         st.steps
             .push(ir::Step::Side(ir::SideOp::WithDp(args.clone())));
+        false
+    }
+
+    // ── save() — output artifact write (issue #52) ─────────────────────────
+    // A save() step does not change the pipeline's held columns; it only
+    // materializes the current DataFrame to a file. Schema flows unchanged.
+    fn check_save_op(
+        &mut self,
+        path: &String,
+        format: &crate::ast::SaveFormat,
+        st: &mut PipelineCheckState,
+    ) -> bool {
+        st.steps.push(ir::Step::Side(ir::SideOp::Save {
+            path: path.clone(),
+            format: *format,
+        }));
         false
     }
 
