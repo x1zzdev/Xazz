@@ -232,6 +232,7 @@ Same 4-stage pipeline (drop nulls → dual filter → group-by aggregates → fi
 - **Up to 2.62× faster** than an equivalent pandas pipeline at 228K rows (277 ms vs 726 ms); **1.93× at 4.09M rows** (2,324 ms vs 4,489 ms). The gap narrows as the data grows.
 - Both sides are measured as **pipeline execution only** — the Python interpreter boot (~0.3–0.7 s) is excluded from pandas, and Xazz reports its own `[xazz:timing]` pipeline marker, so the comparison is apples-to-apples. Peak RSS uses the process tree for both engines.
 - Source comes from Apache Arrow columnar memory + Polars LazyFrame query optimization + multithreaded native execution.
+- **Out-of-core execution:** `load()` now returns a lazy scan (`scan_csv`/`scan_parquet`/`scan_ipc`), so sources stay on disk until the terminal collect — no full-file materialization upfront. For very large workloads set `XAZZ_STREAMING=1` to collect through Polars' streaming engine (unsupported plans fall back to in-memory automatically). See [docs/ROADMAP.md](docs/ROADMAP.md) Track A2.
 - Honest footnote: Polars' multithreading trades higher peak RSS for latency — pandas holds more rows per thread, Polars parallelizes across them. Note the benchmark data itself is not committed (it is built from the Seoul air-quality sources). Reproduce it yourself:
 
 ```bash
@@ -239,6 +240,10 @@ git lfs pull                                    # fetch examples/data (Git LFS)
 python benches/make_scale_data.py               # build scale datasets from examples/data
 python benches/run_readme_benchmark.py          # pandas vs xazz, median of 3
 python benches/render_benchmark_chart.py        # regenerate the chart above
+
+# optional: 200M-row scale (out-of-core + streaming)
+python benches/make_scale_data.py --xlarge      # ~200M rows, several GB
+python benches/run_readme_benchmark.py --xlarge
 ```
 
 ### Where the speed comes from

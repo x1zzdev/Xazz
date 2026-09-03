@@ -36,10 +36,11 @@ datasets. This track makes Xazz handle real workloads.
 - Acceptance: `xazz run` a script that loads Parquet and writes a Parquet artifact, with `[xazz:result]` unchanged. ✅
 
 ### A2. Out-of-core / streaming execution + large-scale benchmark
-- [ ] Switch CSV/Parquet load to `LazyFrame::scan_*` + Polars `streaming` feature
-- [ ] Extend `benches/` scale suite from 4.09M rows to 10M / 50M / 200M rows (synthetic)
-- [ ] Document peak-RSS vs latency tradeoff already noted in README
+- [x] Switch CSV/Parquet load to `LazyFrame::scan_*` + Polars `streaming` feature
+- [x] Extend `benches/` scale suite to 200M rows (synthetic, `--xlarge` opt-in)
+- [x] Document peak-RSS vs latency tradeoff already noted in README
 - Depends on: A1. Acceptance: benchmark chart shows sub-linear latency growth.
+  🚧 **Partial** — scripts + streaming engine in place; run the benchmark to capture numbers.
 
 ### A3. External source connectors
 - [ ] Embedded DuckDB source (`load("duckdb://...")`), SQL text in `.xzz`
