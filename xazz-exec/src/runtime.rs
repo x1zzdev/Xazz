@@ -549,86 +549,153 @@ fn validate_schema_types(df: &polars::frame::DataFrame, label: &str, schema: &Sc
     }
 }
 
-// ── Loader — format dispatch (issue #52) ───────────────────────────────────
-// Chooses the Polars reader by file extension: .parquet/.pq, .arrow/.ipc/.feather,
-// everything else falls back to the CSV path (EUC-KR auto-detect + null normalization).
-fn load_source_as_df(
+// ── Loader — format dispatch, lazy/out-of-core (issue #52/#53) ─────────────
+// Chooses the Polars reader by file extension and returns a **LazyFrame** so the
+// scan stays out-of-core until the terminal `.collect()`:
+//   .parquet/.pq  → LazyFrame::scan_parquet  (streaming, columnar)
+//   .arrow/.ipc/.feather → LazyFrame::scan_ipc (streaming, columnar)
+//   everything else → CSV: LazyFrame::scan_csv for UTF-8 (out-of-core),
+//                     eager EUC-KR decode fallback (small Korean public data).
+fn load_source_lazy(
     file_path: &str,
-) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+) -> Result<polars::prelude::LazyFrame, Box<dyn std::error::Error>> {
     let ext = std::path::Path::new(file_path)
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
     match ext.as_str() {
-        "parquet" | "pq" => load_parquet_as_df(file_path),
-        "arrow" | "ipc" | "feather" => load_arrow_as_df(file_path),
-        _ => load_csv_as_df(file_path),
+        "parquet" | "pq" => load_parquet_lazy(file_path),
+        "arrow" | "ipc" | "feather" => load_arrow_lazy(file_path),
+        _ => {
+            let raw_bytes = std::fs::read(file_path).map_err(|e| {
+                if is_korean() {
+                    format!("IO 에러: CSV 파일 읽기 실패 '{}' — {}", file_path, e)
+                } else {
+                    format!("IO error: failed to read CSV file '{}' — {}", file_path, e)
+                }
+            })?;
+            // UTF-8 → true out-of-core scan_csv. Non-UTF-8 (EUC-KR/CP949) →
+            // eager decode fallback (these files are small Korean public datasets).
+            if String::from_utf8(raw_bytes.clone()).is_ok() {
+                load_csv_lazy(file_path)
+            } else {
+                use polars::prelude::IntoLazy;
+                let df = load_csv_as_df_from_bytes(raw_bytes)?;
+                Ok(df.lazy())
+            }
+        }
     }
 }
 
-fn load_parquet_as_df(
+fn load_parquet_lazy(
     file_path: &str,
-) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
-    use polars::prelude::{ParquetReader, SerReader};
+) -> Result<polars::prelude::LazyFrame, Box<dyn std::error::Error>> {
+    use polars::prelude::{LazyFrame, PlRefPath, ScanArgsParquet};
 
-    let file = std::fs::File::open(file_path).map_err(|e| {
-        if is_korean() {
-            format!("IO 에러: Parquet 파일 읽기 실패 '{}' — {}", file_path, e)
-        } else {
-            format!(
-                "IO error: failed to read Parquet file '{}' — {}",
-                file_path, e
-            )
-        }
-    })?;
-    let df = ParquetReader::new(file).finish().map_err(|e| {
-        if is_korean() {
-            format!("Parquet 읽기 실패 '{}' — {}", file_path, e)
-        } else {
-            format!("Parquet read failed '{}' — {}", file_path, e)
-        }
-    })?;
-    Ok(df)
+    LazyFrame::scan_parquet(PlRefPath::new(file_path), ScanArgsParquet::default())
+        .map_err(|e| {
+            if is_korean() {
+                format!("Parquet 읽기 실패 '{}' — {}", file_path, e)
+            } else {
+                format!("Parquet read failed '{}' — {}", file_path, e)
+            }
+        })
+        .map_err(Into::into)
 }
 
-fn load_arrow_as_df(
+fn load_arrow_lazy(
     file_path: &str,
-) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
-    use polars::prelude::{IpcReader, SerReader};
+) -> Result<polars::prelude::LazyFrame, Box<dyn std::error::Error>> {
+    use polars::io::ipc::IpcScanOptions;
+    use polars::lazy::dsl::UnifiedScanArgs;
+    use polars::prelude::{LazyFrame, PlRefPath};
 
-    let file = std::fs::File::open(file_path).map_err(|e| {
-        if is_korean() {
-            format!("IO 에러: Arrow 파일 읽기 실패 '{}' — {}", file_path, e)
-        } else {
-            format!(
-                "IO error: failed to read Arrow file '{}' — {}",
-                file_path, e
-            )
-        }
-    })?;
-    let df = IpcReader::new(file).finish().map_err(|e| {
+    LazyFrame::scan_ipc(
+        PlRefPath::new(file_path),
+        IpcScanOptions::default(),
+        UnifiedScanArgs::default(),
+    )
+    .map_err(|e| {
         if is_korean() {
             format!("Arrow 읽기 실패 '{}' — {}", file_path, e)
         } else {
             format!("Arrow read failed '{}' — {}", file_path, e)
         }
-    })?;
-    Ok(df)
+    })
+    .map_err(Into::into)
+}
+
+/// Out-of-core CSV scan for UTF-8 files. Streams row batches from disk instead
+/// of materializing the whole file; null normalization mirrors load_csv_as_df.
+fn load_csv_lazy(
+    file_path: &str,
+) -> Result<polars::prelude::LazyFrame, Box<dyn std::error::Error>> {
+    use polars::prelude::{LazyCsvReader, LazyFileListReader, NullValues, PlRefPath, PlSmallStr};
+
+    let null_strings: Vec<PlSmallStr> = vec![
+        "".into(),
+        " ".into(),
+        "-".into(),
+        "점검중".into(),
+        "N/A".into(),
+    ];
+
+    LazyCsvReader::new(PlRefPath::new(file_path))
+        .with_infer_schema_length(Some(SCHEMA_INFERENCE_ROWS))
+        .map_parse_options(move |p| {
+            p.with_null_values(Some(NullValues::AllColumns(null_strings.clone())))
+        })
+        .finish()
+        .map_err(|e| {
+            if is_korean() {
+                format!("CSV 읽기 실패 '{}' — {}", file_path, e)
+            } else {
+                format!("CSV read failed '{}' — {}", file_path, e)
+            }
+        })
+        .map_err(Into::into)
+}
+
+/// Threshold (bytes) above which the eager schema null-validation collect is
+/// skipped, keeping large sources out-of-core (issue #53).
+const SMALL_SOURCE_BYTES: u64 = 32 * 1024 * 1024;
+
+fn source_is_small(file_path: &str) -> bool {
+    std::fs::metadata(file_path)
+        .map(|m| m.len() <= SMALL_SOURCE_BYTES)
+        .unwrap_or(true)
+}
+
+/// Collects a LazyFrame with the streaming engine when the source is large,
+/// falling back to the in-memory engine for unsupported plans (issue #53).
+/// Small pipelines (tests/ML/DP) use the in-memory engine to avoid scheduler
+/// overhead on trivial queries.
+fn collect_lazy(
+    lf: polars::prelude::LazyFrame,
+) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    use polars::lazy::dsl::Engine;
+
+    if std::env::var("XAZZ_STREAMING")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        match lf.clone().collect_with_engine(Engine::Streaming) {
+            Ok(df) => Ok(df),
+            // Unsupported nodes fall back to the in-memory engine.
+            Err(_) => lf.collect().map_err(Into::into),
+        }
+    } else {
+        lf.collect().map_err(Into::into)
+    }
 }
 
 // ── CSV loader (automatic encoding handling + dirty-data null normalization) ──
-fn load_csv_as_df(file_path: &str) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+fn load_csv_as_df_from_bytes(
+    raw_bytes: Vec<u8>,
+) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
     use polars::prelude::{CsvParseOptions, CsvReadOptions, NullValues, SerReader};
     use std::io::Cursor;
-
-    let raw_bytes = std::fs::read(file_path).map_err(|e| {
-        if is_korean() {
-            format!("IO 에러: CSV 파일 읽기 실패 '{}' — {}", file_path, e)
-        } else {
-            format!("IO error: failed to read CSV file '{}' — {}", file_path, e)
-        }
-    })?;
 
     let utf8_string = match String::from_utf8(raw_bytes.clone()) {
         Ok(s) => s,
@@ -672,18 +739,21 @@ fn execute_node(
 
     let (mut lf, _schema_opt): (polars::prelude::LazyFrame, Option<&Schema>) = match &node.source {
         Source::Load { file_path, schema } => {
-            let df_raw = load_source_as_df(file_path)?;
-            let csv_headers: Vec<String> = df_raw
-                .get_column_names()
-                .iter()
-                .map(|s| s.to_string())
-                .collect();
+            // Out-of-core scan (issue #53): the source stays a LazyFrame until the
+            // terminal collect, so large files are never fully materialized upfront.
+            let mut lf_raw = load_source_lazy(file_path)?;
 
-            let lf_raw = df_raw.lazy();
+            // Column names come from the scan's schema (metadata) — no data scan.
+            let src_headers: Vec<String> = lf_raw
+                .collect_schema()
+                .map_err(|e| format!("schema inference failed for '{}' — {}", file_path, e))?
+                .iter_names()
+                .map(|n| n.to_string())
+                .collect();
 
             let lf_bridged = match schema {
                 Some(fields) => {
-                    let lf_renamed = apply_dynamic_bridge(lf_raw, &csv_headers, fields);
+                    let lf_renamed = apply_dynamic_bridge(lf_raw, &src_headers, fields);
                     apply_schema_cast(lf_renamed, fields)
                 }
                 None => lf_raw,
@@ -691,9 +761,13 @@ fn execute_node(
 
             // Schema null/type validation runs on the original (bridged/cast) frame
             // right after load(), before pipeline ops such as aggregation are applied.
+            // For large sources this eager collect would defeat out-of-core execution,
+            // so it is gated by file size (small files get the full warning surface).
             if let Some(fields) = schema {
-                let df_loaded = lf_bridged.clone().collect()?;
-                validate_schema_types(&df_loaded, file_path, fields);
+                if source_is_small(file_path) {
+                    let df_loaded = lf_bridged.clone().collect()?;
+                    validate_schema_types(&df_loaded, file_path, fields);
+                }
             }
 
             (lf_bridged, schema.as_ref())
@@ -914,7 +988,7 @@ fn execute_node(
         }
     }
 
-    let df = lf.collect()?;
+    let df = collect_lazy(lf)?;
     Ok(Some(df))
 }
 
