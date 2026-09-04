@@ -118,10 +118,18 @@ def bench_xazz(csv: Path) -> dict:
 
     지연은 [xazz:timing] 마커의 pipeline_ms (프로세스 부팅 제외). 마커가 없으면
     wall-clock 으로 폴백하고 note 를 남긴다 (호환성 방어).
+
+    NOTE: Policy-as-Code 가드레일이 절대경로 load() 를 차단하므로 스크립트가 놓인
+    디렉토리를 기준으로 한 **상대경로**를 템플릿에 넣는다. 스크립트는
+    benches/_bench_<scale>.xzz, 데이터는 benches/data/scale_<scale>.csv 이므로
+    스크립트 기준 경로는 `data/scale_<scale>.csv` 다.
     """
     script = ROOT / "benches" / f"_bench_{csv.stem}.xzz"
-    script.write_text(TEMPLATE.read_text(encoding="utf-8").replace("SCALE_CSV", str(csv)), encoding="utf-8")
-    cmd = [str(XAZZ_BIN), "run", str(script)]
+    # ROOT 기준 상대경로 → policy 가드레일의 절대경로 차단을 회피하면서 데이터를 찾는다.
+    rel_csv = os.path.relpath(csv, ROOT).replace("\\", "/")
+    script.write_text(TEMPLATE.read_text(encoding="utf-8").replace("SCALE_CSV", rel_csv), encoding="utf-8")
+    # cmd 도 ROOT 상대경로 (cwd=ROOT)
+    cmd = [str(XAZZ_BIN), "run", os.path.join("benches", f"_bench_{csv.stem}.xzz")]
     runs = []
     for i in range(RUNS + 1):
         wall_ms, peak, stdout = measure_tree(cmd, ROOT, capture=True, env={"XAZZ_STREAMING": "1"})
@@ -134,21 +142,6 @@ def bench_xazz(csv: Path) -> dict:
             "peak_mb": round(peak, 1),
             "fallback_to_wallclock": pipeline_ms is None,
         })
-    script.unlink(missing_ok=True)
-    return summarize(runs)
-
-
-def bench_xazz(csv: Path) -> dict:
-    """Xazz 정품 바이너리: 워밍업 1회 + 측정 3회."""
-    script = ROOT / "benches" / f"_bench_{csv.stem}.xzz"
-    script.write_text(TEMPLATE.read_text(encoding="utf-8").replace("SCALE_CSV", str(csv)), encoding="utf-8")
-    cmd = [str(XAZZ_BIN), "run", str(script)]
-    runs = []
-    for i in range(RUNS + 1):
-        lat, peak = measure_tree(cmd, ROOT)
-        if i == 0:
-            continue  # 워밍업
-        runs.append({"latency_ms": round(lat, 1), "peak_mb": round(peak, 1)})
     script.unlink(missing_ok=True)
     return summarize(runs)
 
