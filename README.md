@@ -11,9 +11,9 @@
 
 # Xazz
 
-**A Rust-based AI pipeline DSL that unifies Polars preprocessing, Burn deep-learning compilation, and static security guardrails in one script.**
+**A Rust-based AI pipeline governance layer — safe fine-tuning data preparation, inference gates, and static security guardrails in one compiled script.**
 
-*Scripting on the surface. Compiled at its core.*
+*Scripting on the surface. Compiled at its core. Guarded before it runs.*
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Language: .xzz](https://img.shields.io/badge/Language-.xzz-orange.svg)]()
@@ -33,6 +33,8 @@
 ---
 
 ## Why Xazz?
+
+Xazz's position in the stack is deliberate: **AI engines are becoming commodity hardware and kernels; governance is not.** As Burn repositions toward an embedded inference + LoRA/QLoRA fine-tuning engine, Xazz focuses on the layer above it — turning raw pipelines into auditable, policy-governed AI operations. The language exists to make that governance executable, not to replace Python or compete with engines.
 
 Python owns AI prototyping — but at pipeline scale three structural costs keep showing up:
 
@@ -266,6 +268,8 @@ python benches/run_readme_benchmark.py --xlarge
 
 **SHA-256 append-only audit log** — every operation is hashed and chained; tampering is verifiable via the `xazz-server` API (`/security/audit`, `/security/verify`).
 
+**GenAI governance direction (Track F)** — as inference and LoRA/QLoRA fine-tuning become embedded (burn-engine), Xazz extends the same three gates to GenAI: a compile-time input gate for prompt literals, a runtime output gate that re-scans LLM responses, and fine-tuning data sanitization (PII / dedup / bias) before training data reaches the engine. See [docs/ROADMAP.md](docs/ROADMAP.md) Track F.
+
 | Layer | Mechanism | Status |
 |---|---|---|
 | Static guardrails | PII/secret detection, execution blocking, `--fix` proposals | Stable |
@@ -308,6 +312,7 @@ python benches/run_readme_benchmark.py --xlarge
 | Phase 5 — Expanded Language | More operators, join improvements, schema evolution | 🚧 In progress |
 | Phase 5.5 — Data Scale | Columnar sources & artifact output (`load`/`save`: Parquet, Arrow) | ✅ save/load (#52) |
 | Phase 6 — AI Expansion | GPU backends (burn-tch / burn-wgpu), distributed training, NQP | 🔭 Planned |
+| Phase 7 — GenAI Governance | Prompt input gate, LLM output re-scan, fine-tuning data sanitization (burn-engine LoRA/QLoRA pairing), model provenance | 🔭 Planned (Track F) |
 
 **Scale roadmap:** the full plan to grow data volume, program size, team/org reach, and ML depth — with per-item GitHub issues and an execution order — lives in [docs/ROADMAP.md](docs/ROADMAP.md).
 

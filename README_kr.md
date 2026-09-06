@@ -11,9 +11,9 @@
 
 # Xazz
 
-**Polars 전처리, Burn 딥러닝 컴파일, 정적 보안 가드레일을 하나의 스크립트로 통합한 Rust 기반 AI 파이프라인 DSL.**
+**안전한 파인튜닝 데이터 준비, 추론 게이트, 정적 보안 가드레일을 하나의 컴파일된 스크립트로 통합한 Rust 기반 AI 파이프라인 거버넌스 레이어.**
 
-*겉으로는 스크립트, 핵심은 컴파일러*
+*겉으로는 스크립트, 핵심은 컴파일러, 실행 전에는 가드레일*
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Language: .xzz](https://img.shields.io/badge/Language-.xzz-orange.svg)]()
@@ -33,6 +33,8 @@
 ---
 
 ## 왜 Xazz인가?
+
+스택에서 Xazz의 위치는 의도적입니다: **AI 엔진은 점점 commodity화(하드웨어·커널)되어 가지만, 거버넌스는 그렇지 않습니다.** Burn이 임베디드 추론 + LoRA/QLoRA 파인튜닝 엔진으로 재포지셔닝됨에 따라, Xazz는 그 위 레이어에 집중합니다 — 원시 파이프라인을 감사 가능하고 정책에 의해 통제되는 AI 연산으로 바꾸는 것. 언어는 그 거버넌스를 실행 가능하게 만드는 수단이지, Python을 대체하거나 엔진과 경쟁하기 위한 것이 아닙니다.
 
 파이썬은 AI 프로토타이핑의 표준입니다 — 하지만 파이프라인 규모가 커지면 세 가지 구조적 비용이 반복적으로 나타납니다.
 
@@ -260,6 +262,8 @@ python benches/render_benchmark_chart.py        # 위 차트 재생성
 
 **SHA-256 append-only 감사 로그** — 모든 연산이 해시되어 체인으로 연결됩니다. `xazz-server` API(`/security/audit`, `/security/verify`)로 변조 여부를 검증할 수 있습니다.
 
+**GenAI 거버넌스 방향 (Track F)** — 추론과 LoRA/QLoRA 파인튜닝이 임베디드화(burn-engine)되면서, Xazz는 동일한 3-게이트를 GenAI로 확장합니다: 프롬프트 리터럴의 컴파일 타임 입력 게이트, LLM 응답의 런타임 출력 재스캔, 그리고 학습 데이터가 엔진에 도달하기 전의 파인튜닝 데이터 정화(PII / 중복 / 편향). 상세: [docs/ROADMAP.md](docs/ROADMAP.md) Track F.
+
 | 계층 | 메커니즘 | 상태 |
 |---|---|---|
 | 정적 가드레일 | 개인정보/시크릿 탐지, 실행 차단, `--fix` 제안 | Stable |
@@ -299,6 +303,7 @@ python benches/render_benchmark_chart.py        # 위 차트 재생성
 | Phase 4 — Typed IR & 최적화 | 단일 Typed IR, 이중 해석 제거, IR 최적화(`--opt`) | ✅ 완료 (v0.3.0) |
 | Phase 5 — 언어 확장 | 연산자 확장, join 개선, 스키마 진화 | 🚧 진행 중 |
 | Phase 6 — AI 확장 | GPU 백엔드(burn-tch / burn-wgpu), 분산 학습, NQP | 🔭 계획 |
+| Phase 7 — GenAI 거버넌스 | 프롬프트 입력 게이트, LLM 출력 재스캔, 파인튜닝 데이터 정화 (burn-engine LoRA/QLoRA 연동), 모델 프로비넌스 | 🔭 계획 (Track F) |
 
 ---
 

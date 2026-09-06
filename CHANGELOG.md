@@ -9,6 +9,17 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Changed — 포지셔닝 전환 (Phase 0)
+
+- **거버넌스 레이어로 재포지셔닝**: README/README_kr 태그라인을 "Rust 기반 AI 파이프라인
+  DSL" → "안전한 파인튜닝 데이터 준비 + 추론 게이트 + 정적 보안 가드레일을 통합한
+  AI 파이프라인 거버넌스 레이어"로 변경. DSL은 거버넌스를 실행 가능하게 하는 수단이지
+  제품이 아니라는 명시적 입장
+- **ROADMAP Track F (GenAI 거버넌스) 신설**: 프롬프트 입력 게이트(F1), LLM 출력
+  재스캔 + 감사 체인(F2), 파인튜닝 데이터 정화(F3), burn-engine/ONNX 연동(F4),
+  모델 프로비넌스(F5). burn-engine(Burn 0.22) 출시 시점과 연동 계획
+- README 로드맵에 Phase 7 — GenAI 거버넌스 행 추가
+
 ### Added — 데이터 스케일 기반 (#52, #53, #55)
 
 - **모듈 시스템 (#69)**: `import "path.xzz"` — 모듈 파일의 `type`·`model`·`v` 파이프라인

@@ -18,6 +18,7 @@ and a 2.6×-vs-pandas benchmark. What it is not yet is **scalable** — in four 
 | **Program size** | Single-file DSL, no reuse unit | Module system, stdlib, LSP |
 | **Team/org reach** | Local binary + local stateless server | Persistence, auth, lineage, Python bindings |
 | **ML depth** | CPU-only Burn, Dense/MLP-only | GPU backends, ONNX interop, richer model graphs |
+| **GenAI governance** | No prompt/output gates, no fine-tuning data policy | Input/output gates, fine-tuning data sanitization, model provenance |
 
 Everything below is deliberately ordered: **each track's first issue is the highest
 value-per-effort step**, and later issues depend on earlier ones.
@@ -126,6 +127,52 @@ datasets. This track makes Xazz handle real workloads.
 
 ---
 
+## Track F — GenAI governance
+
+Positioning: engines (Burn, burn-engine) are becoming embedded commodities; **governance is the
+layer Xazz owns**. This track extends the same three gate points to GenAI and is timed to pair
+with the burn-engine release (Burn 0.22 era) — LoRA/QLoRA fine-tuning and on-device inference
+are exactly where "safe data in, auditable output out" becomes a real requirement.
+
+### F1. Prompt input gate — static scan of prompt literals
+- [ ] New rule family `XZP020`–`XZP022` in `xazz-compiler/src/policy`: prompt-injection / jailbreak /
+      exfiltration patterns detected at **compile time** against prompt literals (same fail-closed, line:col story as today's PII rules)
+- [ ] A prompt is just another typed literal — `prompt("...")` or a `model.prompt` literal gets the same
+      policy treatment as an RRN literal
+- Depends on: none (pure policy-engine extension). Acceptance: `xazz check` blocks a jailbreak prompt
+  with `line:col` diagnostics, `xazz policy --fix` proposes a sanitized prompt.
+
+### F2. LLM output gate — runtime re-scan + audit chaining
+- [ ] Runtime re-scan of model outputs (free-form text) against the same policy rules — static analysis
+      cannot fully cover generative output, so the guardrail becomes a runtime gate here
+- [ ] Prompt + response SHA-256 hashes appended to the existing audit chain (per-call evidence)
+- Depends on: F1 (shared rule catalog). Acceptance: a demo where an LLM call emitting a masked secret
+  is flagged and the prompt/response pair is verifiable in `/security/audit`.
+
+### F3. Fine-tuning data sanitization — safe LoRA/QLoRA prep
+- [ ] First-class op `sanitize(...)` that runs PII / near-duplicate / bias checks on training data
+      *before* it reaches the fine-tuning engine
+- [ ] Pairs with burn-engine LoRA/QLoRA: the sanitization report becomes the fine-tune intake artifact
+- Depends on: F1 (rules reused). Acceptance: a `.xzz` pipeline that sanitizes a CSV, emits a structured
+  sanitization report, then hands the cleaned data to a fine-tuning call.
+
+### F4. burn-engine integration — embed or deploy, both
+- [ ] Backend trait at the `MLOp` lowering boundary so Burn stays the first provider but burn-engine /
+      ONNX Runtime are swappable behind the same Typed IR (de-risks Burn's pivot toward inference)
+- [ ] Runner subprocess keeps both modes: embedded engine (in-process) or remote server
+      (mirrors today's `xazz-runner` + `xazz-server` split)
+- Depends on: D2 (ONNX) partially, F1–F3 (the guardrails must exist before inference calls are first-class). 
+  Acceptance: the same `.xzz` runs inference via embedded burn-engine and via ONNX with identical outputs.
+
+### F5. Model provenance — weights & license metadata guard
+- [ ] `model {}` declarations and `load("hf://...")`-style sources carry license/weights metadata;
+      policy can block restricted-license or fingerprinted-unknown weights
+- [ ] Model fingerprint joins the audit chain alongside code and output hashes
+- Depends on: C3 (lineage) optional, F2 (audit chain extension). Acceptance: a policy that rejects a
+  non-commercial-license model at compile time.
+
+---
+
 ## Recommended execution order
 
 Efficiency rule: **value-per-effort first, then dependency chain.** Do not start C2 before C1, or B3 before B2.
@@ -143,7 +190,12 @@ Efficiency rule: **value-per-effort first, then dependency chain.** Do not start
 | 9 | C4 — Python bindings | Big adoption lever; best after LSP/B1 ergonomics |
 | 10 | C2/C3 — auth + lineage | Both depend on C1 |
 | 11 | D1/D2/D3 — ML | Phase 6; mostly independent, GPU hardware availability gates timing |
-| 12 | E1–E4 — ecosystem | Everything downstream of B3/C1/A3 |
+| 12 | F1 — prompt input gate | Pure policy-engine extension; biggest GenAI governance win per effort |
+| 13 | F2 — output gate | Depends on F1; completes the request/response audit story |
+| 14 | F3 — fine-tuning sanitization | Depends on F1; pairs with burn-engine LoRA/QLoRA launch |
+| 15 | F4 — burn-engine / ONNX interop | Depends on D2 + F1–F3; timed to burn-engine release |
+| 16 | E1–E4 — ecosystem | Everything downstream of B3/C1/A3 |
+| 17 | F5 — model provenance | Depends on F2; nice-to-have that strengthens compliance story |
 
 Legend: 🔴 no external dependency | 🟠 depends on an earlier step | 🟢 parallel-friendly
 
@@ -152,5 +204,5 @@ Legend: 🔴 no external dependency | 🟠 depends on an earlier step | 🟢 par
 ## Status tracking
 
 - README roadmap Phase 5/6 rows remain the public status surface.
-- Each issue carries a `scale:*` label matching its track.
+- Each issue carries a `scale:*` label matching its track (`genai:*` for Track F).
 - Update this file and the README table when a milestone's acceptance criteria are met.
