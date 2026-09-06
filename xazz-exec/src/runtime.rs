@@ -80,11 +80,37 @@ pub fn run_pipeline(
         .parse()
         .map_err(|e| format!("[xazz PARSER ERROR] {}", e))?;
 
+    // ── STEP 3.25: Module resolution — expand `import "path.xzz"` (issue #69) ──
+    // Imported type/model/pipeline declarations are inlined into a merged AST;
+    // module source texts are retained so the policy gate can scan them too.
+    // Module paths resolve relative to the main file's directory.
+    let source_dir = std::path::Path::new(source_path)
+        .parent()
+        .map(|p| {
+            if p.as_os_str().is_empty() {
+                std::path::PathBuf::from(".")
+            } else {
+                p.to_path_buf()
+            }
+        })
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let resolved =
+        xazz_compiler::modules::resolve_imports(&program, &source_dir).map_err(|errs| {
+            format!(
+                "[xazz MODULE ERROR] {}\n{}",
+                tr("module resolution failed", "모듈 해석 실패"),
+                errs.join("\n")
+            )
+        })?;
+    let program = resolved.program;
+
     eprintln!(
-        "[xazz] Parser {}: {} AST {}",
+        "[xazz] Parser {}: {} AST {} ({} {})",
         tr("complete", "완료"),
         program.stmts.len(),
-        tr("nodes", "노드")
+        tr("nodes", "노드"),
+        resolved.modules.len(),
+        tr("modules", "모듈")
     );
 
     // ── STEP 3.5: Static semantic analysis (Type Checker) + Typed IR generation — pre-execution defect detection ─
@@ -145,7 +171,18 @@ pub fn run_pipeline(
         format!("[xazz POLICY ERROR] {}", e)
     })?;
 
-    let policy_report = xazz_compiler::check_policy_parsed(&program, &source, &active.policy);
+    let mut policy_report = xazz_compiler::check_policy_parsed(&program, &source, &active.policy);
+    // Imported modules are scanned too (issue #69): their AST is already covered
+    // by `check_policy_parsed` on the merged program, but literal/comment scanning
+    // needs each module's own source text, so run the text gate per module.
+    for (_mod_path, mod_src) in &resolved.modules {
+        let module_report = xazz_compiler::check_policy(mod_src, &active.policy);
+        if !module_report.safe_to_execute {
+            policy_report.safe_to_execute = false;
+        }
+        policy_report.violations.extend(module_report.violations);
+        policy_report.warnings.extend(module_report.warnings);
+    }
     emit_policy_marker(&policy_report);
 
     eprintln!(
