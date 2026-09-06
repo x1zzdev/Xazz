@@ -245,3 +245,56 @@ fn streaming_engine_runs_benchmark_shaped_pipeline() {
         result
     );
 }
+
+// ── issue #69: module system — import "path.xzz" ─────────────────────────────
+
+/// A main pipeline imports a prep module that defines a shared type + cleaned
+/// dataframe, then references both. Proves imports merge declarations into the
+/// analysis and execution scope.
+#[test]
+fn module_import_shared_type_and_pipeline() {
+    let dir = temp_dir();
+    write_csv(&dir, "pm10,pm25\n80,25\n45,12\n120,40\n");
+    std::fs::write(
+        dir.join("prep.xzz"),
+        "type AQ = { pm10: float, pm25: float };\n\
+         v raw = load(\"data.csv\") :: AQ |> dropNull(\"pm10\");\n",
+    )
+    .unwrap();
+    write_xzz(
+        &dir.join("data.csv"),
+        "import \"prep.xzz\";\n\
+         v avg = raw |> groupBy(\"pm10\") |> mean(\"pm25\");",
+    );
+
+    let result = run_in_dir(&dir);
+    assert!(result.is_ok(), "모듈 import 실행 실패: {:?}", result);
+}
+
+/// A cyclic import must fail closed with a clear diagnostic.
+#[test]
+fn module_cyclic_import_fails_closed() {
+    let dir = temp_dir();
+    std::fs::write(
+        dir.join("a.xzz"),
+        "import \"b.xzz\";\ntype A = { a: int };\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("b.xzz"),
+        "import \"a.xzz\";\ntype B = { b: int };\n",
+    )
+    .unwrap();
+    write_xzz(
+        &dir.join("data.csv"),
+        "import \"a.xzz\";\nv p = load(\"data.csv\") :: A;",
+    );
+
+    let result = run_in_dir(&dir);
+    assert!(result.is_err(), "사이클 import 는 차단되어야 함");
+    let msg = format!("{:?}", result);
+    assert!(
+        msg.contains("cyclic import") || msg.contains("MODULE ERROR"),
+        "사이클 진단 메시지: {msg}"
+    );
+}
