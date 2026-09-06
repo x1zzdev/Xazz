@@ -161,7 +161,43 @@ fn save_arrow_then_load_back() {
     assert!(arrow_path.exists(), "save() 가 out.arrow 을 생성하지 못함");
 }
 
-// ── issue #53: streaming engine on the benchmark-shaped pipeline ─────────────
+// ── issue #55: columnar schema inference for `xazz import` ───────────────────
+
+#[test]
+fn infer_columnar_schema_generates_type_block() {
+    use xazz_exec::schema_infer::infer_columnar_schema;
+
+    let dir = temp_dir();
+    write_csv(&dir, "a,b,c\n1,2.5,x\n2,3.5,y\n");
+
+    // Write a parquet file using polars, then infer its schema.
+    let csv_path = dir.join("data.csv");
+    let pq_path = dir.join("data.parquet");
+
+    // Convert CSV → parquet via a tiny xazz run that saves it.
+    let script = format!(
+        "type S = {{ a: int, b: float, c: string }};\n\
+         v p = load(\"data.csv\") :: S |> save(\"data.parquet\");\n"
+    );
+    let xzz_path = dir.join("mk_pq.xzz");
+    std::fs::write(&xzz_path, script).unwrap();
+
+    let _guard = CWD_LOCK.lock().unwrap();
+    let original = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&dir).unwrap();
+    let _ = run_pipeline("mk_pq.xzz", false, None, false);
+    std::env::set_current_dir(original).unwrap();
+
+    let block = infer_columnar_schema(pq_path.to_str().unwrap()).expect("스키마 추론 실패");
+    assert!(
+        block.contains("type Data = {"),
+        "parquet 스키마로 type 블록 생성: {block}"
+    );
+    assert!(block.contains("a: int"), "int 컬럼 매핑: {block}");
+    assert!(block.contains("b: float"), "float 컬럼 매핑: {block}");
+    assert!(block.contains("c: string"), "string 컬럼 매핑: {block}");
+    assert!(block.contains("v data = load"), "load 구문 생성: {block}");
+}
 
 /// Runs the same composite workload as benches/bench_scale_small.xzz
 /// (dropNull → dual filter → groupBy+sum → groupBy+mean → orderBy → take →
