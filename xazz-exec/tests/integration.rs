@@ -19,6 +19,12 @@ use xazz_exec::run_pipeline;
 /// Serializes tests that change the process-global CWD so they don't interfere.
 static CWD_LOCK: Mutex<()> = Mutex::new(());
 
+/// Acquires the CWD lock, recovering from a poisoned mutex so a single test's
+/// panic cannot cascade into `PoisonError` for every other CWD-touching test.
+fn lock_cwd() -> std::sync::MutexGuard<'static, ()> {
+    CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Creates and returns a unique temp folder (cleaned up on process exit).
 fn temp_dir() -> PathBuf {
     let base = std::env::temp_dir();
@@ -54,7 +60,7 @@ fn write_xzz(csv: &Path, script: &str) -> PathBuf {
 /// The returned guard restores the original CWD when it goes out of scope.
 /// (Policy-as-Code blocks absolute paths, so the tests must use relative ones.)
 fn run_in_dir(dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = CWD_LOCK.lock().unwrap();
+    let _guard = lock_cwd();
     let original = std::env::current_dir().unwrap();
     std::env::set_current_dir(dir).unwrap();
     let result = run_pipeline("pipeline.xzz", false, None, false);
@@ -165,28 +171,22 @@ fn save_arrow_then_load_back() {
 
 #[test]
 fn infer_columnar_schema_generates_type_block() {
+    use polars::prelude::{ParquetWriter, SerWriter, df};
     use xazz_exec::schema_infer::infer_columnar_schema;
 
     let dir = temp_dir();
-    write_csv(&dir, "a,b,c\n1,2.5,x\n2,3.5,y\n");
-
-    // Write a parquet file using polars, then infer its schema.
-    let csv_path = dir.join("data.csv");
     let pq_path = dir.join("data.parquet");
 
-    // Convert CSV → parquet via a tiny xazz run that saves it.
-    let script = format!(
-        "type S = {{ a: int, b: float, c: string }};\n\
-         v p = load(\"data.csv\") :: S |> save(\"data.parquet\");\n"
-    );
-    let xzz_path = dir.join("mk_pq.xzz");
-    std::fs::write(&xzz_path, script).unwrap();
-
-    let _guard = CWD_LOCK.lock().unwrap();
-    let original = std::env::current_dir().unwrap();
-    std::env::set_current_dir(&dir).unwrap();
-    let _ = run_pipeline("mk_pq.xzz", false, None, false);
-    std::env::set_current_dir(original).unwrap();
+    // Write a parquet file directly with polars — deterministic and independent
+    // of run_pipeline/CWD (avoids cross-test contamination on CI).
+    let mut df = df!(
+        "a" => [1i64, 2i64],
+        "b" => [2.5f64, 3.5f64],
+        "c" => ["x", "y"],
+    )
+    .unwrap();
+    let file = std::fs::File::create(&pq_path).unwrap();
+    ParquetWriter::new(file).finish(&mut df).unwrap();
 
     let block = infer_columnar_schema(pq_path.to_str().unwrap()).expect("스키마 추론 실패");
     assert!(
@@ -231,7 +231,7 @@ fn streaming_engine_runs_benchmark_shaped_pipeline() {
            |> orderBy(\"pm25\", desc: true) |> take(5);",
     );
 
-    let _guard = CWD_LOCK.lock().unwrap();
+    let _guard = lock_cwd();
     let original = std::env::current_dir().unwrap();
     std::env::set_current_dir(&dir).unwrap();
     // Enable the streaming engine for the whole process during this test.
