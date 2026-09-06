@@ -588,6 +588,74 @@ fn load_source_lazy(
     }
 }
 
+/// Eager format-dispatch loader — used for **small** sources where a full
+/// in-memory read is cheap and avoids a second disk pass for null-validation
+/// (issue #53 perf: small files load once, validate once, then wrap in lazy).
+fn load_source_as_df(
+    file_path: &str,
+) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    let ext = std::path::Path::new(file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match ext.as_str() {
+        "parquet" | "pq" => load_parquet_as_df(file_path),
+        "arrow" | "ipc" | "feather" => load_arrow_as_df(file_path),
+        _ => load_csv_as_df_from_file(file_path),
+    }
+}
+
+fn load_parquet_as_df(
+    file_path: &str,
+) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    use polars::prelude::{ParquetReader, SerReader};
+
+    let file = std::fs::File::open(file_path).map_err(|e| {
+        if is_korean() {
+            format!("IO 에러: Parquet 파일 읽기 실패 '{}' — {}", file_path, e)
+        } else {
+            format!(
+                "IO error: failed to read Parquet file '{}' — {}",
+                file_path, e
+            )
+        }
+    })?;
+    let df = ParquetReader::new(file).finish().map_err(|e| {
+        if is_korean() {
+            format!("Parquet 읽기 실패 '{}' — {}", file_path, e)
+        } else {
+            format!("Parquet read failed '{}' — {}", file_path, e)
+        }
+    })?;
+    Ok(df)
+}
+
+fn load_arrow_as_df(
+    file_path: &str,
+) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    use polars::prelude::{IpcReader, SerReader};
+
+    let file = std::fs::File::open(file_path).map_err(|e| {
+        if is_korean() {
+            format!("IO 에러: Arrow 파일 읽기 실패 '{}' — {}", file_path, e)
+        } else {
+            format!(
+                "IO error: failed to read Arrow file '{}' — {}",
+                file_path, e
+            )
+        }
+    })?;
+    let df = IpcReader::new(file).finish().map_err(|e| {
+        if is_korean() {
+            format!("Arrow 읽기 실패 '{}' — {}", file_path, e)
+        } else {
+            format!("Arrow read failed '{}' — {}", file_path, e)
+        }
+    })?;
+    Ok(df)
+}
+
 fn load_parquet_lazy(
     file_path: &str,
 ) -> Result<polars::prelude::LazyFrame, Box<dyn std::error::Error>> {
@@ -673,13 +741,16 @@ fn source_is_small(file_path: &str) -> bool {
 /// overhead on trivial queries.
 fn collect_lazy(
     lf: polars::prelude::LazyFrame,
+    source_is_large: bool,
 ) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
     use polars::lazy::dsl::Engine;
 
-    if std::env::var("XAZZ_STREAMING")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-    {
+    let use_streaming = match std::env::var("XAZZ_STREAMING") {
+        Ok(v) => v == "1" || v.eq_ignore_ascii_case("true"),
+        Err(_) => source_is_large,
+    };
+
+    if use_streaming {
         match lf.clone().collect_with_engine(Engine::Streaming) {
             Ok(df) => Ok(df),
             // Unsupported nodes fall back to the in-memory engine.
@@ -724,6 +795,19 @@ fn load_csv_as_df_from_bytes(
     Ok(df)
 }
 
+fn load_csv_as_df_from_file(
+    file_path: &str,
+) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    let raw_bytes = std::fs::read(file_path).map_err(|e| {
+        if is_korean() {
+            format!("IO 에러: CSV 파일 읽기 실패 '{}' — {}", file_path, e)
+        } else {
+            format!("IO error: failed to read CSV file '{}' — {}", file_path, e)
+        }
+    })?;
+    load_csv_as_df_from_bytes(raw_bytes)
+}
+
 // ── Single pipeline node execution (consumes Typed IR) ──────────────────
 //
 // Consumes the type-checker's PipelineNode once instead of interpreting the raw AST,
@@ -737,43 +821,61 @@ fn execute_node(
 ) -> Result<Option<polars::frame::DataFrame>, Box<dyn std::error::Error>> {
     use polars::prelude::IntoLazy;
 
-    let (mut lf, _schema_opt): (polars::prelude::LazyFrame, Option<&Schema>) = match &node.source {
+    let (mut lf, _schema_opt, source_is_large): (
+        polars::prelude::LazyFrame,
+        Option<&Schema>,
+        bool,
+    ) = match &node.source {
         Source::Load { file_path, schema } => {
-            // Out-of-core scan (issue #53): the source stays a LazyFrame until the
-            // terminal collect, so large files are never fully materialized upfront.
-            let mut lf_raw = load_source_lazy(file_path)?;
+            let is_large = !source_is_small(file_path);
 
-            // Column names come from the scan's schema (metadata) — no data scan.
-            let src_headers: Vec<String> = lf_raw
-                .collect_schema()
-                .map_err(|e| format!("schema inference failed for '{}' — {}", file_path, e))?
-                .iter_names()
-                .map(|n| n.to_string())
-                .collect();
-
-            let lf_bridged = match schema {
-                Some(fields) => {
-                    let lf_renamed = apply_dynamic_bridge(lf_raw, &src_headers, fields);
-                    apply_schema_cast(lf_renamed, fields)
+            if !is_large {
+                // ── Small source → eager fast path (issue #53) ──────────────────
+                // Read the file once via the format-dispatched eager loader, validate
+                // in-memory, then wrap in LazyFrame. Avoids the lazy-scan plus a
+                // second disk pass for null-validation (which regressed small files).
+                let df_raw = load_source_as_df(file_path)?;
+                let src_headers: Vec<String> = df_raw
+                    .get_column_names()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+                let lf_bridged = match schema {
+                    Some(fields) => {
+                        let lf_renamed = apply_dynamic_bridge(df_raw.lazy(), &src_headers, fields);
+                        apply_schema_cast(lf_renamed, fields)
+                    }
+                    None => df_raw.lazy(),
+                };
+                if let Some(fields) = schema {
+                    let df_loaded = lf_bridged.clone().collect()?;
+                    validate_schema_types(&df_loaded, file_path, fields);
                 }
-                None => lf_raw,
-            };
-
-            // Schema null/type validation runs on the original (bridged/cast) frame
-            // right after load(), before pipeline ops such as aggregation are applied.
-            // For large sources this eager collect would defeat out-of-core execution,
-            // so it is gated by file size (small files get the full warning surface).
-            if let Some(fields) = schema
-                && source_is_small(file_path)
-            {
-                let df_loaded = lf_bridged.clone().collect()?;
-                validate_schema_types(&df_loaded, file_path, fields);
+                (lf_bridged, schema.as_ref(), false)
+            } else {
+                // ── Large source → lazy out-of-core scan (issue #53) ────────────
+                // Source stays a LazyFrame until the terminal collect; large files
+                // are never fully materialized upfront. Schema null-validation's
+                // eager collect is skipped (it would defeat out-of-core).
+                let mut lf_raw = load_source_lazy(file_path)?;
+                let src_headers: Vec<String> = lf_raw
+                    .collect_schema()
+                    .map_err(|e| format!("schema inference failed for '{}' — {}", file_path, e))?
+                    .iter_names()
+                    .map(|n| n.to_string())
+                    .collect();
+                let lf_bridged = match schema {
+                    Some(fields) => {
+                        let lf_renamed = apply_dynamic_bridge(lf_raw, &src_headers, fields);
+                        apply_schema_cast(lf_renamed, fields)
+                    }
+                    None => lf_raw,
+                };
+                (lf_bridged, schema.as_ref(), true)
             }
-
-            (lf_bridged, schema.as_ref())
         }
         Source::Ref { var } => match symbol_table.get(var.as_str()) {
-            Some(df) => (df.clone().lazy(), None),
+            Some(df) => (df.clone().lazy(), None, false),
             None => {
                 return Err(format!(
                     "변수 에러: 미선언 변수 '{}' 참조. 이전 파이프라인에서 먼저 선언하세요.",
@@ -988,7 +1090,7 @@ fn execute_node(
         }
     }
 
-    let df = collect_lazy(lf)?;
+    let df = collect_lazy(lf, source_is_large)?;
     Ok(Some(df))
 }
 

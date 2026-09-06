@@ -17,17 +17,18 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - **컬럼형 소스 로드**: `load()`가 확장자 기반으로 디스패치 — `.parquet`/`.pq`,
   `.arrow`/`.ipc`/`.feather`, 나머지는 기존 CSV 경로(EUC-KR 자동감지 + null 정규화) 유지
 - Polars `parquet`/`ipc` features 활성화 (`xazz-exec`)
-- **Out-of-core lazy 로드 (#53)**: 모든 `load()`가 `LazyFrame` scan을 반환 —
-  `scan_parquet`/`scan_ipc`/`scan_csv`(UTF-8)는 디스크에서 스트리밍되어 대용량 파일도
-  터미널 `.collect()` 전까지 전체 메모리에 적재하지 않는다. EUC-KR 파일은 기존 eager
-  디코드로 폴백. 큰 소스(>32MB)는 스키마 null 검증의 eager collect도 생략
-- **선택적 streaming collect (#53)**: `XAZZ_STREAMING=1` 환경변수로 활성화 시 최종
-  collect가 Polars streaming 엔진(`Engine::Streaming`)을 사용 — 지원하지 않는 계획은
-  in-memory 엔진으로 자동 폴백
+- **Out-of-core lazy 로드 (#53)**: 32MB 초과 소스는 `LazyFrame` scan(`scan_parquet`/`scan_ipc`/`scan_csv`)
+  을 사용해 디스크에서 스트리밍 — 대용량 파일도 터미널 `.collect()` 전까지 전체 메모리에 적재하지 않는다.
+  작은 파일(≤32MB)은 **eager 1회 로드 + 메모리 검증** 패스트 경로를 유지해 이중 디스크 읽기를 피한다 (적응형)
+- **선택적 streaming collect (#53)**: `XAZZ_STREAMING=1` 로 강제하거나, 큰 소스에서 기본 활성 —
+  Polars `Engine::Streaming` 사용, 지원하지 않는 계획은 in-memory 엔진으로 자동 폴백
 - **벤치 스케일 확장 (#53)**: `make_scale_data.py --xlarge`로 200M 행 스케일 생성,
-  `run_readme_benchmark.py --xlarge`로 측정. Xazz 벤치는 `XAZZ_STREAMING=1`로 실행
+  `run_readme_benchmark.py --xlarge`로 측정. 벤치가 policy 가드레일을 통과하도록 상대경로 사용
+- **벤치 측정 (2026-09-04, median of 3)**: 228K/912K/4.09M 행에서 각각
+  **1.39× / 1.95× / 1.39×** vs pandas (556/1,054/4,344 ms vs 770/2,052/6,040 ms),
+  4.09M 행에서 피크 RSS 570MB vs 656MB
 - 통합 테스트: Parquet/Arrow save→load 왕복 (Schema cast 경유), streaming 엔진의
-  벤치 파이프라인(벤치마크 shape) 실행 검증
+  벤치 파이프라인(벤치마크 shape) 실행·네이티브 연산 지원 검증
 
 ---
 

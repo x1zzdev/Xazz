@@ -132,7 +132,7 @@ def bench_xazz(csv: Path) -> dict:
     cmd = [str(XAZZ_BIN), "run", os.path.join("benches", f"_bench_{csv.stem}.xzz")]
     runs = []
     for i in range(RUNS + 1):
-        wall_ms, peak, stdout = measure_tree(cmd, ROOT, capture=True, env={"XAZZ_STREAMING": "1"})
+        wall_ms, peak, stdout = measure_tree(cmd, ROOT, capture=True)
         if i == 0:
             continue  # 워밍업
         pipeline_ms = parse_xazz_timing(stdout)
