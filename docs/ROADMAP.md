@@ -134,7 +134,7 @@ layer Xazz owns**. This track extends the same three gate points to GenAI and is
 with the burn-engine release (Burn 0.22 era) — LoRA/QLoRA fine-tuning and on-device inference
 are exactly where "safe data in, auditable output out" becomes a real requirement.
 
-### F1. Prompt input gate — static scan of prompt literals
+### F1. Prompt input gate — static scan of prompt literals — issue #70
 - [ ] New rule family `XZP020`–`XZP022` in `xazz-compiler/src/policy`: prompt-injection / jailbreak /
       exfiltration patterns detected at **compile time** against prompt literals (same fail-closed, line:col story as today's PII rules)
 - [ ] A prompt is just another typed literal — `prompt("...")` or a `model.prompt` literal gets the same
@@ -142,21 +142,21 @@ are exactly where "safe data in, auditable output out" becomes a real requiremen
 - Depends on: none (pure policy-engine extension). Acceptance: `xazz check` blocks a jailbreak prompt
   with `line:col` diagnostics, `xazz policy --fix` proposes a sanitized prompt.
 
-### F2. LLM output gate — runtime re-scan + audit chaining
+### F2. LLM output gate — runtime re-scan + audit chaining — issue #71
 - [ ] Runtime re-scan of model outputs (free-form text) against the same policy rules — static analysis
       cannot fully cover generative output, so the guardrail becomes a runtime gate here
 - [ ] Prompt + response SHA-256 hashes appended to the existing audit chain (per-call evidence)
 - Depends on: F1 (shared rule catalog). Acceptance: a demo where an LLM call emitting a masked secret
   is flagged and the prompt/response pair is verifiable in `/security/audit`.
 
-### F3. Fine-tuning data sanitization — safe LoRA/QLoRA prep
+### F3. Fine-tuning data sanitization — safe LoRA/QLoRA prep — issue #72
 - [ ] First-class op `sanitize(...)` that runs PII / near-duplicate / bias checks on training data
       *before* it reaches the fine-tuning engine
 - [ ] Pairs with burn-engine LoRA/QLoRA: the sanitization report becomes the fine-tune intake artifact
 - Depends on: F1 (rules reused). Acceptance: a `.xzz` pipeline that sanitizes a CSV, emits a structured
   sanitization report, then hands the cleaned data to a fine-tuning call.
 
-### F4. burn-engine integration — embed or deploy, both
+### F4. burn-engine integration — embed or deploy, both — issue #73
 - [ ] Backend trait at the `MLOp` lowering boundary so Burn stays the first provider but burn-engine /
       ONNX Runtime are swappable behind the same Typed IR (de-risks Burn's pivot toward inference)
 - [ ] Runner subprocess keeps both modes: embedded engine (in-process) or remote server
@@ -164,7 +164,7 @@ are exactly where "safe data in, auditable output out" becomes a real requiremen
 - Depends on: D2 (ONNX) partially, F1–F3 (the guardrails must exist before inference calls are first-class). 
   Acceptance: the same `.xzz` runs inference via embedded burn-engine and via ONNX with identical outputs.
 
-### F5. Model provenance — weights & license metadata guard
+### F5. Model provenance — weights & license metadata guard — issue #74
 - [ ] `model {}` declarations and `load("hf://...")`-style sources carry license/weights metadata;
       policy can block restricted-license or fingerprinted-unknown weights
 - [ ] Model fingerprint joins the audit chain alongside code and output hashes
@@ -190,12 +190,12 @@ Efficiency rule: **value-per-effort first, then dependency chain.** Do not start
 | 9 | C4 — Python bindings | Big adoption lever; best after LSP/B1 ergonomics |
 | 10 | C2/C3 — auth + lineage | Both depend on C1 |
 | 11 | D1/D2/D3 — ML | Phase 6; mostly independent, GPU hardware availability gates timing |
-| 12 | F1 — prompt input gate | Pure policy-engine extension; biggest GenAI governance win per effort |
-| 13 | F2 — output gate | Depends on F1; completes the request/response audit story |
-| 14 | F3 — fine-tuning sanitization | Depends on F1; pairs with burn-engine LoRA/QLoRA launch |
-| 15 | F4 — burn-engine / ONNX interop | Depends on D2 + F1–F3; timed to burn-engine release |
+| 12 | ~~F1 — prompt input gate~~ | ✅ Issue #70 open — pure policy-engine extension; biggest GenAI governance win per effort |
+| 13 | F2 — output gate (#71) | Depends on F1; completes the request/response audit story |
+| 14 | F3 — fine-tuning sanitization (#72) | Depends on F1; pairs with burn-engine LoRA/QLoRA launch |
+| 15 | F4 — burn-engine / ONNX interop (#73) | Depends on D2 + F1–F3; timed to burn-engine release |
 | 16 | E1–E4 — ecosystem | Everything downstream of B3/C1/A3 |
-| 17 | F5 — model provenance | Depends on F2; nice-to-have that strengthens compliance story |
+| 17 | F5 — model provenance (#74) | Depends on F2; nice-to-have that strengthens compliance story |
 
 Legend: 🔴 no external dependency | 🟠 depends on an earlier step | 🟢 parallel-friendly
 
