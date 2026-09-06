@@ -347,9 +347,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // ── import: auto-generate CSV → xazz type definition + load statement ─────
+        // ── import: auto-generate schema → xazz type definition + load statement ──
         Commands::Import { file } => {
-            if let Err(e) = schema::import_csv(&file) {
+            if let Err(e) = schema::import_file(&file) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
@@ -370,7 +370,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 //   1. XAZZ_RUNNER_PATH environment variable (deployment hardening)
 //   2. Same directory as the current xazz executable
 // No PATH fallback (prevents arbitrary code execution via PATH shadowing, fail-closed)
-fn find_runner() -> Result<std::path::PathBuf, String> {
+pub(crate) fn find_runner() -> Result<std::path::PathBuf, String> {
     // 1. Pin the path via environment variable (deployment hardening)
     if let Ok(pinned) = std::env::var("XAZZ_RUNNER_PATH") {
         if !pinned.trim().is_empty() {

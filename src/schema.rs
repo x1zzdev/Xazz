@@ -244,9 +244,24 @@ fn find_project_root(csv_path: &str) -> Option<std::path::PathBuf> {
     }
 }
 
-/// Read a CSV file, infer its schema, and append it to main.xzz.
-pub fn import_csv(file: &str) -> Result<()> {
-    let generated = infer_csv_schema(file)?;
+/// Read a data file (CSV/Parquet/Arrow), infer its schema, and append a
+/// `type` block + `load` statement to main.xzz. (issue #55)
+///
+/// CSV is inferred natively (no Polars dependency in the CLI). Columnar
+/// formats delegate to `xazz-exec --schema <path>`, which is reached through
+/// the xazz-runner IPC bridge.
+pub fn import_file(file: &str) -> Result<()> {
+    let ext = std::path::Path::new(file)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    let generated = if matches!(ext.as_str(), "parquet" | "pq" | "arrow" | "ipc" | "feather") {
+        infer_columnar_schema_via_runner(file)?
+    } else {
+        infer_csv_schema(file)?
+    };
 
     // Find the project root (directory containing xazz.toml) from the CSV path,
     // falling back to the current directory if not found.
@@ -290,4 +305,38 @@ pub fn import_csv(file: &str) -> Result<()> {
     println!("{}", generated);
 
     Ok(())
+}
+
+/// Infer a columnar schema by asking the execution engine (`xazz-exec --schema`)
+/// via the xazz-runner IPC bridge. Returns the generated `type` block + load.
+fn infer_columnar_schema_via_runner(file: &str) -> Result<std::string::String> {
+    use std::process::Command;
+
+    let runner = crate::find_runner()
+        .map_err(|e| anyhow::anyhow!("xazz-runner 을 찾을 수 없습니다: {}", e))?;
+
+    let output = Command::new(&runner)
+        .arg("--schema")
+        .arg(file)
+        .output()
+        .with_context(|| format!("xazz-exec --schema '{}' 실행 실패", file))?;
+
+    if !output.status.success() {
+        let stderr = std::string::String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow::anyhow!(
+            "컬럼형 스키마 추론 실패 ({}): {}",
+            file,
+            stderr.trim()
+        ));
+    }
+
+    let stdout = std::string::String::from_utf8_lossy(&output.stdout);
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow::anyhow!(
+            "xazz-exec 가 스키마를 반환하지 않음: {}",
+            file
+        ));
+    }
+    Ok(trimmed.to_string())
 }
