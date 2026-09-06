@@ -55,11 +55,13 @@ datasets. This track makes Xazz handle real workloads.
 
 ## Track B — Language scale (reuse units)
 
-### B1. Module system
-- [ ] `import "./preprocess.xzz"` — split pipelines across files
-- [ ] Named reusable pipelines (`fn` / named pipeline definitions) callable from any file
-- [ ] Module-level `type` declarations shared across files
-- Acceptance: a 2-file project where `main.xzz` imports a data-prep module and type-checks against it.
+### B1. Module system — ✅ done (issue #69)
+- [x] `import "./preprocess.xzz"` — split pipelines across files (type/model/v pipelines inlined at import site)
+- [x] Named reusable pipelines callable from any file (module `v` declarations referenced like locals)
+- [x] Module-level `type` declarations shared across files
+- [x] Cyclic-import detection (fail-closed)
+- Acceptance: a 2-file project where `main.xzz` imports a data-prep module and type-checks against it. ✅
+- Semantics: module = plain `.xzz`; imports resolve relative to importing file; checker runs on the merged AST so duplicate/missing-reference validation spans modules; policy gate scans module sources' literals too.
 
 ### B2. Standard library crate (`xazz-stdlib`)
 - [ ] New workspace member with date/string/statistics helpers implemented in `.xzz`-visible operators
@@ -133,7 +135,7 @@ Efficiency rule: **value-per-effort first, then dependency chain.** Do not start
 | 1 | ~~A1 — save + Parquet/Arrow load~~ | ✅ Done — issue #52 |
 | 2 | A2 — out-of-core + big benchmark | Proves "scale" with numbers; extends existing bench infra |
 | 3 | ~~A4 — import extension~~ | ✅ Done — issue #55 |
-| 4 | B1 — module system | Unlocks reuse; prerequisite for stdlib |
+| 4 | ~~B1 — module system~~ | ✅ Done — issue #69 |
 | 5 | B3 — LSP | Reuses checker; biggest DX/visibility win, enables E1 |
 | 6 | A3 — connectors | Independent of language work; adds DuckDB/Postgres sources |
 | 7 | C1 — server persistence | Foundation for C2/C3; independent of A/B |

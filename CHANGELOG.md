@@ -11,6 +11,11 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ### Added — 데이터 스케일 기반 (#52, #53, #55)
 
+- **모듈 시스템 (#69)**: `import "path.xzz"` — 모듈 파일의 `type`·`model`·`v` 파이프라인
+  선언을 import 지점에 인라인 병합. 상대경로 기준(importing 파일 기준), **사이클 감지는
+  fail-closed**, 누락 파일/파싱 실패는 해석 오류. 체커는 병합된 AST를 그대로 검사하므로
+  중복 선언·미선언 참조 검증이 모듈 간에도 동일하게 동작. 모듈 소스는 정책 가드레일의
+  리터럴 스캔에도 포함. `xazz check`/`xazz run` 모두 지원
 - **`save()` 출력 연산자**: 파이프라인 결과를 아티팩트 파일로 기록 — `save("out.csv")`,
   `save("out.parquet")`, `save("out.arrow", format: "arrow")`. 포맷은 확장자에서 추론하거나
   `format:` 인수로 명시 (미지원 포맷·미확정 포맷은 파싱 에러)

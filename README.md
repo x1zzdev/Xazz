@@ -282,6 +282,7 @@ python benches/run_readme_benchmark.py --xlarge
 | `xazz run` | Compile and execute `.xzz` pipelines (`--json` for machine-readable results) | Stable |
 | `xazz check` | Static semantic analysis — undeclared variables/columns, duplicate declarations, invalid casts, with did-you-mean hints and `line:col` spans | Stable |
 | `xazz import` | Auto-infer schema → generate `type` block (CSV EUC-KR/CP949, Parquet, Arrow) | Stable |
+| `import "mod.xzz"` | Module system — share `type`/`model`/`v` pipelines across files (cycle-fail-closed) | Stable |
 | `xazz new` | Scaffold project with sample CSV and runnable example | Stable |
 | `xazz emit rust` | Transpile `.xzz` → Rust source (Polars LazyFrame + Burn) | Stable |
 | `xazz policy` | Policy-as-Code guardrail — block PII/secret leaks pre-execution | Stable |
