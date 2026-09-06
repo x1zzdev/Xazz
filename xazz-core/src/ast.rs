@@ -389,6 +389,8 @@ impl Default for TrainConfig {
 /// Top-level statement node
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
+    /// import "path.xzz"  — bring module type/model/pipeline declarations into scope (v0.3.2, issue #69)
+    Import { path: String },
     /// type <Name> = { <fields> }
     TypeDecl {
         name: String,

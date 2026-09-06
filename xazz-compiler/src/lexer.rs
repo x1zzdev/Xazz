@@ -170,6 +170,7 @@ impl<'src> Lexer<'src> {
         match s.as_str() {
             // ── existing keywords ──────────────────────────────────
             "type" => TokenKind::Type,
+            "import" => TokenKind::Import,
             "load" => TokenKind::Load,
             "filter" => TokenKind::Filter,
             "select" => TokenKind::Select,

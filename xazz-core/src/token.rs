@@ -70,6 +70,8 @@ pub enum TokenKind {
     // ── Keywords ──────────────────────────────────────
     /// type
     Type,
+    /// import  (module system — import "path.xzz", issue #69)
+    Import,
     /// load
     Load,
     /// filter
