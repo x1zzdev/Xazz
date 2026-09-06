@@ -1,38 +1,41 @@
 {
   "small": {
     "pandas": {
-      "latency_ms": 726.1,
-      "peak_mb": 104.9,
+      "latency_ms": 770.2,
+      "peak_mb": 100.8,
       "runs": [
         {
-          "latency_ms": 701.3,
-          "peak_mb": 104.7
+          "latency_ms": 565.7,
+          "peak_mb": 100.8
         },
         {
-          "latency_ms": 726.1,
-          "peak_mb": 104.9
+          "latency_ms": 829.1,
+          "peak_mb": 100.8
         },
         {
-          "latency_ms": 728.4,
-          "peak_mb": 105.3
+          "latency_ms": 770.2,
+          "peak_mb": 100.7
         }
       ]
     },
     "xazz": {
-      "latency_ms": 277.4,
-      "peak_mb": 85.6,
+      "latency_ms": 556.0,
+      "peak_mb": 90.2,
       "runs": [
         {
-          "latency_ms": 257.1,
-          "peak_mb": 86.8
+          "latency_ms": 470.9,
+          "peak_mb": 90.3,
+          "fallback_to_wallclock": false
         },
         {
-          "latency_ms": 277.4,
-          "peak_mb": 85.3
+          "latency_ms": 957.3,
+          "peak_mb": 90.2,
+          "fallback_to_wallclock": false
         },
         {
-          "latency_ms": 278.4,
-          "peak_mb": 85.6
+          "latency_ms": 556.0,
+          "peak_mb": 90.1,
+          "fallback_to_wallclock": false
         }
       ]
     },
@@ -40,38 +43,41 @@
   },
   "medium": {
     "pandas": {
-      "latency_ms": 1355.1,
-      "peak_mb": 203.8,
+      "latency_ms": 2051.7,
+      "peak_mb": 198.7,
       "runs": [
         {
-          "latency_ms": 1367.5,
-          "peak_mb": 203.8
+          "latency_ms": 1392.7,
+          "peak_mb": 198.7
         },
         {
-          "latency_ms": 1355.1,
-          "peak_mb": 203.0
+          "latency_ms": 2051.7,
+          "peak_mb": 198.5
         },
         {
-          "latency_ms": 1255.0,
-          "peak_mb": 203.8
+          "latency_ms": 2078.4,
+          "peak_mb": 198.7
         }
       ]
     },
     "xazz": {
-      "latency_ms": 532.4,
-      "peak_mb": 233.9,
+      "latency_ms": 1054.2,
+      "peak_mb": 232.0,
       "runs": [
         {
-          "latency_ms": 528.7,
-          "peak_mb": 233.9
+          "latency_ms": 784.8,
+          "peak_mb": 235.8,
+          "fallback_to_wallclock": false
         },
         {
-          "latency_ms": 532.4,
-          "peak_mb": 232.9
+          "latency_ms": 1246.3,
+          "peak_mb": 232.0,
+          "fallback_to_wallclock": false
         },
         {
-          "latency_ms": 618.3,
-          "peak_mb": 236.4
+          "latency_ms": 1054.2,
+          "peak_mb": 226.8,
+          "fallback_to_wallclock": false
         }
       ]
     },
@@ -79,38 +85,41 @@
   },
   "large": {
     "pandas": {
-      "latency_ms": 4489.4,
-      "peak_mb": 660.9,
+      "latency_ms": 6040.4,
+      "peak_mb": 656.2,
       "runs": [
         {
-          "latency_ms": 5005.5,
-          "peak_mb": 660.9
+          "latency_ms": 7058.9,
+          "peak_mb": 656.3
         },
         {
-          "latency_ms": 4489.4,
-          "peak_mb": 660.5
+          "latency_ms": 6040.4,
+          "peak_mb": 656.1
         },
         {
-          "latency_ms": 4180.2,
-          "peak_mb": 661.0
+          "latency_ms": 5257.5,
+          "peak_mb": 656.2
         }
       ]
     },
     "xazz": {
-      "latency_ms": 2323.7,
-      "peak_mb": 865.1,
+      "latency_ms": 4343.8,
+      "peak_mb": 569.6,
       "runs": [
         {
-          "latency_ms": 2323.7,
-          "peak_mb": 866.1
+          "latency_ms": 4304.9,
+          "peak_mb": 569.6,
+          "fallback_to_wallclock": false
         },
         {
-          "latency_ms": 1949.8,
-          "peak_mb": 865.1
+          "latency_ms": 4394.1,
+          "peak_mb": 568.3,
+          "fallback_to_wallclock": false
         },
         {
-          "latency_ms": 2339.0,
-          "peak_mb": 859.3
+          "latency_ms": 4343.8,
+          "peak_mb": 574.3,
+          "fallback_to_wallclock": false
         }
       ]
     },
