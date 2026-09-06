@@ -46,10 +46,10 @@ datasets. This track makes Xazz handle real workloads.
 - [ ] PostgreSQL read connector behind a `load("postgres://...")` source attribute
 - Depends on: A2. Acceptance: one `.xzz` file mixing CSV + DB sources in a single pipeline.
 
-### A4. `xazz import` extension — Parquet/Arrow/DB schema inference
-- [ ] `xazz import data.parquet` writes the same inferred `type` block today's CSV path does
+### A4. `xazz import` extension — Parquet/Arrow schema inference — ✅ done (issue #55)
+- [x] `xazz import data.parquet` writes the same inferred `type` block today's CSV path does (via `xazz-exec --schema`)
 - [ ] Interactive column → field mapping surfaced (feeds R-005 in the IDE)
-- Depends on: A1. Acceptance: import round-trips into a runnable pipeline.
+- Depends on: A1. Acceptance: import round-trips into a runnable pipeline. ✅
 
 ---
 
@@ -132,7 +132,7 @@ Efficiency rule: **value-per-effort first, then dependency chain.** Do not start
 | :--- | :--- | :--- |
 | 1 | ~~A1 — save + Parquet/Arrow load~~ | ✅ Done — issue #52 |
 | 2 | A2 — out-of-core + big benchmark | Proves "scale" with numbers; extends existing bench infra |
-| 3 | A4 — import extension | Reuses A1's loader; completes the load→schema→run loop for new formats |
+| 3 | ~~A4 — import extension~~ | ✅ Done — issue #55 |
 | 4 | B1 — module system | Unlocks reuse; prerequisite for stdlib |
 | 5 | B3 — LSP | Reuses checker; biggest DX/visibility win, enables E1 |
 | 6 | A3 — connectors | Independent of language work; adds DuckDB/Postgres sources |

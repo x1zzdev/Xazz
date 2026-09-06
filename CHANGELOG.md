@@ -9,7 +9,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
-### Added — 데이터 스케일 기반 (#52, #53)
+### Added — 데이터 스케일 기반 (#52, #53, #55)
 
 - **`save()` 출력 연산자**: 파이프라인 결과를 아티팩트 파일로 기록 — `save("out.csv")`,
   `save("out.parquet")`, `save("out.arrow", format: "arrow")`. 포맷은 확장자에서 추론하거나
@@ -27,8 +27,12 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - **벤치 측정 (2026-09-04, median of 3)**: 228K/912K/4.09M 행에서 각각
   **1.39× / 1.95× / 1.39×** vs pandas (556/1,054/4,344 ms vs 770/2,052/6,040 ms),
   4.09M 행에서 피크 RSS 570MB vs 656MB
+- **`xazz import` 컬럼형 확장 (#55)**: `.parquet`/`.pq`/`.arrow`/`.ipc`/`.feather` 입력도
+  스키마 추론 가능 — CLI는 Polars-free를 유지하므로 `xazz-exec --schema <file>`(via runner)
+  에 위임. 컬럼명·dtype(정수/실수/불리언/문자열 매핑)·널 허용 여부(샘플 100행)로
+  `type` 블록 + `load` 구문 생성, CSV와 동일한 프로젝트 root·중복 검사 로직 공유
 - 통합 테스트: Parquet/Arrow save→load 왕복 (Schema cast 경유), streaming 엔진의
-  벤치 파이프라인(벤치마크 shape) 실행·네이티브 연산 지원 검증
+  벤치 파이프라인(벤치마크 shape) 실행·네이티브 연산 지원 검증, 컬럼형 스키마 추론 왕복
 
 ---
 
