@@ -125,6 +125,7 @@ impl Parser {
 
     fn parse_stmt(&mut self) -> CompileResult<Stmt> {
         match self.current_kind() {
+            TokenKind::Import => self.parse_import_stmt(),
             TokenKind::Type => self.parse_type_decl(),
             TokenKind::V | TokenKind::Mut => self.parse_var_stmt(),
             TokenKind::Model => self.parse_model_decl(),
@@ -139,6 +140,15 @@ impl Parser {
                 format!("구문 시작 불가 토큰: {:?}", other),
             )),
         }
+    }
+
+    // ── Import ─────────────────────────────────────────────────────────────────
+    // import_stmt = "import" STRING_LIT ";"?
+    fn parse_import_stmt(&mut self) -> CompileResult<Stmt> {
+        self.expect(&TokenKind::Import)?;
+        let path = self.expect_string_lit()?;
+        self.eat(&TokenKind::Semicolon);
+        Ok(Stmt::Import { path })
     }
 
     // ── ModelDecl ─────────────────────────────────────────────────────────────
@@ -2436,6 +2446,23 @@ type AirQuality = {
         assert!(
             parse_src(r#"v out = data |> save("out.json", format: "json");"#).is_err(),
             "미지원 format 은 에러여야 함"
+        );
+    }
+
+    // ── test 38 (v0.3.2): import statement parsing (issue #69) ──────────────
+    #[test]
+    fn test_import_statement_parses() {
+        let program = parse_src(
+            r#"import "./prep.xzz";
+v out = data |> sum("a");"#,
+        )
+        .expect("import 파싱 실패");
+        assert_eq!(program.stmts.len(), 2);
+        assert_eq!(
+            program.stmts[0],
+            Stmt::Import {
+                path: "./prep.xzz".into(),
+            }
         );
     }
 }
