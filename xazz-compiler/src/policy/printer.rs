@@ -61,6 +61,7 @@ pub fn print_stmt(stmt: &Stmt) -> String {
                 print_train_args(model_name, config)
             )
         }
+        Stmt::Import { path } => format!("import \"{}\"", escape(path)),
     }
 }
 

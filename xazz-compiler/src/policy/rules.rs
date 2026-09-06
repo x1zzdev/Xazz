@@ -112,7 +112,10 @@ pub fn apply_ast_rules(program: &Program, policy: &Policy, report: &mut PolicyRe
                 let shape = infer_shape(source, ops, &schemas, &vars);
                 judge(&shape, index, None, policy, report);
             }
-            Stmt::TrainStmt { .. } | Stmt::TypeDecl { .. } | Stmt::ModelDecl { .. } => {}
+            Stmt::TrainStmt { .. }
+            | Stmt::TypeDecl { .. }
+            | Stmt::ModelDecl { .. }
+            | Stmt::Import { .. } => {}
         }
     }
 }

@@ -74,6 +74,9 @@ impl Codegen {
                 model_name,
                 config,
             } => Self::emit_train_stmt(source_var, model_name, config),
+            Stmt::Import { path } => {
+                format!("// import \"{path}\"  → module declarations are inlined")
+            }
         }
     }
 

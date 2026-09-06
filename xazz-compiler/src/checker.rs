@@ -173,7 +173,12 @@ fn segment_statements(tokens: &[crate::Token], expected: usize) -> Vec<Vec<crate
     let starts_stmt = |k: &TokenKind| {
         matches!(
             k,
-            TokenKind::Type | TokenKind::V | TokenKind::Mut | TokenKind::Model | TokenKind::Run
+            TokenKind::Type
+                | TokenKind::Import
+                | TokenKind::V
+                | TokenKind::Mut
+                | TokenKind::Model
+                | TokenKind::Run
         )
     };
 
@@ -241,6 +246,25 @@ impl Analyzer {
 
     fn check_stmt(&mut self, stmt: &Stmt) {
         match stmt {
+            Stmt::Import { path } => {
+                // Imports are resolved into the AST before analysis (modules.rs);
+                // a bare import reaching the checker is a resolution failure.
+                self.error(
+                    ErrorKind::Other("미해석 import".to_string()),
+                    Some(path),
+                    if is_korean() {
+                        format!(
+                            "import \"{}\" 을(를) 해석하지 못했습니다. 모듈 파일을 확인하세요.",
+                            path
+                        )
+                    } else {
+                        format!(
+                            "import \"{}\" was not resolved. Check that the module file exists.",
+                            path
+                        )
+                    },
+                );
+            }
             Stmt::TypeDecl { name, fields } => self.check_type_decl(name, fields),
             Stmt::ModelDecl { name, layers } => self.check_model_decl(name, layers),
             Stmt::VarDecl {
