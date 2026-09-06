@@ -239,7 +239,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
 
-            let (parse_result, result) = xazz_compiler::check_source(&source);
+            let (parse_result, result) = {
+                // Parse, then resolve `import "path.xzz"` relative to the file's dir (issue #69).
+                use xazz_compiler::{Lexer, Parser};
+                let parsed = Lexer::new(&source)
+                    .tokenize()
+                    .and_then(|tokens| Parser::new(tokens).parse());
+                match parsed {
+                    Err(e) => (Err(e), xazz_compiler::CheckResult::default()),
+                    Ok(program) => {
+                        let src_dir = std::path::Path::new(&file)
+                            .parent()
+                            .map(|p| {
+                                if p.as_os_str().is_empty() {
+                                    std::path::PathBuf::from(".")
+                                } else {
+                                    p.to_path_buf()
+                                }
+                            })
+                            .unwrap_or_else(|| std::path::PathBuf::from("."));
+                        match xazz_compiler::modules::resolve_imports(&program, &src_dir) {
+                            Err(module_errs) => {
+                                let combined = module_errs.join("\n");
+                                (
+                                    Err(xazz_compiler::CompileError::new(
+                                        xazz_compiler::ErrorKind::Other(format!(
+                                            "module resolution failed: {combined}"
+                                        )),
+                                        xazz_compiler::Span::new(1, 1),
+                                        combined,
+                                    )),
+                                    xazz_compiler::CheckResult::default(),
+                                )
+                            }
+                            Ok(resolved) => {
+                                let (check, _ir) =
+                                    xazz_compiler::analyze_program(&resolved.program);
+                                (Ok(resolved.program), check)
+                            }
+                        }
+                    }
+                }
+            };
 
             // If there are parsing errors, print them and exit with failure
             if let Err(e) = &parse_result {
