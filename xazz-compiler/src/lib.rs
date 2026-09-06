@@ -22,6 +22,7 @@ pub mod emitter;
 pub mod error; // re-exports xazz-core::error
 pub mod ir; // re-exports xazz-core::ir
 pub mod lexer;
+pub mod modules;
 pub mod opt;
 pub mod parser;
 pub mod polars_text;
