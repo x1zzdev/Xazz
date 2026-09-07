@@ -32,7 +32,7 @@ use crate::ast::Program;
 use crate::{Lexer, Parser};
 use xazz_core::i18n::{is_korean, tr};
 
-pub use patterns::{LiteralFinding, SecretKind};
+pub use patterns::{LiteralFinding, PromptFinding, PromptRisk, SecretKind};
 pub use printer::print_program;
 pub use remediate::{AppliedFix, Remediation, remediate};
 
@@ -146,6 +146,9 @@ pub fn default_source_ref(rule_id: &str) -> Option<&'static str> {
         RULE_UNRESOLVED_SCHEMA | RULE_PARSE_FAILED | RULE_POLICY_LOAD_FAILED => {
             Some("내부 통제 기준 — 검증되지 않은 처리 계획의 실행 금지 (fail-closed)")
         }
+        RULE_PROMPT_INJECTION | RULE_PROMPT_JAILBREAK | RULE_PROMPT_EXFILTRATION => {
+            Some("NIST AI RMF(GEN-4.3) · 국가정보원 「생성형 AI 보안 가이드라인」")
+        }
         _ => None,
     }
 }
@@ -176,6 +179,12 @@ pub const RULE_UNRESOLVED_SCHEMA: &str = "XZP014";
 pub const RULE_PARSE_FAILED: &str = "XZP000";
 /// The policy itself could not be loaded — blocked fail-closed.
 pub const RULE_POLICY_LOAD_FAILED: &str = "XZP999";
+/// A prompt literal directs the model to override its original instructions.
+pub const RULE_PROMPT_INJECTION: &str = "XZP020";
+/// A prompt literal attempts to bypass the model's safety restrictions.
+pub const RULE_PROMPT_JAILBREAK: &str = "XZP021";
+/// A prompt literal asks the model to reveal secrets, system internals, or personal data.
+pub const RULE_PROMPT_EXFILTRATION: &str = "XZP022";
 
 /// Rule ID → human-readable rule name.
 pub fn rule_name(rule_id: &str) -> &'static str {
@@ -192,6 +201,9 @@ pub fn rule_name(rule_id: &str) -> &'static str {
         RULE_SENSITIVE_PATH => "SENSITIVE_PATH_ACCESS",
         RULE_PATH_TRAVERSAL => "PATH_TRAVERSAL",
         RULE_UNRESOLVED_SCHEMA => "UNRESOLVED_SCHEMA",
+        RULE_PROMPT_INJECTION => "PROMPT_INJECTION",
+        RULE_PROMPT_JAILBREAK => "PROMPT_JAILBREAK",
+        RULE_PROMPT_EXFILTRATION => "PROMPT_EXFILTRATION",
         _ => "UNKNOWN_RULE",
     }
 }

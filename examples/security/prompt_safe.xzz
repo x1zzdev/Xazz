@@ -1,0 +1,19 @@
+// Xazz GenAI 입력 게이트 데모 — 안전한 프롬프트 예제 (issue #70, F1)
+//
+// 작업 지시만 담고 지시 우회·안전장치 우회·비밀 유출 유도 문구가 없는 프롬프트는
+// 정책 검사를 통과한다.
+//
+//   xazz policy examples/security/prompt_safe.xzz   # 정책 검사 통과
+//   xazz run    examples/security/prompt_safe.xzz   # 실행
+
+type Article = {
+    id:     int,
+    author: string,
+    title:  string,
+    body:   string,
+}
+
+v articles = load("examples/security/data/articles.csv") :: Article;
+
+// 안전한 프롬프트 — 작업 지시만 담고 우회/탈취 문구 없음
+// v summary = prompt("summarize the article in three bullets, in Korean")

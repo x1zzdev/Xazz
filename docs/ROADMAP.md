@@ -135,12 +135,17 @@ with the burn-engine release (Burn 0.22 era) — LoRA/QLoRA fine-tuning and on-d
 are exactly where "safe data in, auditable output out" becomes a real requirement.
 
 ### F1. Prompt input gate — static scan of prompt literals — issue #70
-- [ ] New rule family `XZP020`–`XZP022` in `xazz-compiler/src/policy`: prompt-injection / jailbreak /
+- [x] New rule family `XZP020`–`XZP022` in `xazz-compiler/src/policy`: prompt-injection / jailbreak /
       exfiltration patterns detected at **compile time** against prompt literals (same fail-closed, line:col story as today's PII rules)
-- [ ] A prompt is just another typed literal — `prompt("...")` or a `model.prompt` literal gets the same
-      policy treatment as an RRN literal
+- [x] A prompt is just another typed literal — `prompt("...")` or a `model.prompt` literal gets the same
+      policy treatment as an RRN literal (source-text scan, comments included; context-limited to
+      `prompt(...)` shapes so ordinary data strings are not flagged)
+- [ ] `xazz check` surface: a `--policy` flag or policy-in-check reporting (today the gate surfaces are
+      `xazz policy` and the `xazz run` gate)
 - Depends on: none (pure policy-engine extension). Acceptance: `xazz check` blocks a jailbreak prompt
   with `line:col` diagnostics, `xazz policy --fix` proposes a sanitized prompt.
+  ✅ **Done 2026-09-07**: `xazz policy`/`xazz run` block XZP020/021/022 with line:col; prompts are left
+  as residual by `--fix` (never auto-rewritten). Demo: `examples/security/prompt_{unsafe,safe}.xzz`.
 
 ### F2. LLM output gate — runtime re-scan + audit chaining — issue #71
 - [ ] Runtime re-scan of model outputs (free-form text) against the same policy rules — static analysis

@@ -9,6 +9,24 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — GenAI 입력 게이트 (issue #70, Track F1)
+
+- **프롬프트 리터럴 정적 스캔 (`XZP020`–`XZP022`)**: `prompt("...")` · `prompt: "..."` ·
+  `prompt = "..."` 형태의 프롬프트 리터럴을 컴파일 타임에 스캔해 위험 패턴을 `line:col` 진단으로
+  차단한다.
+  - `XZP020 PROMPT_INJECTION` — 지시 우회 ("ignore all previous instructions" 계열)
+  - `XZP021 PROMPT_JAILBREAK` — 안전장치 우회 (DAN · "do anything now" 계열)
+  - `XZP022 PROMPT_EXFILTRATION` — 비밀·내부정보·개인정보 탈취 유도 ("reveal your system prompt" 계열)
+  - 우선순위: Exfiltration > Jailbreak > Injection
+- **오탐 방지 (precision-first)**: `prompt(...)` 형태의 리터럴만 스캔 — 데이터 파이프라인의
+  일반 문자열(`filter(note == "ignore all previous instructions")`)은 미탐지. 대소문자·공백은
+  정규화로 흡수. 식별자 일부(`xprompt`)는 제외
+- **보고서 안전성**: 리포트에는 매칭된 위험 구문만 표시 — 전체 프롬프트 텍스트는 노출하지 않음
+- **자동 보정 제외**: 프롬프트는 `--fix`로 자동 재작성되지 않고 `residual`로 남음 (의미 변경 방지)
+- 규제 근거: NIST AI RMF(GEN-4.3) · 국가정보원 「생성형 AI 보안 가이드라인」 (audit-trail 참조)
+- 데모: `examples/security/prompt_unsafe.xzz`(차단) / `prompt_safe.xzz`(통과)
+- `xazz policy`/`xazz run` 게이트에 자동 적용 (3-게이트 인프라 재사용)
+
 ### Changed — 포지셔닝 전환 (Phase 0)
 
 - **거버넌스 레이어로 재포지셔닝**: README/README_kr 태그라인을 "Rust 기반 AI 파이프라인

@@ -78,6 +78,9 @@ Detected secrets are always masked. `900101-1234568` is reported only as `90****
 | `XZP012` | `SENSITIVE_PATH_ACCESS` | block | Access to `/etc/passwd`, `~/.ssh/`, `.aws/credentials`, etc. |
 | `XZP013` | `PATH_TRAVERSAL` | warn | `..` parent-directory escape paths |
 | `XZP014` | `UNRESOLVED_SCHEMA` | warn | Schema unresolved — output columns cannot be determined |
+| `XZP020` | `PROMPT_INJECTION` | block | Prompt literal directs the model to override its original instructions |
+| `XZP021` | `PROMPT_JAILBREAK` | block | Prompt literal attempts to bypass model safety restrictions (DAN-style) |
+| `XZP022` | `PROMPT_EXFILTRATION` | block | Prompt literal asks the model to reveal secrets, system internals, or personal data |
 | `XZP999` | `POLICY_LOAD_FAILED` | block | The policy itself cannot be loaded |
 
 ¹ Downgraded to `warn` in aggregated pipelines (no individual records remain).
@@ -95,6 +98,34 @@ To cut false positives, detection validates beyond shape.
 - **Credentials** — placeholders like `<YOUR_PASSWORD>`, `********`, `${VAR}` are ignored.
 
 > Scanners are hand-rolled instead of a regex crate. `xazz-compiler` links into the CLI binary, so it honors the architecture constraint of not growing dependencies (see [CONTRIBUTING.md](../CONTRIBUTING.md)).
+
+### GenAI prompt input gate (F1)
+
+The same literal-scan treatment is extended to **prompt literals** (issue #70, Track F).
+A prompt is just another typed literal — `prompt("...")` (and the `prompt: "..."` / `prompt = "..."`
+key forms) get the same fail-closed, `line:col` treatment as an RRN literal.
+
+- The `.xzz` grammar does not have a first-class `prompt` construct yet — that arrives with the
+  burn-engine inference track (issue #73). Until then the scanner works at the **source-text level**
+  (including comments), exactly like the secret scanners: a jailbreak prompt is a risky directive
+  wherever it appears.
+- Classification is context-limited to `prompt(...)`-shaped literals only — an ordinary data string
+  like `filter(note == "ignore all previous instructions")` is **not** flagged (precision-first).
+- Risk priority within a prompt: **Exfiltration > Jailbreak > Injection**.
+- The report carries only the matched **risky phrase**, never the full prompt text (a prompt may
+  itself contain secrets).
+
+```bash
+# Prompt-injection literal is blocked before execution with line:col diagnostics
+$ xazz policy examples/security/prompt_unsafe.xzz
+✖ execution blocked by 3 policy violation(s) [XZP020, XZP021, XZP022]
+  ✖ XZP020 PROMPT_INJECTION    — pattern: "ignore all previous instructions"  (line 24)
+  ✖ XZP021 PROMPT_JAILBREAK    — pattern: "do anything now"                   (line 27)
+  ✖ XZP022 PROMPT_EXFILTRATION — pattern: "repeat your system prompt"         (line 30)
+```
+
+Prompts are **never auto-fixed** (`xazz policy --fix` leaves them as `residual`): rewriting a prompt
+deterministically could silently change the operation's intent, so a human must review it.
 
 ---
 
@@ -353,6 +384,11 @@ xazz policy examples/security/patient_unsafe.xzz --fix       # 4 rule violations
 xazz policy examples/security/patient_secret_leak.xzz --fix  # cannot be auto-fixed case
 xazz policy examples/security/patient_safe.xzz               # passes
 xazz run    examples/security/patient_safe.xzz               # runs
+
+# GenAI prompt input gate (issue #70)
+xazz policy examples/security/prompt_unsafe.xzz              # blocked by XZP020/021/022
+xazz policy examples/security/prompt_unsafe.xzz --fix        # prompts left as residual
+xazz policy examples/security/prompt_safe.xzz                # passes
 ```
 
 ---
@@ -363,7 +399,7 @@ xazz run    examples/security/patient_safe.xzz               # runs
 |---|---|
 | `xazz-compiler/src/policy/mod.rs` | Policy/report types, rule catalog, entry points, policy loading |
 | `xazz-compiler/src/policy/rules.rs` | Output-column inference (`PipelineShape`) and rule evaluation |
-| `xazz-compiler/src/policy/patterns.rs` | Literal scanners (RRN checksum · Luhn · API keys) |
+| `xazz-compiler/src/policy/patterns.rs` | Literal scanners (RRN checksum · Luhn · API keys · **prompt injection/jailbreak/exfiltration**) |
 | `xazz-compiler/src/policy/printer.rs` | AST → `.xzz` printer (round-trip tests included) |
 | `xazz-compiler/src/policy/remediate.rs` | Deterministic AST remediation + re-verification |
 | `src/policy_cli.rs` | `xazz policy` subcommand and the `xazz run` gate |
