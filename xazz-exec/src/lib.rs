@@ -13,6 +13,7 @@ pub mod dl;
 pub mod dp;
 pub mod lower;
 pub mod runtime;
+pub mod sanitize;
 pub mod schema_infer;
 pub mod tensor_bridge;
 

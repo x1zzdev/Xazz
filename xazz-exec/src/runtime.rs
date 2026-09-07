@@ -628,7 +628,8 @@ fn load_source_lazy(
 /// Eager format-dispatch loader — used for **small** sources where a full
 /// in-memory read is cheap and avoids a second disk pass for null-validation
 /// (issue #53 perf: small files load once, validate once, then wrap in lazy).
-fn load_source_as_df(
+/// Also the entry point for the sanitization checks (issue #72, F3).
+pub(crate) fn load_source_as_df(
     file_path: &str,
 ) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
     let ext = std::path::Path::new(file_path)

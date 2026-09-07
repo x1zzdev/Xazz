@@ -159,11 +159,15 @@ are exactly where "safe data in, auditable output out" becomes a real requiremen
   records `prompt_hash`/`response_hash` to the audit chain, and `GET /security/audit/chain` verifies it.
 
 ### F3. Fine-tuning data sanitization — safe LoRA/QLoRA prep — issue #72
-- [ ] First-class op `sanitize(...)` that runs PII / near-duplicate / bias checks on training data
-      *before* it reaches the fine-tuning engine
-- [ ] Pairs with burn-engine LoRA/QLoRA: the sanitization report becomes the fine-tune intake artifact
+- [x] First-class op `sanitize(...)` — `xazz sanitize <file>` runs PII / near-duplicate / bias checks
+      on training data (CSV/Parquet/Arrow) and emits a structured sanitization report
+      (the fine-tune intake artifact). Raw PII is never reported — only masked samples
+- [ ] Pair with burn-engine LoRA/QLoRA: the sanitization report feeds the fine-tuning call
+      (deferred to F4 — the engine isn't released yet)
 - Depends on: F1 (rules reused). Acceptance: a `.xzz` pipeline that sanitizes a CSV, emits a structured
   sanitization report, then hands the cleaned data to a fine-tuning call.
+  ✅ **Done 2026-09-07**: `xazz sanitize examples/security/data/patients.csv` flags 500 masked phone
+  findings + near-duplicate/bias sections; `--json` emits the structured artifact. 345 tests pass.
 
 ### F4. burn-engine integration — embed or deploy, both — issue #73
 - [ ] Backend trait at the `MLOp` lowering boundary so Burn stays the first provider but burn-engine /

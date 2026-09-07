@@ -290,6 +290,7 @@ python benches/render_benchmark_chart.py        # 위 차트 재생성
 | 25 파이프라인 연산자 | `filter`, `groupBy`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
 | Visual IDE | 노드 기반 파이프라인 편집기 + 모니터, `xazz-server`가 서빙 | Stable |
 | `xazz sde` | 합성 데이터 생성 엔진 | Stable |
+| `xazz sanitize` | 파인튜닝 데이터 정화 — PII 스캔, 중복·편향 검사 (Track F3) | Stable |
 
 ---
 

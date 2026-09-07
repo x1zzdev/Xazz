@@ -9,6 +9,20 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 파인튜닝 데이터 정화 (issue #72, Track F3)
+
+- **`xazz sanitize <file>`** — 파인튜닝 전 데이터 안전성 검사 (CSV/Parquet/Arrow). `--json`으로
+  구조화 리포트(파인튜닝 인테이크 아티팩트) 출력
+- **PII 스캔**: 셀 단위로 가드레일과 동일한 precision-first 스캐너 재사용 — 원본 값은 절대
+  리포트에 없고 마스킹 샘플만 표시
+- **중복 검사**: 정확 중복 행 비율 + 텍스트 컬럼별 정규화(공백 축소·대소문자 무시) 근접 중복 비율
+  — `"  Summarize   the   report  "`와 `"summarize the report"`가 매칭됨
+- **편향 검사**: 카디널리티 ≤50 범주형 컬럼에서 max/min 불균형 ≥10배 + 지배 범주 ≥50%면
+  파인튜닝 편향 신호로 플래그, 상위 범주와 비율 보고
+- `xazz-exec/src/sanitize.rs` 신규 — 실행 엔진에 구현되어 CLI는 runner IPC로 위임 (CLI 경량
+  바이너리 원칙 유지)
+- 테스트 6건: PII 마스킹 · 정확/근접 중복 · 불균형/균형 편향 · 클린 데이터 통과
+
 ### Added — GenAI 출력 게이트 (issue #71, Track F2)
 
 - **`scan_output_text()`** — LLM 응답(자유 형식 텍스트) 전용 재스캔 함수 추가

@@ -162,6 +162,29 @@ $ curl -X POST localhost:8005/security/inference/check \
 The gate lives behind the server's existing `/security/*` surface and reuses the same
 `xazz-compiler` scanners — consistent with the single-implementation principle of the 3 gates.
 
+### Fine-tuning data sanitization (F3)
+
+Before training data reaches a LoRA/QLoRA engine, `xazz sanitize <file>` produces the
+**fine-tune intake artifact** — a structured report of what must be cleaned.
+
+```bash
+xazz sanitize data/train.csv            # human-readable report
+xazz sanitize data/train.csv --json     # structured report (the intake artifact)
+```
+
+Three checks (CSV / Parquet / Arrow sources):
+
+- **PII scan** — cell-level re-scan with the same precision-first literal scanners. Raw values
+  never appear; only masked samples are reported (`phone → 01***********`).
+- **Duplicates** — exact duplicate-row rate + a normalized-whitespace **near-duplicate rate** per
+  text column (leading/trailing space collapsed, so `"  Summarize   the   report  "` and
+  `"summarize the report"` match).
+- **Bias** — categorical columns (≤50 distinct values) with a max/min imbalance ≥ 10× *and* a
+  dominant category ≥ 50% are flagged as a fine-tuning bias signal, with the top categories.
+
+The recommendation is `sanitize` when any check flags the data. The report is designed to be the
+artifact a reviewer checks before approving a fine-tuning run (F4 wires the engine on the other side).
+
 ---
 
 ## 4. Three gate points
@@ -442,6 +465,7 @@ xazz policy examples/security/prompt_safe.xzz                # passes
 | `xazz-server/src/guardrail.rs` | `/execute` gate, remediation orchestration |
 | `xazz-server/src/audit_log.rs` | SHA-256 chain; `append_inference_call` (prompt/response hash evidence, F2) |
 | `xazz-server/src/main.rs` | `POST /security/inference/check` — runtime output re-scan + audit chaining (F2) |
+| `xazz-exec/src/sanitize.rs` | Fine-tuning data sanitization — PII / duplicates / bias (`xazz sanitize`, F3) |
 | `xazz-server/src/slm.rs` | Ollama adapter, prompt construction, code extraction |
 
 The guardrail lives in `xazz-compiler` — the only shared crate that links neither Polars nor Tokio, so the CLI, the execution engine, and the API server all gate with **the same code**. If policy evaluation differed per entry point, that inconsistency would itself be a vulnerability.

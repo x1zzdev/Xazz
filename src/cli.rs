@@ -136,6 +136,19 @@ pub enum Commands {
         file: String,
     },
 
+    /// Run fine-tuning data sanitization checks (PII / duplicates / bias) (issue #72, F3)
+    ///
+    /// Example: xazz sanitize data/train.csv
+    /// Example: xazz sanitize data/train.csv --json
+    Sanitize {
+        /// Path to the data file to check (CSV/Parquet/Arrow)
+        file: String,
+
+        /// Print the structured JSON report (machine-readable)
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Analyze the xazz user profile and confirm the identity
     ///
     /// Example: xazz whoami

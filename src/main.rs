@@ -396,6 +396,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
+        // ── sanitize: fine-tuning data sanitization (issue #72, F3) ───────────
+        // Delegates to xazz-exec --sanitize via the runner IPC bridge, exactly
+        // like columnar schema inference (`xazz import *.parquet`).
+        Commands::Sanitize { file, json } => {
+            let runner = crate::find_runner().map_err(|e| anyhow::anyhow!(e))?;
+            let mut cmd = std::process::Command::new(&runner);
+            cmd.arg("--sanitize").arg(&file);
+            if json {
+                cmd.arg("--json");
+            }
+            let status = cmd.status().map_err(|e| {
+                anyhow::anyhow!("xazz-exec --sanitize '{}' 실행 실패: {}", file, e)
+            })?;
+            if !status.success() {
+                std::process::exit(status.code().unwrap_or(1));
+            }
+        }
+
         // ── whoami: print user identity ──────────────────────────────────────────
         Commands::Whoami => {
             whoami::run_whoami()?;

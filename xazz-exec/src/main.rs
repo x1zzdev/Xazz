@@ -27,8 +27,36 @@ fn main() {
     }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("{usage}");
-        println!("[xazz-exec] helpers: --version | --help | --schema <columnar-file>");
+        println!("[xazz-exec] helpers: --version | --help | --schema <columnar-file> | --sanitize <data-file>");
         return;
+    }
+
+    // ── `--sanitize <path>`: fine-tuning data sanitization (issue #72, F3) ──
+    // Emits a structured sanitization report (PII / duplicates / bias) to stdout.
+    if let Some(pos) = args.iter().position(|a| a == "--sanitize") {
+        let json = args.iter().any(|a| a == "--json");
+        if let Some(path) = args.get(pos + 1) {
+            match xazz_exec::sanitize::sanitize_file(path) {
+                Ok(report) => {
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string(&report).unwrap_or_default()
+                        );
+                    } else {
+                        println!("{}", xazz_exec::sanitize::render_report(&report));
+                    }
+                    return;
+                }
+                Err(e) => {
+                    eprintln!("[xazz-exec] sanitization failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        } else {
+            eprintln!("[xazz-exec] --sanitize requires a data file path");
+            std::process::exit(1);
+        }
     }
 
     // ── `--schema <path>`: columnar schema inference for `xazz import` (issue #55) ──

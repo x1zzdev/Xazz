@@ -298,6 +298,7 @@ python benches/run_readme_benchmark.py --xlarge
 | 25 pipeline operators | `filter`, `groupBy`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
 | Visual IDE | Node-based pipeline editor + monitor, served by `xazz-server` | Stable |
 | `xazz sde` | Synthetic data generation engine | Stable |
+| `xazz sanitize` | Fine-tuning data sanitization — PII scan, duplicate & bias checks (Track F3) | Stable |
 
 ---
 
