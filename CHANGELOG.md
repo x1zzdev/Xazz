@@ -9,6 +9,19 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 모델 프로비넌스 (issue #74, Track F5)
+
+- **정책 레지스트리 (`allowed_models`)** — `{ id, license, fingerprint }` 항목. 외부 모델
+  참조(`load("hf://...")` / `load("model://...")`)를 컴파일 타임에 검사
+- **`XZP030 MODEL_LICENSE_BLOCKED`** — 레지스트리에 등록됐지만 `denied_licenses`에 있는
+  라이선스(예: `Llama3-License`)는 웨이트 사용 거부
+- **`XZP031 MODEL_PROVENANCE_UNKNOWN`** — 레지스트리에 없는 외부 모델은 fail-closed 차단
+  (`require_model_provenance` 기본 true — "핑거프린트 미검증"은 안전하지 않음)
+- 로컬 `model Name { ... }` 선언은 코드이므로 판정하지 않음 (기존 deep_learning 데모 영향 없음)
+- 레지스트리 매칭은 대소문자·공백 정규화. 핑거프린트-감사 체인 연동은 F4(#73)에서
+- 테스트 6건: 미등록 fail-closed · 등록+허용 라이선스 통과 · 거부 라이선스 차단 · 로컬 모델 비판정 ·
+  일반 파일 비판정 · 정규화 매칭
+
 ### Added — 파인튜닝 데이터 정화 (issue #72, Track F3)
 
 - **`xazz sanitize <file>`** — 파인튜닝 전 데이터 안전성 검사 (CSV/Parquet/Arrow). `--json`으로

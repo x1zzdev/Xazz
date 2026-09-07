@@ -81,6 +81,8 @@ Detected secrets are always masked. `900101-1234568` is reported only as `90****
 | `XZP020` | `PROMPT_INJECTION` | block | Prompt literal directs the model to override its original instructions |
 | `XZP021` | `PROMPT_JAILBREAK` | block | Prompt literal attempts to bypass model safety restrictions (DAN-style) |
 | `XZP022` | `PROMPT_EXFILTRATION` | block | Prompt literal asks the model to reveal secrets, system internals, or personal data |
+| `XZP030` | `MODEL_LICENSE_BLOCKED` | block | External model uses a license denied by the policy |
+| `XZP031` | `MODEL_PROVENANCE_UNKNOWN` | block | External model is not in the registry — provenance unverifiable (fail-closed) |
 | `XZP999` | `POLICY_LOAD_FAILED` | block | The policy itself cannot be loaded |
 
 ¹ Downgraded to `warn` in aggregated pipelines (no individual records remain).
@@ -184,6 +186,40 @@ Three checks (CSV / Parquet / Arrow sources):
 
 The recommendation is `sanitize` when any check flags the data. The report is designed to be the
 artifact a reviewer checks before approving a fine-tuning run (F4 wires the engine on the other side).
+
+### Model provenance (F5)
+
+Fine-tuning and inference on third-party weights need an audit story. The policy carries a
+**model registry**; external model references (`load("hf://owner/repo")` / `load("model://...")`)
+are judged at compile time.
+
+```jsonc
+{
+  "allowed_models": [
+    { "id": "Qwen/Qwen2.5-1.5B-Instruct", "license": "Apache-2.0", "fingerprint": "" }
+  ],
+  "denied_licenses": ["Llama3-License"],   // blocked even when registered
+  "require_model_provenance": true          // unknown model → XZP031 (fail-closed)
+}
+```
+
+- **XZP030 MODEL_LICENSE_BLOCKED** — a registered model whose license is in `denied_licenses`
+  is blocked (weights may not be used under this policy).
+- **XZP031 MODEL_PROVENANCE_UNKNOWN** — a reference not in `allowed_models` is blocked
+  fail-closed when `require_model_provenance` is true (default). "Fingerprint unknown" is not safe.
+- Locally-declared `model Name { ... }` graphs are **code, not weights** — they are never judged.
+  Registry matching normalizes case/whitespace.
+
+```bash
+# Unknown external model is blocked before execution
+XAZZ_POLICY_PATH=model_policy.json xazz policy pipeline.xzz
+✖ XZP031 MODEL_PROVENANCE_UNKNOWN
+  reason : external model 'mistralai/Mistral-7B' is not in the policy registry — its source,
+           license, and weights fingerprint cannot be verified, so execution is refused (fail-closed).
+```
+
+The model fingerprint joins the audit chain alongside code and output hashes when the F4 engine
+performs real inference calls.
 
 ---
 
@@ -458,6 +494,7 @@ xazz policy examples/security/prompt_safe.xzz                # passes
 | `xazz-compiler/src/policy/mod.rs` | Policy/report types, rule catalog, entry points, policy loading |
 | `xazz-compiler/src/policy/rules.rs` | Output-column inference (`PipelineShape`) and rule evaluation |
 | `xazz-compiler/src/policy/patterns.rs` | Literal scanners (RRN checksum · Luhn · API keys · **prompt injection/jailbreak/exfiltration** · **`scan_output_text` for LLM output**) |
+| `xazz-compiler/src/policy/rules.rs` | Output-column inference + rule evaluation (**model provenance XZP030/031**) |
 | `xazz-compiler/src/policy/printer.rs` | AST → `.xzz` printer (round-trip tests included) |
 | `xazz-compiler/src/policy/remediate.rs` | Deterministic AST remediation + re-verification |
 | `src/policy_cli.rs` | `xazz policy` subcommand and the `xazz run` gate |

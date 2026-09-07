@@ -149,6 +149,9 @@ pub fn default_source_ref(rule_id: &str) -> Option<&'static str> {
         RULE_PROMPT_INJECTION | RULE_PROMPT_JAILBREAK | RULE_PROMPT_EXFILTRATION => {
             Some("NIST AI RMF(GEN-4.3) · 국가정보원 「생성형 AI 보안 가이드라인」")
         }
+        RULE_MODEL_LICENSE_BLOCKED | RULE_MODEL_PROVENANCE_UNKNOWN => {
+            Some("NIST AI RMF(GEN-4.3) · 「AI 학습데이터 정책」 — 출처·라이선스 검증")
+        }
         _ => None,
     }
 }
@@ -185,6 +188,10 @@ pub const RULE_PROMPT_INJECTION: &str = "XZP020";
 pub const RULE_PROMPT_JAILBREAK: &str = "XZP021";
 /// A prompt literal asks the model to reveal secrets, system internals, or personal data.
 pub const RULE_PROMPT_EXFILTRATION: &str = "XZP022";
+/// An external model reference uses a license that the policy denies.
+pub const RULE_MODEL_LICENSE_BLOCKED: &str = "XZP030";
+/// An external model reference is not in the authorized registry — provenance unverifiable (fail-closed).
+pub const RULE_MODEL_PROVENANCE_UNKNOWN: &str = "XZP031";
 
 /// Rule ID → human-readable rule name.
 pub fn rule_name(rule_id: &str) -> &'static str {
@@ -204,6 +211,8 @@ pub fn rule_name(rule_id: &str) -> &'static str {
         RULE_PROMPT_INJECTION => "PROMPT_INJECTION",
         RULE_PROMPT_JAILBREAK => "PROMPT_JAILBREAK",
         RULE_PROMPT_EXFILTRATION => "PROMPT_EXFILTRATION",
+        RULE_MODEL_LICENSE_BLOCKED => "MODEL_LICENSE_BLOCKED",
+        RULE_MODEL_PROVENANCE_UNKNOWN => "MODEL_PROVENANCE_UNKNOWN",
         _ => "UNKNOWN_RULE",
     }
 }
@@ -392,6 +401,19 @@ pub fn normalize_column(name: &str) -> String {
 
 // ── Policy ───────────────────────────────────────────────────────────────────
 
+/// One authorized external model entry — the provenance registry (issue #74, F5).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelEntry {
+    /// Model id/handle — e.g. `Qwen/Qwen2.5-1.5B-Instruct` (matches an `hf://` reference)
+    pub id: String,
+    /// License identifier (SPDX tag or hub license) — checked against `denied_licenses`
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub license: String,
+    /// Optional weights fingerprint (SHA-256) — empty means "any weights of this id"
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub fingerprint: String,
+}
+
 /// Policy-as-Code policy document.
 ///
 /// Serialized/deserialized as JSON; an organization can change guardrail behavior by
@@ -438,6 +460,17 @@ pub struct Policy {
     /// Relative paths are checked against the project root regardless of this list.
     #[serde(default)]
     pub allowed_absolute_path_prefixes: Vec<String>,
+
+    /// Authorized external models (id + license + optional fingerprint) — F5 provenance registry.
+    #[serde(default)]
+    pub allowed_models: Vec<ModelEntry>,
+    /// Licenses that are blocked regardless of the model id (e.g. `CC-BY-NC-4.0`).
+    #[serde(default)]
+    pub denied_licenses: Vec<String>,
+    /// When true (default), an external model reference not in `allowed_models` is
+    /// blocked fail-closed — "fingerprint unknown" is not safe.
+    #[serde(default = "default_true")]
+    pub require_model_provenance: bool,
 
     /// Per-rule severity override (e.g. `{"XZP013": "block"}`)
     #[serde(default)]
@@ -734,6 +767,11 @@ impl Policy {
             ]),
             // The default policy denies all absolute-path access (fail-closed).
             allowed_absolute_path_prefixes: Vec::new(),
+            // F5 model provenance — empty registry + fail-closed: any external model
+            // reference (hf://, model://) is blocked until the policy authorizes it.
+            allowed_models: Vec::new(),
+            denied_licenses: Vec::new(),
+            require_model_provenance: true,
             rule_severity: BTreeMap::new(),
             domain: default_domain(),
             risk_level: RiskLevel::Medium,

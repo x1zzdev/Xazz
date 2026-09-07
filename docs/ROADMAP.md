@@ -178,11 +178,17 @@ are exactly where "safe data in, auditable output out" becomes a real requiremen
   Acceptance: the same `.xzz` runs inference via embedded burn-engine and via ONNX with identical outputs.
 
 ### F5. Model provenance — weights & license metadata guard — issue #74
-- [ ] `model {}` declarations and `load("hf://...")`-style sources carry license/weights metadata;
+- [x] `model {}` declarations and `load("hf://...")`-style sources carry license/weights metadata;
       policy can block restricted-license or fingerprinted-unknown weights
+      (policy registry `allowed_models` + `denied_licenses` + `require_model_provenance` fail-closed;
+      XZP030 MODEL_LICENSE_BLOCKED · XZP031 MODEL_PROVENANCE_UNKNOWN; local `model {}` graphs are
+      code, never judged)
 - [ ] Model fingerprint joins the audit chain alongside code and output hashes
+      (deferred to F4 — happens when the engine records real inference calls)
 - Depends on: C3 (lineage) optional, F2 (audit chain extension). Acceptance: a policy that rejects a
   non-commercial-license model at compile time.
+  ✅ **Done 2026-09-07**: policy rejects `Llama3-License` at compile time (XZP030) and unregistered
+  models fail-closed (XZP031); verified via CLI. 351 workspace tests pass.
 
 ---
 
@@ -208,7 +214,7 @@ Efficiency rule: **value-per-effort first, then dependency chain.** Do not start
 | 14 | F3 — fine-tuning sanitization (#72) | Depends on F1; pairs with burn-engine LoRA/QLoRA launch |
 | 15 | F4 — burn-engine / ONNX interop (#73) | Depends on D2 + F1–F3; timed to burn-engine release |
 | 16 | E1–E4 — ecosystem | Everything downstream of B3/C1/A3 |
-| 17 | F5 — model provenance (#74) | Depends on F2; nice-to-have that strengthens compliance story |
+| 17 | ~~F5 — model provenance (#74)~~ | ✅ Done — policy registry gate (XZP030/031); fingerprint-in-audit deferred to F4 |
 
 Legend: 🔴 no external dependency | 🟠 depends on an earlier step | 🟢 parallel-friendly
 

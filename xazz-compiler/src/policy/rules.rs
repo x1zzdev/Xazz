@@ -20,10 +20,10 @@ use xazz_core::i18n::{is_korean, tr};
 
 use super::{
     ColumnClass, Policy, PolicyReport, RULE_AGGREGATE_WITHOUT_DP, RULE_DIRECT_IDENTIFIER,
-    RULE_EPSILON_TOO_LARGE, RULE_HARDCODED_SECRET, RULE_PATH_TRAVERSAL, RULE_PII_LITERAL,
-    RULE_PROMPT_EXFILTRATION, RULE_PROMPT_INJECTION, RULE_PROMPT_JAILBREAK, RULE_QUASI_COMBINATION,
-    RULE_SENSITIVE_PATH, RULE_SENSITIVE_ROW_LEVEL, RULE_UNRESOLVED_SCHEMA, Severity, Violation,
-    patterns, record,
+    RULE_EPSILON_TOO_LARGE, RULE_HARDCODED_SECRET, RULE_MODEL_LICENSE_BLOCKED,
+    RULE_MODEL_PROVENANCE_UNKNOWN, RULE_PATH_TRAVERSAL, RULE_PII_LITERAL, RULE_PROMPT_EXFILTRATION,
+    RULE_PROMPT_INJECTION, RULE_PROMPT_JAILBREAK, RULE_QUASI_COMBINATION, RULE_SENSITIVE_PATH,
+    RULE_SENSITIVE_ROW_LEVEL, RULE_UNRESOLVED_SCHEMA, Severity, Violation, patterns, record,
 };
 
 // ── Output column model ──────────────────────────────────────────────────────
@@ -92,6 +92,8 @@ pub fn apply_ast_rules(program: &Program, policy: &Policy, report: &mut PolicyRe
             schemas.insert(name.clone(), fields.clone());
         }
     }
+
+    check_model_references(program, policy, report);
 
     let mut vars: HashMap<String, PipelineShape> = HashMap::new();
 
@@ -235,6 +237,124 @@ fn check_source_path(
             );
         }
     }
+}
+
+// ── Model provenance (issue #74, F5) ────────────────────────────────────────
+
+/// Judges external model references (`load("hf://...")` / `load("model://...")`)
+/// against the policy's model registry.
+///
+/// Locally-declared `model Name { ... }` graphs are **code**, not weights, so they
+/// are not judged here — only references to external model sources (fine-tuning /
+/// inference weights) carry provenance that must be verified.
+fn check_model_references(program: &Program, policy: &Policy, report: &mut PolicyReport) {
+    for (index, stmt) in program.stmts.iter().enumerate() {
+        let file_path = match stmt {
+            Stmt::VarDecl { source, .. } => match source {
+                PipelineSource::Load { file_path, .. } => file_path,
+                _ => continue,
+            },
+            Stmt::ExprStmt { source, .. } => match source {
+                PipelineSource::Load { file_path, .. } => file_path,
+                _ => continue,
+            },
+            _ => continue,
+        };
+
+        // External model references use a scheme; ordinary data files do not.
+        let Some(model_id) = external_model_id(file_path) else {
+            continue;
+        };
+
+        let entry = policy
+            .allowed_models
+            .iter()
+            .find(|m| normalize_model_id(&m.id) == normalize_model_id(model_id));
+
+        match entry {
+            Some(entry) => {
+                let denied = policy
+                    .denied_licenses
+                    .iter()
+                    .find(|l| !l.is_empty() && entry.license.eq_ignore_ascii_case(l.as_str()));
+                if let Some(license) = denied {
+                    let severity =
+                        policy.severity_for(RULE_MODEL_LICENSE_BLOCKED, Severity::Block);
+                    record(
+                        report,
+                        Violation::new(
+                            RULE_MODEL_LICENSE_BLOCKED,
+                            severity,
+                            if is_korean() {
+                                format!(
+                                    "모델 '{}' 은 거부된 라이선스 '{}' 입니다. 이 웨이트는 파인튜닝/추론에 사용할 수 없습니다.",
+                                    model_id, license
+                                )
+                            } else {
+                                format!(
+                                    "model '{}' uses the denied license '{}' — these weights are not allowed for fine-tuning/inference.",
+                                    model_id, license
+                                )
+                            },
+                            tr(
+                                "use a model whose license is permitted by this policy, or add an exception via the policy registry",
+                                "이 정책이 허용하는 라이선스의 모델을 사용하거나, 정책 레지스트리에 예외를 등록하세요",
+                            ),
+                        )
+                        .at_stmt(index, None),
+                    );
+                }
+            }
+            None => {
+                if !policy.require_model_provenance {
+                    continue;
+                }
+                let severity = policy.severity_for(RULE_MODEL_PROVENANCE_UNKNOWN, Severity::Block);
+                record(
+                    report,
+                    Violation::new(
+                        RULE_MODEL_PROVENANCE_UNKNOWN,
+                        severity,
+                        if is_korean() {
+                            format!(
+                                "외부 모델 '{}' 이(가) 정책 레지스트리에 등록되지 않았습니다. 출처·라이선스·핑거프린트를 검증할 수 없으므로 실행을 거부합니다 (fail-closed).",
+                                model_id
+                            )
+                        } else {
+                            format!(
+                                "external model '{}' is not in the policy registry — its source, license, and weights fingerprint cannot be verified, so execution is refused (fail-closed).",
+                                model_id
+                            )
+                        },
+                        tr(
+                            "register the model (id, license, fingerprint) in the policy's allowed_models, or remove the reference",
+                            "정책의 allowed_models 에 모델(id, 라이선스, 핑거프린트)을 등록하거나, 참조를 제거하세요",
+                        ),
+                    )
+                    .at_stmt(index, None),
+                );
+            }
+        }
+    }
+}
+
+/// Extracts the model id from an external-model path (`hf://owner/repo`),
+/// or returns None for ordinary data files.
+fn external_model_id(path: &str) -> Option<&str> {
+    for scheme in ["hf://", "model://"] {
+        if let Some(rest) = path.strip_prefix(scheme) {
+            return Some(rest.trim_end_matches('/'));
+        }
+    }
+    None
+}
+
+/// Normalizes a model id for registry matching — lowercases and drops whitespace.
+fn normalize_model_id(id: &str) -> String {
+    id.chars()
+        .filter(|c| !c.is_whitespace())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
 }
 
 // ── Output column inference ──────────────────────────────────────────────────
@@ -740,8 +860,9 @@ pub fn chart_columns(config: &ChartConfig) -> Vec<String> {
 mod tests {
     use super::super::{Policy, RULE_AGGREGATE_WITHOUT_DP, RULE_DIRECT_IDENTIFIER, analyze};
     use super::super::{
-        RULE_EPSILON_TOO_LARGE, RULE_PROMPT_EXFILTRATION, RULE_PROMPT_INJECTION,
-        RULE_PROMPT_JAILBREAK, RULE_QUASI_COMBINATION, RULE_SENSITIVE_ROW_LEVEL,
+        RULE_EPSILON_TOO_LARGE, RULE_MODEL_LICENSE_BLOCKED, RULE_MODEL_PROVENANCE_UNKNOWN,
+        RULE_PROMPT_EXFILTRATION, RULE_PROMPT_INJECTION, RULE_PROMPT_JAILBREAK,
+        RULE_QUASI_COMBINATION, RULE_SENSITIVE_ROW_LEVEL,
     };
 
     const PATIENT_SCHEMA: &str = "type Patient = {
@@ -1100,6 +1221,125 @@ mod tests {
                 .any(|v| v.rule_id == RULE_PROMPT_EXFILTRATION),
             "residual 에 XZP022 가 없습니다: {:?}",
             r.residual
+        );
+    }
+
+    // ── Model provenance (issue #74, F5) ───────────────────────────────────────
+
+    /// An unregistered external model is blocked fail-closed (default policy).
+    #[test]
+    fn unregistered_model_is_blocked_fail_closed() {
+        let r = analyze(
+            "type M = { a: string };\nv m = load(\"hf://Qwen/Qwen2.5-1.5B-Instruct\") :: M;",
+            &Policy::builtin(),
+        );
+        assert!(!r.safe_to_execute, "{:?}", r.violations);
+        assert!(
+            r.violations
+                .iter()
+                .any(|v| v.rule_id == RULE_MODEL_PROVENANCE_UNKNOWN),
+            "{:?}",
+            r.violations
+        );
+    }
+
+    /// A registered model with a permitted license passes.
+    #[test]
+    fn registered_model_with_permitted_license_passes() {
+        let mut policy = Policy::builtin();
+        policy.allowed_models.push(super::super::ModelEntry {
+            id: "Qwen/Qwen2.5-1.5B-Instruct".to_string(),
+            license: "Apache-2.0".to_string(),
+            fingerprint: String::new(),
+        });
+        let r = analyze(
+            "type M = { a: string };\nv m = load(\"hf://Qwen/Qwen2.5-1.5B-Instruct\") :: M;",
+            &policy,
+        );
+        assert!(
+            r.violations
+                .iter()
+                .all(|v| v.rule_id != RULE_MODEL_PROVENANCE_UNKNOWN
+                    && v.rule_id != RULE_MODEL_LICENSE_BLOCKED),
+            "{:?}",
+            r.violations
+        );
+    }
+
+    /// A model with a denied license is blocked even when registered.
+    #[test]
+    fn denied_license_is_blocked_even_when_registered() {
+        let mut policy = Policy::builtin();
+        policy.allowed_models.push(super::super::ModelEntry {
+            id: "meta-llama/Llama-3.1-8B".to_string(),
+            license: "Llama3-License".to_string(),
+            fingerprint: String::new(),
+        });
+        policy.denied_licenses.push("Llama3-License".to_string());
+        let r = analyze(
+            "type M = { a: string };\nv m = load(\"hf://meta-llama/Llama-3.1-8B\") :: M;",
+            &policy,
+        );
+        assert!(
+            r.violations
+                .iter()
+                .any(|v| v.rule_id == RULE_MODEL_LICENSE_BLOCKED),
+            "{:?}",
+            r.violations
+        );
+    }
+
+    /// A locally-declared `model {}` graph is code, not weights — never judged.
+    #[test]
+    fn local_model_declaration_is_not_judged() {
+        let r = analyze(
+            "model Local { Dense(64) -> ReLU() -> Dense(1) }",
+            &Policy::builtin(),
+        );
+        assert!(
+            r.violations
+                .iter()
+                .all(|v| v.rule_id != RULE_MODEL_PROVENANCE_UNKNOWN),
+            "{:?}",
+            r.violations
+        );
+    }
+
+    /// Ordinary data files are not model references.
+    #[test]
+    fn ordinary_data_file_is_not_a_model_reference() {
+        let r = analyze(
+            "type P = { a: string };\nv x = load(\"data/air.csv\") :: P |> select([a]);",
+            &Policy::builtin(),
+        );
+        assert!(
+            r.violations
+                .iter()
+                .all(|v| v.rule_id != RULE_MODEL_PROVENANCE_UNKNOWN),
+            "{:?}",
+            r.violations
+        );
+    }
+
+    /// Registry matching is case/whitespace-insensitive.
+    #[test]
+    fn model_registry_matching_is_normalized() {
+        let mut policy = Policy::builtin();
+        policy.allowed_models.push(super::super::ModelEntry {
+            id: "qwen/Qwen2.5-1.5B-Instruct".to_string(),
+            license: "Apache-2.0".to_string(),
+            fingerprint: String::new(),
+        });
+        let r = analyze(
+            "type M = { a: string };\nv m = load(\"hf://Qwen/Qwen2.5-1.5B-Instruct\") :: M;",
+            &policy,
+        );
+        assert!(
+            r.violations
+                .iter()
+                .all(|v| v.rule_id != RULE_MODEL_PROVENANCE_UNKNOWN),
+            "{:?}",
+            r.violations
         );
     }
 }

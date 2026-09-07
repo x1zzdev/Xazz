@@ -299,6 +299,7 @@ python benches/run_readme_benchmark.py --xlarge
 | Visual IDE | Node-based pipeline editor + monitor, served by `xazz-server` | Stable |
 | `xazz sde` | Synthetic data generation engine | Stable |
 | `xazz sanitize` | Fine-tuning data sanitization — PII scan, duplicate & bias checks (Track F3) | Stable |
+| Model provenance | Policy registry gate — `hf://` model references, license/unknown-weights blocking (Track F5) | Stable |
 
 ---
 
