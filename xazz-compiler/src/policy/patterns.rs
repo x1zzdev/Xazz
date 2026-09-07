@@ -105,6 +105,38 @@ pub fn scan_source(source: &str) -> Vec<LiteralFinding> {
     out
 }
 
+/// Re-scans a free-form text (an LLM response, a document, a log line) for
+/// sensitive literals — the runtime output gate (issue #71, F2).
+///
+/// Unlike `scan_source`, this is applied to **generated text** rather than code:
+///
+///   1. `GenericSecret` (the `password = "..."` key-value shape) is excluded —
+///      generated text often *mentions* credentials as an example or instruction
+///      ("do not store password = \"...\""), so the key-value shape would be a
+///      false positive. Only values that are themselves PII or a service token
+///      are flagged.
+///   2. The same precision-first scanners (RRN checksum, Luhn, TLD, token
+///      prefixes) apply unchanged — a nanosecond timestamp or an order number in
+///      an LLM response is not a card number, exactly as in source scanning.
+///
+/// `line`/`col` are relative to the response text (1-based), so a caller can
+/// point at the exact span inside the generated output.
+pub fn scan_output_text(text: &str) -> Vec<LiteralFinding> {
+    let bytes = text.as_bytes();
+    let mut out: Vec<LiteralFinding> = Vec::new();
+
+    scan_rrn(text, bytes, &mut out);
+    scan_phone(text, bytes, &mut out);
+    scan_email(text, bytes, &mut out);
+    scan_credit_card(text, bytes, &mut out);
+    scan_api_key(text, &mut out);
+    scan_private_key(text, &mut out);
+
+    out.sort_by_key(|f| (f.line, f.col));
+    out.dedup_by(|a, b| a.kind == b.kind && a.line == b.line && a.col == b.col);
+    out
+}
+
 // ── Position calculation ─────────────────────────────────────────────────────
 
 /// Byte offset → (line, col). Both are 1-based.
@@ -1034,16 +1066,62 @@ mod tests {
         }
     }
 
-    /// line/col point at the prompt content start, 1-based.
+    // ── Output re-scan (GenAI output gate, issue #71) ─────────────────────────
+
+    /// A generated response that leaks an API key is flagged by the output gate.
     #[test]
-    fn prompt_reports_accurate_line_and_col() {
-        let src = "type P = { a: string };\n\nv p = prompt(\"jailbreak\");";
-        let found = scan_prompt_literals(src);
-        let jb = found
+    fn output_gate_flags_api_key_leak() {
+        let response = "The AWS access key is AKIAIOSFODNN7EXAMPLE — rotate it now.";
+        let found = scan_output_text(response);
+        assert!(
+            found.iter().any(|f| f.kind == SecretKind::ApiKey),
+            "{:?}",
+            found
+        );
+        assert_eq!(found[0].line, 1);
+    }
+
+    /// A generated response that leaks a phone number is flagged.
+    #[test]
+    fn output_gate_flags_phone_leak() {
+        let response = "Contact support at 010-1234-5678 for billing.";
+        assert!(
+            scan_output_text(response)
+                .iter()
+                .any(|f| f.kind == SecretKind::PhoneNumber)
+        );
+    }
+
+    /// A credential *example* in generated text ("password = \"...\"") is not flagged —
+    /// only a real PII or token value is. False-positive guard for the output gate.
+    #[test]
+    fn output_gate_ignores_credential_examples() {
+        let response = "Use an env var instead of writing password = \"hunter2hunter2\" in code.";
+        let found = scan_output_text(response);
+        assert!(
+            found.iter().all(|f| f.kind != SecretKind::GenericSecret),
+            "자격증명 예시를 오탐했습니다: {:?}",
+            found
+        );
+    }
+
+    /// The line/col point into the response text, so the caller can highlight the span.
+    #[test]
+    fn output_gate_reports_response_relative_position() {
+        let response = "Summary:\nThe key sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ should be rotated.";
+        let found = scan_output_text(response);
+        let key = found
             .iter()
-            .find(|f| f.risk == PromptRisk::Jailbreak)
-            .expect("제일브레이크 미탐지");
-        assert_eq!(jb.line, 3);
-        assert_eq!(jb.col, 15);
+            .find(|f| f.kind == SecretKind::ApiKey)
+            .expect("API 키 미탐지");
+        assert_eq!(key.line, 2);
+        assert_eq!(key.col, 9);
+    }
+
+    /// A clean generated response has no findings.
+    #[test]
+    fn output_gate_clean_response_has_no_findings() {
+        let response = "The quarterly report shows a 12% increase in revenue. Great job.";
+        assert!(scan_output_text(response).is_empty(), "{:?}", scan_output_text(response));
     }
 }

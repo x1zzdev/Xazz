@@ -148,11 +148,15 @@ are exactly where "safe data in, auditable output out" becomes a real requiremen
   as residual by `--fix` (never auto-rewritten). Demo: `examples/security/prompt_{unsafe,safe}.xzz`.
 
 ### F2. LLM output gate — runtime re-scan + audit chaining — issue #71
-- [ ] Runtime re-scan of model outputs (free-form text) against the same policy rules — static analysis
-      cannot fully cover generative output, so the guardrail becomes a runtime gate here
-- [ ] Prompt + response SHA-256 hashes appended to the existing audit chain (per-call evidence)
+- [x] Runtime re-scan of model outputs (free-form text) against the same policy rules — `scan_output_text()`
+      (PII/API key/private key; `GenericSecret` excluded to avoid false positives on credential *examples*)
+- [x] Prompt + response SHA-256 hashes appended to the existing append-only audit chain
+      (`append_inference_call`; the response is **never stored** — only its hash)
+- [x] `POST /security/inference/check` — runtime output gate + per-call audit evidence
 - Depends on: F1 (shared rule catalog). Acceptance: a demo where an LLM call emitting a masked secret
   is flagged and the prompt/response pair is verifiable in `/security/audit`.
+  ✅ **Done 2026-09-07**: `curl /security/inference/check` flags a leaked API key (masked `AK******`),
+  records `prompt_hash`/`response_hash` to the audit chain, and `GET /security/audit/chain` verifies it.
 
 ### F3. Fine-tuning data sanitization — safe LoRA/QLoRA prep — issue #72
 - [ ] First-class op `sanitize(...)` that runs PII / near-duplicate / bias checks on training data

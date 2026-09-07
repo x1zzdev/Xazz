@@ -135,6 +135,7 @@ async fn main() {
         .route("/security/policy", get(handle_policy_info))
         .route("/security/policy/check", post(handle_policy_check))
         .route("/security/remediate", post(handle_remediate))
+        .route("/security/inference/check", post(handle_inference_check))
         .with_state(AppState {
             exec_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_EXECUTIONS)),
         })
@@ -842,6 +843,96 @@ async fn handle_remediate(
     }))
 }
 
+// ── POST /security/inference/check ───────────────────────────────────────────
+
+/// Inference-call request: the code that produced the call + the prompt/response pair.
+#[derive(Deserialize)]
+struct InferenceCheckRequest {
+    /// The `.xzz` source that issued the inference call
+    code: String,
+    /// The prompt sent to the model
+    prompt: String,
+    /// The model's response — re-scanned at runtime for PII/secrets
+    response: String,
+}
+
+#[derive(Serialize, Debug)]
+struct InferenceFinding {
+    kind: String,
+    line: usize,
+    col: usize,
+    /// Masked value — the raw value is never returned
+    redacted: String,
+}
+
+#[derive(Serialize)]
+struct InferenceCheckResponse {
+    /// true when the response is safe — no PII/secret literals
+    safe_to_emit: bool,
+    /// Runtime re-scan findings (LLM output gate, issue #71 / F2)
+    findings: Vec<InferenceFinding>,
+    /// Audit-chain index of the per-call evidence record
+    audit_index: u64,
+    /// Audit chain still valid after appending
+    chain_valid: bool,
+    /// SHA-256 of the prompt (evidence, not the prompt itself)
+    prompt_hash: String,
+    /// SHA-256 of the response (evidence, not the response itself)
+    response_hash: String,
+}
+
+/// Runtime output gate: re-scans a generated response against the same policy
+/// literals and records the prompt/response pair in the audit chain as per-call
+/// evidence. The response text is **never stored** — only its SHA-256 hash.
+///
+/// Static analysis (F1) cannot cover generative output, so this is the runtime
+/// complement: a flagged response must be blocked/filtered before it is emitted.
+async fn handle_inference_check(
+    Json(payload): Json<InferenceCheckRequest>,
+) -> Result<Json<InferenceCheckResponse>, (StatusCode, String)> {
+    use xazz_compiler::policy::patterns::{scan_output_text, SecretKind};
+
+    // 1. Runtime re-scan of the generated response (free-form text, not code).
+    let findings: Vec<InferenceFinding> = scan_output_text(&payload.response)
+        .into_iter()
+        .map(|f| InferenceFinding {
+            kind: match f.kind {
+                SecretKind::ResidentRegistrationNumber => "resident_registration_number".to_string(),
+                SecretKind::PhoneNumber => "phone_number".to_string(),
+                SecretKind::Email => "email".to_string(),
+                SecretKind::CreditCard => "credit_card".to_string(),
+                SecretKind::ApiKey => "api_key".to_string(),
+                SecretKind::PrivateKey => "private_key".to_string(),
+                SecretKind::GenericSecret => "generic_secret".to_string(),
+            },
+            line: f.line,
+            col: f.col,
+            redacted: f.redacted,
+        })
+        .collect();
+    let safe_to_emit = findings.is_empty();
+
+    // 2. Record the call in the audit chain as per-call evidence.
+    let record = audit_log::append_inference_call(
+        &payload.code,
+        &payload.prompt,
+        &payload.response,
+        if safe_to_emit { Some("safe") } else { Some("blocked") },
+    )
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    let chain_valid = audit_log::verify_chain().unwrap_or(false);
+
+    Ok(Json(InferenceCheckResponse {
+        safe_to_emit,
+        findings,
+        audit_index: record.index,
+        chain_valid,
+        prompt_hash: record.prompt_hash.unwrap_or_default(),
+        response_hash: record.response_hash.unwrap_or_default(),
+    }))
+}
+
 // ── utilities ──────────────────────────────────────────────────────────────────
 
 fn find_xazz_exe() -> Result<PathBuf, String> {
@@ -1097,5 +1188,51 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             guardrail::gate(safe),
             guardrail::Decision::Allow { .. }
         ));
+    }
+
+    // ── Inference output gate (issue #71, F2) ─────────────────────────────────
+
+    /// A response leaking an API key is flagged and the call is audited.
+    #[tokio::test]
+    async fn inference_check_blocks_leaked_secret() {
+        let result = handle_inference_check(Json(InferenceCheckRequest {
+            code: "v x = load(\"d.csv\") :: S;".to_string(),
+            prompt: "summarize the incident".to_string(),
+            response: "The key AKIAIOSFODNN7EXAMPLE was exposed. Please rotate it.".to_string(),
+        }))
+        .await;
+
+        let body = result.expect("inference check should succeed");
+        assert!(!body.safe_to_emit);
+        assert!(
+            body.findings.iter().any(|f| f.kind == "api_key"),
+            "API 키 미탐지: {:?}",
+            body.findings
+        );
+        assert!(
+            body.findings.iter().all(|f| !f.redacted.contains("AKIA")),
+            "원본 값 노출: {:?}",
+            body.findings
+        );
+        assert!(body.chain_valid, "감사 체인이 깨졌습니다");
+    }
+
+    /// A clean response is safe to emit, has no findings, and is audited as such.
+    #[tokio::test]
+    async fn inference_check_passes_clean_response() {
+        let result = handle_inference_check(Json(InferenceCheckRequest {
+            code: "v x = load(\"d.csv\") :: S;".to_string(),
+            prompt: "summarize the quarterly report".to_string(),
+            response: "Revenue grew 12%. Good quarter.".to_string(),
+        }))
+        .await;
+
+        let body = result.expect("inference check should succeed");
+        assert!(body.safe_to_emit);
+        assert!(body.findings.is_empty());
+        assert!(body.chain_valid);
+        // The prompt/response texts are never stored — only their hashes.
+        assert!(!body.response_hash.contains("Revenue"));
+        assert!(body.response_hash.len() == 64);
     }
 }

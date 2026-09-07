@@ -127,6 +127,41 @@ $ xazz policy examples/security/prompt_unsafe.xzz
 Prompts are **never auto-fixed** (`xazz policy --fix` leaves them as `residual`): rewriting a prompt
 deterministically could silently change the operation's intent, so a human must review it.
 
+### GenAI output gate — runtime re-scan + audit chaining (F2)
+
+Static analysis cannot cover **generated** output, so the guardrail becomes a runtime gate.
+`POST /security/inference/check` re-scans a model response and records the call as audit evidence.
+
+- **Re-scan of free-form text**: `scan_output_text()` applies the same precision-first scanners
+  (RRN checksum · Luhn · TLD · token prefixes) to the generated response. `GenericSecret`
+  (the `password = "..."` key-value shape) is excluded — generated text often *mentions*
+  credentials as an example, which would be a false positive.
+- **Never stored, only hashed**: the response is not persisted; its SHA-256 is. The audit record
+  carries `prompt_hash` + `response_hash` as per-call evidence, so "this prompt produced this
+  response" can be proven after the fact without the log itself leaking data.
+- **Audit-chained like everything else**: the inference record is part of the same append-only
+  hash chain and is verifiable via `GET /security/audit/chain`.
+
+```bash
+# A response leaking an API key is flagged; the call is recorded as audit evidence
+$ curl -X POST localhost:8005/security/inference/check \
+    -H 'content-type: application/json' \
+    -d '{"code":"v x = load(\"d.csv\") :: S;",
+         "prompt":"summarize the incident",
+         "response":"The key AKIAIOSFODNN7EXAMPLE was exposed."}'
+{
+  "safe_to_emit": false,
+  "findings": [{ "kind": "api_key", "line": 1, "col": 9, "redacted": "AK******************" }],
+  "audit_index": 58,
+  "chain_valid": true,
+  "prompt_hash":   "a46a…b7ec",   # evidence — never the prompt itself
+  "response_hash": "137d…f82b"    # evidence — never the response itself
+}
+```
+
+The gate lives behind the server's existing `/security/*` surface and reuses the same
+`xazz-compiler` scanners — consistent with the single-implementation principle of the 3 gates.
+
 ---
 
 ## 4. Three gate points
@@ -399,12 +434,14 @@ xazz policy examples/security/prompt_safe.xzz                # passes
 |---|---|
 | `xazz-compiler/src/policy/mod.rs` | Policy/report types, rule catalog, entry points, policy loading |
 | `xazz-compiler/src/policy/rules.rs` | Output-column inference (`PipelineShape`) and rule evaluation |
-| `xazz-compiler/src/policy/patterns.rs` | Literal scanners (RRN checksum · Luhn · API keys · **prompt injection/jailbreak/exfiltration**) |
+| `xazz-compiler/src/policy/patterns.rs` | Literal scanners (RRN checksum · Luhn · API keys · **prompt injection/jailbreak/exfiltration** · **`scan_output_text` for LLM output**) |
 | `xazz-compiler/src/policy/printer.rs` | AST → `.xzz` printer (round-trip tests included) |
 | `xazz-compiler/src/policy/remediate.rs` | Deterministic AST remediation + re-verification |
 | `src/policy_cli.rs` | `xazz policy` subcommand and the `xazz run` gate |
 | `xazz-exec/src/runtime.rs` (STEP 3.6) | Final execution gate + `[xazz:policy]` marker |
 | `xazz-server/src/guardrail.rs` | `/execute` gate, remediation orchestration |
+| `xazz-server/src/audit_log.rs` | SHA-256 chain; `append_inference_call` (prompt/response hash evidence, F2) |
+| `xazz-server/src/main.rs` | `POST /security/inference/check` — runtime output re-scan + audit chaining (F2) |
 | `xazz-server/src/slm.rs` | Ollama adapter, prompt construction, code extraction |
 
 The guardrail lives in `xazz-compiler` — the only shared crate that links neither Polars nor Tokio, so the CLI, the execution engine, and the API server all gate with **the same code**. If policy evaluation differed per entry point, that inconsistency would itself be a vulnerability.

@@ -9,6 +9,20 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — GenAI 출력 게이트 (issue #71, Track F2)
+
+- **`scan_output_text()`** — LLM 응답(자유 형식 텍스트) 전용 재스캔 함수 추가
+  (`xazz-compiler/src/policy/patterns.rs`). 동일한 precision-first 스캐너(RRN 체크섬 · Luhn ·
+  TLD · 토큰 프리픽스)를 적용하고, `GenericSecret`(`password = "..."` 형태)은 제외 —
+  생성 텍스트가 자격증명을 *예시*로 언급하는 오탐 방지
+- **감사 체인 확장 (`append_inference_call`)** — `AuditRecord`에 `prompt_hash`/`response_hash`
+  필드 추가. 응답 텍스트는 절대 저장하지 않고 해시만 체인에 기록 — "이 프롬프트가 이 응답을
+  만들었다"를 사후 증명하되 로그 자체는 유출원이 되지 않음
+- **`POST /security/inference/check`** — 런타임 출력 게이트: 응답을 재스캔해 PII/시크릿이
+  발견되면 `safe_to_emit: false` + 마스킹된 findings 반환, 호출을 감사 체인에 기록
+  (`outcome: safe|blocked`). `GET /security/audit/chain`으로 체인 무결성 검증 가능
+- 테스트: `scan_output_text` 오탐 방지 4건, 감사 체인 inference 기록 1건, 서버 통합 2건
+
 ### Added — GenAI 입력 게이트 (issue #70, Track F1)
 
 - **프롬프트 리터럴 정적 스캔 (`XZP020`–`XZP022`)**: `prompt("...")` · `prompt: "..."` ·
