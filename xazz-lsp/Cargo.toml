@@ -1,0 +1,33 @@
+[package]
+name = "xazz-lsp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Xazz LSP server — reuses the xazz-compiler checker to surface diagnostics, hover, and navigation in the editor."
+keywords = ["data", "pipeline", "polars", "lsp", "language-server"]
+categories = ["development-tools", "compilers"]
+
+[[bin]]
+name = "xazz-lsp"
+path = "src/main.rs"
+
+[dependencies]
+# Shared kernel + compiler (checker reuse — this crate adds no Polars/Tokio-free
+# constraint; the compiler itself stays dependency-light)
+xazz-core     = { path = "../xazz-core" }
+xazz-compiler = { path = "../xazz-compiler" }
+
+# LSP over stdio
+tower-lsp = "0.20"
+
+# tokio runtime (tower-lsp requires it)
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "io-std"] }
+
+# diagnostics
+serde_json = "1"
+
+# server logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

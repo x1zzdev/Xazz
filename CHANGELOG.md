@@ -9,6 +9,18 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — LSP 서버 (`xazz-lsp`, issue #75, Track B3)
+
+- **새 크레이트 `xazz-lsp`** (tower-lsp) — `xazz check` 체커를 그대로 재사용해 에디터에
+  진단을 게시
+- **진단 byte-for-byte 일치**: 열기/변경/저장 시 `xazz check`와 동일한 라인:컬럼 변환
+  (1-based 체커 span → 0-based LSP position)으로 `publishDiagnostics` 전송
+- **import 모듈 해석**: 문서 디렉토리 기준 `resolve_imports` 후 `analyze_program` — B1(#69)
+  모듈 시스템 재사용
+- hover / go-to-def / rename은 체커가 심볼 테이블을 export하기 전까지 후속 (#75에 추적)
+- stdio 스모크 테스트로 검증: initialize 응답, didOpen → `xazz check`와 동일한 진단 발행
+- `xazz check` 진단 변환 유닛 테스트 4건
+
 ### Added — 모델 프로비넌스 (issue #74, Track F5)
 
 - **정책 레지스트리 (`allowed_models`)** — `{ id, license, fingerprint }` 항목. 외부 모델

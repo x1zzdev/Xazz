@@ -280,6 +280,8 @@ python benches/render_benchmark_chart.py        # 위 차트 재생성
 | `xazz run` | `.xzz` 파이프라인 컴파일·실행 (`--json` 기계 판독 결과) | Stable |
 | `xazz check` | 정적 의미 분석 — 미선언 변수/컬럼, 중복 선언, 잘못된 cast, did-you-mean 제안, 행:열 단위 진단 | Stable |
 | `xazz import` | CSV 스키마 자동 추론 → 타입 블록 생성 (EUC-KR/CP949 자동 감지) | Stable |
+| `import "mod.xzz"` | 모듈 시스템 — `type`/`model`/`v` 파이프라인을 파일 간 공유 (사이클 fail-closed) | Stable |
+| `xazz-lsp` | 언어 서버 — 에디터에서 `xazz check` 진단 실시간 표시 (Track B3) | Preview |
 | `xazz new` | 샘플 CSV + 실행 가능한 예제가 포함된 프로젝트 생성 | Stable |
 | `xazz emit rust` | `.xzz` → Rust 소스 변환 (Polars LazyFrame + Burn) | Stable |
 | `xazz policy` | Policy-as-Code 가드레일 — 실행 전 개인정보·시크릿 유출 차단 | Stable |

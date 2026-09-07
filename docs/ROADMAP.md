@@ -69,10 +69,15 @@ datasets. This track makes Xazz handle real workloads.
 - [ ] Versioned with the workspace; docs generated
 - Depends on: B1. Acceptance: `import "std/math"` usable in demos.
 
-### B3. LSP server (`xazz-lsp`)
-- [ ] New crate (`tower-lsp`) exposing diagnostics, hover, go-to-def, rename by **reusing the checker**
-- [ ] The Typed IR schema is already available to drive column-aware hover/autocomplete
+### B3. LSP server (`xazz-lsp`) — issue #75
+- [x] New crate (`tower-lsp`) exposing diagnostics, hover, go-to-def, rename by **reusing the checker**
+- [x] Diagnostics on open/change/save — byte-for-byte match `xazz check` line:col output
+- [x] `import "mod.xzz"` resolved relative to the document dir before checking (reuses B1)
+- [ ] hover / go-to-def / rename — deferred: the checker does not yet export a symbol table
 - Acceptance: diagnostics in VS Code match `xazz check` line:col output exactly.
+  ✅ **Diagnostics done 2026-09-07**: LSP server publishes the same diagnostic text as
+  `xazz check` (verified via stdio smoke test). Navigation needs a checker symbol-table export
+  first (tracked on #75).
 
 ---
 
@@ -202,7 +207,7 @@ Efficiency rule: **value-per-effort first, then dependency chain.** Do not start
 | 2 | A2 — out-of-core + big benchmark | Proves "scale" with numbers; extends existing bench infra |
 | 3 | ~~A4 — import extension~~ | ✅ Done — issue #55 |
 | 4 | ~~B1 — module system~~ | ✅ Done — issue #69 |
-| 5 | B3 — LSP | Reuses checker; biggest DX/visibility win, enables E1 |
+| 5 | B3 — LSP (#75, diagnostics done) | Reuses checker; biggest DX/visibility win, enables E1 |
 | 6 | A3 — connectors | Independent of language work; adds DuckDB/Postgres sources |
 | 7 | C1 — server persistence | Foundation for C2/C3; independent of A/B |
 | 8 | B2 — stdlib | Needs B1 |

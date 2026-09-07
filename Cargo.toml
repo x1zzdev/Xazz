@@ -5,7 +5,8 @@ members = [
   "xazz-compiler",
   "xazz-runner",
   "xazz-exec",
-  "xazz-server"
+  "xazz-server",
+  "xazz-lsp"
 ]
 resolver = "2"
 
