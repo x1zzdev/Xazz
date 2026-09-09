@@ -109,10 +109,14 @@ datasets. This track makes Xazz handle real workloads.
 - [ ] The architecture already models schema on every `PipelineNode` — lineage is a query over it
 - Depends on: C1. Acceptance: a reviewer can trace `groupBy → agg → chart` output columns back to source columns.
 
-### C4. Python bindings (PyO3)
-- [ ] `pip install xazz` — expose compile/check/run as Python functions (replace the ad-hoc `python/xazz_dp.py`)
-- [ ] Numpy/Pandas in → Arrow out handoff on the Python boundary
-- Depends on: B3 (shared checker ergonomics), C1 optional. Acceptance: `xazz.check(src)` returns the same diagnostics as the CLI.
+### C4. Python bindings — issue #61
+- [x] `xazz.check(src)` / `xazz.run(src)` / `xazz.policy(src)` — pure-Python adapter over the CLI
+      (`python/xazz/`), same diagnostics as the CLI byte-for-byte
+- [ ] PyO3 native extension — deferred: no python3-dev headers in this build env (no sudo);
+      the subprocess bridge already delivers the same contract
+- [ ] Numpy/Pandas in → Arrow out handoff — deferred (native extension path)
+- Depends on: B3 (shared checker ergonomics), C1 optional. Acceptance: `xazz.check(src)` returns
+  the same diagnostics as the CLI. ✅ **Done 2026-09-09** (subprocess adapter + 5 tests).
 
 ---
 
@@ -222,7 +226,7 @@ Efficiency rule: **value-per-effort first, then dependency chain.** Do not start
 | 6 | ~~A3 — connectors (#54)~~ | ✅ Done — DuckDB + PostgreSQL sources |
 | 7 | ~~C1 — server persistence~~ | ✅ Done — SQLite run history + /runs API |
 | 8 | B2 — stdlib | Needs B1 |
-| 9 | C4 — Python bindings | Big adoption lever; best after LSP/B1 ergonomics |
+| 9 | ~~C4 — Python bindings (#61, subprocess adapter)~~ | ✅ Done — `xazz.check/run/policy` from Python; PyO3 deferred |
 | 10 | C2/C3 — auth + lineage | Both depend on C1 |
 | 11 | D1/D2/D3 — ML | Phase 6; mostly independent, GPU hardware availability gates timing |
 | 12 | ~~F1 — prompt input gate~~ | ✅ Issue #70 open — pure policy-engine extension; biggest GenAI governance win per effort |

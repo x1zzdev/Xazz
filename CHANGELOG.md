@@ -9,6 +9,17 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — Python 바인딩 (issue #61, Track C4)
+
+- **`python/xazz/` 패키지** — 순수 Python 어댑터로 CLI를 호출: `xazz.check(src)`,
+  `xazz.run(src)`, `xazz.policy(src)`. Rust 컴파일러/런타임이 단일 진실 — `xazz.check`가
+  CLI와 동일한 진단을 byte-for-byte 반환
+- 바이너리 탐색: `XAZZ_PATH` / `set_xazz_path` → `target/{debug,release}/` → `PATH`
+- PyO3 네이티브 확장은 python3-dev 헤더 부재(무 sudo)로 연기 — 서브프로세스 브리지가
+  동일한 계약 제공
+- 테스트 5건: check clean/typo(did-you-mean), run rows, run error, policy report
+- `python/README.md`에 사용법 문서화
+
 ### Added — 서버 런 영속화 (issue C1)
 
 - **SQLite 저장 (`xazz-server`, `rusqlite` bundled)** — `xazz.db`의 `runs` 테이블에 각 실행 기록:

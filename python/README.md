@@ -41,3 +41,46 @@ python python/test_xazz_dp.py
 
 Rust 테스트(`cargo test -p xazz-exec dp::`)와 동일 시나리오 13개
 (노이즈 통계 검증, seed 결정성, SplitMix64 공개 테스트 벡터, ε-budget 차단 등).
+
+---
+
+# xazz — Python bindings (issue C4)
+
+`python/xazz/` is a pure-Python adapter over the compiled Xazz CLI. The Rust
+compiler/runtime stays the single source of truth: `xazz.check(src)` returns
+the **same** diagnostics as `xazz check`, and `xazz.run(src)` returns the same
+execution result as `xazz run --json`.
+
+> Why not PyO3: this build environment has no python3-dev headers (no sudo),
+> so a C extension cannot be compiled. The subprocess bridge over the compiled
+> CLI delivers the same contract with zero build-time C dependencies.
+
+## Usage
+
+```python
+import xazz
+
+# Static analysis — same diagnostics as the CLI (line:col, did-you-mean)
+r = xazz.check("v x = load('d.csv') :: AQ |> select([temperture_c]);")
+print(r.success, r.errors)          # False, [{'message': "column 'temperture_c' ..."}]
+
+# Execution — same result as `xazz run --json`
+run = xazz.run(
+    'type AQ = { station: string, pm10: float };\n'
+    'v x = load("duckdb://:memory:?sql=SELECT 1 AS station, 2 AS pm10") :: AQ;'
+)
+print(run.success, run.rows)        # True, [{'station': 1, 'pm10': 2}]
+
+# Policy guardrail report
+p = xazz.policy("v x = load('d.csv');")
+```
+
+## Binary discovery
+
+Search order: `XAZZ_PATH` env / `xazz.set_xazz_path(path)` → `target/{debug,release}/`
+next to the package → `PATH`. Build the CLI first:
+
+```bash
+cargo build -p xazz -p xazz-runner
+python python/test_xazz.py          # 5 tests
+```
