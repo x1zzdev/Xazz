@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use axum::{
     Router,
-    extract::{Multipart, Path, State},
+    extract::{Extension, Multipart, Path, State},
     http::{HeaderValue, StatusCode, header::AUTHORIZATION},
     middleware::{self, Next},
     response::{IntoResponse, Json},
@@ -58,9 +58,15 @@ struct AppState {
 }
 
 /// Records a run in the store, returning the new id (0 on store failure).
-fn record_run_in_store(state: &AppState, code: &str, status: &str, rows: i64, error: Option<&str>) -> i64 {
+/// Extracts the authenticated tenant from the request extension (default "").
+fn tenant_str(tenant: &str) -> &str {
+    tenant
+}
+
+/// Records a run in the store, returning the new id (0 on store failure).
+fn record_run_in_store(state: &AppState, code: &str, status: &str, rows: i64, error: Option<&str>, tenant: &str) -> i64 {
     let hash = audit_log::hash_code(code);
-    match state.store.record_run(&hash, status, rows, error) {
+    match state.store.record_run(&hash, status, rows, error, tenant) {
         Ok(id) => id,
         Err(e) => {
             eprintln!("[xazz] ⚠️ run history 저장 실패: {e}");
@@ -216,24 +222,59 @@ fn clean_stale_uploads() {
     }
 }
 
-// ── Optional Bearer token auth middleware ─────────────────────────────────────
+// ── Optional Bearer token auth middleware (issue C2) ─────────────────────────
+
+/// Tenant header — the authenticated tenant is passed to handlers via a request
+/// extension so `/runs` can scope its queries per tenant.
+const TENANT_HEADER: &str = "x-xazz-tenant";
 
 /// When `XAZZ_SERVER_TOKEN` is set, every request requires `Authorization: Bearer <token>`.
-/// When unset (or empty), all requests pass (default local-only behavior).
+/// When `XAZZ_TENANT_TOKENS` is set (format `tenant1=token1,tenant2=token2`), a request
+/// must present `X-Xazz-Tenant: <tenant>` + `Authorization: Bearer <token>` for that tenant.
+/// When neither is set, all requests pass (default local-only behavior).
 async fn optional_bearer_auth(
-    req: axum::extract::Request,
+    mut req: axum::extract::Request,
     next: Next,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let expected = std::env::var("XAZZ_SERVER_TOKEN").unwrap_or_default();
-    if expected.is_empty() {
+    let single_token = std::env::var("XAZZ_SERVER_TOKEN").unwrap_or_default();
+    let tenant_map = parse_tenant_tokens(&std::env::var("XAZZ_TENANT_TOKENS").unwrap_or_default());
+
+    // Both auth modes unset → allow all (local loopback tool).
+    if single_token.is_empty() && tenant_map.is_empty() {
+        req.extensions_mut().insert(String::new());
         return Ok(next.run(req).await);
     }
-    let ok = req
+
+    let auth = req
         .headers()
         .get(AUTHORIZATION)
         .and_then(|h: &HeaderValue| h.to_str().ok())
-        .is_some_and(|h| h == format!("Bearer {expected}"));
-    if ok {
+        .unwrap_or("")
+        .to_string();
+
+    // Multi-tenant mode: tenant header + per-tenant token.
+    if !tenant_map.is_empty() {
+        let tenant = req
+            .headers()
+            .get(TENANT_HEADER)
+            .and_then(|h: &HeaderValue| h.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        if tenant.is_empty() {
+            return Err((StatusCode::UNAUTHORIZED, "missing X-Xazz-Tenant header".into()));
+        }
+        let expected = tenant_map.get(&tenant);
+        let ok = expected.is_some_and(|t| auth == format!("Bearer {t}"));
+        if !ok {
+            return Err((StatusCode::UNAUTHORIZED, "invalid tenant token".into()));
+        }
+        req.extensions_mut().insert(tenant);
+        return Ok(next.run(req).await);
+    }
+
+    // Single-token mode.
+    if auth == format!("Bearer {single_token}") {
+        req.extensions_mut().insert(String::new());
         Ok(next.run(req).await)
     } else {
         Err((
@@ -241,6 +282,22 @@ async fn optional_bearer_auth(
             "missing or invalid bearer token".into(),
         ))
     }
+}
+
+/// Parses `XAZZ_TENANT_TOKENS` (`tenant1=token1,tenant2=token2`) into a map.
+fn parse_tenant_tokens(raw: &str) -> std::collections::HashMap<String, String> {
+    raw.split(',')
+        .filter(|pair| !pair.is_empty())
+        .filter_map(|pair| {
+            let mut it = pair.splitn(2, '=');
+            match (it.next(), it.next()) {
+                (Some(k), Some(v)) if !k.is_empty() && !v.is_empty() => {
+                    Some((k.trim().to_string(), v.trim().to_string()))
+                }
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 // ── Static IDE serving ───────────────────────────────────────────────────────
@@ -287,6 +344,7 @@ fn serve_index() -> tower_http::services::ServeFile {
 // ── POST /execute ─────────────────────────────────────────────────────────────
 
 async fn handle_execute(
+    Extension(tenant): Extension<String>,
     State(state): State<AppState>,
     Json(payload): Json<ExecuteRequest>,
 ) -> Result<Json<ExecuteResponse>, (StatusCode, Json<ExecuteResponse>)> {
@@ -412,6 +470,7 @@ async fn handle_execute(
         if success { "success" } else { "failed" },
         rows_count,
         err_msg_opt.as_deref(),
+        tenant_str(tenant.as_str()),
     );
 
     if success {
@@ -976,23 +1035,36 @@ async fn handle_inference_check(
 
 // ── Run history (issue C1) ────────────────────────────────────────────────────
 
-/// Lists runs newest-first.
-async fn handle_runs_list(State(state): State<AppState>) -> Result<Json<Value>, (StatusCode, String)> {
+/// Lists runs newest-first, scoped to the authenticated tenant.
+async fn handle_runs_list(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<String>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let tenant = tenant_str(tenant.as_str());
     let runs = state
         .store
-        .list_runs(50)
+        .list_runs(50, tenant)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(json!({ "runs": runs })))
+    Ok(Json(json!({ "tenant": tenant, "runs": runs })))
 }
 
-/// Fetches a single run by id.
+/// Fetches a single run by id, scoped to the authenticated tenant.
 async fn handle_run_by_id(
     Path(id): Path<i64>,
     State(state): State<AppState>,
+    Extension(tenant): Extension<String>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    match state.store.get_run(id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))? {
+    let tenant = tenant_str(tenant.as_str());
+    match state
+        .store
+        .get_run(id, tenant)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+    {
         Some(run) => Ok(Json(json!(run))),
-        None => Err((StatusCode::NOT_FOUND, format!("run {id} not found"))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            format!("run {id} not found (or not in tenant '{tenant}')"),
+        )),
     }
 }
 
@@ -1089,6 +1161,7 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
     #[tokio::test]
     async fn violating_code_is_rejected_with_422() {
         let result = handle_execute(
+            Extension(String::new()),
             State(test_state()),
             Json(ExecuteRequest {
                 code: UNSAFE_CODE.to_string(),
@@ -1117,6 +1190,7 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
         let before = guardrail::runner_invocations();
 
         let _ = handle_execute(
+            Extension(String::new()),
             State(test_state()),
             Json(ExecuteRequest {
                 code: UNSAFE_CODE.to_string(),
@@ -1137,6 +1211,7 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
         let before = guardrail::runner_invocations();
 
         let result = handle_execute(
+            Extension(String::new()),
             State(test_state()),
             Json(ExecuteRequest {
                 code: "v x = |> |> ???".to_string(),
@@ -1156,6 +1231,7 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
                     type P = { age_band: string };\n\
                     v x = load(\"d.csv\") :: P |> select([age_band]);";
         let result = handle_execute(
+            Extension(String::new()),
             State(test_state()),
             Json(ExecuteRequest {
                 code: code.to_string(),
@@ -1230,6 +1306,7 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
             .build()
             .unwrap();
         let result = rt.block_on(handle_execute(
+            Extension(String::new()),
             State(state),
             Json(ExecuteRequest {
                 code: "type P = { a: string }; v x = load(\"data/a.csv\") :: P;".to_string(),

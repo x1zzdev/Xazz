@@ -301,6 +301,7 @@ python benches/run_readme_benchmark.py --xlarge
 | 25 pipeline operators | `filter`, `groupBy`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
 | Visual IDE | Node-based pipeline editor + monitor, served by `xazz-server` | Stable |
 | Run history | SQLite-persisted run records — `GET /runs`, `GET /runs/:id` (Track C1) | Stable |
+| Auth & multi-tenant | `XAZZ_SERVER_TOKEN` / `XAZZ_TENANT_TOKENS` + `X-Xazz-Tenant` — tenant-scoped run history (Track C2) | Stable |
 | Python bindings | `xazz.check/run/policy` from Python — same diagnostics as the CLI (Track C4) | Stable |
 | `xazz sde` | Synthetic data generation engine | Stable |
 | `xazz sanitize` | Fine-tuning data sanitization — PII scan, duplicate & bias checks (Track F3) | Stable |

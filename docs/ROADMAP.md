@@ -99,10 +99,16 @@ datasets. This track makes Xazz handle real workloads.
   ✅ **Done 2026-09-09**: verified — execute → run_id, /runs lists, /runs/1 replays, data
   persists across a server restart.
 
-### C2. Auth / multi-tenant
-- [ ] Token-based auth beyond loopback (`XAZZ_SERVER_TOKEN` exists as a skeleton)
-- [ ] Per-tenant policy packs + DP budgets isolated by namespace
-- Depends on: C1. Acceptance: two tenants cannot see each other's runs or budgets.
+### C2. Auth / multi-tenant — issue #59
+- [x] Token-based auth beyond loopback — `XAZZ_SERVER_TOKEN` (single) + `XAZZ_TENANT_TOKENS`
+      (`tenant1=token1,tenant2=token2`) with `X-Xazz-Tenant` header; 401 on missing/invalid
+- [x] Per-tenant run isolation — `runs.tenant` column; `/runs` + `/runs/:id` scoped to the
+      authenticated tenant (cross-tenant read → 404)
+- [ ] Per-tenant policy packs + DP budgets isolated by namespace (extends the tenant scoping to
+      policy/budget state — runs isolation is done)
+- Depends on: C1. Acceptance: two tenants cannot see each other's runs.
+  ✅ **Run isolation done 2026-09-09**: verified end-to-end — tenant-a and tenant-b each see only
+  their own runs; cross-tenant GET /runs/:id → 404. Budget isolation remains.
 
 ### C3. Pipeline catalog + lineage
 - [ ] Dataset registration and column-level lineage derived from the IR's flowing `Schema`
@@ -227,7 +233,7 @@ Efficiency rule: **value-per-effort first, then dependency chain.** Do not start
 | 7 | ~~C1 — server persistence~~ | ✅ Done — SQLite run history + /runs API |
 | 8 | B2 — stdlib | Needs B1 |
 | 9 | ~~C4 — Python bindings (#61, subprocess adapter)~~ | ✅ Done — `xazz.check/run/policy` from Python; PyO3 deferred |
-| 10 | C2/C3 — auth + lineage | Both depend on C1 |
+| 10 | ~~C2 — auth + multi-tenant (#59, run isolation)~~ | ✅ Done — tenant token auth + scoped /runs; budget isolation remains |
 | 11 | D1/D2/D3 — ML | Phase 6; mostly independent, GPU hardware availability gates timing |
 | 12 | ~~F1 — prompt input gate~~ | ✅ Issue #70 open — pure policy-engine extension; biggest GenAI governance win per effort |
 | 13 | F2 — output gate (#71) | Depends on F1; completes the request/response audit story |

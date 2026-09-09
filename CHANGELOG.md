@@ -9,6 +9,18 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 인증 & 다중 테넌시 (issue #59, Track C2)
+
+- **토큰 인증**: `XAZZ_SERVER_TOKEN`(단일) + `XAZZ_TENANT_TOKENS`(`tenant1=token1,tenant2=token2`)
+  — 다중 테넌트 모드는 `X-Xazz-Tenant` 헤더 + Bearer 토큰 검증. 누락/불일치 시 401
+- **테넌트별 실행 격리**: `runs.tenant` 컬럼 추가(기존 DB 마이그레이션 포함), `/execute` 기록에
+  인증 테넌트 태깅, `/runs`·`/runs/:id`가 해당 테넌트로만 스코프 — 타 테넌트 run 조회 시 404
+- 미들웨어가 테넌트를 request extension에 주입, 핸들러가 읽음
+- 테넌트별 정책 팩·DP 예산 네임스페이스 격리는 후속 (run 격리는 완료)
+- E2E 검증: tenant-a/b 각각 자신의 run만 조회, cross-tenant GET /runs/:id → 404, 단일 토큰
+  모드 401/200
+- 테스트: store 테넌트 격리 1건 + 서버 통합 33건
+
 ### Added — Python 바인딩 (issue #61, Track C4)
 
 - **`python/xazz/` 패키지** — 순수 Python 어댑터로 CLI를 호출: `xazz.check(src)`,

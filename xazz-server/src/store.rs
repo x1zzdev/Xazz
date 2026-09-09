@@ -8,6 +8,10 @@
 //!
 //! Storage lives in `xazz.db` in the server's working directory. The DB is
 //! opened lazily and the table is created if missing.
+//!
+//! Multi-tenant (issue C2): every run is tagged with a `tenant`; when a request
+//! is authenticated with `X-Xazz-Tenant`, the store only sees/returns that
+//! tenant's rows. The `""` tenant is the default (single-tenant / local).
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -28,6 +32,9 @@ pub struct RunRecord {
     pub rows: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Tenant tag (empty string = default/single-tenant) — issue C2
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub tenant: String,
     /// Unix epoch seconds
     pub created_at: i64,
 }
@@ -56,7 +63,8 @@ impl Store {
                 status TEXT NOT NULL,
                 rows INTEGER NOT NULL DEFAULT 0,
                 error TEXT,
-                created_at INTEGER NOT NULL
+                created_at INTEGER NOT NULL,
+                tenant TEXT NOT NULL DEFAULT ''
             );",
         )
         .expect("create runs table");
@@ -78,10 +86,14 @@ impl Store {
                     status TEXT NOT NULL,
                     rows INTEGER NOT NULL DEFAULT 0,
                     error TEXT,
-                    created_at INTEGER NOT NULL
+                    created_at INTEGER NOT NULL,
+                    tenant TEXT NOT NULL DEFAULT ''
                 );",
             )
             .map_err(|e| format!("failed to create runs table: {e}"))?;
+            // Migration for DBs created before the tenant column (issue C2):
+            // adding an already-present column is a no-op error we swallow.
+            let _ = conn.execute_batch("ALTER TABLE runs ADD COLUMN tenant TEXT NOT NULL DEFAULT ''");
             *guard = Some(conn);
         }
         Ok(guard)
@@ -94,6 +106,7 @@ impl Store {
         status: &str,
         rows: i64,
         error: Option<&str>,
+        tenant: &str,
     ) -> Result<i64, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
@@ -102,22 +115,22 @@ impl Store {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
         conn.execute(
-            "INSERT INTO runs (code_hash, status, rows, error, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![code_hash, status, rows, error, created],
+            "INSERT INTO runs (code_hash, status, rows, error, created_at, tenant) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![code_hash, status, rows, error, created, tenant],
         )
         .map_err(|e| format!("failed to insert run: {e}"))?;
         Ok(conn.last_insert_rowid())
     }
 
-    /// Lists runs newest-first.
-    pub fn list_runs(&self, limit: usize) -> Result<Vec<RunRecord>, String> {
+    /// Lists runs newest-first, filtered to a tenant.
+    pub fn list_runs(&self, limit: usize, tenant: &str) -> Result<Vec<RunRecord>, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
         let mut stmt = conn
-            .prepare("SELECT id, code_hash, status, rows, error, created_at FROM runs ORDER BY id DESC LIMIT ?1")
+            .prepare("SELECT id, code_hash, status, rows, error, created_at, tenant FROM runs WHERE tenant = ?1 ORDER BY id DESC LIMIT ?2")
             .map_err(|e| format!("failed to prepare list: {e}"))?;
         let rows = stmt
-            .query_map(params![limit as i64], |row| {
+            .query_map(params![tenant, limit as i64], |row| {
                 Ok(RunRecord {
                     id: row.get(0)?,
                     code_hash: row.get(1)?,
@@ -125,6 +138,7 @@ impl Store {
                     rows: row.get(3)?,
                     error: row.get(4)?,
                     created_at: row.get(5)?,
+                    tenant: row.get(6)?,
                 })
             })
             .map_err(|e| format!("failed to query runs: {e}"))?;
@@ -135,15 +149,15 @@ impl Store {
         Ok(out)
     }
 
-    /// Fetches a single run by id.
-    pub fn get_run(&self, id: i64) -> Result<Option<RunRecord>, String> {
+    /// Fetches a single run by id, scoped to a tenant.
+    pub fn get_run(&self, id: i64, tenant: &str) -> Result<Option<RunRecord>, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
         let mut stmt = conn
-            .prepare("SELECT id, code_hash, status, rows, error, created_at FROM runs WHERE id = ?1")
+            .prepare("SELECT id, code_hash, status, rows, error, created_at, tenant FROM runs WHERE id = ?1 AND tenant = ?2")
             .map_err(|e| format!("failed to prepare get: {e}"))?;
         let mut rows = stmt
-            .query_map(params![id], |row| {
+            .query_map(params![id, tenant], |row| {
                 Ok(RunRecord {
                     id: row.get(0)?,
                     code_hash: row.get(1)?,
@@ -151,6 +165,7 @@ impl Store {
                     rows: row.get(3)?,
                     error: row.get(4)?,
                     created_at: row.get(5)?,
+                    tenant: row.get(6)?,
                 })
             })
             .map_err(|e| format!("failed to query run: {e}"))?;
@@ -186,27 +201,38 @@ mod tests {
         let store = Store::open_at(&db);
 
         let id = store
-            .record_run("hash1", "success", 42, None)
+            .record_run("hash1", "success", 42, None, "tenant-a")
             .expect("insert");
         let id2 = store
-            .record_run("hash2", "failed", 0, Some("boom"))
+            .record_run("hash2", "failed", 0, Some("boom"), "tenant-a")
+            .expect("insert");
+        // A different tenant's run must not be visible to tenant-a.
+        let id_other = store
+            .record_run("hash3", "success", 1, None, "tenant-b")
             .expect("insert");
 
-        let list = store.list_runs(10).expect("list");
-        assert!(list.len() >= 2, "{list:?}");
+        let list = store.list_runs(10, "tenant-a").expect("list");
+        assert_eq!(list.len(), 2, "{list:?}");
+        assert!(list.iter().all(|r| r.tenant == "tenant-a"));
         let first = &list[0];
         assert!(first.id == id2 || first.id == id);
         // Newest first.
         assert_eq!(first.id.max(id2), first.id);
 
-        let got = store.get_run(id).expect("get").expect("exists");
+        let got = store.get_run(id, "tenant-a").expect("get").expect("exists");
         assert_eq!(got.status, "success");
         assert_eq!(got.rows, 42);
         assert!(got.error.is_none());
 
-        let got2 = store.get_run(id2).expect("get").expect("exists");
+        let got2 = store.get_run(id2, "tenant-a").expect("get").expect("exists");
         assert_eq!(got2.status, "failed");
         assert_eq!(got2.error.as_deref(), Some("boom"));
+
+        // Cross-tenant access is denied: tenant-a cannot read tenant-b's run.
+        assert!(store.get_run(id_other, "tenant-a").expect("no err").is_none());
+        // tenant-b sees only its own run.
+        let b_list = store.list_runs(10, "tenant-b").expect("list");
+        assert_eq!(b_list.len(), 1);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -224,7 +250,7 @@ mod tests {
         let db = dir.join("xazz.db");
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open_at(&db);
-        assert!(store.get_run(999_999).expect("no err").is_none());
+        assert!(store.get_run(999_999, "").expect("no err").is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
