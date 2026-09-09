@@ -92,9 +92,12 @@ datasets. This track makes Xazz handle real workloads.
 ## Track C — Platform scale (team / org reach)
 
 ### C1. Server persistence + run history
-- [ ] SQLite storage in `xazz-server`: projects, run history, receipts (SHA-256 chain today is append-only JSONL)
-- [ ] `GET /runs` list + `GET /runs/:id` receipt replay
-- Depends on: none (server is already independent). Acceptance: run history survives restart and is queryable via API.
+- [x] SQLite storage in `xazz-server` (`rusqlite`, `xazz.db`): `runs` table with id, code_hash,
+      status, rows, error, created_at. The audit SHA-256 chain stays JSONL (append-only).
+- [x] `GET /runs` list + `GET /runs/:id` receipt replay; `POST /execute` returns `run_id`
+- Depends on: none. Acceptance: run history survives restart and is queryable via API.
+  ✅ **Done 2026-09-09**: verified — execute → run_id, /runs lists, /runs/1 replays, data
+  persists across a server restart.
 
 ### C2. Auth / multi-tenant
 - [ ] Token-based auth beyond loopback (`XAZZ_SERVER_TOKEN` exists as a skeleton)
@@ -217,7 +220,7 @@ Efficiency rule: **value-per-effort first, then dependency chain.** Do not start
 | 4 | ~~B1 — module system~~ | ✅ Done — issue #69 |
 | 5 | B3 — LSP (#75, diagnostics done) | Reuses checker; biggest DX/visibility win, enables E1 |
 | 6 | ~~A3 — connectors (#54)~~ | ✅ Done — DuckDB + PostgreSQL sources |
-| 7 | C1 — server persistence | Foundation for C2/C3; independent of A/B |
+| 7 | ~~C1 — server persistence~~ | ✅ Done — SQLite run history + /runs API |
 | 8 | B2 — stdlib | Needs B1 |
 | 9 | C4 — Python bindings | Big adoption lever; best after LSP/B1 ergonomics |
 | 10 | C2/C3 — auth + lineage | Both depend on C1 |

@@ -9,6 +9,16 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 서버 런 영속화 (issue C1)
+
+- **SQLite 저장 (`xazz-server`, `rusqlite` bundled)** — `xazz.db`의 `runs` 테이블에 각 실행 기록:
+  id, code_hash, status(success/failed/blocked), rows, error, created_at
+- **`GET /runs`** — 최신순 실행 목록 / **`GET /runs/:id`** — 단일 레코드 조회
+- **`POST /execute` 응답에 `run_id` 포함** — 영속 레코드와의 연결
+- 감사 SHA-256 체인은 기존 append-only JSONL 유지 (별도)
+- 실행 history가 서버 재시작 후에도 유지 — 재시작 후 `/runs`에 이전 실행 잔존 검증
+- 테스트: store 유닛 2건(기록·목록·단일 조회, 미존재 None) + 서버 통합 33건
+
 ### Added — LSP 네비게이션 · 심볼 테이블 (issue #75, Track B3)
 
 - **`xazz-compiler::symbols` 심볼 테이블** — 토큰 스트림에서 변수/타입/모델 정의·참조 위치를

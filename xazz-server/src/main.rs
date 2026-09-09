@@ -9,9 +9,11 @@
 //!   GET  /security/audit/log                               → view all audit logs (JSONL hash chain)
 //!   GET  /security/audit/log/:hash                         → look up an audit record by code hash
 //!   GET  /security/audit/chain                             → verify hash-chain integrity
-//!   GET  /security/policy                                  → view the active Policy-as-Code policy
+//!   GET  /security/policy                                  → the current Policy-as-Code policy
 //!   POST /security/policy/check { "code": "<xzz DSL>" }    → static guardrail inspection report
 //!   POST /security/remediate    { "code": "<xzz DSL>" }    → safe code auto-remediation (deterministic + sLM)
+//!   GET  /runs                                → run history (SQLite, issue C1)
+//!   GET  /runs/:id                            → a single run record
 //!
 //! Port: 8005 (frontend/.env: VITE_API_BASE_URL=http://127.0.0.1:8005)
 
@@ -37,6 +39,7 @@ use tower_http::services::ServeDir;
 mod audit_log;
 mod guardrail;
 mod slm;
+mod store;
 
 /// Upper bound on concurrently running `xazz run` processes — execution DoS prevention.
 /// Over-limit requests are rejected immediately with 429 (no queue → prevents
@@ -46,10 +49,24 @@ const MAX_CONCURRENT_EXECUTIONS: usize = 4;
 /// /schema upload maximum allowed size (bytes).
 const MAX_UPLOAD_BYTES: usize = 50 * 1024 * 1024;
 
-/// AppState — execution semaphore shared across requests.
+/// AppState shared across requests.
 #[derive(Clone)]
 struct AppState {
     exec_permits: Arc<Semaphore>,
+    /// Persistent run-history store (issue C1)
+    store: Arc<store::Store>,
+}
+
+/// Records a run in the store, returning the new id (0 on store failure).
+fn record_run_in_store(state: &AppState, code: &str, status: &str, rows: i64, error: Option<&str>) -> i64 {
+    let hash = audit_log::hash_code(code);
+    match state.store.record_run(&hash, status, rows, error) {
+        Ok(id) => id,
+        Err(e) => {
+            eprintln!("[xazz] ⚠️ run history 저장 실패: {e}");
+            0
+        }
+    }
 }
 
 // ── request / response types ─────────────────────────────────────────────────
@@ -80,6 +97,9 @@ struct ExecuteResponse {
     policy: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    /// Run-history id (issue C1) — absent (None) is omitted from JSON.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run_id: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -136,8 +156,11 @@ async fn main() {
         .route("/security/policy/check", post(handle_policy_check))
         .route("/security/remediate", post(handle_remediate))
         .route("/security/inference/check", post(handle_inference_check))
+        .route("/runs", get(handle_runs_list))
+        .route("/runs/{id}", get(handle_run_by_id))
         .with_state(AppState {
             exec_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_EXECUTIONS)),
+            store: Arc::new(store::Store::new()),
         })
         .layer(cors);
 
@@ -284,6 +307,7 @@ async fn handle_execute(
                     diagnostics: None,
                     policy: None,
                     error: Some("server is at capacity; try again shortly".to_string()),
+                    run_id: None,
                 }),
             ));
         }
@@ -318,6 +342,7 @@ async fn handle_execute(
                     diagnostics: None,
                     policy: serde_json::to_value(&report).ok(),
                     error: Some(report.summary()),
+                    run_id: None,
                 }),
             ));
         }
@@ -374,6 +399,21 @@ async fn handle_execute(
         Err(e) => eprintln!("[xazz] ⚠️ 감사 로그 저장 실패: {}", e),
     }
 
+    // 5b. Persist the run to history (issue C1) — survives restart.
+    let rows_count = rows.as_array().map(|a| a.len() as i64).unwrap_or(0);
+    let err_msg_opt = if success {
+        None
+    } else {
+        Some(stderr.lines().last().unwrap_or("실행 실패").to_string())
+    };
+    let run_id = record_run_in_store(
+        &state,
+        &payload.code,
+        if success { "success" } else { "failed" },
+        rows_count,
+        err_msg_opt.as_deref(),
+    );
+
     if success {
         Ok(Json(ExecuteResponse {
             success: true,
@@ -386,9 +426,9 @@ async fn handle_execute(
             diagnostics,
             policy: serde_json::to_value(&policy_report).ok(),
             error: None,
+            run_id: Some(run_id),
         }))
     } else {
-        let err_msg = stderr.lines().last().unwrap_or("실행 실패").to_string();
         Ok(Json(ExecuteResponse {
             success: false,
             rows: json!([]),
@@ -399,7 +439,8 @@ async fn handle_execute(
             dp,
             diagnostics,
             policy: serde_json::to_value(&policy_report).ok(),
-            error: Some(err_msg),
+            error: err_msg_opt,
+            run_id: Some(run_id),
         }))
     }
 }
@@ -933,6 +974,28 @@ async fn handle_inference_check(
     }))
 }
 
+// ── Run history (issue C1) ────────────────────────────────────────────────────
+
+/// Lists runs newest-first.
+async fn handle_runs_list(State(state): State<AppState>) -> Result<Json<Value>, (StatusCode, String)> {
+    let runs = state
+        .store
+        .list_runs(50)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(json!({ "runs": runs })))
+}
+
+/// Fetches a single run by id.
+async fn handle_run_by_id(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    match state.store.get_run(id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))? {
+        Some(run) => Ok(Json(json!(run))),
+        None => Err((StatusCode::NOT_FOUND, format!("run {id} not found"))),
+    }
+}
+
 // ── utilities ──────────────────────────────────────────────────────────────────
 
 fn find_xazz_exe() -> Result<PathBuf, String> {
@@ -993,6 +1056,7 @@ fn internal_err(msg: String) -> (StatusCode, Json<ExecuteResponse>) {
             diagnostics: None,
             policy: None,
             error: Some(msg),
+            run_id: None,
         }),
     )
 }
@@ -1010,8 +1074,10 @@ mod tests {
     /// Test AppState — a permit count large enough that the execution semaphore does not
     /// impose test concurrency limits.
     fn test_state() -> AppState {
+        let tmp_db = std::env::temp_dir().join(format!("xazz_server_test_{}.db", std::process::id()));
         AppState {
             exec_permits: Arc::new(Semaphore::new(64)),
+            store: Arc::new(store::Store::open_at(&tmp_db)),
         }
     }
 
@@ -1157,6 +1223,7 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
     fn execute_rejects_when_semaphore_exhausted() {
         let state = AppState {
             exec_permits: Arc::new(Semaphore::new(0)),
+            store: Arc::new(store::Store::new()),
         };
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()

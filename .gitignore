@@ -65,3 +65,6 @@ demo/narration.txt
 
 # local zig cc/c++ wrappers for duckdb bundled builds
 .xazztools-bin/
+
+# xazz-server runtime data
+xazz.db
