@@ -388,7 +388,7 @@ pub fn render_report(report: &SanitizeReport) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use polars::prelude::{Column, Series, NamedFrom};
+    use polars::prelude::Column;
 
     fn df_from_cols(cols: &[(&str, Vec<Option<&str>>)]) -> DataFrame {
         let mut out = DataFrame::empty();

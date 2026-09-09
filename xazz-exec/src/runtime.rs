@@ -596,6 +596,12 @@ fn validate_schema_types(df: &polars::frame::DataFrame, label: &str, schema: &Sc
 fn load_source_lazy(
     file_path: &str,
 ) -> Result<polars::prelude::LazyFrame, Box<dyn std::error::Error>> {
+    // DuckDB URIs produce an eager in-memory result — wrap it in a LazyFrame.
+    if parse_duckdb_uri(file_path).is_some() {
+        let df = load_duckdb_as_df(file_path)?;
+        return Ok(polars::prelude::IntoLazy::lazy(df));
+    }
+
     let ext = std::path::Path::new(file_path)
         .extension()
         .and_then(|e| e.to_str())
@@ -632,6 +638,11 @@ fn load_source_lazy(
 pub(crate) fn load_source_as_df(
     file_path: &str,
 ) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    // DuckDB source URIs are not file paths — handle them before extension dispatch.
+    if parse_duckdb_uri(file_path).is_some() {
+        return load_duckdb_as_df(file_path);
+    }
+
     let ext = std::path::Path::new(file_path)
         .extension()
         .and_then(|e| e.to_str())
@@ -691,6 +702,206 @@ fn load_arrow_as_df(
             format!("Arrow read failed '{}' — {}", file_path, e)
         }
     })?;
+    Ok(df)
+}
+
+// ── DuckDB source connector (issue #56, Track A3) ───────────────────────────
+
+/// Parses a `duckdb://` source URI into (db path, sql).
+///
+///   `load("duckdb://data.db?sql=SELECT * FROM t")`   → ("data.db", "SELECT …")
+///   `load("duckdb://:memory:?sql=SELECT 1")`         → (":memory:", "SELECT 1")
+///
+/// Returns None when the path is not a DuckDB URI (ordinary file path).
+fn parse_duckdb_uri(path: &str) -> Option<(String, String)> {
+    if !path.starts_with("duckdb://") {
+        return None;
+    }
+    let rest: &str = &path[9..]; // len("duckdb://") == 9
+    // Split on the first `?sql=`.
+    let Some(q) = rest.find('?') else {
+        return None;
+    };
+    let db: &str = &rest[..q];
+    let query: &str = &rest[q + 1..];
+    if !query.starts_with("sql=") {
+        return None;
+    }
+    Some((db.to_string(), query[4..].to_string()))
+}
+
+/// Loads a DuckDB query result as a Polars DataFrame (eager).
+///
+/// Runs the SQL against a DuckDB in-memory or file-backed database, exports the
+/// result to a temporary Parquet file (`COPY (...) TO '...parquet'`), and reads
+/// it back with Polars' own Parquet reader. This avoids cross-crate Arrow type
+/// mismatches: DuckDB speaks its own Arrow, Polars speaks polars-arrow, and
+/// Parquet is the neutral interchange format both natively support.
+fn load_duckdb_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    let Some((db, sql)) = parse_duckdb_uri(uri) else {
+        return Err(format!("invalid DuckDB URI: '{uri}'").into());
+    };
+
+    // In-memory (`:memory:`) combined with `COPY (...)` segfaulted in duckdb
+    // 1.10505, so an ephemeral on-disk DB file is used for the in-memory case.
+    let ephemeral_db = db == ":memory:" || db.is_empty();
+    let tmp_db = std::path::PathBuf::from(std::env::temp_dir()).join(format!(
+        "xazz_duckdb_{}_{}.db",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let db_str: &str = if ephemeral_db {
+        tmp_db.to_str().unwrap_or("")
+    } else {
+        db.as_str()
+    };
+    let conn = duckdb::Connection::open(std::path::Path::new(&db_str))
+        .map_err(|e| {
+            if is_korean() {
+                format!("DuckDB 연결 실패 '{}' — {}", db, e)
+            } else {
+                format!("failed to open DuckDB '{}' — {}", db, e)
+            }
+        })?;
+
+    // Read the result row-by-row via ValueRef (type-tagged), then build a Polars
+    // DataFrame column by column. `COPY (...)` TO parquet segfaulted in this
+    // bundled duckdb build, so we avoid the file-interchange path entirely.
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| {
+            if is_korean() {
+                format!("DuckDB SQL 준비 실패: {}", e)
+            } else {
+                format!("failed to prepare DuckDB SQL: {}", e)
+            }
+        })?;
+    // NOTE: column_count/column_name are only valid after the statement has been
+    // executed, so the query() call below must come first.
+    let mut rows = stmt
+        .query(())
+        .map_err(|e| {
+            if is_korean() {
+                format!("DuckDB 쿼리 실패: {}", e)
+            } else {
+                format!("DuckDB query failed: {}", e)
+            }
+        })?;
+    let stmt_ref = rows.as_ref().unwrap();
+    let column_names: Vec<String> = (0..stmt_ref.column_count())
+        .map(|i| stmt_ref.column_name(i).map(|s| s.as_str()).unwrap_or("").to_string())
+        .collect();
+    let n_cols = column_names.len();
+
+    // Column-wise cell buffers (dynamically typed — a column may mix types).
+    #[derive(Clone)]
+    enum DCell {
+        Int(i64),
+        Float(f64),
+        Str(String),
+    }
+    let mut cells: Vec<Vec<Option<DCell>>> = vec![Vec::new(); n_cols];
+
+    while let Some(row) = rows.next().map_err(|e| {
+        if is_korean() {
+            format!("DuckDB 행 읽기 실패: {}", e)
+        } else {
+            format!("failed to read DuckDB row: {}", e)
+        }
+    })? {
+        for i in 0..n_cols {
+            use duckdb::types::ValueRef;
+            let v = row.get_ref(i).map_err(|e| {
+                if is_korean() {
+                    format!("DuckDB 값 읽기 실패 (컬럼 {}): {}", i, e)
+                } else {
+                    format!("failed to read DuckDB value: {}", e)
+                }
+            })?;
+            let cell = match v {
+                ValueRef::Null => None,
+                ValueRef::TinyInt(x) => Some(DCell::Int(x as i64)),
+                ValueRef::SmallInt(x) => Some(DCell::Int(x as i64)),
+                ValueRef::Int(x) => Some(DCell::Int(x as i64)),
+                ValueRef::BigInt(x) => Some(DCell::Int(x)),
+                ValueRef::UTinyInt(x) => Some(DCell::Int(x as i64)),
+                ValueRef::USmallInt(x) => Some(DCell::Int(x as i64)),
+                ValueRef::UInt(x) => Some(DCell::Int(x as i64)),
+                ValueRef::UBigInt(x) => Some(DCell::Int(x as i64)),
+                ValueRef::Float(x) => Some(DCell::Float(x as f64)),
+                ValueRef::Double(x) => Some(DCell::Float(x)),
+                ValueRef::Decimal(d) => {
+                    let txt = d.to_string();
+                    match txt.parse::<f64>() {
+                        Ok(f) => Some(DCell::Float(f)),
+                        Err(_) => Some(DCell::Str(txt)),
+                    }
+                }
+                ValueRef::Date32(x) => Some(DCell::Int(x as i64)),
+                ValueRef::Timestamp(_, x) => Some(DCell::Int(x)),
+                ValueRef::Text(bytes) => Some(DCell::Str(String::from_utf8_lossy(bytes).to_string())),
+                _ => Some(DCell::Str("value".to_string())),
+            };
+            cells[i].push(cell);
+        }
+    }
+
+    // Materialize each column into a typed Polars Series. The effective column
+    // type is: Float if any cell is Float (ints coerce), else Str if any cell is
+    // Str, else Int (or all-null → Str).
+    let n_rows = cells.iter().map(|c| c.len()).max().unwrap_or(0);
+    let mut df = polars::frame::DataFrame::empty();
+    for i in 0..n_cols {
+        let name = polars::prelude::PlSmallStr::from(column_names[i].as_str());
+        let has_float = cells[i].iter().flatten().any(|c| matches!(c, DCell::Float(_)));
+        let has_str = cells[i].iter().flatten().any(|c| matches!(c, DCell::Str(_)));
+
+        if has_float {
+            let vals: Vec<Option<f64>> = (0..n_rows)
+                .map(|r| match cells[i].get(r).and_then(|c| c.as_ref()) {
+                    Some(DCell::Float(x)) => Some(*x),
+                    Some(DCell::Int(x)) => Some(*x as f64),
+                    Some(DCell::Str(_)) => None,
+                    None => None,
+                })
+                .collect();
+            let col = polars::prelude::Column::new(name, vals);
+            df.with_column(col).map_err(|e| {
+                format!("failed to add DuckDB column '{}': {}", column_names[i], e)
+            })?;
+        } else if has_str {
+            let vals: Vec<Option<String>> = (0..n_rows)
+                .map(|r| match cells[i].get(r).and_then(|c| c.as_ref()) {
+                    Some(DCell::Str(x)) => Some(x.clone()),
+                    Some(DCell::Int(x)) => Some(x.to_string()),
+                    Some(DCell::Float(x)) => Some(x.to_string()),
+                    None => None,
+                })
+                .collect();
+            let col = polars::prelude::Column::new(name, vals);
+            df.with_column(col).map_err(|e| {
+                format!("failed to add DuckDB column '{}': {}", column_names[i], e)
+            })?;
+        } else {
+            let vals: Vec<Option<i64>> = (0..n_rows)
+                .map(|r| match cells[i].get(r).and_then(|c| c.as_ref()) {
+                    Some(DCell::Int(x)) => Some(*x),
+                    _ => None,
+                })
+                .collect();
+            let col = polars::prelude::Column::new(name, vals);
+            df.with_column(col).map_err(|e| {
+                format!("failed to add DuckDB column '{}': {}", column_names[i], e)
+            })?;
+        }
+    }
+
+    if ephemeral_db {
+        let _ = std::fs::remove_file(&tmp_db);
+    }
     Ok(df)
 }
 
@@ -768,6 +979,10 @@ fn load_csv_lazy(
 const SMALL_SOURCE_BYTES: u64 = 32 * 1024 * 1024;
 
 fn source_is_small(file_path: &str) -> bool {
+    // DuckDB URIs are not files — treat as eager (in-memory result).
+    if parse_duckdb_uri(file_path).is_some() {
+        return true;
+    }
     std::fs::metadata(file_path)
         .map(|m| m.len() <= SMALL_SOURCE_BYTES)
         .unwrap_or(true)
@@ -1277,5 +1492,86 @@ mod streaming_tests {
             .collect_with_engine(Engine::Streaming)
             .expect("streaming 엔진이 벤치 연산(filter/group_by/sum/sort/limit)을 지원해야 함");
         assert_eq!(out.height(), 2);
+    }
+}
+
+// ── DuckDB source connector tests (issue #56, Track A3) ───────────────────
+
+#[cfg(test)]
+mod duckdb_tests {
+    use super::*;
+
+    #[test]
+    fn parses_duckdb_uri() {
+        let (db, sql) = parse_duckdb_uri(
+            "duckdb://:memory:?sql=SELECT 1 AS a",
+        )
+        .expect("should parse");
+        assert_eq!(db, ":memory:");
+        assert_eq!(sql, "SELECT 1 AS a");
+
+        let (db, sql) =
+            parse_duckdb_uri("duckdb://data.db?sql=SELECT * FROM t").expect("should parse");
+        assert_eq!(db, "data.db");
+        assert_eq!(sql, "SELECT * FROM t");
+    }
+
+    #[test]
+    fn non_duckdb_path_is_not_a_uri() {
+        assert!(parse_duckdb_uri("data.csv").is_none());
+        assert!(parse_duckdb_uri("duckdb://noproto").is_none());
+    }
+
+    #[test]
+    fn loads_query_result_as_df() {
+        let df = load_duckdb_as_df(
+            "duckdb://:memory:?sql=SELECT 1 AS id, 'alpha' AS label, 3.14 AS val UNION ALL SELECT 2, 'beta', 2.71",
+        )
+        .expect("duckdb query should run");
+        assert_eq!(df.height(), 2);
+        assert_eq!(df.width(), 3);
+        // id is i64
+        let id_vals: Vec<i64> = df
+            .column("id")
+            .unwrap()
+            .as_materialized_series()
+            .i64()
+            .unwrap()
+            .iter()
+            .flatten()
+            .collect();
+        assert_eq!(id_vals, vec![1, 2]);
+        // label is str
+        let label_vals: Vec<&str> = df
+            .column("label")
+            .unwrap()
+            .as_materialized_series()
+            .str()
+            .unwrap()
+            .iter()
+            .flatten()
+            .collect();
+        assert_eq!(label_vals, vec!["alpha", "beta"]);
+        // val is f64 (Decimal coerced)
+        let val_vals: Vec<f64> = df
+            .column("val")
+            .unwrap()
+            .as_materialized_series()
+            .f64()
+            .unwrap()
+            .iter()
+            .flatten()
+            .collect();
+        assert!((val_vals[0] - 3.14).abs() < 1e-9, "val[0]={}", val_vals[0]);
+        assert!((val_vals[1] - 2.71).abs() < 1e-9, "val[1]={}", val_vals[1]);
+    }
+
+    #[test]
+    fn empty_result_is_empty_df() {
+        let df = load_duckdb_as_df(
+            "duckdb://:memory:?sql=SELECT 1 AS a WHERE 1=0",
+        )
+        .expect("empty query should run");
+        assert_eq!(df.height(), 0);
     }
 }

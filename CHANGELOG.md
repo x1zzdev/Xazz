@@ -9,6 +9,19 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — DuckDB 소스 커넥터 (issue #54, Track A3)
+
+- **`load("duckdb://...")`** — DuckDB(in-memory `:memory:` 또는 파일 DB) 쿼리 결과를 Polars
+  파이프라인 소스로 사용. URI 형식 `duckdb://:memory:?sql=...` / `duckdb://data.db?sql=...`
+- DuckDB `bundled` feature — 시스템 설치 불필요 (self-contained)
+- 결과를 `ValueRef` 타입 태그로 읽어 Polars Series로 변환 — int/float(Decimal 포함)/str 컬럼을
+  올바른 dtype으로 구성. UNION 등 동적 타입 혼합 컬럼도 자동 결정
+- `:: Type` 스키마 주석, filter/groupBy/mean 등 일반 파이프라인 연산과 자연스럽게 연동
+- `xazz run` / `xazz check` / `xazz sanitize` 모두 지원
+- 참고: `COPY (...) TO parquet` 교환 경로는 이 bundled 빌드에서 세그폴트되어
+  ValueRef 직접 읽기로 구현
+- 데모: `examples/duckdb/hello_duckdb.xzz` · 단위 테스트 4건
+
 ### Added — LSP 서버 (`xazz-lsp`, issue #75, Track B3)
 
 - **새 크레이트 `xazz-lsp`** (tower-lsp) — `xazz check` 체커를 그대로 재사용해 에디터에

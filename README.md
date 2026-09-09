@@ -295,6 +295,7 @@ python benches/run_readme_benchmark.py --xlarge
 | `withDp(epsilon:)` | Differential-privacy noise (laplace / gaussian) with budget tracking | Stable |
 | Built-in `chart {}` | Render results as bar / line / pie / scatter (HTML) | Stable |
 | `load()` + `save()` | Columnar sources (`.parquet`/`.arrow`) auto-detected by extension; write CSV/Parquet/Arrow artifacts | Stable |
+| DuckDB connector | `load("duckdb://...?sql=...")` — in-memory or file-backed DuckDB as a pipeline source (Track A3) | Stable |
 | `Option<T>` type system | Null-safe column declarations — `fillNull` on a non-nullable column is a compile error | Stable |
 | 25 pipeline operators | `filter`, `groupBy`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
 | Visual IDE | Node-based pipeline editor + monitor, served by `xazz-server` | Stable |

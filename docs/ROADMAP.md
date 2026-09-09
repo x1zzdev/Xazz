@@ -42,10 +42,15 @@ datasets. This track makes Xazz handle real workloads.
 - [x] Document peak-RSS vs latency tradeoff already noted in README
 - Measured 2026-09-04: 1.39×/1.95×/1.39× vs pandas at 228K/912K/4.09M rows; lower peak RSS at scale.
 
-### A3. External source connectors
-- [ ] Embedded DuckDB source (`load("duckdb://...")`), SQL text in `.xzz`
+### A3. External source connectors — issue #54
+- [x] Embedded DuckDB source (`load("duckdb://...")`), SQL text in `.xzz` — `duckdb://:memory:?sql=...`
+      and `duckdb://data.db?sql=...`; results flow into the normal Polars pipeline
+      (filter/groupBy/mean etc.) and the schema `:: Type` annotation. Works with
+      `xazz run`, `xazz check`, and `xazz sanitize`.
 - [ ] PostgreSQL read connector behind a `load("postgres://...")` source attribute
 - Depends on: A2. Acceptance: one `.xzz` file mixing CSV + DB sources in a single pipeline.
+  ✅ **DuckDB done 2026-09-08**: `examples/duckdb/hello_duckdb.xzz` loads a DuckDB UNION query
+  and runs filter/groupBy/mean. DuckDB is bundled (no system install). Postgres remains.
 
 ### A4. `xazz import` extension — Parquet/Arrow schema inference — ✅ done (issue #55)
 - [x] `xazz import data.parquet` writes the same inferred `type` block today's CSV path does (via `xazz-exec --schema`)
@@ -208,7 +213,7 @@ Efficiency rule: **value-per-effort first, then dependency chain.** Do not start
 | 3 | ~~A4 — import extension~~ | ✅ Done — issue #55 |
 | 4 | ~~B1 — module system~~ | ✅ Done — issue #69 |
 | 5 | B3 — LSP (#75, diagnostics done) | Reuses checker; biggest DX/visibility win, enables E1 |
-| 6 | A3 — connectors | Independent of language work; adds DuckDB/Postgres sources |
+| 6 | A3 — connectors (#54, DuckDB done) | Independent of language work; adds DuckDB/Postgres sources |
 | 7 | C1 — server persistence | Foundation for C2/C3; independent of A/B |
 | 8 | B2 — stdlib | Needs B1 |
 | 9 | C4 — Python bindings | Big adoption lever; best after LSP/B1 ergonomics |

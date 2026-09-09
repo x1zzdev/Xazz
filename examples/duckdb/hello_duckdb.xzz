@@ -1,0 +1,22 @@
+// Xazz DuckDB 소스 커넥터 데모 (issue #56, Track A3)
+//
+// `load("duckdb://...?sql=...")` — DuckDB(in-memory 또는 파일 DB) 쿼리 결과를
+// Polars 파이프라인의 소스로 직접 사용.
+//
+//   xazz run examples/duckdb/hello_duckdb.xzz
+
+type City = {
+    region: string,
+    population: int,
+    pm10:     float,
+}
+
+// 인메모리 DuckDB에서 UNION으로 만든 데이터를 로드
+v cities = load("duckdb://:memory:?sql=SELECT 'seoul' AS region, 9700000 AS population, 45.5 AS pm10 UNION ALL SELECT 'busan', 3400000, 52.1 UNION ALL SELECT 'incheon', 2950000, 38.9") :: City
+    |> select([region, population, pm10]);
+
+// DuckDB 데이터를 일반 Polars 파이프라인처럼 처리
+v by_region = cities
+    |> filter(pm10 > 40)
+    |> groupBy("region")
+    |> mean("pm10");
