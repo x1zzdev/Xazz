@@ -9,6 +9,17 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — LSP 네비게이션 · 심볼 테이블 (issue #75, Track B3)
+
+- **`xazz-compiler::symbols` 심볼 테이블** — 토큰 스트림에서 변수/타입/모델 정의·참조 위치를
+  1-based line:col로 수집 (`mut v`, `v`, `type`, `model` 선언 + 동일 이름 참조 추적)
+- **`xazz-lsp` hover** — 커서 위치의 심볼에 대해 kind(변수/타입/모델) + 정의/참조 표시
+- **`xazz-lsp` go-to-definition** — 참조에서 동일 이름 선언 위치로 점프
+- stdio 스모크 테스트로 E2E 검증: hover `**variable** \`x\` (reference)`, goto가 선언
+  line:col로 이동
+- rename은 후속 (#75에 추적)
+- 테스트: 심볼 인덱서 4건 + LSP 네비게이션 3건
+
 ### Added — PostgreSQL 소스 커넥터 (issue #54, Track A3)
 
 - **`load("postgres://user:pass@host:port/db?sql=...")`** — PostgreSQL 쿼리 결과를 Polars

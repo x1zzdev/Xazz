@@ -77,14 +77,15 @@ datasets. This track makes Xazz handle real workloads.
 - Depends on: B1. Acceptance: `import "std/math"` usable in demos.
 
 ### B3. LSP server (`xazz-lsp`) — issue #75
-- [x] New crate (`tower-lsp`) exposing diagnostics, hover, go-to-def, rename by **reusing the checker**
+- [x] New crate (`tower-lsp`) exposing diagnostics, hover, go-to-def by **reusing the checker**
 - [x] Diagnostics on open/change/save — byte-for-byte match `xazz check` line:col output
-- [x] `import "mod.xzz"` resolved relative to the document dir before checking (reuses B1)
-- [ ] hover / go-to-def / rename — deferred: the checker does not yet export a symbol table
+- [x] `import "mod.xzz"` resolved relative to the script file before checking (reuses B1)
+- [x] hover / goto-def over the token-level **symbol table** (`xazz-compiler::symbols`:
+      variable/type/model definitions + references) — verified via stdio smoke test
+- [ ] rename — deferred (needs symbol-table-based text mutation across the file)
 - Acceptance: diagnostics in VS Code match `xazz check` line:col output exactly.
-  ✅ **Diagnostics done 2026-09-07**: LSP server publishes the same diagnostic text as
-  `xazz check` (verified via stdio smoke test). Navigation needs a checker symbol-table export
-  first (tracked on #75).
+  ✅ **Done 2026-09-09**: diagnostics + hover + goto-def verified end-to-end over stdio.
+  Rename remains a small follow-up (tracked on #75).
 
 ---
 

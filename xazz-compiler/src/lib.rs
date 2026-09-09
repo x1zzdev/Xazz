@@ -27,6 +27,7 @@ pub mod opt;
 pub mod parser;
 pub mod polars_text;
 pub mod policy;
+pub mod symbols;
 pub mod token; // re-exports xazz-core::token
 
 // ── token re-exports ─────────────────────────────────────────────────────────

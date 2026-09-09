@@ -6,9 +6,8 @@
 //   - diagnostics:  publish on open / change / save
 //   - import modules: `import "./mod.xzz"` is resolved relative to the document's
 //     directory before checking, exactly like `xazz check` (issue #69).
-//   - hover / goto-def / rename: minimal implementations over the checked AST
-//     (the checker does not yet export a full symbol table; navigation covers
-//     what the typed IR makes available).
+//   - hover / goto-def: driven by the token-level symbol table (xazz-compiler
+//     `symbols` module) — variable/type/model definitions + references.
 //
 // The server speaks LSP over stdio — plug it into any editor (VS Code E1, etc.).
 
@@ -20,6 +19,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use xazz_compiler::checker::CheckResult;
 use xazz_compiler::error::{CompileError, ErrorKind};
+use xazz_compiler::symbols::{SymbolKind, index_source};
 
 /// Workspace/document state retained by the server.
 struct Backend {
@@ -65,6 +65,32 @@ fn check_result_to_diagnostics(result: &CheckResult) -> Vec<Diagnostic> {
 ///
 /// Mirrors `xazz check`'s pipeline (src/main.rs): parse → resolve imports
 /// relative to the document dir → analyze_program. Returns the diagnostics.
+/// Converts a 1-based symbol span into an LSP `Location` (0-based).
+fn symbol_to_location(uri: &Url, s: &xazz_compiler::symbols::Symbol) -> Location {
+    Location {
+        uri: uri.clone(),
+        range: Range {
+            start: Position::new((s.line - 1) as u32, (s.col - 1) as u32),
+            end: Position::new((s.line - 1) as u32, (s.col - 1 + s.name.len()) as u32),
+        },
+    }
+}
+
+/// Token-level hover text for a symbol.
+fn hover_text(s: &xazz_compiler::symbols::Symbol) -> String {
+    let kind = match s.kind {
+        SymbolKind::Variable => "variable",
+        SymbolKind::Type => "type",
+        SymbolKind::Model => "model",
+        SymbolKind::Column => "column",
+    };
+    if s.is_definition {
+        format!("**{kind}** `{}` (declaration)", s.name)
+    } else {
+        format!("**{kind}** `{}` (reference)", s.name)
+    }
+}
+
 fn check_document(source: &str, dir: &std::path::Path) -> Vec<Diagnostic> {
     use xazz_compiler::{Lexer, Parser};
 
@@ -177,15 +203,50 @@ impl LanguageServer for Backend {
         }
     }
 
-    async fn hover(&self, _: HoverParams) -> JsonRpcResult<Option<Hover>> {
-        Ok(None)
+    async fn hover(&self, params: HoverParams) -> JsonRpcResult<Option<Hover>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        let source_opt = self.docs.lock().unwrap().get(&uri).cloned();
+        let Some(source) = source_opt else {
+            return Ok(None);
+        };
+        let symbols = index_source(&source);
+        let sym = match symbols.at_pos(pos.line as usize + 1, pos.character as usize + 1) {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+        let loc = symbol_to_location(&uri, sym);
+        Ok(Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: hover_text(sym),
+            }),
+            range: Some(loc.range),
+        }))
     }
 
     async fn goto_definition(
         &self,
-        _: GotoDefinitionParams,
+        params: GotoDefinitionParams,
     ) -> JsonRpcResult<Option<GotoDefinitionResponse>> {
-        Ok(None)
+        let uri = params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        let source_opt = self.docs.lock().unwrap().get(&uri).cloned();
+        let Some(source) = source_opt else {
+            return Ok(None);
+        };
+        let symbols = index_source(&source);
+        let sym = match symbols.at_pos(pos.line as usize + 1, pos.character as usize + 1) {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+        // Find the definition of the same name.
+        let def = match symbols.definitions_of(&sym.name).into_iter().next() {
+            Some(d) => d,
+            None => return Ok(None),
+        };
+        let loc = symbol_to_location(&uri, def);
+        Ok(Some(GotoDefinitionResponse::Scalar(loc)))
     }
 }
 
@@ -265,5 +326,47 @@ mod tests {
             diags.iter().any(|d| d.message.contains("temperture_c")),
             "did-you-mean 진단 미생성: {diags:?}"
         );
+    }
+
+    // ── Navigation (hover / goto-def) over the symbol table ────────────────
+
+    /// Hover resolves a variable reference position to the symbol.
+    #[test]
+    fn hover_resolves_variable_reference() {
+        let src = "type P = { a: string };\n\
+                   v x = load(\"d.csv\") :: P;\n\
+                   v y = x |> select([a]);";
+        let symbols = index_source(src);
+        // Cursor on `x` in line 3 (1-based), col 7.
+        let sym = symbols.at_pos(3, 7).expect("symbol at x");
+        assert_eq!(sym.name, "x");
+        assert!(!sym.is_definition);
+        let text = hover_text(sym);
+        assert!(text.contains("variable"), "{text}");
+    }
+
+    /// Goto-definition jumps to the declaration (1-based → same line/col).
+    #[test]
+    fn goto_definition_jumps_to_declaration() {
+        let src = "v x = load(\"d.csv\");\n\
+                   v y = x |> select([a]);";
+        let symbols = index_source(src);
+        let sym = symbols.at_pos(2, 7).expect("symbol at x ref");
+        let def = symbols.definitions_of(&sym.name).into_iter().next().expect("def");
+        assert_eq!(def.line, 1);
+        assert!(def.is_definition);
+    }
+
+    /// 1-based symbol span → 0-based LSP location (end exclusive col).
+    #[test]
+    fn symbol_location_conversion_is_zero_based() {
+        let src = "v abc = load(\"d.csv\");";
+        let symbols = index_source(src);
+        let def = symbols.definitions_of("abc").into_iter().next().expect("def");
+        let url: Url = "file:///t.xzz".parse().expect("valid file url");
+        let loc = symbol_to_location(&url, def);
+        assert_eq!(loc.range.start.line, 0);
+        assert_eq!(loc.range.start.character, 2); // 1-based col 3 → 0-based 2
+        assert_eq!(loc.range.end.character, 5); // "abc" is 3 chars → exclusive end
     }
 }

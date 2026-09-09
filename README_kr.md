@@ -283,7 +283,7 @@ python benches/render_benchmark_chart.py        # 위 차트 재생성
 | DuckDB 커넥터 | `load("duckdb://...?sql=...")` — 인메모리·파일 DuckDB를 파이프라인 소스로 사용 (Track A3) | Stable |
 | PostgreSQL 커넥터 | `load("postgres://...?sql=...")` — PostgreSQL 쿼리를 파이프라인 소스로 사용 (Track A3) | Stable |
 | `import "mod.xzz"` | 모듈 시스템 — `type`/`model`/`v` 파이프라인을 파일 간 공유 (사이클 fail-closed) | Stable |
-| `xazz-lsp` | 언어 서버 — 에디터에서 `xazz check` 진단 실시간 표시 (Track B3) | Preview |
+| `xazz-lsp` | 언어 서버 — `xazz check` 진단 + hover/go-to-def (심볼 테이블) (Track B3) | Stable |
 | `xazz new` | 샘플 CSV + 실행 가능한 예제가 포함된 프로젝트 생성 | Stable |
 | `xazz emit rust` | `.xzz` → Rust 소스 변환 (Polars LazyFrame + Burn) | Stable |
 | `xazz policy` | Policy-as-Code 가드레일 — 실행 전 개인정보·시크릿 유출 차단 | Stable |
