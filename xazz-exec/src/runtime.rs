@@ -596,9 +596,13 @@ fn validate_schema_types(df: &polars::frame::DataFrame, label: &str, schema: &Sc
 fn load_source_lazy(
     file_path: &str,
 ) -> Result<polars::prelude::LazyFrame, Box<dyn std::error::Error>> {
-    // DuckDB URIs produce an eager in-memory result — wrap it in a LazyFrame.
+    // DuckDB/PostgreSQL URIs produce an eager in-memory result — wrap in LazyFrame.
     if parse_duckdb_uri(file_path).is_some() {
         let df = load_duckdb_as_df(file_path)?;
+        return Ok(polars::prelude::IntoLazy::lazy(df));
+    }
+    if parse_postgres_uri(file_path).is_some() {
+        let df = load_postgres_as_df(file_path)?;
         return Ok(polars::prelude::IntoLazy::lazy(df));
     }
 
@@ -638,9 +642,12 @@ fn load_source_lazy(
 pub(crate) fn load_source_as_df(
     file_path: &str,
 ) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
-    // DuckDB source URIs are not file paths — handle them before extension dispatch.
+    // DuckDB/PostgreSQL source URIs are not file paths — handle before extension dispatch.
     if parse_duckdb_uri(file_path).is_some() {
         return load_duckdb_as_df(file_path);
+    }
+    if parse_postgres_uri(file_path).is_some() {
+        return load_postgres_as_df(file_path);
     }
 
     let ext = std::path::Path::new(file_path)
@@ -905,6 +912,149 @@ fn load_duckdb_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn std:
     Ok(df)
 }
 
+// ── PostgreSQL source connector (issue #54, Track A3) ────────────────────────
+
+/// Parses a `postgres://` source URI into (connect-params, sql).
+///
+///   `load("postgres://user:pass@localhost:5432/mydb?sql=SELECT 1 AS a")`
+///     → ("postgres://user:pass@localhost:5432/mydb", "SELECT 1 AS a")
+///
+/// The `?sql=` query parameter is the SQL text; all other query parameters are
+/// left intact for the connection string. Returns None for non-postgres paths.
+fn parse_postgres_uri(path: &str) -> Option<(String, String)> {
+    if !path.starts_with("postgres://") {
+        return None;
+    }
+    // Find `?sql=` (first query param) or `&sql=` (subsequent param).
+    let find = path.find("?sql=").or_else(|| path.find("&sql="))?;
+    let q = find;
+    let conn: &str = &path[..q];
+    let sql: &str = &path[q + 5..];
+    Some((conn.to_string(), sql.to_string()))
+}
+
+/// Loads a PostgreSQL query result as a Polars DataFrame (eager).
+///
+/// Connects over TCP (NoTls by default) using the `postgres` crate, runs the
+/// SQL, and converts each row's typed values into Polars columns.
+fn load_postgres_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    use postgres::{Client, NoTls};
+
+    let Some((conn, sql)) = parse_postgres_uri(uri) else {
+        return Err(format!("invalid PostgreSQL URI: '{uri}'").into());
+    };
+
+    let mut client = Client::connect(&conn, NoTls).map_err(|e| {
+        if is_korean() {
+            format!("PostgreSQL 연결 실패 '{}' — {}", conn, e)
+        } else {
+            format!("failed to connect to PostgreSQL '{}' — {}", conn, e)
+        }
+    })?;
+
+    let rows = client.query(&sql, &[]).map_err(|e| {
+        if is_korean() {
+            format!("PostgreSQL 쿼리 실패: {}", e)
+        } else {
+            format!("PostgreSQL query failed: {}", e)
+        }
+    })?;
+
+    if rows.is_empty() {
+        return Ok(polars::frame::DataFrame::empty());
+    }
+
+    let columns = rows[0].columns();
+    let n_cols = columns.len();
+    let column_names: Vec<String> = (0..n_cols)
+        .map(|i| columns[i].name().to_string())
+        .collect();
+
+    // Per-column cell buffers (dynamically typed).
+    #[derive(Clone)]
+    enum PCell {
+        Int(i64),
+        Float(f64),
+        Str(String),
+    }
+    let mut cells: Vec<Vec<Option<PCell>>> = vec![Vec::new(); n_cols];
+
+    for row in &rows {
+        for i in 0..n_cols {
+            // postgres crate Row::try_get — returns Result; match instead of
+            // .ok() (this std has no Result::ok()).
+            let cell = match row.try_get::<usize, Option<i64>>(i) {
+                Ok(Some(v)) => Some(PCell::Int(v)),
+                Ok(None) => None,
+                Err(_) => match row.try_get::<usize, Option<f64>>(i) {
+                    Ok(Some(v)) => Some(PCell::Float(v)),
+                    Ok(None) => None,
+                    Err(_) => match row.try_get::<usize, Option<&str>>(i) {
+                        Ok(Some(v)) => Some(PCell::Str(v.to_string())),
+                        Ok(None) => None,
+                        Err(_) => match row.try_get::<usize, Option<bool>>(i) {
+                            Ok(Some(v)) => {
+                                Some(PCell::Str(if v { "true" } else { "false" }.to_string()))
+                            }
+                            _ => None,
+                        },
+                    },
+                },
+            };
+            cells[i].push(cell);
+        }
+    }
+
+    // Materialize each column into a typed Polars Series.
+    let n_rows = rows.len();
+    let mut df = polars::frame::DataFrame::empty();
+    for i in 0..n_cols {
+        let name = polars::prelude::PlSmallStr::from(column_names[i].as_str());
+        let has_float = cells[i].iter().flatten().any(|c| matches!(c, PCell::Float(_)));
+        let has_str = cells[i].iter().flatten().any(|c| matches!(c, PCell::Str(_)));
+
+        if has_float {
+            let vals: Vec<Option<f64>> = (0..n_rows)
+                .map(|r| match cells[i].get(r).and_then(|c| c.as_ref()) {
+                    Some(PCell::Float(x)) => Some(*x),
+                    Some(PCell::Int(x)) => Some(*x as f64),
+                    Some(PCell::Str(_)) => None,
+                    None => None,
+                })
+                .collect();
+            let col = polars::prelude::Column::new(name, vals);
+            df.with_column(col).map_err(|e| {
+                format!("failed to add PostgreSQL column '{}': {}", column_names[i], e)
+            })?;
+        } else if has_str {
+            let vals: Vec<Option<String>> = (0..n_rows)
+                .map(|r| match cells[i].get(r).and_then(|c| c.as_ref()) {
+                    Some(PCell::Str(x)) => Some(x.clone()),
+                    Some(PCell::Int(x)) => Some(x.to_string()),
+                    Some(PCell::Float(x)) => Some(x.to_string()),
+                    None => None,
+                })
+                .collect();
+            let col = polars::prelude::Column::new(name, vals);
+            df.with_column(col).map_err(|e| {
+                format!("failed to add PostgreSQL column '{}': {}", column_names[i], e)
+            })?;
+        } else {
+            let vals: Vec<Option<i64>> = (0..n_rows)
+                .map(|r| match cells[i].get(r).and_then(|c| c.as_ref()) {
+                    Some(PCell::Int(x)) => Some(*x),
+                    _ => None,
+                })
+                .collect();
+            let col = polars::prelude::Column::new(name, vals);
+            df.with_column(col).map_err(|e| {
+                format!("failed to add PostgreSQL column '{}': {}", column_names[i], e)
+            })?;
+        }
+    }
+    Ok(df)
+}
+
 fn load_parquet_lazy(
     file_path: &str,
 ) -> Result<polars::prelude::LazyFrame, Box<dyn std::error::Error>> {
@@ -979,8 +1129,11 @@ fn load_csv_lazy(
 const SMALL_SOURCE_BYTES: u64 = 32 * 1024 * 1024;
 
 fn source_is_small(file_path: &str) -> bool {
-    // DuckDB URIs are not files — treat as eager (in-memory result).
+    // DuckDB/PostgreSQL URIs are not files — treat as eager (in-memory result).
     if parse_duckdb_uri(file_path).is_some() {
+        return true;
+    }
+    if parse_postgres_uri(file_path).is_some() {
         return true;
     }
     std::fs::metadata(file_path)
@@ -1573,5 +1726,52 @@ mod duckdb_tests {
         )
         .expect("empty query should run");
         assert_eq!(df.height(), 0);
+    }
+}
+
+// ── PostgreSQL source connector tests (issue #54, Track A3) ───────────────
+
+#[cfg(test)]
+mod postgres_tests {
+    use super::*;
+
+    #[test]
+    fn parses_postgres_uri() {
+        let (conn, sql) = parse_postgres_uri(
+            "postgres://user:pass@localhost:5432/mydb?sql=SELECT 1 AS a",
+        )
+        .expect("should parse");
+        assert_eq!(conn, "postgres://user:pass@localhost:5432/mydb");
+        assert_eq!(sql, "SELECT 1 AS a");
+
+        // Other query parameters survive (only ?sql= is consumed).
+        let (conn, _sql) = parse_postgres_uri(
+            "postgres://user@host/db?sslmode=disable&sql=SELECT 2",
+        )
+        .expect("should parse");
+        assert_eq!(conn, "postgres://user@host/db?sslmode=disable");
+    }
+
+    #[test]
+    fn non_postgres_path_is_not_a_uri() {
+        assert!(parse_postgres_uri("data.csv").is_none());
+        assert!(parse_postgres_uri("duckdb://x?sql=SELECT 1").is_none());
+        // No ?sql= → not loadable.
+        assert!(parse_postgres_uri("postgres://user@host/db").is_none());
+    }
+
+    #[test]
+    fn postgres_without_server_errors_gracefully() {
+        // No local Postgres in CI/dev by default — connecting to a closed port
+        // must return a clear Err, never panic/segfault.
+        let err = load_postgres_as_df(
+            "postgres://user:pass@127.0.0.1:1/x?sql=SELECT 1",
+        );
+        assert!(err.is_err(), "should fail to connect on port 1");
+        let msg = err.unwrap_err().to_string();
+        assert!(
+            msg.contains("PostgreSQL") || msg.contains("postgres"),
+            "unexpected error: {msg}"
+        );
     }
 }

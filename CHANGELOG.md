@@ -9,6 +9,19 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — PostgreSQL 소스 커넥터 (issue #54, Track A3)
+
+- **`load("postgres://user:pass@host:port/db?sql=...")`** — PostgreSQL 쿼리 결과를 Polars
+  파이프라인 소스로 사용
+- 연결은 `postgres`(tokio-postgres) NoTls(TCP) — 로컬 개발 DB 가정. `?sql=` 외의 쿼리
+  파라미터(예: `sslmode=disable`)는 연결 문자열에 그대로 전달
+- 결과를 `Row::try_get` 타입별로 읽어 Polars Series로 변환 — int/float/str/bool 컬럼을
+  올바른 dtype으로 구성
+- `:: Type` 스키마 주석, filter/groupBy/mean 등 일반 파이프라인 연산과 연동
+- `xazz run` / `xazz check` / `xazz sanitize` 모두 지원
+- 테스트 3건: URI 파싱(?sql= / &sql=), 비-postgres 경로, 연결 실패 graceful
+- 데모: `examples/duckdb/postgres_demo.xzz` (로컬 Postgres 필요)
+
 ### Added — DuckDB 소스 커넥터 (issue #54, Track A3)
 
 - **`load("duckdb://...")`** — DuckDB(in-memory `:memory:` 또는 파일 DB) 쿼리 결과를 Polars

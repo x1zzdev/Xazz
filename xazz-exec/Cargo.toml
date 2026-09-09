@@ -45,3 +45,4 @@ burn-ndarray = { version = "0.21", default-features = false, features = ["std", 
 # query_polars (results cross via Parquet), so the extra polars 0.49 does not
 # enter the type surface.
 duckdb = { version = "1.10505", features = ["bundled"] }
+postgres = "0.19.14"

@@ -1,0 +1,19 @@
+// Xazz PostgreSQL 소스 커넥터 데모 (issue #54, Track A3)
+//
+// `load("postgres://user:pass@host:port/db?sql=...")` — PostgreSQL 쿼리 결과를
+// Polars 파이프라인 소스로 직접 사용. 연결은 NoTls(TCP)이며 개발용 로컬 DB를
+// 가정한다. ?sql= 외의 쿼리 파라미터는 연결 문자열에 그대로 전달된다.
+//
+//   xazz run examples/duckdb/postgres_demo.xzz
+//   (실행하려면 로컬 PostgreSQL이 필요: createdb mydb 등)
+
+type City = {
+    region: string,
+    population: int,
+    pm10:     float,
+}
+
+// 로컬 PostgreSQL(mydb)에서 도시별 대기질을 조회해 파이프라인으로 처리
+v cities = load("postgres://postgres@localhost:5432/mydb?sql=SELECT 'seoul' AS region, 9700000 AS population, 45.5 AS pm10")
+    :: City
+    |> select([region, population, pm10]);
