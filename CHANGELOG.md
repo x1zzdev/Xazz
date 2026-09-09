@@ -9,6 +9,18 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 파이프라인 카탈로그 & 컬럼 리니지 (issue #60, Track C3)
+
+- **`xazz-compiler::catalog`** — Typed IR를 쿼리해 파이프라인 카탈로그 + 컬럼 리니지 생성:
+  - 카탈로그: 각 파이프라인의 id/이름, 입출력 컬럼
+  - 리니지: 출력 컬럼이 어떤 소스 컬럼에서 왔는지 — `Select`/`Rename`/`WithColumn`(표현식 참조
+    컬럼)/`GroupBy`+`Aggregate`(집계 컬럼 ← 원본) 추적, `Filter`/`DropNull`/`FillNull`/`Cast`/
+    `Sort`/`Limit`/`Sample`/`Replace`는 패스스루
+- **`POST /catalog {code}`** — 코드를 컴파일해 카탈로그 반환 (실행과 동일한 Typed IR 사용 —
+  리뷰어가 `groupBy → agg → chart` 출력 컬럼을 소스까지 추적 가능)
+- 테스트 3건: select+rename 리니지, groupBy+agg 소스 추적, withColumn 파생 컬럼
+- E2E 검증: `by_station` 출력 `pm10_rank ← pm10`, `pm10 ← pm10`, `station ← station`
+
 ### Added — 인증 & 다중 테넌시 (issue #59, Track C2)
 
 - **토큰 인증**: `XAZZ_SERVER_TOKEN`(단일) + `XAZZ_TENANT_TOKENS`(`tenant1=token1,tenant2=token2`)

@@ -164,6 +164,7 @@ async fn main() {
         .route("/security/inference/check", post(handle_inference_check))
         .route("/runs", get(handle_runs_list))
         .route("/runs/{id}", get(handle_run_by_id))
+        .route("/catalog", post(handle_catalog))
         .with_state(AppState {
             exec_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_EXECUTIONS)),
             store: Arc::new(store::Store::new()),
@@ -1066,6 +1067,28 @@ async fn handle_run_by_id(
             format!("run {id} not found (or not in tenant '{tenant}')"),
         )),
     }
+}
+
+// ── Pipeline catalog / column lineage (issue C3) ─────────────────────────────
+
+/// Compiles the given code and returns the pipeline catalog + column lineage.
+///
+/// The Rust compiler is the single source of truth: the same Typed IR that
+/// drives execution also produces this catalog, so a reviewer can trace any
+/// pipeline's output columns back to their source columns.
+async fn handle_catalog(
+    Json(payload): Json<ExecuteRequest>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (parse, check) = xazz_compiler::compile_ir(&payload.code);
+    let Ok((_program, ir)) = parse else {
+        return Err((StatusCode::BAD_REQUEST, "failed to parse code".into()));
+    };
+    if !check.errors.is_empty() {
+        let first = check.errors[0].message.clone();
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, format!("compile error: {first}")));
+    }
+    let catalog = xazz_compiler::catalog::build_catalog(&ir);
+    Ok(Json(json!({ "catalog": catalog })))
 }
 
 // ── utilities ──────────────────────────────────────────────────────────────────

@@ -110,10 +110,15 @@ datasets. This track makes Xazz handle real workloads.
   ✅ **Run isolation done 2026-09-09**: verified end-to-end — tenant-a and tenant-b each see only
   their own runs; cross-tenant GET /runs/:id → 404. Budget isolation remains.
 
-### C3. Pipeline catalog + lineage
-- [ ] Dataset registration and column-level lineage derived from the IR's flowing `Schema`
-- [ ] The architecture already models schema on every `PipelineNode` — lineage is a query over it
-- Depends on: C1. Acceptance: a reviewer can trace `groupBy → agg → chart` output columns back to source columns.
+### C3. Pipeline catalog + lineage — issue #60
+- [x] Column-level lineage derived from the IR's flowing `Schema` — `xazz-compiler::catalog`
+      walks each pipeline's ordered steps, tracking output-column provenance
+      (select/rename/groupBy+agg/withColumn; filter/drop-null/cast/sort are pass-through)
+- [x] Pipeline catalog entry per `PipelineNode` (id, variable name, input/output columns, lineage)
+- [x] `POST /catalog {code}` — compile the code and return the catalog (same Typed IR as execution)
+- Depends on: C1. Acceptance: a reviewer can trace `groupBy → agg → chart` output columns back
+  to source columns. ✅ **Done 2026-09-09**: verified — `by_station` output
+  `pm10_rank ← pm10`, `pm10 ← pm10`, `station ← station`.
 
 ### C4. Python bindings — issue #61
 - [x] `xazz.check(src)` / `xazz.run(src)` / `xazz.policy(src)` — pure-Python adapter over the CLI

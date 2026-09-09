@@ -16,6 +16,7 @@
 ///      This is an architectural isolation to remove the Polars dependency from the
 ///      CLI binary.
 pub mod ast; // re-exports xazz-core::ast
+pub mod catalog;
 pub mod checker;
 pub mod codegen;
 pub mod emitter;
