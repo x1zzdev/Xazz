@@ -151,7 +151,9 @@ datasets. This track makes Xazz handle real workloads.
 
 ## Track E — Ecosystem scale
 
-- **E1. VS Code extension** — LSP client + runner integration (depends on B3)
+- **E1. VS Code extension** — ✅ `vscode-xazz/` (issue #65): LSP client (diagnostics, hover,
+  go-to-def, rename via `xazz-lsp`) + `Xazz: Run`/`Check` commands + `.xzz` syntax highlighting.
+  Binary auto-discovery (config / env / `target/{debug,release}` / PATH). Compiles cleanly; F5 or `vsce package`.
 - **E2. Official Docker image** — `xazz-server` + runner + IDE bundled, mountable data dir
 - **E3. GitHub Actions official action** — `xazz check`/`run` in CI with policy gate
 - **E4. Package/registry for policy packs + stdlib modules** (starts from the 3 existing domain policy packs)

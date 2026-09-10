@@ -1,0 +1,92 @@
+{
+  "name": "xazz",
+  "displayName": "Xazz",
+  "description": "Xazz language support — diagnostics, hover, go-to-definition, rename, and pipeline run integration.",
+  "version": "0.1.0",
+  "publisher": "x1zzdev",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/x1zzdev/Xazz.git"
+  },
+  "engines": {
+    "vscode": "^1.84.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "keywords": [
+    "xazz",
+    "data-pipeline",
+    "polars",
+    "burn",
+    "dsl"
+  ],
+  "activationEvents": [
+    "onLanguage:xazz"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "xazz",
+        "aliases": [
+          "Xazz",
+          "xazz"
+        ],
+        "extensions": [
+          ".xzz"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "xazz",
+        "scopeName": "source.xazz",
+        "path": "./syntaxes/xazz.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "xazz.run",
+        "title": "Xazz: Run Pipeline",
+        "category": "Xazz"
+      },
+      {
+        "command": "xazz.check",
+        "title": "Xazz: Check",
+        "category": "Xazz"
+      }
+    ],
+    "configuration": {
+      "title": "Xazz",
+      "properties": {
+        "xazz.lspPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the xazz-lsp executable. Empty = auto-discover (target/debug, target/release, then PATH)."
+        },
+        "xazz.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the xazz CLI. Empty = auto-discover."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.84.0",
+    "typescript": "^5.3.3"
+  }
+}

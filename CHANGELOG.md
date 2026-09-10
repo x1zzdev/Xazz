@@ -9,6 +9,17 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — VS Code 확장 (issue #65, Track E1)
+
+- **`vscode-xazz/`** — `.xzz` 언어 지원 확장:
+  - **LSP 클라이언트**: `xazz-lsp`를 stdio로 실행 — 진단·hover·go-to-def·rename (B3 재사용)
+  - **명령**: `Xazz: Run Pipeline` / `Xazz: Check` — 활성 파일에 `xazz` CLI 실행, 출력 채널 스트림
+  - **문법 강조**: TextMate 문법 (`syntaxes/xazz.tmLanguage.json`)
+  - **바이너리 자동 탐색**: `xazz.lspPath`/`xazz.cliPath` 설정 → `XAZZ_LSP_PATH`/`XAZZ_PATH` env
+    → 워크스페이스 `target/{debug,release}` → `PATH`
+- `npm install && npm run compile`로 TypeScript 컴파일 검증 (`out/extension.js` 생성)
+- `vsce package`로 `.vsix` 패키징 가능
+
 ### Added — LSP rename (issue #76, Track B3)
 
 - **`textDocument/prepare_rename` + `textDocument/rename`** — 심볼 테이블의 모든 참조(정의 +

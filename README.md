@@ -288,6 +288,7 @@ python benches/run_readme_benchmark.py --xlarge
 | `xazz import` | Auto-infer schema → generate `type` block (CSV EUC-KR/CP949, Parquet, Arrow) | Stable |
 | `import "mod.xzz"` | Module system — share `type`/`model`/`v` pipelines across files (cycle-fail-closed) | Stable |
 | `xazz-lsp` | Language server — `xazz check` diagnostics + hover/go-to-def/rename via symbol table (Track B3) | Stable |
+| VS Code extension | `vscode-xazz/` — LSP client, Run/Check commands, syntax highlighting (Track E1) | Preview |
 | `xazz new` | Scaffold project with sample CSV and runnable example | Stable |
 | `xazz emit rust` | Transpile `.xzz` → Rust source (Polars LazyFrame + Burn) | Stable |
 | `xazz policy` | Policy-as-Code guardrail — block PII/secret leaks pre-execution | Stable |
