@@ -9,6 +9,14 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — LSP rename (issue #76, Track B3)
+
+- **`textDocument/prepare_rename` + `textDocument/rename`** — 심볼 테이블의 모든 참조(정의 +
+  사용)를 모아 파일 전체 rename을 TextEdit으로 반환
+- `initialize`가 `renameProvider: true` 광고
+- stdio E2E 검증: `mydata` → `my_data`가 정의·참조 각각의 위치에 정확한 편집 생성
+- 테스트 2건: 참조에 정의+사용 포함, rename 편집이 모든 발생부를 커버
+
 ### Added — 파이프라인 카탈로그 & 컬럼 리니지 (issue #60, Track C3)
 
 - **`xazz-compiler::catalog`** — Typed IR를 쿼리해 파이프라인 카탈로그 + 컬럼 리니지 생성:

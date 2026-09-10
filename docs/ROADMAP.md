@@ -82,10 +82,10 @@ datasets. This track makes Xazz handle real workloads.
 - [x] `import "mod.xzz"` resolved relative to the script file before checking (reuses B1)
 - [x] hover / goto-def over the token-level **symbol table** (`xazz-compiler::symbols`:
       variable/type/model definitions + references) — verified via stdio smoke test
-- [ ] rename — deferred (needs symbol-table-based text mutation across the file)
+- [x] rename — symbol-table-driven file-wide rename (`prepare_rename` + `rename`), verified
+      over stdio: `mydata` → `my_data` produces edits for the definition and every reference
 - Acceptance: diagnostics in VS Code match `xazz check` line:col output exactly.
-  ✅ **Done 2026-09-09**: diagnostics + hover + goto-def verified end-to-end over stdio.
-  Rename remains a small follow-up (tracked on #75).
+  ✅ **Done 2026-09-10**: diagnostics + hover + goto-def + rename all verified end-to-end over stdio.
 
 ---
 

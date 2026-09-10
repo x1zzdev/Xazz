@@ -128,6 +128,7 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::INCREMENTAL,
                 )),
+                rename_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -247,6 +248,70 @@ impl LanguageServer for Backend {
         };
         let loc = symbol_to_location(&uri, def);
         Ok(Some(GotoDefinitionResponse::Scalar(loc)))
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> JsonRpcResult<Option<PrepareRenameResponse>> {
+        let uri = params.text_document.uri;
+        let pos = params.position;
+        let source_opt = self.docs.lock().unwrap().get(&uri).cloned();
+        let Some(source) = source_opt else {
+            return Ok(None);
+        };
+        let symbols = index_source(&source);
+        let sym = match symbols.at_pos(pos.line as usize + 1, pos.character as usize + 1) {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+        let range = Range {
+            start: Position::new((sym.line - 1) as u32, (sym.col - 1) as u32),
+            end: Position::new((sym.line - 1) as u32, (sym.col - 1 + sym.name.len()) as u32),
+        };
+        Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+            range,
+            placeholder: sym.name.clone(),
+        }))
+    }
+
+    async fn rename(
+        &self,
+        params: RenameParams,
+    ) -> JsonRpcResult<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri;
+        let pos = params.text_document_position.position;
+        let new_name = params.new_name;
+        let source_opt = self.docs.lock().unwrap().get(&uri).cloned();
+        let Some(source) = source_opt else {
+            return Ok(None);
+        };
+        let symbols = index_source(&source);
+        let sym = match symbols.at_pos(pos.line as usize + 1, pos.character as usize + 1) {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+        // Every occurrence of the same symbol name (definition + references).
+        let edits: Vec<TextEdit> = symbols
+            .references_of(&sym.name)
+            .iter()
+            .map(|s| TextEdit {
+                range: Range {
+                    start: Position::new((s.line - 1) as u32, (s.col - 1) as u32),
+                    end: Position::new((s.line - 1) as u32, (s.col - 1 + s.name.len()) as u32),
+                },
+                new_text: new_name.clone(),
+            })
+            .collect();
+        if edits.is_empty() {
+            return Ok(None);
+        }
+        let mut changes = std::collections::HashMap::new();
+        changes.insert(uri, edits);
+        Ok(Some(WorkspaceEdit {
+            changes: Some(changes),
+            ..Default::default()
+        }))
     }
 }
 
@@ -368,5 +433,49 @@ mod tests {
         assert_eq!(loc.range.start.line, 0);
         assert_eq!(loc.range.start.character, 2); // 1-based col 3 → 0-based 2
         assert_eq!(loc.range.end.character, 5); // "abc" is 3 chars → exclusive end
+    }
+}
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+
+    #[test]
+    fn references_include_definition_and_usage() {
+        let src = "type P = { a: string };\n\
+                   v mydata = load(\"d.csv\") :: P;\n\
+                   v result = mydata |> select([a]);";
+        let symbols = index_source(src);
+        let refs = symbols.references_of("mydata");
+        assert_eq!(refs.len(), 2, "expected def+ref, got {refs:?}");
+        let defs: Vec<_> = refs.iter().filter(|s| s.is_definition).collect();
+        let uses: Vec<_> = refs.iter().filter(|s| !s.is_definition).collect();
+        assert_eq!(defs.len(), 1);
+        assert_eq!(uses.len(), 1);
+        // definition at line 2 (1-based), usage at line 3
+        assert_eq!(defs[0].line, 2);
+        assert_eq!(uses[0].line, 3);
+    }
+
+    #[test]
+    fn rename_produces_edits_for_all_occurrences() {
+        let src = "v mydata = load(\"d.csv\");\n\
+                   v result = mydata;";
+        let symbols = index_source(src);
+        let refs = symbols.references_of("mydata");
+        assert_eq!(refs.len(), 2);
+        let edits: Vec<TextEdit> = refs
+            .iter()
+            .map(|s| TextEdit {
+                range: Range {
+                    start: Position::new((s.line - 1) as u32, (s.col - 1) as u32),
+                    end: Position::new((s.line - 1) as u32, (s.col - 1 + s.name.len()) as u32),
+                },
+                new_text: "renamed".to_string(),
+            })
+            .collect();
+        assert_eq!(edits.len(), 2);
+        // line 1 (0-based 0) def, line 2 (0-based 1) use
+        assert_eq!(edits[0].range.start.line, 0);
+        assert_eq!(edits[1].range.start.line, 1);
     }
 }
