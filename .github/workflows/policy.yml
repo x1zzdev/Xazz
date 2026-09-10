@@ -1,0 +1,56 @@
+name: Xazz Policy Gate
+
+on:
+  push:
+    branches: ["main", "dev"]
+  pull_request:
+    branches: ["main", "dev"]
+
+# Demonstrates the official Xazz CI action: static checks + the Policy-as-Code
+# guardrail as a required gate. See .github/actions/xazz/action.yml.
+
+jobs:
+  guardrail:
+    name: Static check + policy gate
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 1) Type/semantic check over the demo pipelines (fails on errors).
+      - name: xazz check (demo pipelines)
+        uses: ./.github/actions/xazz
+        with:
+          command: check
+          path: demo
+
+      # 2) A safe pipeline passes the Policy-as-Code guardrail.
+      - name: xazz policy (safe pipeline passes)
+        uses: ./.github/actions/xazz
+        with:
+          command: policy
+          path: examples/security/patient_safe.xzz
+
+      # 3) An unsafe pipeline MUST be blocked (non-zero exit is the success
+      #    condition here, so we invert it explicitly).
+      - name: xazz policy (unsafe pipeline is blocked)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::group::assert patient_unsafe.xzz is blocked"
+          if ./target/release/xazz policy examples/security/patient_unsafe.xzz; then
+            echo "::error::unsafe pipeline was NOT blocked by the policy gate"
+            exit 1
+          fi
+          echo "unsafe pipeline correctly blocked"
+          echo "::endgroup::"
+
+      # 4) A demo pipeline actually runs end-to-end in CI.
+      - name: xazz run (demo pipeline)
+        uses: ./.github/actions/xazz
+        with:
+          command: run
+          path: demo/preprocess_chart.xzz

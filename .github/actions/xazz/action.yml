@@ -1,0 +1,71 @@
+name: 'Xazz Check'
+description: 'Run xazz check / policy guardrails (and optionally pipelines) in CI. Fails the job on static errors or policy violations.'
+author: 'x1zzdev'
+
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  command:
+    description: 'xazz subcommand to run: check | policy | run'
+    required: false
+    default: 'check'
+  path:
+    description: 'Path to a .xzz file or a directory of .xzz files'
+    required: true
+  policy-path:
+    description: 'Optional XAZZ_POLICY_PATH (a policy JSON). Empty = built-in policy.'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: xazz-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: xazz-${{ runner.os }}-
+
+    - name: Build xazz CLI + runner
+      shell: bash
+      run: cargo build --release -p xazz -p xazz-runner
+
+    - name: Run xazz ${{ inputs.command }}
+      shell: bash
+      env:
+        XAZZ_POLICY_PATH: ${{ inputs.policy-path }}
+      run: |
+        set -euo pipefail
+
+        # Collect .xzz targets: a single file, or every .xzz under a directory.
+        targets=()
+        if [ -d "${{ inputs.path }}" ]; then
+          while IFS= read -r f; do targets+=("$f"); done < <(find "${{ inputs.path }}" -name '*.xzz' -type f | sort)
+        else
+          targets=("${{ inputs.path }}")
+        fi
+
+        if [ "${#targets[@]}" -eq 0 ]; then
+          echo "xazz: no .xzz files found under '${{ inputs.path }}'"
+          exit 0
+        fi
+
+        status=0
+        for f in "${targets[@]}"; do
+          echo "::group::xazz ${{ inputs.command }} $f"
+          if ! ./target/release/xazz "${{ inputs.command }}" "$f" --json; then
+            echo "::error file=$f::xazz ${{ inputs.command }} failed"
+            status=1
+          fi
+          echo "::endgroup::"
+        done
+        exit "$status"

@@ -157,7 +157,10 @@ datasets. This track makes Xazz handle real workloads.
 - **E2. Official Docker image** — ✅ (issue #66) `Dockerfile` + `docker-compose.yml`: 3 stages
   (Rust binaries → Visual IDE → slim runtime), bundles `xazz`/`xazz-runner`/`xazz-server` + `/app/web`,
   non-root user, `VOLUME /data`, `EXPOSE 8005`. `XAZZ_BIND` env lets the container listen on `0.0.0.0`.
-- **E3. GitHub Actions official action** — `xazz check`/`run` in CI with policy gate
+- **E3. GitHub Actions official action** — ✅ (issue #67) `.github/actions/xazz` composite action
+  (builds the CLI, runs `check`/`policy`/`run` over a file or directory, fails on non-zero exit)
+  + `.github/workflows/policy.yml` gate: check demo, safe pipeline passes, unsafe pipeline is
+  asserted blocked, demo pipeline runs end-to-end.
 - **E4. Package/registry for policy packs + stdlib modules** (starts from the 3 existing domain policy packs)
 
 ---

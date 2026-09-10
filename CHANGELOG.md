@@ -9,6 +9,16 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — GitHub Actions 공식 액션 (issue #67, Track E3)
+
+- **`.github/actions/xazz` composite action** — Rust 툴체인 설치 + cargo 캐시 + CLI 빌드 후
+  `check`/`policy`/`run`을 파일 또는 디렉토리(모든 `.xzz`)에 실행. non-zero exit 시 잡 실패.
+  `policy-path` 입력으로 `XAZZ_POLICY_PATH` 전달
+- **`.github/workflows/policy.yml` policy 게이트** — ① demo 파이프라인 `check`,
+  ② safe 파이프라인 policy 통과, ③ unsafe 파이프라인이 **차단됨을 단언**(차단이 성공 조건),
+  ④ demo 파이프라인 end-to-end `run`
+- 로컬에서 4단계 모두 검증 (PASS/PASS/BLOCKED/PASS)
+
 ### Added — 공식 Docker 이미지 (issue #66, Track E2)
 
 - **`Dockerfile`** (멀티스테이지) — Rust 바이너리(`xazz`/`xazz-runner`/`xazz-server`) 빌드 →
