@@ -182,7 +182,9 @@ async fn main() {
         None => app,
     };
 
-    let addr = "127.0.0.1:8005";
+    // Bind address — defaults to loopback (local-only tool). Set XAZZ_BIND to
+    // 0.0.0.0:8005 in a container so the service is reachable from outside.
+    let addr = std::env::var("XAZZ_BIND").unwrap_or_else(|_| "127.0.0.1:8005".to_string());
     println!("[xazz-server] 🚀 Listening on http://{}", addr);
 
     // ── Periodic uploads/ cleanup — schema-inference upload files need no long-term retention. ──

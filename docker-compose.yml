@@ -1,0 +1,24 @@
+# Xazz server + Visual IDE (issue #66, E2)
+#
+#   docker compose up --build
+#   open http://127.0.0.1:8005
+#
+# Mounts ./data at /data for datasets and artifacts.
+services:
+  xazz:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: xazz:local
+    ports:
+      - "8005:8005"
+    volumes:
+      - ./data:/data
+    environment:
+      # Uncomment to require a bearer token on every request:
+      # XAZZ_SERVER_TOKEN: "change-me"
+      # Uncomment for multi-tenant mode (tenant=token pairs):
+      # XAZZ_TENANT_TOKENS: "acme=tok-a,globex=tok-b"
+      XAZZ_BIND: "0.0.0.0:8005"
+      XAZZ_WEB_DIR: "/app/web"
+    restart: unless-stopped

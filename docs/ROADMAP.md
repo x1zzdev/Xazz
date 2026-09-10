@@ -154,7 +154,9 @@ datasets. This track makes Xazz handle real workloads.
 - **E1. VS Code extension** — ✅ `vscode-xazz/` (issue #65): LSP client (diagnostics, hover,
   go-to-def, rename via `xazz-lsp`) + `Xazz: Run`/`Check` commands + `.xzz` syntax highlighting.
   Binary auto-discovery (config / env / `target/{debug,release}` / PATH). Compiles cleanly; F5 or `vsce package`.
-- **E2. Official Docker image** — `xazz-server` + runner + IDE bundled, mountable data dir
+- **E2. Official Docker image** — ✅ (issue #66) `Dockerfile` + `docker-compose.yml`: 3 stages
+  (Rust binaries → Visual IDE → slim runtime), bundles `xazz`/`xazz-runner`/`xazz-server` + `/app/web`,
+  non-root user, `VOLUME /data`, `EXPOSE 8005`. `XAZZ_BIND` env lets the container listen on `0.0.0.0`.
 - **E3. GitHub Actions official action** — `xazz check`/`run` in CI with policy gate
 - **E4. Package/registry for policy packs + stdlib modules** (starts from the 3 existing domain policy packs)
 

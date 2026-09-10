@@ -68,3 +68,6 @@ demo/narration.txt
 
 # xazz-server runtime data
 xazz.db
+
+# docker-compose data mount
+/data/

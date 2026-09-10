@@ -1,0 +1,16 @@
+# Build artifacts and caches — rebuilt inside the image.
+target/
+**/target/
+node_modules/
+**/node_modules/
+visual-ide/dist/
+**/dist/
+.vscode-bench/
+.venv-bench/
+.git/
+.github/
+audit_log/
+*.db
+*.vsix
+core_code.zip
+examples/**/*.csv

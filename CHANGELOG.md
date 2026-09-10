@@ -9,6 +9,15 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 공식 Docker 이미지 (issue #66, Track E2)
+
+- **`Dockerfile`** (멀티스테이지) — Rust 바이너리(`xazz`/`xazz-runner`/`xazz-server`) 빌드 →
+  Visual IDE 프론트엔드 빌드 → slim 런타임(비루트 사용자, `/app/web`, `VOLUME /data`, `EXPOSE 8005`)
+- **`docker-compose.yml`** — 빌드·실행·데이터 볼륨·테넌트/토큰 env 예시
+- **`XAZZ_BIND` env** — 서버 바인드 주소 설정 (기본 루프백, 컨테이너에서는 `0.0.0.0:8005`)
+- `.dockerignore`로 빌드 컨텍스트 축소 (target/node_modules/dist 제외)
+- 실행: `docker compose up --build` → http://127.0.0.1:8005
+
 ### Added — VS Code 확장 (issue #65, Track E1)
 
 - **`vscode-xazz/`** — `.xzz` 언어 지원 확장:
