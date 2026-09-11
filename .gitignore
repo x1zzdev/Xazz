@@ -71,3 +71,6 @@ xazz.db
 
 # docker-compose data mount
 /data/
+
+# Local work queue (see NEXT.md)
+NEXT.md
