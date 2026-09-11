@@ -1695,6 +1695,8 @@ mod duckdb_tests {
     }
 
     #[test]
+    // 3.14 / 2.71 are arbitrary DuckDB sample values, not the math constants.
+    #[allow(clippy::approx_constant)]
     fn loads_query_result_as_df() {
         let df = load_duckdb_as_df(
             "duckdb://:memory:?sql=SELECT 1 AS id, 'alpha' AS label, 3.14 AS val UNION ALL SELECT 2, 'beta', 2.71",
