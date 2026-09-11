@@ -1,0 +1,32 @@
+// Xazz standard library — common schema declarations (issue #56, B2)
+//
+// Import with:  import "std/common";
+//
+// Reusable `type` declarations for frequently used tabular shapes. Inlining
+// them keeps schemas consistent across a project without copy-paste.
+
+// A time series observation.
+type TimeSeries = {
+    timestamp: string,
+    value:     float,
+}
+
+// A named measurement (label + value), e.g. a group-by aggregate result.
+type Measurement = {
+    label: string,
+    value: float,
+}
+
+// An air-quality record (the bundled demo shape).
+type AirQuality = {
+    date:    string,
+    station: string,
+    pm10:    Option<float>,
+    pm25:    Option<float>,
+}
+
+// A regression dataset: features plus a numeric target.
+type Regression = {
+    x: float,
+    y: float,
+}

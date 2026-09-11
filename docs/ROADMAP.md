@@ -71,10 +71,17 @@ datasets. This track makes Xazz handle real workloads.
 - Acceptance: a 2-file project where `main.xzz` imports a data-prep module and type-checks against it. ✅
 - Semantics: module = plain `.xzz`; imports resolve relative to importing file; checker runs on the merged AST so duplicate/missing-reference validation spans modules; policy gate scans module sources' literals too.
 
-### B2. Standard library crate (`xazz-stdlib`)
-- [ ] New workspace member with date/string/statistics helpers implemented in `.xzz`-visible operators
-- [ ] Versioned with the workspace; docs generated
-- Depends on: B1. Acceptance: `import "std/math"` usable in demos.
+### B2. Standard library (`xazz-stdlib`) — issue #56
+- [x] `xazz-stdlib/` with reusable `.xzz` modules (`common`, `math`, `models`),
+      embedded into the compiler via `include_str!` so `import "std/<name>"` resolves
+      everywhere with no filesystem config. Versioned with the workspace; documented
+      in `xazz-stdlib/README.md`.
+- [x] Includes type declarations (schemas) and reusable `model {}` architectures
+- [ ] Richer date/string/statistics **operators** — future work (needs language-level
+      operator additions; the stdlib currently reuses existing operators)
+- Depends on: B1. Acceptance: `import "std/math"` usable in demos. ✅ **Done 2026-09-11**:
+  `examples/stdlib_import.xzz` imports `std/common` + `std/models` and trains `MLPSmall`
+  end-to-end.
 
 ### B3. LSP server (`xazz-lsp`) — issue #75
 - [x] New crate (`tower-lsp`) exposing diagnostics, hover, go-to-def by **reusing the checker**
@@ -243,7 +250,7 @@ Efficiency rule: **value-per-effort first, then dependency chain.** Do not start
 | 5 | B3 — LSP (#75, diagnostics done) | Reuses checker; biggest DX/visibility win, enables E1 |
 | 6 | ~~A3 — connectors (#54)~~ | ✅ Done — DuckDB + PostgreSQL sources |
 | 7 | ~~C1 — server persistence~~ | ✅ Done — SQLite run history + /runs API |
-| 8 | B2 — stdlib | Needs B1 |
+| 8 | ~~B2 — stdlib (#56)~~ | ✅ Done — `xazz-stdlib/` embedded modules (`std/common`, `std/math`, `std/models`) |
 | 9 | ~~C4 — Python bindings (#61, subprocess adapter)~~ | ✅ Done — `xazz.check/run/policy` from Python; PyO3 deferred |
 | 10 | ~~C2 — auth + multi-tenant (#59, run isolation)~~ | ✅ Done — tenant token auth + scoped /runs; budget isolation remains |
 | 11 | D1/D2/D3 — ML | Phase 6; mostly independent, GPU hardware availability gates timing |

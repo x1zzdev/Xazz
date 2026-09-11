@@ -287,6 +287,7 @@ python benches/run_readme_benchmark.py --xlarge
 | `xazz check` | Static semantic analysis — undeclared variables/columns, duplicate declarations, invalid casts, with did-you-mean hints and `line:col` spans | Stable |
 | `xazz import` | Auto-infer schema → generate `type` block (CSV EUC-KR/CP949, Parquet, Arrow) | Stable |
 | `import "mod.xzz"` | Module system — share `type`/`model`/`v` pipelines across files (cycle-fail-closed) | Stable |
+| `import "std/..."` | Embedded standard library — reusable schemas (`std/common`) and models (`std/math`, `std/models`) | Stable |
 | `xazz-lsp` | Language server — `xazz check` diagnostics + hover/go-to-def/rename via symbol table (Track B3) | Stable |
 | VS Code extension | `vscode-xazz/` — LSP client, Run/Check commands, syntax highlighting (Track E1) | Preview |
 | Docker image | `Dockerfile` + `docker-compose.yml` — server + runner + IDE, mountable `/data` (Track E2) | Preview |

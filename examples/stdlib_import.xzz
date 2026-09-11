@@ -1,0 +1,30 @@
+// Xazz stdlib demo — importing reusable modules (issue #56, B2)
+//
+//   xazz check examples/stdlib_import.xzz
+//   xazz run   examples/stdlib_import.xzz
+//
+// `import "std/..."` resolves an embedded standard-library module (no file path
+// needed). std/models provides reusable model architectures; std/common provides
+// common schemas.
+
+import "std/common";
+import "std/models";
+
+type Air = {
+    observed_at:   string,
+    district:      string,
+    pm25:          Option<float>,
+    temperature_c: float,
+}
+
+v raw = load("visual-ide/data/seoul_air_quality.csv") :: Air
+
+v dataset = raw
+    |> cast("pm25", "float")
+    |> cast("temperature_c", "float")
+    |> fillNull("pm25", strategy: "mean")
+    |> select([temperature_c, pm25])
+
+// `SmallMLP` comes from std/math; `MLPSmall` from std/models. Use one of them.
+run dataset
+    |> train(MLPSmall, target: "pm25", epochs: 3, lr: 0.01)

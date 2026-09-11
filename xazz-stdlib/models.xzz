@@ -1,0 +1,26 @@
+// Xazz standard library — reusable model architectures (issue #56, B2)
+//
+// Import with:  import "std/models";
+//
+// These are ordinary `model { ... }` declarations, inlined into the importing
+// program by the module system. Reference them by name in `train(...)`.
+
+// Single fully-connected layer — linear regression head.
+model LinearRegressor {
+    Dense(1)
+}
+
+// Small MLP — the default tabular regressor.
+model MLPSmall {
+    Dense(16) -> ReLU() -> Dense(1)
+}
+
+// Medium MLP.
+model MLPMedium {
+    Dense(64) -> ReLU() -> Dense(32) -> ReLU() -> Dense(1)
+}
+
+// Deep MLP with dropout for regularization.
+model MLPDeep {
+    Dense(128) -> ReLU() -> Dropout(0.2) -> Dense(64) -> ReLU() -> Dropout(0.2) -> Dense(1)
+}

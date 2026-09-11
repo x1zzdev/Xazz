@@ -1,0 +1,25 @@
+// Xazz standard library — math & statistics helpers (issue #56, B2)
+//
+// Import with:  import "std/math";
+//
+// Xazz has no function abstraction yet, so the stdlib provides reusable
+// **types** and **model** declarations. Derived-value pipelines are expressed
+// with the built-in `withColumn`/aggregate operators at the call site.
+
+// A descriptive-statistics result (mean/standard deviation of a column).
+// NOTE: `mean`/`std` are operators, so the fields use non-reserved names.
+type Stats = {
+    column: string,
+    avg:    float,
+    spread: float,
+}
+
+// A simple linear model: one dense layer (used with `train(...)`).
+model Linear {
+    Dense(1)
+}
+
+// A small nonlinear model for tabular regression.
+model SmallMLP {
+    Dense(32) -> ReLU() -> Dense(1)
+}

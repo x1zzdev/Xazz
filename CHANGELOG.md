@@ -9,6 +9,20 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 표준 라이브러리 (`xazz-stdlib`, issue #56, Track B2)
+
+- **`import "std/<name>"`** — 임베디드 표준 라이브러리 모듈. `xazz-stdlib/`의 `.xzz` 소스를
+  `include_str!`로 컴파일러에 내장해 파일시스템 설정 없이 어디서나 해석
+- 모듈: `std/common`(TimeSeries·Measurement·AirQuality·Regression 스키마),
+  `std/math`(Stats 타입, Linear·SmallMLP 모델), `std/models`(LinearRegressor·MLPSmall·
+  MLPMedium·MLPDeep 아키텍처)
+- 모듈 시스템(B1) 재사용 — type/model/v 선언이 import 지점에 인라인, 사이클 감지·중복 검사 유지
+- 함수 추상화가 아직 없어 재사용 단위는 **타입·모델** 선언. 날짜/문자열/통계 *연산자* 확장은 후속
+- 예약어(mean/std/min/max/count 등)는 필드명으로 사용 불가 — 문서화
+- 데모: `examples/stdlib_import.xzz` — `std/common`+`std/models` import 후 `MLPSmall` 학습
+  end-to-end
+- 테스트 3건: stdlib 해석(공통/수학), 미지원 모듈 오류
+
 ### Added — GitHub Actions 공식 액션 (issue #67, Track E3)
 
 - **`.github/actions/xazz` composite action** — Rust 툴체인 설치 + cargo 캐시 + CLI 빌드 후
