@@ -150,9 +150,15 @@ datasets. This track makes Xazz handle real workloads.
 - [ ] Unlocks ecosystem interop and model serving
 - Depends on: D1 (device mapping). Acceptance: exported ONNX runs in onnxruntime with same prediction.
 
-### D3. Model graph expansion
-- [ ] CNN/embedding layers, hyperparameter sweep, early stopping, checkpoint versioning
+### D3. Model graph expansion — issue #64
+- [x] **Early stopping** — `train(..., validation_split: 0.3, patience: N)` stops when validation
+      loss does not improve for N epochs; report gains `stopped_early` + `best_epoch`
+- [ ] CNN / embedding layers in the `model {}` declaration
+- [ ] Hyperparameter sweep, checkpoint versioning
 - Depends on: D1. Acceptance: a CNN pipeline trains end-to-end on image-style tabular data.
+  ⏳ **Partial 2026-09-11**: early stopping shipped and verified end-to-end (stops at the epoch
+  after the validation plateau, records `best_epoch`). CNN/embeddings + sweep remain — they need
+  the GPU/graph work in D1 and are hardware-gated.
 
 ---
 
@@ -255,7 +261,7 @@ Efficiency rule: **value-per-effort first, then dependency chain.** Do not start
 | 8 | ~~B2 — stdlib (#56)~~ | ✅ Done — `xazz-stdlib/` embedded modules (`std/common`, `std/math`, `std/models`) |
 | 9 | ~~C4 — Python bindings (#61, subprocess adapter)~~ | ✅ Done — `xazz.check/run/policy` from Python; PyO3 deferred |
 | 10 | ~~C2 — auth + multi-tenant (#59, run isolation)~~ | ✅ Done — tenant token auth + scoped /runs; budget isolation remains |
-| 11 | D1/D2/D3 — ML | Phase 6; mostly independent, GPU hardware availability gates timing |
+| 11 | D1/D2/D3 — ML | Phase 6; GPU hardware gates D1/D2; D3 early stopping done (#64) |
 | 12 | ~~F1 — prompt input gate~~ | ✅ Issue #70 open — pure policy-engine extension; biggest GenAI governance win per effort |
 | 13 | F2 — output gate (#71) | Depends on F1; completes the request/response audit story |
 | 14 | F3 — fine-tuning sanitization (#72) | Depends on F1; pairs with burn-engine LoRA/QLoRA launch |

@@ -372,6 +372,9 @@ pub struct TrainConfig {
     pub batch_size: Option<usize>,
     /// Validation data ratio (0.0 ~ 1.0)
     pub validation_split: Option<f64>,
+    /// Early stopping: stop after this many epochs without validation-loss
+    /// improvement (requires `validation_split`). None disables it (D3).
+    pub early_stopping_patience: Option<usize>,
 }
 
 impl Default for TrainConfig {
@@ -382,6 +385,7 @@ impl Default for TrainConfig {
             learning_rate: 0.01,
             batch_size: None,
             validation_split: None,
+            early_stopping_patience: None,
         }
     }
 }

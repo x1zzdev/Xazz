@@ -176,6 +176,12 @@ pub struct TrainReport {
     pub predictions: Vec<f64>,
     pub targets: Vec<f64>,
     pub checkpoint_path: String,
+    /// Whether training stopped early (validation loss plateaued) — issue D3.
+    #[serde(default)]
+    pub stopped_early: bool,
+    /// Best validation epoch (1-based); 0 when no validation split was used.
+    #[serde(default)]
+    pub best_epoch: usize,
 }
 
 /// Trained model — also holds the standardization statistics needed for predict().
@@ -323,6 +329,13 @@ pub fn train(
     let mut final_train_loss = f64::NAN;
     let mut final_val_loss: Option<f64> = None;
 
+    // Early stopping state (issue D3) — needs a validation split.
+    let patience = config.early_stopping_patience.filter(|p| *p > 0);
+    let mut best_val_loss = f64::INFINITY;
+    let mut best_epoch: usize = 0;
+    let mut epochs_no_improve = 0usize;
+    let mut stopped_early = false;
+
     for epoch in 0..config.epochs {
         // Deterministic shuffle (epoch seed)
         let mut order: Vec<usize> = (0..train_n).collect();
@@ -372,6 +385,18 @@ pub fn train(
             }
         }
 
+        // Early stopping: track the best validation loss and count epochs
+        // without improvement (issue D3).
+        if let Some(v) = final_val_loss {
+            if v < best_val_loss {
+                best_val_loss = v;
+                best_epoch = epoch + 1;
+                epochs_no_improve = 0;
+            } else {
+                epochs_no_improve += 1;
+            }
+        }
+
         let val_line = final_val_loss
             .map(|v| format!("  val_loss = {v:.6}"))
             .unwrap_or_default();
@@ -380,6 +405,17 @@ pub fn train(
             epoch + 1,
             config.epochs
         );
+
+        if let Some(p) = patience {
+            if !val_idx.is_empty() && epochs_no_improve >= p {
+                println!(
+                    "  [Early stop] no val_loss improvement for {p} epoch(s); \
+                     best epoch {best_epoch} (val_loss = {best_val_loss:.6})"
+                );
+                stopped_early = true;
+                break;
+            }
+        }
     }
 
     // ── Sample predictions (in-sample) ──────────────────────────────────────
@@ -444,6 +480,8 @@ pub fn train(
         predictions,
         targets: targets_out,
         checkpoint_path: format!("{ckpt}.json"),
+        stopped_early,
+        best_epoch,
     };
 
     Ok(TrainedModel {

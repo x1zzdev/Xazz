@@ -275,7 +275,7 @@ impl Parser {
 
     /// Parses the named arguments of train() (called after consuming model_name).
     /// train_args = ("," named_arg)*
-    /// named_arg = ("target" | "epochs" | "lr" | "batch_size" | "validation_split") ":" literal
+    /// named_arg = ("target" | "epochs" | "lr" | "batch_size" | "validation_split" | "patience") ":" literal
     fn parse_train_args(&mut self) -> CompileResult<TrainConfig> {
         let mut config = TrainConfig::default();
         while self.eat(&TokenKind::Comma) {
@@ -336,12 +336,15 @@ impl Parser {
                 "validation_split" => {
                     config.validation_split = Some(self.expect_float()?);
                 }
+                "patience" => {
+                    config.early_stopping_patience = Some(self.expect_number()? as usize);
+                }
                 other => {
                     return Err(CompileError::new(
                         ErrorKind::UnexpectedToken(other.into()),
                         self.current_span(),
                         format!(
-                            "알 수 없는 train() 인수: '{}'. 지원: target, epochs, lr, batch_size, validation_split",
+                            "알 수 없는 train() 인수: '{}'. 지원: target, epochs, lr, batch_size, validation_split, patience",
                             other
                         ),
                     ));

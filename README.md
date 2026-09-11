@@ -295,7 +295,7 @@ python benches/run_readme_benchmark.py --xlarge
 | `xazz new` | Scaffold project with sample CSV and runnable example | Stable |
 | `xazz emit rust` | Transpile `.xzz` → Rust source (Polars LazyFrame + Burn) | Stable |
 | `xazz policy` | Policy-as-Code guardrail — block PII/secret leaks pre-execution | Stable |
-| `model {}` + `train()` | Burn DL model declaration & training (Adam + MSE, checkpoints) | Stable |
+| `model {}` + `train()` | Burn DL model declaration & training (Adam + MSE, validation split, early stopping, checkpoints) | Stable |
 | `withDp(epsilon:)` | Differential-privacy noise (laplace / gaussian) with budget tracking | Stable |
 | Built-in `chart {}` | Render results as bar / line / pie / scatter (HTML) | Stable |
 | `load()` + `save()` | Columnar sources (`.parquet`/`.arrow`) auto-detected by extension; write CSV/Parquet/Arrow artifacts | Stable |

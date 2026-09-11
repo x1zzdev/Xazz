@@ -9,6 +9,14 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 조기 종료 (early stopping) (issue #64, Track D3)
+
+- **`train(..., validation_split: 0.3, patience: N)`** — 검증 손실이 N epoch 동안 개선되지 않으면
+  학습을 조기 종료. 학습 리포트에 `stopped_early`(bool) + `best_epoch`(1-based) 추가
+- 검증 분할이 없으면 patience는 무시 (조기 종료는 검증 손실 기반)
+- E2E 검증: plateau에서 다음 epoch에 종료, `stopped_early:true`·`best_epoch` 기록
+- CNN/임베딩 레이어·하이퍼파라미터 스윕·체크포인트 버전닝은 후속 (D1 GPU 작업과 연동)
+
 ### Added — 정책 팩 · stdlib 레지스트리 (issue #68, Track E4)
 
 - **`xazz registry list`** — 사용 가능한 정책 팩·stdlib 모듈 목록 (오프라인 내장)
