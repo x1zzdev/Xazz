@@ -765,41 +765,42 @@ fn load_duckdb_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn std:
     } else {
         db.as_str()
     };
-    let conn = duckdb::Connection::open(std::path::Path::new(&db_str))
-        .map_err(|e| {
-            if is_korean() {
-                format!("DuckDB 연결 실패 '{}' — {}", db, e)
-            } else {
-                format!("failed to open DuckDB '{}' — {}", db, e)
-            }
-        })?;
+    let conn = duckdb::Connection::open(std::path::Path::new(&db_str)).map_err(|e| {
+        if is_korean() {
+            format!("DuckDB 연결 실패 '{}' — {}", db, e)
+        } else {
+            format!("failed to open DuckDB '{}' — {}", db, e)
+        }
+    })?;
 
     // Read the result row-by-row via ValueRef (type-tagged), then build a Polars
     // DataFrame column by column. `COPY (...)` TO parquet segfaulted in this
     // bundled duckdb build, so we avoid the file-interchange path entirely.
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|e| {
-            if is_korean() {
-                format!("DuckDB SQL 준비 실패: {}", e)
-            } else {
-                format!("failed to prepare DuckDB SQL: {}", e)
-            }
-        })?;
+    let mut stmt = conn.prepare(&sql).map_err(|e| {
+        if is_korean() {
+            format!("DuckDB SQL 준비 실패: {}", e)
+        } else {
+            format!("failed to prepare DuckDB SQL: {}", e)
+        }
+    })?;
     // NOTE: column_count/column_name are only valid after the statement has been
     // executed, so the query() call below must come first.
-    let mut rows = stmt
-        .query(())
-        .map_err(|e| {
-            if is_korean() {
-                format!("DuckDB 쿼리 실패: {}", e)
-            } else {
-                format!("DuckDB query failed: {}", e)
-            }
-        })?;
+    let mut rows = stmt.query(()).map_err(|e| {
+        if is_korean() {
+            format!("DuckDB 쿼리 실패: {}", e)
+        } else {
+            format!("DuckDB query failed: {}", e)
+        }
+    })?;
     let stmt_ref = rows.as_ref().unwrap();
     let column_names: Vec<String> = (0..stmt_ref.column_count())
-        .map(|i| stmt_ref.column_name(i).map(|s| s.as_str()).unwrap_or("").to_string())
+        .map(|i| {
+            stmt_ref
+                .column_name(i)
+                .map(|s| s.as_str())
+                .unwrap_or("")
+                .to_string()
+        })
         .collect();
     let n_cols = column_names.len();
 
@@ -849,7 +850,9 @@ fn load_duckdb_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn std:
                 }
                 ValueRef::Date32(x) => Some(DCell::Int(x as i64)),
                 ValueRef::Timestamp(_, x) => Some(DCell::Int(x)),
-                ValueRef::Text(bytes) => Some(DCell::Str(String::from_utf8_lossy(bytes).to_string())),
+                ValueRef::Text(bytes) => {
+                    Some(DCell::Str(String::from_utf8_lossy(bytes).to_string()))
+                }
                 _ => Some(DCell::Str("value".to_string())),
             };
             cells[i].push(cell);
@@ -863,8 +866,14 @@ fn load_duckdb_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn std:
     let mut df = polars::frame::DataFrame::empty();
     for i in 0..n_cols {
         let name = polars::prelude::PlSmallStr::from(column_names[i].as_str());
-        let has_float = cells[i].iter().flatten().any(|c| matches!(c, DCell::Float(_)));
-        let has_str = cells[i].iter().flatten().any(|c| matches!(c, DCell::Str(_)));
+        let has_float = cells[i]
+            .iter()
+            .flatten()
+            .any(|c| matches!(c, DCell::Float(_)));
+        let has_str = cells[i]
+            .iter()
+            .flatten()
+            .any(|c| matches!(c, DCell::Str(_)));
 
         if has_float {
             let vals: Vec<Option<f64>> = (0..n_rows)
@@ -876,9 +885,8 @@ fn load_duckdb_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn std:
                 })
                 .collect();
             let col = polars::prelude::Column::new(name, vals);
-            df.with_column(col).map_err(|e| {
-                format!("failed to add DuckDB column '{}': {}", column_names[i], e)
-            })?;
+            df.with_column(col)
+                .map_err(|e| format!("failed to add DuckDB column '{}': {}", column_names[i], e))?;
         } else if has_str {
             let vals: Vec<Option<String>> = (0..n_rows)
                 .map(|r| match cells[i].get(r).and_then(|c| c.as_ref()) {
@@ -889,9 +897,8 @@ fn load_duckdb_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn std:
                 })
                 .collect();
             let col = polars::prelude::Column::new(name, vals);
-            df.with_column(col).map_err(|e| {
-                format!("failed to add DuckDB column '{}': {}", column_names[i], e)
-            })?;
+            df.with_column(col)
+                .map_err(|e| format!("failed to add DuckDB column '{}': {}", column_names[i], e))?;
         } else {
             let vals: Vec<Option<i64>> = (0..n_rows)
                 .map(|r| match cells[i].get(r).and_then(|c| c.as_ref()) {
@@ -900,9 +907,8 @@ fn load_duckdb_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn std:
                 })
                 .collect();
             let col = polars::prelude::Column::new(name, vals);
-            df.with_column(col).map_err(|e| {
-                format!("failed to add DuckDB column '{}': {}", column_names[i], e)
-            })?;
+            df.with_column(col)
+                .map_err(|e| format!("failed to add DuckDB column '{}': {}", column_names[i], e))?;
         }
     }
 
@@ -966,9 +972,7 @@ fn load_postgres_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn st
 
     let columns = rows[0].columns();
     let n_cols = columns.len();
-    let column_names: Vec<String> = (0..n_cols)
-        .map(|i| columns[i].name().to_string())
-        .collect();
+    let column_names: Vec<String> = (0..n_cols).map(|i| columns[i].name().to_string()).collect();
 
     // Per-column cell buffers (dynamically typed).
     #[derive(Clone)]
@@ -1010,8 +1014,14 @@ fn load_postgres_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn st
     let mut df = polars::frame::DataFrame::empty();
     for i in 0..n_cols {
         let name = polars::prelude::PlSmallStr::from(column_names[i].as_str());
-        let has_float = cells[i].iter().flatten().any(|c| matches!(c, PCell::Float(_)));
-        let has_str = cells[i].iter().flatten().any(|c| matches!(c, PCell::Str(_)));
+        let has_float = cells[i]
+            .iter()
+            .flatten()
+            .any(|c| matches!(c, PCell::Float(_)));
+        let has_str = cells[i]
+            .iter()
+            .flatten()
+            .any(|c| matches!(c, PCell::Str(_)));
 
         if has_float {
             let vals: Vec<Option<f64>> = (0..n_rows)
@@ -1024,7 +1034,10 @@ fn load_postgres_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn st
                 .collect();
             let col = polars::prelude::Column::new(name, vals);
             df.with_column(col).map_err(|e| {
-                format!("failed to add PostgreSQL column '{}': {}", column_names[i], e)
+                format!(
+                    "failed to add PostgreSQL column '{}': {}",
+                    column_names[i], e
+                )
             })?;
         } else if has_str {
             let vals: Vec<Option<String>> = (0..n_rows)
@@ -1037,7 +1050,10 @@ fn load_postgres_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn st
                 .collect();
             let col = polars::prelude::Column::new(name, vals);
             df.with_column(col).map_err(|e| {
-                format!("failed to add PostgreSQL column '{}': {}", column_names[i], e)
+                format!(
+                    "failed to add PostgreSQL column '{}': {}",
+                    column_names[i], e
+                )
             })?;
         } else {
             let vals: Vec<Option<i64>> = (0..n_rows)
@@ -1048,7 +1064,10 @@ fn load_postgres_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn st
                 .collect();
             let col = polars::prelude::Column::new(name, vals);
             df.with_column(col).map_err(|e| {
-                format!("failed to add PostgreSQL column '{}': {}", column_names[i], e)
+                format!(
+                    "failed to add PostgreSQL column '{}': {}",
+                    column_names[i], e
+                )
             })?;
         }
     }
@@ -1656,10 +1675,8 @@ mod duckdb_tests {
 
     #[test]
     fn parses_duckdb_uri() {
-        let (db, sql) = parse_duckdb_uri(
-            "duckdb://:memory:?sql=SELECT 1 AS a",
-        )
-        .expect("should parse");
+        let (db, sql) =
+            parse_duckdb_uri("duckdb://:memory:?sql=SELECT 1 AS a").expect("should parse");
         assert_eq!(db, ":memory:");
         assert_eq!(sql, "SELECT 1 AS a");
 
@@ -1721,10 +1738,8 @@ mod duckdb_tests {
 
     #[test]
     fn empty_result_is_empty_df() {
-        let df = load_duckdb_as_df(
-            "duckdb://:memory:?sql=SELECT 1 AS a WHERE 1=0",
-        )
-        .expect("empty query should run");
+        let df = load_duckdb_as_df("duckdb://:memory:?sql=SELECT 1 AS a WHERE 1=0")
+            .expect("empty query should run");
         assert_eq!(df.height(), 0);
     }
 }
@@ -1737,18 +1752,16 @@ mod postgres_tests {
 
     #[test]
     fn parses_postgres_uri() {
-        let (conn, sql) = parse_postgres_uri(
-            "postgres://user:pass@localhost:5432/mydb?sql=SELECT 1 AS a",
-        )
-        .expect("should parse");
+        let (conn, sql) =
+            parse_postgres_uri("postgres://user:pass@localhost:5432/mydb?sql=SELECT 1 AS a")
+                .expect("should parse");
         assert_eq!(conn, "postgres://user:pass@localhost:5432/mydb");
         assert_eq!(sql, "SELECT 1 AS a");
 
         // Other query parameters survive (only ?sql= is consumed).
-        let (conn, _sql) = parse_postgres_uri(
-            "postgres://user@host/db?sslmode=disable&sql=SELECT 2",
-        )
-        .expect("should parse");
+        let (conn, _sql) =
+            parse_postgres_uri("postgres://user@host/db?sslmode=disable&sql=SELECT 2")
+                .expect("should parse");
         assert_eq!(conn, "postgres://user@host/db?sslmode=disable");
     }
 
@@ -1764,9 +1777,7 @@ mod postgres_tests {
     fn postgres_without_server_errors_gracefully() {
         // No local Postgres in CI/dev by default — connecting to a closed port
         // must return a clear Err, never panic/segfault.
-        let err = load_postgres_as_df(
-            "postgres://user:pass@127.0.0.1:1/x?sql=SELECT 1",
-        );
+        let err = load_postgres_as_df("postgres://user:pass@127.0.0.1:1/x?sql=SELECT 1");
         assert!(err.is_err(), "should fail to connect on port 1");
         let msg = err.unwrap_err().to_string();
         assert!(

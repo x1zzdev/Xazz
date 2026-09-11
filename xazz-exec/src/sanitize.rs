@@ -302,8 +302,7 @@ fn scan_bias(df: &DataFrame, col_names: &[String]) -> BiasSection {
         let dominant_share = max_count as f64 / total as f64;
 
         if imbalance_ratio >= BIAS_IMBALANCE_THRESHOLD && dominant_share >= BIAS_DOMINANT_SHARE {
-            let mut top: Vec<(String, u64)> =
-                counts.into_iter().collect();
+            let mut top: Vec<(String, u64)> = counts.into_iter().collect();
             top.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
             top.truncate(MAX_TOP_CATEGORIES);
             flagged_columns.push(BiasColumn {
@@ -402,17 +401,33 @@ mod tests {
     #[test]
     fn flags_pii_in_text_column() {
         let df = df_from_cols(&[
-            ("name", vec![Some("홍길동"), Some("010-1234-5678"), Some("김철수")]),
-            ("text", vec![Some("contact: sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ"), Some("ok"), Some("ok")]),
+            (
+                "name",
+                vec![Some("홍길동"), Some("010-1234-5678"), Some("김철수")],
+            ),
+            (
+                "text",
+                vec![
+                    Some("contact: sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+                    Some("ok"),
+                    Some("ok"),
+                ],
+            ),
         ]);
         let r = sanitize_df(&df, "test.csv");
         assert!(
-            r.pii.flagged_columns.iter().any(|c| c.kinds.iter().any(|k| k == "api_key")),
+            r.pii
+                .flagged_columns
+                .iter()
+                .any(|c| c.kinds.iter().any(|k| k == "api_key")),
             "{:?}",
             r.pii
         );
         assert!(
-            r.pii.flagged_columns.iter().any(|c| c.kinds.iter().any(|k| k == "phone_number")),
+            r.pii
+                .flagged_columns
+                .iter()
+                .any(|c| c.kinds.iter().any(|k| k == "phone_number")),
             "{:?}",
             r.pii
         );
@@ -455,12 +470,15 @@ mod tests {
     fn detects_near_duplicate_text_column() {
         let df = df_from_cols(&[
             ("a", vec![Some("x"), Some("x"), Some("x"), Some("other")]),
-            ("note", vec![
-                Some("  Summarize   the   report  "),
-                Some("summarize the report"),
-                Some("summarize the report"),
-                Some("other"),
-            ]),
+            (
+                "note",
+                vec![
+                    Some("  Summarize   the   report  "),
+                    Some("summarize the report"),
+                    Some("summarize the report"),
+                    Some("other"),
+                ],
+            ),
         ]);
         let r = sanitize_df(&df, "near.csv");
         let note = r
@@ -478,20 +496,24 @@ mod tests {
 
     #[test]
     fn flags_imbalanced_categorical_column() {
-        let df = df_from_cols(&[
-            ("label", vec![
-                Some("positive"), Some("positive"), Some("positive"),
-                Some("positive"), Some("positive"), Some("positive"),
-                Some("positive"), Some("positive"), Some("positive"),
-                Some("positive"), Some("negative"),
-            ]),
-        ]);
+        let df = df_from_cols(&[(
+            "label",
+            vec![
+                Some("positive"),
+                Some("positive"),
+                Some("positive"),
+                Some("positive"),
+                Some("positive"),
+                Some("positive"),
+                Some("positive"),
+                Some("positive"),
+                Some("positive"),
+                Some("positive"),
+                Some("negative"),
+            ],
+        )]);
         let r = sanitize_df(&df, "bias.csv");
-        let flag = r
-            .bias
-            .flagged_columns
-            .iter()
-            .find(|c| c.column == "label");
+        let flag = r.bias.flagged_columns.iter().find(|c| c.column == "label");
         assert!(flag.is_some(), "{:?}", r.bias.flagged_columns);
         assert!(flag.unwrap().imbalance_ratio >= 10.0);
         assert!(flag.unwrap().dominant_share >= 0.5);
@@ -499,12 +521,20 @@ mod tests {
 
     #[test]
     fn balanced_categorical_column_is_not_flagged() {
-        let df = df_from_cols(&[
-            ("label", vec![
-                Some("positive"), Some("negative"), Some("positive"), Some("negative"),
-            ]),
-        ]);
+        let df = df_from_cols(&[(
+            "label",
+            vec![
+                Some("positive"),
+                Some("negative"),
+                Some("positive"),
+                Some("negative"),
+            ],
+        )]);
         let r = sanitize_df(&df, "balanced.csv");
-        assert!(r.bias.flagged_columns.is_empty(), "{:?}", r.bias.flagged_columns);
+        assert!(
+            r.bias.flagged_columns.is_empty(),
+            "{:?}",
+            r.bias.flagged_columns
+        );
     }
 }

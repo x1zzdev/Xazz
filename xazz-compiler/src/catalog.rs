@@ -98,16 +98,18 @@ fn build_pipeline_entry(node: &PipelineNode) -> PipelineCatalogEntry {
 }
 
 /// Applies a data op to the provenance map.
-fn apply_data_op(
-    op: &DataOp,
-    provenance: &mut Vec<(String, Vec<String>, usize)>,
-    step_idx: usize,
-) {
+fn apply_data_op(op: &DataOp, provenance: &mut Vec<(String, Vec<String>, usize)>, step_idx: usize) {
     use DataOp::*;
     match op {
         // Pass-through ops — provenance unchanged.
-        Filter(_) | DropNull(_) | Sort { .. } | Limit(_) | Sample { .. } | Cast { .. }
-        | Replace { .. } | FillNull { .. } => {}
+        Filter(_)
+        | DropNull(_)
+        | Sort { .. }
+        | Limit(_)
+        | Sample { .. }
+        | Cast { .. }
+        | Replace { .. }
+        | FillNull { .. } => {}
 
         // Select — keep only the chosen columns, preserving their provenance.
         Select(cols) => {
@@ -150,7 +152,9 @@ fn apply_data_op(
         // Join — merge the other side's columns. We don't have the other side's
         // schema here (it's a variable ref), so provenance for joined columns
         // is best-effort: keep existing columns, mark join keys.
-        Join { left_on, right_on, .. } => {
+        Join {
+            left_on, right_on, ..
+        } => {
             for k in left_on {
                 if !provenance.iter().any(|(c, _, _)| c == k) {
                     provenance.push((k.clone(), vec![k.clone()], step_idx));

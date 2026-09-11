@@ -341,8 +341,7 @@ mod tests {
     #[test]
     fn stdlib_import_resolves_embedded() {
         let main = parse("import \"std/models\";");
-        let resolved =
-            resolve_imports(&main, &std::env::temp_dir()).expect("stdlib resolve");
+        let resolved = resolve_imports(&main, &std::env::temp_dir()).expect("stdlib resolve");
         assert!(
             resolved.program.stmts.iter().any(|s| matches!(
                 s,
@@ -363,8 +362,7 @@ mod tests {
     #[test]
     fn stdlib_common_and_math_resolve() {
         let main = parse("import \"std/common\";\nimport \"std/math\";");
-        let resolved =
-            resolve_imports(&main, &std::env::temp_dir()).expect("stdlib resolve");
+        let resolved = resolve_imports(&main, &std::env::temp_dir()).expect("stdlib resolve");
         assert!(resolved.program.stmts.iter().any(|s| matches!(
             s,
             Stmt::TypeDecl { name, .. } if name == "TimeSeries"

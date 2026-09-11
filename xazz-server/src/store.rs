@@ -75,7 +75,10 @@ impl Store {
 
     /// Opens the DB and creates the schema if needed. Called on first write.
     fn open(&self) -> Result<std::sync::MutexGuard<'_, Option<Connection>>, String> {
-        let mut guard = self.conn.lock().map_err(|_| "store lock poisoned".to_string())?;
+        let mut guard = self
+            .conn
+            .lock()
+            .map_err(|_| "store lock poisoned".to_string())?;
         if guard.is_none() {
             let conn = Connection::open(PathBuf::from(DB_FILE))
                 .map_err(|e| format!("failed to open {}: {e}", DB_FILE))?;
@@ -93,7 +96,8 @@ impl Store {
             .map_err(|e| format!("failed to create runs table: {e}"))?;
             // Migration for DBs created before the tenant column (issue C2):
             // adding an already-present column is a no-op error we swallow.
-            let _ = conn.execute_batch("ALTER TABLE runs ADD COLUMN tenant TEXT NOT NULL DEFAULT ''");
+            let _ =
+                conn.execute_batch("ALTER TABLE runs ADD COLUMN tenant TEXT NOT NULL DEFAULT ''");
             *guard = Some(conn);
         }
         Ok(guard)
@@ -224,12 +228,20 @@ mod tests {
         assert_eq!(got.rows, 42);
         assert!(got.error.is_none());
 
-        let got2 = store.get_run(id2, "tenant-a").expect("get").expect("exists");
+        let got2 = store
+            .get_run(id2, "tenant-a")
+            .expect("get")
+            .expect("exists");
         assert_eq!(got2.status, "failed");
         assert_eq!(got2.error.as_deref(), Some("boom"));
 
         // Cross-tenant access is denied: tenant-a cannot read tenant-b's run.
-        assert!(store.get_run(id_other, "tenant-a").expect("no err").is_none());
+        assert!(
+            store
+                .get_run(id_other, "tenant-a")
+                .expect("no err")
+                .is_none()
+        );
         // tenant-b sees only its own run.
         let b_list = store.list_runs(10, "tenant-b").expect("list");
         assert_eq!(b_list.len(), 1);

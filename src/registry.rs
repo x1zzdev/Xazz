@@ -135,7 +135,9 @@ pub fn install(name: &str, out: Option<&Path>, force: bool) -> i32 {
         eprintln!("        run `xazz registry list` to see available entries");
         return 1;
     };
-    let dest = out.map(|p| p.to_path_buf()).unwrap_or_else(|| default_dest(entry));
+    let dest = out
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| default_dest(entry));
 
     if dest.exists() && !force {
         eprintln!(
@@ -169,7 +171,10 @@ pub fn install(name: &str, out: Option<&Path>, force: bool) -> i32 {
             println!("  Verify with: xazz policy <file.xzz>");
         }
         EntryKind::Stdlib => {
-            println!("  Import it as a project module: import \"{}\"", dest.display());
+            println!(
+                "  Import it as a project module: import \"{}\"",
+                dest.display()
+            );
         }
     }
     0

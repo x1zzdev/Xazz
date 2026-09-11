@@ -146,7 +146,10 @@ impl LanguageServer for Backend {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri.clone();
         let source = params.text_document.text.clone();
-        self.docs.lock().unwrap().insert(uri.clone(), source.clone());
+        self.docs
+            .lock()
+            .unwrap()
+            .insert(uri.clone(), source.clone());
 
         let dir = uri
             .to_file_path()
@@ -275,10 +278,7 @@ impl LanguageServer for Backend {
         }))
     }
 
-    async fn rename(
-        &self,
-        params: RenameParams,
-    ) -> JsonRpcResult<Option<WorkspaceEdit>> {
+    async fn rename(&self, params: RenameParams) -> JsonRpcResult<Option<WorkspaceEdit>> {
         let uri = params.text_document_position.text_document.uri;
         let pos = params.text_document_position.position;
         let new_name = params.new_name;
@@ -417,7 +417,11 @@ mod tests {
                    v y = x |> select([a]);";
         let symbols = index_source(src);
         let sym = symbols.at_pos(2, 7).expect("symbol at x ref");
-        let def = symbols.definitions_of(&sym.name).into_iter().next().expect("def");
+        let def = symbols
+            .definitions_of(&sym.name)
+            .into_iter()
+            .next()
+            .expect("def");
         assert_eq!(def.line, 1);
         assert!(def.is_definition);
     }
@@ -427,7 +431,11 @@ mod tests {
     fn symbol_location_conversion_is_zero_based() {
         let src = "v abc = load(\"d.csv\");";
         let symbols = index_source(src);
-        let def = symbols.definitions_of("abc").into_iter().next().expect("def");
+        let def = symbols
+            .definitions_of("abc")
+            .into_iter()
+            .next()
+            .expect("def");
         let url: Url = "file:///t.xzz".parse().expect("valid file url");
         let loc = symbol_to_location(&url, def);
         assert_eq!(loc.range.start.line, 0);

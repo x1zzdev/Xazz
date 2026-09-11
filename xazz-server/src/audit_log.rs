@@ -304,10 +304,10 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("audit.jsonl");
 
-        let r1 = append_to_path("v a = load(\"x.csv\") :: S;", Some("success"), None, &file)
-            .unwrap();
-        let r2 = append_to_path("v b = load(\"y.csv\") :: T;", Some("failed"), None, &file)
-            .unwrap();
+        let r1 =
+            append_to_path("v a = load(\"x.csv\") :: S;", Some("success"), None, &file).unwrap();
+        let r2 =
+            append_to_path("v b = load(\"y.csv\") :: T;", Some("failed"), None, &file).unwrap();
 
         // index and chain linking
         assert_eq!(r1.index, 0);

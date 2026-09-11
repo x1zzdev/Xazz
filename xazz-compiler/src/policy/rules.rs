@@ -278,8 +278,7 @@ fn check_model_references(program: &Program, policy: &Policy, report: &mut Polic
                     .iter()
                     .find(|l| !l.is_empty() && entry.license.eq_ignore_ascii_case(l.as_str()));
                 if let Some(license) = denied {
-                    let severity =
-                        policy.severity_for(RULE_MODEL_LICENSE_BLOCKED, Severity::Block);
+                    let severity = policy.severity_for(RULE_MODEL_LICENSE_BLOCKED, Severity::Block);
                     record(
                         report,
                         Violation::new(

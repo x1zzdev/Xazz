@@ -27,7 +27,9 @@ fn main() {
     }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("{usage}");
-        println!("[xazz-exec] helpers: --version | --help | --schema <columnar-file> | --sanitize <data-file>");
+        println!(
+            "[xazz-exec] helpers: --version | --help | --schema <columnar-file> | --sanitize <data-file>"
+        );
         return;
     }
 
@@ -39,10 +41,7 @@ fn main() {
             match xazz_exec::sanitize::sanitize_file(path) {
                 Ok(report) => {
                     if json {
-                        println!(
-                            "{}",
-                            serde_json::to_string(&report).unwrap_or_default()
-                        );
+                        println!("{}", serde_json::to_string(&report).unwrap_or_default());
                     } else {
                         println!("{}", xazz_exec::sanitize::render_report(&report));
                     }

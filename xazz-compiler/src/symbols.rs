@@ -156,7 +156,11 @@ pub fn index_tokens(tokens: &[Token]) -> SymbolTable {
                             is_definition: true,
                         });
                         declared.push((name.clone(), SymbolKind::Variable));
-                        declared_spans.push((name.clone(), SymbolKind::Variable, next.span.clone()));
+                        declared_spans.push((
+                            name.clone(),
+                            SymbolKind::Variable,
+                            next.span.clone(),
+                        ));
                         i += 2;
                         continue;
                     }
@@ -179,7 +183,11 @@ pub fn index_tokens(tokens: &[Token]) -> SymbolTable {
                             is_definition: true,
                         });
                         declared.push((name.clone(), SymbolKind::Variable));
-                        declared_spans.push((name.clone(), SymbolKind::Variable, next.span.clone()));
+                        declared_spans.push((
+                            name.clone(),
+                            SymbolKind::Variable,
+                            next.span.clone(),
+                        ));
                         i = j + 1;
                         continue;
                     }
@@ -211,11 +219,7 @@ pub fn index_tokens(tokens: &[Token]) -> SymbolTable {
     // Kind for references: match a previously declared kind where unambiguous.
     for sym in table.symbols.iter_mut() {
         if !sym.is_definition {
-            if let Some((_, kind)) = declared
-                .iter()
-                .rev()
-                .find(|(d, _)| d == &sym.name)
-            {
+            if let Some((_, kind)) = declared.iter().rev().find(|(d, _)| d == &sym.name) {
                 sym.kind = *kind;
             }
         }
@@ -246,11 +250,7 @@ mod tests {
                    v t = x |> train(M, target: \"a\");";
         let t = index_source(src);
 
-        let defs: Vec<&Symbol> = t
-            .symbols
-            .iter()
-            .filter(|s| s.is_definition)
-            .collect();
+        let defs: Vec<&Symbol> = t.symbols.iter().filter(|s| s.is_definition).collect();
         // P (type), x (var), M (model), t (var)
         assert_eq!(defs.len(), 4, "{:#?}", defs);
         assert_eq!(defs[0].name, "P");
@@ -291,11 +291,7 @@ mod tests {
     fn mut_variable_declaration_indexed() {
         let src = "mut v data = load(\"d.csv\");\nv c2 = data;";
         let t = index_source(src);
-        let defs: Vec<&Symbol> = t
-            .symbols
-            .iter()
-            .filter(|s| s.is_definition)
-            .collect();
+        let defs: Vec<&Symbol> = t.symbols.iter().filter(|s| s.is_definition).collect();
         assert_eq!(defs.len(), 2, "{:#?}", defs);
         assert_eq!(defs[0].name, "data");
         assert!(t.references_of("data").iter().any(|s| !s.is_definition));

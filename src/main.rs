@@ -407,9 +407,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if json {
                 cmd.arg("--json");
             }
-            let status = cmd.status().map_err(|e| {
-                anyhow::anyhow!("xazz-exec --sanitize '{}' 실행 실패: {}", file, e)
-            })?;
+            let status = cmd
+                .status()
+                .map_err(|e| anyhow::anyhow!("xazz-exec --sanitize '{}' 실행 실패: {}", file, e))?;
             if !status.success() {
                 std::process::exit(status.code().unwrap_or(1));
             }

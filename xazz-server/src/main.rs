@@ -64,7 +64,14 @@ fn tenant_str(tenant: &str) -> &str {
 }
 
 /// Records a run in the store, returning the new id (0 on store failure).
-fn record_run_in_store(state: &AppState, code: &str, status: &str, rows: i64, error: Option<&str>, tenant: &str) -> i64 {
+fn record_run_in_store(
+    state: &AppState,
+    code: &str,
+    status: &str,
+    rows: i64,
+    error: Option<&str>,
+    tenant: &str,
+) -> i64 {
     let hash = audit_log::hash_code(code);
     match state.store.record_run(&hash, status, rows, error, tenant) {
         Ok(id) => id,
@@ -264,7 +271,10 @@ async fn optional_bearer_auth(
             .unwrap_or("")
             .to_string();
         if tenant.is_empty() {
-            return Err((StatusCode::UNAUTHORIZED, "missing X-Xazz-Tenant header".into()));
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "missing X-Xazz-Tenant header".into(),
+            ));
         }
         let expected = tenant_map.get(&tenant);
         let ok = expected.is_some_and(|t| auth == format!("Bearer {t}"));
@@ -993,14 +1003,16 @@ struct InferenceCheckResponse {
 async fn handle_inference_check(
     Json(payload): Json<InferenceCheckRequest>,
 ) -> Result<Json<InferenceCheckResponse>, (StatusCode, String)> {
-    use xazz_compiler::policy::patterns::{scan_output_text, SecretKind};
+    use xazz_compiler::policy::patterns::{SecretKind, scan_output_text};
 
     // 1. Runtime re-scan of the generated response (free-form text, not code).
     let findings: Vec<InferenceFinding> = scan_output_text(&payload.response)
         .into_iter()
         .map(|f| InferenceFinding {
             kind: match f.kind {
-                SecretKind::ResidentRegistrationNumber => "resident_registration_number".to_string(),
+                SecretKind::ResidentRegistrationNumber => {
+                    "resident_registration_number".to_string()
+                }
                 SecretKind::PhoneNumber => "phone_number".to_string(),
                 SecretKind::Email => "email".to_string(),
                 SecretKind::CreditCard => "credit_card".to_string(),
@@ -1020,7 +1032,11 @@ async fn handle_inference_check(
         &payload.code,
         &payload.prompt,
         &payload.response,
-        if safe_to_emit { Some("safe") } else { Some("blocked") },
+        if safe_to_emit {
+            Some("safe")
+        } else {
+            Some("blocked")
+        },
     )
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
@@ -1087,7 +1103,10 @@ async fn handle_catalog(
     };
     if !check.errors.is_empty() {
         let first = check.errors[0].message.clone();
-        return Err((StatusCode::UNPROCESSABLE_ENTITY, format!("compile error: {first}")));
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!("compile error: {first}"),
+        ));
     }
     let catalog = xazz_compiler::catalog::build_catalog(&ir);
     Ok(Json(json!({ "catalog": catalog })))
@@ -1171,7 +1190,8 @@ mod tests {
     /// Test AppState — a permit count large enough that the execution semaphore does not
     /// impose test concurrency limits.
     fn test_state() -> AppState {
-        let tmp_db = std::env::temp_dir().join(format!("xazz_server_test_{}.db", std::process::id()));
+        let tmp_db =
+            std::env::temp_dir().join(format!("xazz_server_test_{}.db", std::process::id()));
         AppState {
             exec_permits: Arc::new(Semaphore::new(64)),
             store: Arc::new(store::Store::open_at(&tmp_db)),
