@@ -967,6 +967,10 @@ struct InferenceCheckRequest {
     prompt: String,
     /// The model's response — re-scanned at runtime for PII/secrets
     response: String,
+    /// Optional SHA-256 fingerprint of the model weights that produced the
+    /// response (F5 cohort, F4 #73). Recorded in the audit chain when present.
+    #[serde(default)]
+    model_fingerprint: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -992,6 +996,9 @@ struct InferenceCheckResponse {
     prompt_hash: String,
     /// SHA-256 of the response (evidence, not the response itself)
     response_hash: String,
+    /// SHA-256 of the model weights, echoed when the caller supplied it (F4 #73)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model_fingerprint: Option<String>,
 }
 
 /// Runtime output gate: re-scans a generated response against the same policy
@@ -1032,6 +1039,7 @@ async fn handle_inference_check(
         &payload.code,
         &payload.prompt,
         &payload.response,
+        payload.model_fingerprint.as_deref(),
         if safe_to_emit {
             Some("safe")
         } else {
@@ -1049,6 +1057,7 @@ async fn handle_inference_check(
         chain_valid,
         prompt_hash: record.prompt_hash.unwrap_or_default(),
         response_hash: record.response_hash.unwrap_or_default(),
+        model_fingerprint: record.model_fingerprint,
     }))
 }
 
@@ -1388,6 +1397,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             code: "v x = load(\"d.csv\") :: S;".to_string(),
             prompt: "summarize the incident".to_string(),
             response: "The key AKIAIOSFODNN7EXAMPLE was exposed. Please rotate it.".to_string(),
+            model_fingerprint: None,
         }))
         .await;
 
@@ -1413,6 +1423,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             code: "v x = load(\"d.csv\") :: S;".to_string(),
             prompt: "summarize the quarterly report".to_string(),
             response: "Revenue grew 12%. Good quarter.".to_string(),
+            model_fingerprint: None,
         }))
         .await;
 
@@ -1423,5 +1434,34 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         // The prompt/response texts are never stored — only their hashes.
         assert!(!body.response_hash.contains("Revenue"));
         assert!(body.response_hash.len() == 64);
+    }
+
+    /// A supplied model fingerprint is echoed and recorded in the audit chain
+    /// alongside the code/prompt/response evidence (F5 cohort, F4 #73).
+    #[tokio::test]
+    async fn inference_check_records_model_fingerprint() {
+        let fp = audit_log::hash_code("Qwen/Qwen2.5-1.5B-Instruct@rev1");
+        let result = handle_inference_check(Json(InferenceCheckRequest {
+            code: "v x = load(\"d.csv\") :: S;".to_string(),
+            prompt: "summarize the quarterly report".to_string(),
+            response: "Revenue grew 12%. Good quarter.".to_string(),
+            model_fingerprint: Some(fp.clone()),
+        }))
+        .await;
+
+        let body = result.expect("inference check should succeed");
+        assert_eq!(body.model_fingerprint.as_deref(), Some(fp.as_str()));
+        assert!(body.chain_valid);
+
+        // The evidence record binds the fingerprint.
+        let recorded =
+            audit_log::lookup_by_hash(&audit_log::hash_code("v x = load(\"d.csv\") :: S;"))
+                .expect("audit lookup");
+        assert!(
+            recorded
+                .iter()
+                .any(|r| r.model_fingerprint.as_deref() == Some(fp.as_str())),
+            "모델 지문이 감사 체인에 기록되어야 함"
+        );
     }
 }

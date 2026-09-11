@@ -43,6 +43,10 @@ pub struct AuditRecord {
     /// SHA-256 hash of the LLM response (inference-call evidence, F2). None if absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_hash: Option<String>,
+    /// SHA-256 fingerprint of the model that produced the inference (F5 cohort, F4 #73).
+    /// Binds "which weights" to the call, alongside the code/output hashes. None if absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_fingerprint: Option<String>,
     /// SHA-256 hash of the previous record (forms the chain) — the first record is "GENESIS"
     pub prev_hash: String,
     /// SHA-256 hash of this whole record (excluding prev_hash)
@@ -80,6 +84,10 @@ fn compute_record_hash(r: &AuditRecord) -> String {
         hasher.update(response_hash.as_bytes());
         hasher.update(&[0u8]);
     }
+    if let Some(model_fingerprint) = &r.model_fingerprint {
+        hasher.update(model_fingerprint.as_bytes());
+        hasher.update(&[0u8]);
+    }
     hasher.update(r.prev_hash.as_bytes());
     format!("{:x}", hasher.finalize())
 }
@@ -109,7 +117,7 @@ pub fn append(code: &str) -> Result<AuditRecord, String> {
 
 /// Adds an audit record including the execution result (outcome). (default log file)
 pub fn append_with_outcome(code: &str, outcome: Option<&str>) -> Result<AuditRecord, String> {
-    append_with_extras(code, outcome, None, None)
+    append_with_extras(code, outcome, None, None, None)
 }
 
 /// Core append path with optional inference-call evidence (default log file).
@@ -118,6 +126,7 @@ fn append_with_extras(
     outcome: Option<&str>,
     prompt_hash: Option<&str>,
     response_hash: Option<&str>,
+    model_fingerprint: Option<&str>,
 ) -> Result<AuditRecord, String> {
     ensure_log_dir()?;
     let file_path = std::path::PathBuf::from(AUDIT_LOG_FILE);
@@ -125,11 +134,13 @@ fn append_with_extras(
         (Some(p), Some(r)) => Some((p.to_string(), r.to_string())),
         _ => None,
     };
-    append_to_path(code, outcome, inference, &file_path)
+    append_to_path(code, outcome, inference, model_fingerprint, &file_path)
 }
 
 /// Adds an inference-call audit record: the code hash that produced the call plus
-/// the prompt/response hash pair as per-call evidence (issue #71, F2).
+/// the prompt/response hash pair as per-call evidence (issue #71, F2), and an
+/// optional SHA-256 **model fingerprint** binding the call to specific weights
+/// (F5 cohort, issue #73).
 ///
 /// The response is hashed as-is — never stored in plaintext — so the audit log
 /// stays leak-free while still proving "a call with this prompt produced this
@@ -138,6 +149,7 @@ pub fn append_inference_call(
     code: &str,
     prompt: &str,
     response: &str,
+    model_fingerprint: Option<&str>,
     outcome: Option<&str>,
 ) -> Result<AuditRecord, String> {
     ensure_log_dir()?;
@@ -146,15 +158,18 @@ pub fn append_inference_call(
         code,
         outcome,
         Some((hash_code(prompt), hash_code(response))),
+        model_fingerprint,
         &file_path,
     )
 }
 
-/// Writes code + outcome + optional prompt/response hashes to the specified file (append-only).
+/// Writes code + outcome + optional prompt/response + model fingerprint
+/// to the specified file (append-only).
 fn append_to_path(
     code: &str,
     outcome: Option<&str>,
     inference: Option<(String, String)>,
+    model_fingerprint: Option<&str>,
     file_path: &std::path::Path,
 ) -> Result<AuditRecord, String> {
     // 1) Serialize concurrent in-process append read-modify-writes. (TOCTOU prevention)
@@ -202,6 +217,7 @@ fn append_to_path(
         outcome: outcome.map(|s| s.to_string()),
         prompt_hash: inference.as_ref().map(|(p, _)| p.clone()),
         response_hash: inference.as_ref().map(|(_, r)| r.clone()),
+        model_fingerprint: model_fingerprint.map(|s| s.to_string()),
         prev_hash,
         record_hash: String::new(),
     };
@@ -304,10 +320,22 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("audit.jsonl");
 
-        let r1 =
-            append_to_path("v a = load(\"x.csv\") :: S;", Some("success"), None, &file).unwrap();
-        let r2 =
-            append_to_path("v b = load(\"y.csv\") :: T;", Some("failed"), None, &file).unwrap();
+        let r1 = append_to_path(
+            "v a = load(\"x.csv\") :: S;",
+            Some("success"),
+            None,
+            None,
+            &file,
+        )
+        .unwrap();
+        let r2 = append_to_path(
+            "v b = load(\"y.csv\") :: T;",
+            Some("failed"),
+            None,
+            None,
+            &file,
+        )
+        .unwrap();
 
         // index and chain linking
         assert_eq!(r1.index, 0);
@@ -338,6 +366,7 @@ mod tests {
             outcome: None,
             prompt_hash: None,
             response_hash: None,
+            model_fingerprint: None,
             prev_hash: "GENESIS".to_string(),
             record_hash: String::new(),
         };
@@ -368,6 +397,7 @@ mod tests {
             "v x = load(\"d.csv\") :: S;",
             Some("blocked"),
             Some((hash_code(prompt), hash_code(response))),
+            None,
             &file,
         )
         .unwrap();
@@ -402,6 +432,7 @@ mod tests {
             outcome: None,
             prompt_hash: None,
             response_hash: None,
+            model_fingerprint: None,
             prev_hash: "GENESIS".into(),
             record_hash: String::new(),
         };
@@ -415,6 +446,7 @@ mod tests {
             outcome: Some("failed".into()),
             prompt_hash: None,
             response_hash: None,
+            model_fingerprint: None,
             prev_hash: "WRONG".into(),
             record_hash: String::new(),
         };
@@ -430,5 +462,46 @@ mod tests {
             prev = r.record_hash.clone();
         }
         assert!(!ok, "a chain break should be detected");
+    }
+
+    /// A model fingerprint binds the call to specific weights and is covered by
+    /// the tamper-evident record hash (F5 cohort, issue #73).
+    #[test]
+    fn append_inference_call_records_model_fingerprint() {
+        let dir = std::env::temp_dir().join(format!(
+            "xazz_audit_model_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("audit.jsonl");
+
+        let fp = hash_code("Qwen/Qwen2.5-1.5B-Instruct@rev1");
+        let r = append_to_path(
+            "v x = load(\"d.csv\") :: S;",
+            Some("safe"),
+            Some((hash_code("p"), hash_code("r"))),
+            Some(&fp),
+            &file,
+        )
+        .unwrap();
+
+        assert_eq!(r.model_fingerprint.as_deref(), Some(fp.as_str()));
+
+        // The fingerprint is covered by record_hash: changing it breaks verify().
+        let mut tampered = r.clone();
+        tampered.model_fingerprint = Some(hash_code("other-weights"));
+        assert!(!tampered.verify(), "모델 지문 변조가 감지되어야 함");
+
+        // The record is part of a verifiable chain.
+        let recs = read_all(&file).unwrap();
+        assert_eq!(recs.len(), 1);
+        assert!(recs[0].verify());
+        assert_eq!(recs[0].model_fingerprint.as_deref(), Some(fp.as_str()));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

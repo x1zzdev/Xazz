@@ -247,12 +247,15 @@ are exactly where "safe data in, auditable output out" becomes a real requiremen
       (policy registry `allowed_models` + `denied_licenses` + `require_model_provenance` fail-closed;
       XZP030 MODEL_LICENSE_BLOCKED · XZP031 MODEL_PROVENANCE_UNKNOWN; local `model {}` graphs are
       code, never judged)
-- [ ] Model fingerprint joins the audit chain alongside code and output hashes
-      (deferred to F4 — happens when the engine records real inference calls)
+- [x] Model fingerprint joins the audit chain alongside code and output hashes —
+      `AuditRecord.model_fingerprint` + `POST /security/inference/check` accepts an
+      optional `model_fingerprint`; covered by the tamper-evident `record_hash`
 - Depends on: C3 (lineage) optional, F2 (audit chain extension). Acceptance: a policy that rejects a
   non-commercial-license model at compile time.
   ✅ **Done 2026-09-07**: policy rejects `Llama3-License` at compile time (XZP030) and unregistered
   models fail-closed (XZP031); verified via CLI. 351 workspace tests pass.
+  ✅ **Fingerprint-in-audit 2026-09-11** (issue #73): fingerprint recorded and chain-verified;
+  tampering with it breaks `verify()`.
 
 ---
 

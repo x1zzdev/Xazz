@@ -9,6 +9,15 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 모델 지문 감사 체인 연동 (issue #73, Track F4/F5)
+
+- **`AuditRecord.model_fingerprint`** — SHA-256 모델 가중치 지문을 코드·프롬프트·응답 해시와
+  함께 감사 레코드에 기록. `record_hash`에 포함되어 지문 변조 시 `verify()`가 실패
+- **`POST /security/inference/check`** — 선택적 `model_fingerprint` 필드 수용, 응답에 에코.
+  미지정 시 기존과 동일(필드 생략)으로 하위 호환
+- 검증: `append_inference_call_records_model_fingerprint` + `inference_check_records_model_fingerprint`
+  (지문 기록·변조 탐지·체인 검증). xazz-server 35 tests pass
+
 ### Added — ML 컴퓨트 백엔드 추상화 (issue #62 · #63 · #73, Track D1/D2/F4)
 
 - **`xazz-exec/src/backend.rs`** — `ComputeBackend` trait을 `MLOp` 하향 경계에 도입.
