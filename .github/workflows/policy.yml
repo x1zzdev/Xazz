@@ -48,9 +48,10 @@ jobs:
           echo "unsafe pipeline correctly blocked"
           echo "::endgroup::"
 
-      # 4) A demo pipeline actually runs end-to-end in CI.
-      - name: xazz run (demo pipeline)
+      # 4) A self-contained pipeline actually runs end-to-end in CI. It uses a
+      #    DuckDB in-memory source so no data file (or Git LFS) is required.
+      - name: xazz run (self-contained pipeline)
         uses: ./.github/actions/xazz
         with:
           command: run
-          path: demo/preprocess_chart.xzz
+          path: examples/duckdb/hello_duckdb.xzz

@@ -35,9 +35,15 @@ runs:
         key: xazz-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: xazz-${{ runner.os }}-
 
-    - name: Build xazz CLI + runner
+    - name: Build xazz CLI + runner + engine
       shell: bash
-      run: cargo build --release -p xazz -p xazz-runner
+      run: |
+        set -euo pipefail
+        if [ -x ./target/release/xazz ] && [ -x ./target/release/xazz-runner ] && [ -x ./target/release/xazz-exec ]; then
+          echo "xazz binaries already built — skipping cargo build"
+        else
+          cargo build --release -p xazz -p xazz-runner -p xazz-exec
+        fi
 
     - name: Run xazz ${{ inputs.command }}
       shell: bash
