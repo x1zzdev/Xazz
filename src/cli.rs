@@ -149,9 +149,50 @@ pub enum Commands {
         json: bool,
     },
 
+    /// Browse and install policy packs / stdlib modules (issue #68, E4)
+    ///
+    /// Example: xazz registry list
+    /// Example: xazz registry show healthcare
+    /// Example: xazz registry install healthcare --out xazz.policy.json
+    /// Example: xazz registry install models --out std/models.xzz
+    Registry {
+        #[command(subcommand)]
+        action: RegistryAction,
+    },
+
     /// Analyze the xazz user profile and confirm the identity
     ///
     /// Example: xazz whoami
     #[command(hide = true)]
     Whoami,
+}
+
+/// Registry subcommands (issue #68, E4).
+#[derive(Subcommand, Debug)]
+pub enum RegistryAction {
+    /// List available policy packs and stdlib modules
+    List,
+
+    /// Show details for a pack/module by name
+    Show {
+        /// Registry entry name (e.g. healthcare, models)
+        name: String,
+    },
+
+    /// Install a pack/module into the current project
+    ///
+    /// Policy packs default to `xazz.policy.json`; stdlib modules default to
+    /// `std/<name>.xzz`.
+    Install {
+        /// Registry entry name
+        name: String,
+
+        /// Destination path (default depends on the entry kind)
+        #[arg(long)]
+        out: Option<PathBuf>,
+
+        /// Overwrite an existing destination file
+        #[arg(long)]
+        force: bool,
+    },
 }

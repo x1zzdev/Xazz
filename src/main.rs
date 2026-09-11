@@ -1,6 +1,7 @@
 mod cli;
 mod policy_cli;
 mod project;
+mod registry;
 mod schema;
 mod sde;
 mod whoami;
@@ -411,6 +412,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })?;
             if !status.success() {
                 std::process::exit(status.code().unwrap_or(1));
+            }
+        }
+
+        // ── registry: policy packs + stdlib modules (issue #68, E4) ───────────────
+        Commands::Registry { action } => {
+            let code = match action {
+                cli::RegistryAction::List => registry::list(),
+                cli::RegistryAction::Show { name } => registry::show(&name),
+                cli::RegistryAction::Install { name, out, force } => {
+                    registry::install(&name, out.as_deref(), force)
+                }
+            };
+            if code != 0 {
+                std::process::exit(code);
             }
         }
 

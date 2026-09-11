@@ -9,6 +9,19 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 정책 팩 · stdlib 레지스트리 (issue #68, Track E4)
+
+- **`xazz registry list`** — 사용 가능한 정책 팩·stdlib 모듈 목록 (오프라인 내장)
+- **`xazz registry show <name>`** — 항목 상세 + 내용 출력
+- **`xazz registry install <name>`** — 프로젝트에 설치:
+  - 정책 팩(healthcare/finance/public-sector) → `xazz.policy.json` (자동 로드되는 활성 정책 경로)
+  - stdlib 모듈(common/math/models) → `std/<name>.xzz` (프로젝트 로컬 커스터마이즈용)
+  - `--out PATH` 대상 지정, `--force` 덮어쓰기. 기존 파일 보호(기본 거부)
+- 3개 정책 팩·3개 stdlib 모듈을 CLI에 임베드 → 네트워크 없이 동작. 향후 원격 레지스트리는 동일한
+  명령 표면·매니페스트로 확장
+- 검증: 설치한 healthcare 팩이 `patient_id`를 차단, overwrite 가드/미지원 항목 오류
+- 테스트 3건: 항목 유일성, 정책 팩 JSON 유효성, 기본 설치 경로
+
 ### Added — 표준 라이브러리 (`xazz-stdlib`, issue #56, Track B2)
 
 - **`import "std/<name>"`** — 임베디드 표준 라이브러리 모듈. `xazz-stdlib/`의 `.xzz` 소스를

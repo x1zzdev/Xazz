@@ -168,7 +168,9 @@ datasets. This track makes Xazz handle real workloads.
   (builds the CLI, runs `check`/`policy`/`run` over a file or directory, fails on non-zero exit)
   + `.github/workflows/policy.yml` gate: check demo, safe pipeline passes, unsafe pipeline is
   asserted blocked, demo pipeline runs end-to-end.
-- **E4. Package/registry for policy packs + stdlib modules** (starts from the 3 existing domain policy packs)
+- **E4. Package/registry for policy packs + stdlib modules** — ✅ (issue #68) offline-first embedded
+  registry: `xazz registry list/show/install`. Packs (healthcare/finance/public-sector) install to
+  `xazz.policy.json` (auto-loaded); stdlib modules install to `std/<name>.xzz`. `--out`/`--force` supported.
 
 ---
 
