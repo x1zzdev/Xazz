@@ -8,6 +8,7 @@
 /// Dependency graph:
 ///   xazz (CLI)   → xazz-compiler (NO Polars) ✓
 ///   xazz-runner  → xazz-exec → Polars        ✓ (separate binary)
+pub mod backend;
 pub mod chart;
 pub mod dl;
 pub mod dp;

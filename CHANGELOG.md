@@ -9,6 +9,18 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — ML 컴퓨트 백엔드 추상화 (issue #62 · #63 · #73, Track D1/D2/F4)
+
+- **`xazz-exec/src/backend.rs`** — `ComputeBackend` trait을 `MLOp` 하향 경계에 도입.
+  `runtime`이 `dl::train/predict`를 직접 부르지 않고 `backend::active()`를 통해 디스패치한다.
+  Burn(ndarray CPU)이 첫 provider이며, burn-engine/ONNX Runtime은 동일 trait 뒤에서 교체 가능
+- **`XAZZ_BACKEND`** 환경변수 선택(`cpu`|`cuda`|`wgpu`|`onnx`, 엔진 별칭 허용). 바이너리에
+  포함되지 않았거나 알 수 없는 값이면 **명시적 경고와 함께 CPU로 폴백** (무단 디바이스 전환 없음)
+- Cargo feature `cuda`/`wgpu`/`onnx` — 실기 provider는 스캐폴드. 각 acceptance 테스트는
+  `#[ignore]`로 게이트: `cargo test -p xazz-exec --features cuda -- --ignored`
+- 검증: trait 경유 CPU 학습·예측 왕복, resolver 폴백/별칭, `--all-features` 컴파일, 전체 테스트 통과
+  (GPU/ONNX 실기 검증은 하드웨어/외부 릴리스에 게이트 — 이슈 참조)
+
 ### Added — 조기 종료 (early stopping) (issue #64, Track D3)
 
 - **`train(..., validation_split: 0.3, patience: N)`** — 검증 손실이 N epoch 동안 개선되지 않으면

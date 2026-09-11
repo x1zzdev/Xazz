@@ -1331,7 +1331,8 @@ fn execute_node(
                         )
                     }
                 })?;
-                let trained = crate::dl::train(&snapshot, model, &layers, config)
+                let trained = crate::backend::active()
+                    .train(&snapshot, model, &layers, config)
                     .map_err(|e| format!("{}: {e}", tr("training failed", "학습 실패")))?;
                 print_train_report(&trained);
 
@@ -1371,7 +1372,8 @@ fn execute_node(
                     }
                 })?;
                 let snapshot = lf.clone().collect()?;
-                let out = crate::dl::predict(trained, &snapshot, as_col.as_deref())
+                let out = crate::backend::active()
+                    .predict(trained, &snapshot, as_col.as_deref())
                     .map_err(|e| format!("{}: {e}", tr("prediction failed", "예측 실패")))?;
                 eprintln!(
                     "[xazz] Predict '{}' {}: {} ({} {})",

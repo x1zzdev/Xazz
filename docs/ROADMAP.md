@@ -140,15 +140,23 @@ datasets. This track makes Xazz handle real workloads.
 
 ## Track D — ML scale (Phase 6)
 
-### D1. GPU backends
-- [ ] `burn-tch` (CUDA) then `burn-wgpu` (cross-vendor) behind a feature flag / `XAZZ_BACKEND`
-- [ ] Detect at runtime, fall back to CPU with an explicit warning
+### D1. GPU backends — issue #62
+- [x] `ComputeBackend` trait at the `MLOp` boundary + `XAZZ_BACKEND` selection with an
+      explicit CPU fallback warning (`xazz-exec/src/backend.rs`); GPU parity test is
+      `#[ignore]`d behind each feature
+- [ ] `burn-tch` (CUDA) then `burn-wgpu` (cross-vendor) provider impls behind
+      `--features cuda` / `--features wgpu`
 - Depends on: none (Burn API is backend-agnostic). Acceptance: same `.xzz` trains on CPU and CUDA with identical reported losses.
+  ⏳ **Interface landed 2026-09-11**: trait + resolver + fallback verified on CPU; the acceptance
+  test exists and is gated (`cargo test -p xazz-exec --features cuda -- --ignored`) — running it
+  needs a CUDA host carrying the `burn-tch` provider.
 
-### D2. ONNX export/import
+### D2. ONNX export/import — issue #63
+- [x] ONNX provider slot in `ComputeBackend` (`--features onnx`, scaffold) + gated parity test
 - [ ] `TrainedModel` → ONNX export; ONNX → inference without re-training
 - [ ] Unlocks ecosystem interop and model serving
 - Depends on: D1 (device mapping). Acceptance: exported ONNX runs in onnxruntime with same prediction.
+  ⏳ **Slot landed 2026-09-11**: provider + `#[ignore]` acceptance test; needs `onnxruntime`.
 
 ### D3. Model graph expansion — issue #64
 - [x] **Early stopping** — `train(..., validation_split: 0.3, patience: N)` stops when validation
@@ -223,12 +231,15 @@ are exactly where "safe data in, auditable output out" becomes a real requiremen
   findings + near-duplicate/bias sections; `--json` emits the structured artifact. 345 tests pass.
 
 ### F4. burn-engine integration — embed or deploy, both — issue #73
-- [ ] Backend trait at the `MLOp` lowering boundary so Burn stays the first provider but burn-engine /
-      ONNX Runtime are swappable behind the same Typed IR (de-risks Burn's pivot toward inference)
-- [ ] Runner subprocess keeps both modes: embedded engine (in-process) or remote server
-      (mirrors today's `xazz-runner` + `xazz-server` split)
+- [x] Backend trait at the `MLOp` lowering boundary so Burn stays the first provider but
+      burn-engine / ONNX Runtime are swappable behind the same Typed IR
+      (`xazz-exec/src/backend.rs`, `XAZZ_BACKEND` selection + CPU fallback)
+- [ ] burn-engine / remote-server provider impls (embedded vs remote, mirroring the
+      `xazz-runner` + `xazz-server` split)
 - Depends on: D2 (ONNX) partially, F1–F3 (the guardrails must exist before inference calls are first-class). 
   Acceptance: the same `.xzz` runs inference via embedded burn-engine and via ONNX with identical outputs.
+  ⏳ **Interface landed 2026-09-11**: dispatch is trait-based and verified on CPU; provider impls are
+  blocked on the Burn 0.22 / burn-engine release.
 
 ### F5. Model provenance — weights & license metadata guard — issue #74
 - [x] `model {}` declarations and `load("hf://...")`-style sources carry license/weights metadata;
@@ -261,11 +272,11 @@ Efficiency rule: **value-per-effort first, then dependency chain.** Do not start
 | 8 | ~~B2 — stdlib (#56)~~ | ✅ Done — `xazz-stdlib/` embedded modules (`std/common`, `std/math`, `std/models`) |
 | 9 | ~~C4 — Python bindings (#61, subprocess adapter)~~ | ✅ Done — `xazz.check/run/policy` from Python; PyO3 deferred |
 | 10 | ~~C2 — auth + multi-tenant (#59, run isolation)~~ | ✅ Done — tenant token auth + scoped /runs; budget isolation remains |
-| 11 | D1/D2/D3 — ML | Phase 6; GPU hardware gates D1/D2; D3 early stopping done (#64) |
+| 11 | D1/D2/D3 — ML | Phase 6; backend trait + `XAZZ_BACKEND` landed (#62/#63); D3 early stopping done (#64). GPU/ONNX providers hardware-gated |
 | 12 | ~~F1 — prompt input gate~~ | ✅ Issue #70 open — pure policy-engine extension; biggest GenAI governance win per effort |
 | 13 | F2 — output gate (#71) | Depends on F1; completes the request/response audit story |
 | 14 | F3 — fine-tuning sanitization (#72) | Depends on F1; pairs with burn-engine LoRA/QLoRA launch |
-| 15 | F4 — burn-engine / ONNX interop (#73) | Depends on D2 + F1–F3; timed to burn-engine release |
+| 15 | F4 — burn-engine / ONNX interop (#73) | Backend trait landed; provider impls timed to burn-engine release |
 | 16 | E1–E4 — ecosystem | Everything downstream of B3/C1/A3 |
 | 17 | ~~F5 — model provenance (#74)~~ | ✅ Done — policy registry gate (XZP030/031); fingerprint-in-audit deferred to F4 |
 

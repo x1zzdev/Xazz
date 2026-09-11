@@ -14,6 +14,17 @@ categories = ["science"]
 name = "xazz-exec"
 path = "src/main.rs"
 
+# ── 선택적 ML 컴퓨트 백엔드 (D1 #62 · D2 #63 · F4 #73) ────────────────────────
+# CPU(burn-ndarray)는 항상 컴파일되며, 사용할 수 없는 백엔드의 폴백이다.
+# 아래 feature 는 해당 하드웨어/SDK가 있는 호스트에서만 켠다. 각 백엔드의
+# 실기 acceptance 테스트는 `#[ignore]` 로 게이트되어 있다
+# (`cargo test -p xazz-exec --features cuda -- --ignored`).
+[features]
+default = []
+cuda = []
+wgpu = []
+onnx = []
+
 [dependencies]
 # 공유 핵심 타입
 xazz-core     = { path = "../xazz-core" }
