@@ -45,7 +45,7 @@ jobs:
           rustup target add ${{ matrix.platform.target }}
 
       - name: Cache Cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -55,7 +55,7 @@ jobs:
           restore-keys: registry-${{ matrix.platform.target }}-
 
       - name: Cache build artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: target
           key: build-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('src/**/*.rs', 'xazz-*/src/**/*.rs') }}

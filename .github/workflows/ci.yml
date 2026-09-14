@@ -29,7 +29,7 @@ jobs:
           rustup default stable
 
       - name: Cache Cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -39,7 +39,7 @@ jobs:
           restore-keys: registry-${{ matrix.os }}-
 
       - name: Cache build artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: target
           key: build-test-${{ matrix.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('src/**/*.rs', 'xazz-*/src/**/*.rs') }}
