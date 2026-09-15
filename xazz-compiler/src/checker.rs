@@ -332,22 +332,50 @@ impl Analyzer {
         let has_dense = layers
             .iter()
             .any(|l| matches!(l, LayerKind::Dense(n) if *n > 0));
-        if !has_dense {
+        let has_conv = layers.iter().any(|l| {
+            matches!(l, LayerKind::Conv1d { out_channels, kernel_size }
+                if *out_channels > 0 && *kernel_size > 0)
+        });
+        if !has_dense && !has_conv {
             self.error(
-                ErrorKind::Other("Dense 레이어 없음".to_string()),
+                ErrorKind::Other("Dense/Conv1d 레이어 없음".to_string()),
                 Some(name),
                 if is_korean() {
                     format!(
-                        "모델 '{}' 에 유효한 Dense 레이어가 없습니다. 최소 하나의 Dense(units) 레이어가 필요합니다.",
+                        "모델 '{}' 에 유효한 Dense 또는 Conv1d 레이어가 없습니다. 최소 하나의 Dense(units)/Conv1d(out_channels, kernel_size) 레이어가 필요합니다.",
                         name
                     )
                 } else {
                     format!(
-                        "Model '{}' has no valid Dense layer. At least one Dense(units) layer is required.",
+                        "Model '{}' has no valid Dense or Conv1d layer. At least one Dense(units)/Conv1d(out_channels, kernel_size) layer is required.",
                         name
                     )
                 },
             );
+        }
+        for layer in layers {
+            if let LayerKind::Conv1d {
+                out_channels,
+                kernel_size,
+            } = layer
+                && (*out_channels == 0 || *kernel_size == 0)
+            {
+                self.error(
+                    ErrorKind::Other("Conv1d 파라미터 오류".to_string()),
+                    Some(name),
+                    if is_korean() {
+                        format!(
+                            "모델 '{}' 의 Conv1d(out_channels, kernel_size) 는 둘 다 1 이상이어야 합니다.",
+                            name
+                        )
+                    } else {
+                        format!(
+                            "Model '{}': Conv1d(out_channels, kernel_size) requires both values >= 1.",
+                            name
+                        )
+                    },
+                );
+            }
         }
         if layers.iter().any(|l| matches!(l, LayerKind::BatchNorm)) {
             self.warning(Some(name), if is_korean() {
@@ -1640,7 +1668,33 @@ mod tests {
     fn model_decl_requires_dense() {
         let r = check("model M { ReLU() -> ReLU() }");
         assert!(r.is_err());
-        assert!(err_kinds(&r).iter().any(|k| k.contains("Dense 레이어")));
+        assert!(
+            err_kinds(&r)
+                .iter()
+                .any(|k| k.contains("Dense/Conv1d 레이어"))
+        );
+    }
+
+    #[test]
+    fn conv1d_model_is_valid() {
+        let r = check(
+            "type X = { a: float, b: float, y: float };
+             model CNN { Conv1d(4, 3) -> ReLU() -> Dense(1) }
+             v data = load(\"x.csv\") :: X;
+             v trained = data |> train(CNN, target: \"y\", epochs: 3);",
+        );
+        assert!(r.is_ok(), "오류: {:?}", r.errors);
+    }
+
+    #[test]
+    fn conv1d_zero_params_error() {
+        let r = check("model M { Conv1d(0, 3) }");
+        assert!(r.is_err());
+        assert!(
+            err_kinds(&r).iter().any(|k| k.contains("Conv1d")),
+            "Conv1d 오류 없음: {:?}",
+            err_kinds(&r)
+        );
     }
 
     #[test]

@@ -198,12 +198,21 @@ impl Parser {
             "Tanh" => LayerKind::Tanh,
             "Softmax" => LayerKind::Softmax,
             "BatchNorm" => LayerKind::BatchNorm,
+            "Conv1d" => {
+                let out_channels = self.expect_number()? as usize;
+                self.expect(&TokenKind::Comma)?;
+                let kernel_size = self.expect_number()? as usize;
+                LayerKind::Conv1d {
+                    out_channels,
+                    kernel_size,
+                }
+            }
             other => {
                 return Err(CompileError::new(
                     ErrorKind::UnexpectedToken(other.into()),
                     self.current_span(),
                     format!(
-                        "알 수 없는 레이어 타입: '{}'. 지원: Dense, ReLU, Sigmoid, Tanh, Softmax, Dropout, BatchNorm",
+                        "알 수 없는 레이어 타입: '{}'. 지원: Dense, ReLU, Sigmoid, Tanh, Softmax, Dropout, BatchNorm, Conv1d",
                         other
                     ),
                 ));
@@ -1658,7 +1667,8 @@ impl Parser {
 mod tests {
     use super::*;
     use crate::ast::{
-        BinOpKind, Expr, FillNullValue, JoinHow, PipelineOp, PipelineSource, Stmt, StructField,
+        BinOpKind, Expr, FillNullValue, JoinHow, LayerKind, PipelineOp, PipelineSource, Stmt,
+        StructField,
     };
     use crate::lexer::Lexer;
 
@@ -1779,6 +1789,29 @@ type AirQuality = {
                 );
             }
             other => panic!("TypeDecl 예상, 실제: {:?}", other),
+        }
+    }
+
+    // ── model Conv1d layer parsing (D3 CNN) ────────────────────────────────────
+    #[test]
+    fn test_model_conv1d_parse() {
+        let src = r#"model CNN { Conv1d(4, 3) -> ReLU() -> Dense(1) }"#;
+        let program = parse_src(src).expect("파싱 실패");
+        assert_eq!(program.stmts.len(), 1);
+        match &program.stmts[0] {
+            Stmt::ModelDecl { name, layers } => {
+                assert_eq!(name, "CNN");
+                assert_eq!(
+                    layers[0],
+                    LayerKind::Conv1d {
+                        out_channels: 4,
+                        kernel_size: 3
+                    }
+                );
+                assert_eq!(layers[1], LayerKind::ReLU);
+                assert_eq!(layers[2], LayerKind::Dense(1));
+            }
+            other => panic!("ModelDecl 예상, 실제: {:?}", other),
         }
     }
 
