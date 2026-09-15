@@ -17,7 +17,7 @@ tempfile = "3"
 csv = "1"
 encoding_rs = "0.8"
 uuid = { version = "1", features = ["v4"] }
-sha2 = "0.10"
+sha2 = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
 
 # 온프레미스 sLM(Ollama) 호출용 로컬 HTTP 클라이언트.
