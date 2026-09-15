@@ -13,13 +13,13 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@xyflow/react": "12.10.2",
-    "lucide-react": "1.16.0",
+    "@xyflow/react": "12.11.6",
+    "lucide-react": "1.44.0",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },
   "devDependencies": {
-    "@playwright/test": "1.55.1",
+    "@playwright/test": "1.63.0",
     "vite": "8.3.0"
   }
 }
