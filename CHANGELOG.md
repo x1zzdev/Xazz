@@ -9,6 +9,17 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — D3 Conv1d 레이어 (CNN, issue #64)
+
+- **`Conv1d(out_channels, kernel_size)`** — `model {}` 선언에서 1D 합성곱 레이어 지원.
+  `Same` padding + stride 1로 특징축 길이를 보존하고, 파서 / 정적 체커 / emitter /
+  runtime / dl 전체 파이프라인에 반영. 공유 `Mlp` 그래프가 Dense와 Conv1d를 선언
+  순서대로 실행
+- 체커: Dense 없이 Conv1d만 있어도 유효하며, `out_channels`/`kernel_size` < 1은
+  컴파일 오류
+- 테스트: 파서 AST, 체커 유효/오류, emitter(`PaddingConfig1d`), CPU E2E train/predict
+- 임베딩 레이어와 하이퍼파라미터 스윕은 후속(백로그)
+
 ### Added — 오픈소스 거버넌스·라이선스 정책 (커뮤니티 확장)
 
 - **`deny.toml`** — `cargo deny` 기반 의존성 정책: permissive 라이선스 allow 목록,
