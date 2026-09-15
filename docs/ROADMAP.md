@@ -180,12 +180,15 @@ datasets. This track makes Xazz handle real workloads.
 ### D3. Model graph expansion — issue #64
 - [x] **Early stopping** — `train(..., validation_split: 0.3, patience: N)` stops when validation
       loss does not improve for N epochs; report gains `stopped_early` + `best_epoch`
-- [ ] CNN / embedding layers in the `model {}` declaration
+- [x] **Conv1d layer** — `Conv1d(out_channels, kernel_size)` in the `model {}`
+      declaration (`Same` padding, length-preserving), wired through
+      parser/checker/emitter/dl; CPU E2E train/predict test added (2026-09-14)
+- [ ] Embedding layers in the `model {}` declaration
 - [ ] Hyperparameter sweep, checkpoint versioning
 - Depends on: D1. Acceptance: a CNN pipeline trains end-to-end on image-style tabular data.
-  ⏳ **Partial 2026-09-11**: early stopping shipped and verified end-to-end (stops at the epoch
-  after the validation plateau, records `best_epoch`). CNN/embeddings + sweep remain — they need
-  the GPU/graph work in D1 and are hardware-gated.
+  ⏳ **Partial 2026-09-11 / updated 2026-09-14**: early stopping and the Conv1d layer are
+  shipped and verified end-to-end on CPU (early stopping + `best_epoch`; Conv1d CPU
+  train/predict). Embeddings + sweep remain.
 
 ---
 
