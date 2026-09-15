@@ -337,6 +337,11 @@ pub enum LayerKind {
     Dropout(f64),
     /// BatchNorm() — normalization
     BatchNorm,
+    /// Conv1d(out_channels, kernel_size) — 1D convolution over the feature axis (D3)
+    Conv1d {
+        out_channels: usize,
+        kernel_size: usize,
+    },
 }
 
 impl LayerKind {
@@ -350,6 +355,12 @@ impl LayerKind {
             LayerKind::Softmax => "activation::softmax(dim=1)".to_string(),
             LayerKind::Dropout(r) => format!("nn::DropoutConfig::new({})", r),
             LayerKind::BatchNorm => "// BatchNorm: not supported for 1D MLP, skipped".to_string(),
+            LayerKind::Conv1d {
+                out_channels,
+                kernel_size,
+            } => format!(
+                "nn::Conv1dConfig::new(1, {out_channels}, {kernel_size}).with_padding(PaddingConfig1d::Same)"
+            ),
         }
     }
 }

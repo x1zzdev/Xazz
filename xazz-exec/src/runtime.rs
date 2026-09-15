@@ -1540,6 +1540,10 @@ fn handle_model_decl(name: &str, layers: &[LayerKind]) {
             LayerKind::Softmax => "Softmax()".to_string(),
             LayerKind::Dropout(r) => format!("Dropout({})", r),
             LayerKind::BatchNorm => "BatchNorm()".to_string(),
+            LayerKind::Conv1d {
+                out_channels,
+                kernel_size,
+            } => format!("Conv1d({}, {})", out_channels, kernel_size),
         };
         println!("    [{}] {}  →  {}", i, layer_desc, layer.to_burn_str());
     }
