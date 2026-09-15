@@ -94,6 +94,10 @@ fn print_layer(layer: &LayerKind) -> String {
         LayerKind::Softmax => "Softmax()".to_string(),
         LayerKind::Dropout(r) => format!("Dropout({})", print_f64(*r)),
         LayerKind::BatchNorm => "BatchNorm()".to_string(),
+        LayerKind::Conv1d {
+            out_channels,
+            kernel_size,
+        } => format!("Conv1d({}, {})", out_channels, kernel_size),
     }
 }
 
