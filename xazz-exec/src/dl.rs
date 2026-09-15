@@ -14,7 +14,10 @@ use std::collections::HashMap;
 use burn::{
     backend::Autodiff,
     module::{AutodiffModule, Module},
-    nn::{DropoutConfig, Linear, LinearConfig},
+    nn::{
+        DropoutConfig, Linear, LinearConfig, PaddingConfig1d,
+        conv::{Conv1d, Conv1dConfig},
+    },
     optim::{AdamConfig, GradientsParams, Optimizer},
     record::{FullPrecisionSettings, PrettyJsonFileRecorder},
     tensor::{
@@ -72,15 +75,32 @@ fn apply_activation<B: Backend, const D: usize>(
     }
 }
 
-/// Burn module expressing the DSL `model { Dense -> ReLU -> ... }` as a dynamic multi-layer perceptron (MLP).
+/// A single forward operation in the compiled model graph, in declaration order.
+/// The payload indexes into [`Mlp::linears`] / [`Mlp::convs`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum LayerOp {
+    /// Dense (Linear) layer.
+    Dense(usize),
+    /// Conv1d layer (1D convolution over the feature axis).
+    Conv1d(usize),
+}
+
+/// Burn module expressing the DSL `model { Dense -> ReLU -> ... }` as a dynamic
+/// graph of Dense / Conv1d layers — a multi-layer perceptron (MLP) and/or a 1D
+/// convolutional network over tabular features.
 // (The Burn Module derive provides Clone)
 #[derive(Module, Debug)]
 pub struct Mlp<B: Backend> {
     /// Sequence of Dense(units) layers.
-    layers: Vec<Linear<B>>,
-    /// Activation function applied after each Dense (including the last layer).
+    linears: Vec<Linear<B>>,
+    /// Sequence of Conv1d(out_channels, kernel_size) layers.
+    convs: Vec<Conv1d<B>>,
+    /// Forward order: each entry pairs an op with the activation applied after it.
     #[module(skip)]
-    activations: Vec<Activation>,
+    ops: Vec<(LayerOp, Activation)>,
+    /// Output feature dimension (result of the declared graph) — reported in the train report.
+    #[module(skip)]
+    out_dim: usize,
     /// Whether in training mode — determines Dropout application (false during inference).
     #[module(skip)]
     training: bool,
@@ -88,34 +108,42 @@ pub struct Mlp<B: Backend> {
 
 impl<B: Backend> Mlp<B> {
     /// Forward pass: [batch, input_dim] → [batch, output_dim].
-    fn forward<const D: usize>(&self, input: Tensor<B, D>) -> Tensor<B, D> {
+    fn forward(&self, input: Tensor<B, 2>) -> Tensor<B, 2> {
         let mut x = input;
-        for i in 0..self.layers.len() {
-            x = apply_activation(
-                &self.activations[i],
-                self.layers[i].forward(x),
-                self.training,
-            );
+        for (op, act) in &self.ops {
+            x = match op {
+                LayerOp::Dense(i) => {
+                    apply_activation(act, self.linears[*i].forward(x), self.training)
+                }
+                LayerOp::Conv1d(i) => {
+                    // [batch, len] → [batch, 1, len] → conv (Same padding keeps len) → [batch, channels, len]
+                    let [batch, len] = x.dims();
+                    let y = self.convs[*i].forward(x.reshape([batch, 1, len]));
+                    let [b, c, l] = y.dims();
+                    apply_activation(act, y.reshape([b, c * l]), self.training)
+                }
+            };
         }
         x
     }
 }
 
-/// Builds the MLP from the DSL layer list and input dimension.
+/// Builds the MLP/CNN from the DSL layer list and input dimension.
 fn build_mlp<B: Backend>(
     layers: &[LayerKind],
     input_dim: usize,
     device: &Device<B>,
 ) -> Result<Mlp<B>, String> {
     let mut linears: Vec<Linear<B>> = Vec::new();
-    let mut activations: Vec<Activation> = Vec::new();
+    let mut convs: Vec<Conv1d<B>> = Vec::new();
+    let mut ops: Vec<(LayerOp, Activation)> = Vec::new();
     let mut cur = input_dim;
 
     for layer in layers {
         match layer {
             LayerKind::Dense(n) if *n > 0 => {
                 linears.push(LinearConfig::new(cur, *n).init(device));
-                activations.push(Activation::None); // overwritten if a DSL activation follows
+                ops.push((LayerOp::Dense(linears.len() - 1), Activation::None));
                 cur = *n;
             }
             LayerKind::Dense(_) => {
@@ -125,34 +153,54 @@ fn build_mlp<B: Backend>(
                 )
                 .into());
             }
-            LayerKind::ReLU => set_activation(&mut activations, Activation::ReLU),
-            LayerKind::Sigmoid => set_activation(&mut activations, Activation::Sigmoid),
-            LayerKind::Tanh => set_activation(&mut activations, Activation::Tanh),
-            LayerKind::Softmax => set_activation(&mut activations, Activation::Softmax),
-            LayerKind::Dropout(r) => set_activation(&mut activations, Activation::Dropout(*r)),
+            LayerKind::Conv1d {
+                out_channels,
+                kernel_size,
+            } if *out_channels > 0 && *kernel_size > 0 => {
+                let config = Conv1dConfig::new(1, *out_channels, *kernel_size)
+                    .with_padding(PaddingConfig1d::Same);
+                convs.push(config.init(device));
+                ops.push((LayerOp::Conv1d(convs.len() - 1), Activation::None));
+                // Same padding + stride 1 preserves the length: [batch, 1, cur] → [batch, out_channels, cur].
+                cur *= *out_channels;
+            }
+            LayerKind::Conv1d { .. } => {
+                return Err(tr(
+                    "Conv1d out_channels and kernel_size must be >= 1.",
+                    "Conv1d 의 out_channels 와 kernel_size 는 1 이상이어야 합니다.",
+                )
+                .into());
+            }
+            LayerKind::ReLU => set_activation(&mut ops, Activation::ReLU),
+            LayerKind::Sigmoid => set_activation(&mut ops, Activation::Sigmoid),
+            LayerKind::Tanh => set_activation(&mut ops, Activation::Tanh),
+            LayerKind::Softmax => set_activation(&mut ops, Activation::Softmax),
+            LayerKind::Dropout(r) => set_activation(&mut ops, Activation::Dropout(*r)),
             // BatchNorm (1D MLP) is omitted because its layout differs from Burn's 2D BatchNorm.
             LayerKind::BatchNorm => { /* pass-through */ }
         }
     }
 
-    if linears.is_empty() {
+    if ops.is_empty() {
         return Err(tr(
-            "The model has no Dense layers.",
-            "모델에 Dense 레이어가 하나도 없습니다.",
+            "The model has no Dense or Conv1d layers.",
+            "모델에 Dense 또는 Conv1d 레이어가 하나도 없습니다.",
         )
         .into());
     }
     Ok(Mlp {
-        layers: linears,
-        activations,
+        linears,
+        convs,
+        ops,
+        out_dim: cur,
         training: true,
     })
 }
 
-/// Records the activation after the last Dense (consecutive activations keep only the last one).
-fn set_activation(acts: &mut [Activation], act: Activation) {
-    if let Some(last) = acts.last_mut() {
-        *last = act;
+/// Records the activation after the last Dense/Conv1d op (consecutive activations keep only the last one).
+fn set_activation(ops: &mut [(LayerOp, Activation)], act: Activation) {
+    if let Some(last) = ops.last_mut() {
+        last.1 = act;
     }
 }
 
@@ -431,11 +479,7 @@ pub fn train(
     let targets_out: Vec<f64> = (0..n_pred).map(|i| ys[i] as f64).collect();
 
     let num_params = model.num_params();
-    let output_dim = model
-        .layers
-        .last()
-        .map(|l| l.weight.shape().dims::<2>()[1])
-        .unwrap_or(1);
+    let output_dim = model.out_dim;
 
     // ── Checkpoint save ────────────────────────────────────────────────────
     let ckpt_dir = "checkpoints";

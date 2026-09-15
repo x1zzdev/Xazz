@@ -465,6 +465,55 @@ mod tests {
 
         cleanup(&trained.report.checkpoint_path);
     }
+
+    /// D3 CNN: a Conv1d -> ReLU -> Dense model trains and predicts end-to-end on CPU.
+    #[test]
+    fn cpu_backend_trains_conv1d_model() {
+        use polars::prelude::*;
+
+        let df = df!(
+            "x1" => [0.0f64, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+            "x2" => [1.0f64, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0],
+            "x3" => [0.0f64, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5],
+            "x4" => [2.0f64, 1.0, 0.0, 1.0, 2.0, 1.0, 0.0, 1.0],
+            "y"  => [0.0f64, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+        )
+        .expect("conv dataset");
+
+        let layers = vec![
+            LayerKind::Conv1d {
+                out_channels: 4,
+                kernel_size: 3,
+            },
+            LayerKind::ReLU,
+            LayerKind::Dense(1),
+        ];
+        let config = TrainConfig {
+            target: "y".to_string(),
+            epochs: 2,
+            learning_rate: 0.05,
+            batch_size: Some(4),
+            validation_split: None,
+            early_stopping_patience: None,
+        };
+
+        let (backend, warning) = resolve(None);
+        assert!(warning.is_none());
+
+        let trained = backend
+            .train(&df, "backend_unit_conv1d", &layers, &config)
+            .expect("cpu conv1d train");
+        assert_eq!(trained.report.input_dim, 4);
+        assert_eq!(trained.report.output_dim, 1);
+
+        let out = backend
+            .predict(&trained, &df, Some("pred"))
+            .expect("cpu conv1d predict");
+        assert_eq!(out.height(), df.height());
+        assert!(out.column("pred").is_ok());
+
+        cleanup(&trained.report.checkpoint_path);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
