@@ -441,6 +441,10 @@ fn serve_index() -> tower_http::services::ServeFile {
 
 // ── POST /execute ─────────────────────────────────────────────────────────────
 
+// `ExecuteResponse` is a large, flat wire struct; axum's `IntoResponse` needs the
+// concrete `(StatusCode, Json<ExecuteResponse>)` error type, so boxing it would
+// break the handler signature. Allow the size lint at this boundary.
+#[allow(clippy::result_large_err)]
 async fn handle_execute(
     Extension(tenant): Extension<String>,
     State(state): State<AppState>,
