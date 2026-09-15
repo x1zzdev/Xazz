@@ -635,7 +635,7 @@ fn emit_burn_imports() -> String {
     r#"use burn::{
     backend::Autodiff,
     module::Module,
-    nn::{Linear, LinearConfig},
+    nn::{Linear, LinearConfig, PaddingConfig1d, conv::{Conv1d, Conv1dConfig}},
     optim::{AdamConfig, GradientsParams, Optimizer},
     record::{FullPrecisionSettings, PrettyJsonFileRecorder},
     tensor::{
@@ -651,14 +651,31 @@ type TrainBackend = Autodiff<NdArray<f32>>;
     .to_string()
 }
 
-/// Normalizes a DSL layer chain into a list of Dense (units, activation) specs.
-/// Activation calls attach to the immediately preceding Dense layer (same semantics as dl.rs).
-fn dl_dense_specs(layers: &[LayerKind]) -> Vec<(usize, String)> {
-    let mut specs: Vec<(usize, String)> = Vec::new();
+/// One compiled forward op from the DSL layer chain — activation calls attach to
+/// the immediately preceding Dense/Conv1d layer (same semantics as `dl.rs`).
+enum DlLayer {
+    /// Dense(units, activation)
+    Dense(usize, String),
+    /// Conv1d(out_channels, kernel_size, activation)
+    Conv1d(usize, usize, String),
+}
+
+/// Normalizes a DSL layer chain into ordered Dense/Conv1d specs.
+fn dl_layer_specs(layers: &[LayerKind]) -> Vec<DlLayer> {
+    let mut specs: Vec<DlLayer> = Vec::new();
     for layer in layers {
         match layer {
-            LayerKind::Dense(n) if *n > 0 => specs.push((*n, String::from("None"))),
+            LayerKind::Dense(n) if *n > 0 => specs.push(DlLayer::Dense(*n, String::from("None"))),
             LayerKind::Dense(_) => {}
+            LayerKind::Conv1d {
+                out_channels,
+                kernel_size,
+            } if *out_channels > 0 && *kernel_size > 0 => specs.push(DlLayer::Conv1d(
+                *out_channels,
+                *kernel_size,
+                String::from("None"),
+            )),
+            LayerKind::Conv1d { .. } => {}
             LayerKind::ReLU => set_dl_act(&mut specs, "relu"),
             LayerKind::Sigmoid => set_dl_act(&mut specs, "sigmoid"),
             LayerKind::Tanh => set_dl_act(&mut specs, "tanh"),
@@ -669,15 +686,17 @@ fn dl_dense_specs(layers: &[LayerKind]) -> Vec<(usize, String)> {
     specs
 }
 
-fn set_dl_act(specs: &mut [(usize, String)], act: &str) {
+fn set_dl_act(specs: &mut [DlLayer], act: &str) {
     if let Some(last) = specs.last_mut() {
-        last.1 = act.to_string();
+        match last {
+            DlLayer::Dense(_, a) | DlLayer::Conv1d(_, _, a) => *a = act.to_string(),
+        }
     }
 }
 
 /// `model <Name> { ... }` → Burn nn module struct + new() + forward().
 fn emit_dl_model_struct(name: &str, layers: &[LayerKind]) -> String {
-    let specs = dl_dense_specs(layers);
+    let specs = dl_layer_specs(layers);
     if specs.is_empty() {
         return String::new();
     }
@@ -687,8 +706,15 @@ fn emit_dl_model_struct(name: &str, layers: &[LayerKind]) -> String {
         "#[derive(Module, Debug)]\nstruct {}<B: Backend> {{\n",
         name
     ));
-    for (i, (units, _)) in specs.iter().enumerate() {
-        out.push_str(&format!("    layer{i}: Linear<B>,  // Dense({units})\n"));
+    for (i, spec) in specs.iter().enumerate() {
+        match spec {
+            DlLayer::Dense(units, _) => {
+                out.push_str(&format!("    layer{i}: Linear<B>,  // Dense({units})\n"))
+            }
+            DlLayer::Conv1d(c, k, _) => {
+                out.push_str(&format!("    conv{i}: Conv1d<B>,  // Conv1d({c}, {k})\n"))
+            }
+        }
     }
     out.push_str("}\n\n");
 
@@ -696,30 +722,55 @@ fn emit_dl_model_struct(name: &str, layers: &[LayerKind]) -> String {
         "impl<B: Backend> {name}<B> {{\n    fn new(device: &Device<B>, input_dim: usize) -> Self {{\n        Self {{\n"
     ));
     let mut cur = "input_dim".to_string();
-    for (i, (units, _)) in specs.iter().enumerate() {
-        out.push_str(&format!(
-            "            layer{i}: LinearConfig::new({cur}, {units}).init(device),\n"
-        ));
-        cur = units.to_string();
+    for (i, spec) in specs.iter().enumerate() {
+        match spec {
+            DlLayer::Dense(units, _) => {
+                out.push_str(&format!(
+                    "            layer{i}: LinearConfig::new({cur}, {units}).init(device),\n"
+                ));
+                cur = units.to_string();
+            }
+            DlLayer::Conv1d(c, k, _) => {
+                out.push_str(&format!(
+                    "            conv{i}: Conv1dConfig::new(1, {c}, {k}).with_padding(PaddingConfig1d::Same).init(device),\n"
+                ));
+                cur = format!("{c} * {cur}");
+            }
+        }
     }
     out.push_str("        }\n    }\n\n");
 
-    out.push_str(
-        "    fn forward<const D: usize>(&self, x: Tensor<B, D>) -> Tensor<B, D> {\n        let x = x;\n",
-    );
-    for (i, (_, act)) in specs.iter().enumerate() {
-        out.push_str(&format!("        let x = self.layer{i}.forward(x);\n"));
-        match act.as_str() {
-            "relu" => out.push_str("        let x = relu(x);\n"),
-            "sigmoid" => out.push_str("        let x = sigmoid(x);\n"),
-            "tanh" => out.push_str("        let x = tanh(x);\n"),
-            "softmax" => out.push_str("        let x = softmax(x, 1);\n"),
-            _ => {}
+    out.push_str("    fn forward(&self, x: Tensor<B, 2>) -> Tensor<B, 2> {\n");
+    for (i, spec) in specs.iter().enumerate() {
+        match spec {
+            DlLayer::Dense(_, act) => {
+                out.push_str(&format!("        let x = self.layer{i}.forward(x);\n"));
+                emit_dl_act(&mut out, act);
+            }
+            DlLayer::Conv1d(_, _, act) => {
+                out.push_str("        let [batch, len] = x.dims();\n");
+                out.push_str(&format!(
+                    "        let x = self.conv{i}.forward(x.reshape([batch, 1, len]));\n"
+                ));
+                out.push_str("        let [b, c, l] = x.dims();\n");
+                out.push_str("        let x = x.reshape([b, c * l]);\n");
+                emit_dl_act(&mut out, act);
+            }
         }
     }
     out.push_str("        x\n    }\n}\n\n");
 
     out
+}
+
+fn emit_dl_act(out: &mut String, act: &str) {
+    match act {
+        "relu" => out.push_str("        let x = relu(x);\n"),
+        "sigmoid" => out.push_str("        let x = sigmoid(x);\n"),
+        "tanh" => out.push_str("        let x = tanh(x);\n"),
+        "softmax" => out.push_str("        let x = softmax(x, 1);\n"),
+        _ => {}
+    }
 }
 
 /// Column → f32 tensor data extraction helper (Polars DataFrame → (x_flat, y_flat, feature_count)).
@@ -1217,6 +1268,21 @@ mod tests {
         assert!(out.contains("use burn::"), "burn import 없음");
         assert!(out.contains("struct M<B: Backend>"), "모델 구조체 없음");
         assert!(out.contains("Adam"), "Adam 옵티마이저 없음");
+    }
+
+    #[test]
+    fn emit_rust_emits_burn_for_conv1d_model() {
+        let out = emit(
+            "type S = { a: float, b: float, y: float };
+             model CNN { Conv1d(4, 3) -> ReLU() -> Dense(1) }
+             v data = load(\"x.csv\") :: S |> train(CNN, target: \"y\", epochs: 3);",
+        );
+        assert!(out.contains("struct CNN<B: Backend>"), "모델 구조체 없음");
+        assert!(out.contains("Conv1d"), "Conv1d 레이어 없음");
+        assert!(
+            out.contains("PaddingConfig1d"),
+            "Conv1d Same padding 설정 없음"
+        );
     }
 
     #[test]
