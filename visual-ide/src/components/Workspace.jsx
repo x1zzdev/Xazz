@@ -47,6 +47,7 @@ import { MonitorView } from './Monitor'
 import { GovernanceSection } from './Governance'
 import { ErrorBoundary } from './ErrorBoundary'
 import { LineagePanel } from './Lineage'
+import { ResultCharts } from './ResultCharts'
 import { RunHistory } from './RunHistory'
 import { LocaleSwitch, localizeStep, useLanguage } from '../i18n'
 import DagEditor from './DagEditor'
@@ -844,56 +845,7 @@ function ChartPanel({ runResult }) {
       </div>
     )
   }
-  const rows = runResult.rows
-  const columns = Array.isArray(runResult.schema) ? runResult.schema : []
-  const numericColumns = columns.filter((col) => /f64|f32|int|float/i.test(col.type))
-  const dimensionColumns = columns.filter((col) => /str|string/i.test(col.type))
-  const xKey = dimensionColumns[0]?.name ?? columns[0]?.name ?? ''
-  const yKey = numericColumns[0]?.name ?? columns[1]?.name ?? ''
-  const grouped = {}
-  for (const row of rows) {
-    const key = String(row[xKey] ?? '—')
-    const value = Number(row[yKey])
-    if (Number.isFinite(value)) {
-      grouped[key] = grouped[key] ?? []
-      grouped[key].push(value)
-    }
-  }
-  const bars = Object.entries(grouped)
-    .map(([label, values]) => ({
-      label,
-      mean: values.reduce((a, b) => a + b, 0) / values.length,
-    }))
-    .slice(0, 10)
-  const max = Math.max(...bars.map((item) => item.mean))
-  return (
-    <div className="chart-panel">
-      <div className="chart-panel__heading">
-        <div>
-          <strong>
-            Mean {yKey} by {xKey}
-          </strong>
-          <span>computed from real Full Run rows · top {bars.length} groups</span>
-        </div>
-        <StatusBadge axis="View" tone="info" compact>
-          Aggregated
-        </StatusBadge>
-      </div>
-      <div
-        className="bar-chart"
-        role="img"
-        aria-label={`Mean ${yKey} ranges from ${Math.min(...bars.map((item) => item.mean))} to ${max} across ${bars.length} groups.`}
-      >
-        {bars.map((item) => (
-          <div className="bar-chart__row" key={item.label}>
-            <span>{item.label}</span>
-            <i style={{ '--bar-width': `${(item.mean / max) * 100}%` }} />
-            <strong>{item.mean.toFixed(2)}</strong>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
+  return <ResultCharts runResult={runResult} />
 }
 
 function RunTimeline({ runState, runResult, execError }) {
