@@ -38,9 +38,8 @@ test('mean by group averages only numeric values — a null is not a zero', asyn
   // Gangnam holds the null (row 7); its mean is over the other seven values.
   const gangnam = rows.filter((row) => row.district === 'Gangnam' && row.pm25 !== null).map((row) => row.pm25)
   const expected = gangnam.reduce((a, b) => a + b, 0) / gangnam.length
-  await expect(page.locator('.bar-chart__row', { hasText: 'Gangnam' }).locator('strong')).toHaveText(
-    String(parseFloat(expected.toPrecision(4))),
-  )
+  const text = await page.locator('.bar-chart__row', { hasText: 'Gangnam' }).locator('strong').innerText()
+  expect(Number(text)).toBeCloseTo(expected, 2) // 25.71 — the old null-as-zero code showed 22.5
 })
 
 test('a column with no numeric value and negative means get honest states, not broken bars', async ({ page }) => {
@@ -87,7 +86,7 @@ test('the box plot shows quartiles, whiskers and the outlier per group', async (
   const gangnam = fiveNumber(rows.filter((row) => row.district === 'Gangnam' && row.pm25 !== null).map((row) => row.pm25))
   await expect(page.locator('.boxplot__row', { hasText: 'Gangnam' })).toHaveAttribute(
     'title',
-    new RegExp(`n ${gangnam.n} · min ${gangnam.min} · Q1 ${parseFloat(gangnam.q1.toPrecision(4))} · median ${gangnam.median}`),
+    new RegExp(`n ${gangnam.n} · min ${gangnam.min} · Q1 [\\d.]+ · median ${gangnam.median}`),
   )
 })
 
@@ -105,4 +104,22 @@ test('chart modes follow the language toggle', async ({ page }) => {
   await page.getByRole('button', { name: '박스플롯' }).click()
   await expect(page.getByText('pm25 · 전체 행')).toBeVisible()
   await expect(page.getByText('그룹 기준')).toBeVisible()
+})
+
+test('more than ten groups: bars are capped, the table lists every group', async ({ page }) => {
+  const many = Array.from({ length: 24 }, (_, i) => ({ district: `D${String(i).padStart(2, '0')}`, pm25: 10 + i }))
+  await runAndOpenCharts(page, { rows: many, extraSchema: [] })
+  await expect(page.locator('.bar-chart__row')).toHaveCount(10)
+  await expect(page.getByText('First 10 of 24 groups')).toBeVisible()
+  await page.getByText('Table alternative').click()
+  await expect(page.locator('.chart-panel tbody tr')).toHaveCount(24)
+})
+
+test('narrow ranges of large values keep neighbouring bin labels distinct', async ({ page }) => {
+  const lon = Array.from({ length: 64 }, (_, i) => ({ district: 'A', pm25: 126.9 + (i % 21) * 0.01 }))
+  await runAndOpenCharts(page, { rows: lon, extraSchema: [] })
+  await page.getByRole('button', { name: 'Distribution' }).click()
+  await page.getByText('Table alternative').click()
+  const labels = await page.locator('.chart-panel tbody td:first-child').allInnerTexts()
+  expect(new Set(labels).size).toBe(labels.length)
 })

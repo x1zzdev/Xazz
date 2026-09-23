@@ -6,8 +6,11 @@ import { fiveNumber, histogram, numericValues } from '../chartStats'
 // Anchored: list[f64] / array[f64] contain "f64" but arrive as text, not numbers.
 const isNumeric = (col) => /^(?:[fiu]\d+|float|int|integer|double)$/i.test(col.type)
 const isText = (col) => /^(?:str|string|utf8)$/i.test(col.type)
-// Four significant digits keep small-magnitude columns (lr, p-values) distinguishable.
-const fmt = (value) => (Number.isInteger(value) ? String(value) : String(parseFloat(value.toPrecision(4))))
+// Decimals follow the gap being shown (a bin width, a hundredth of the range), so
+// neighbouring labels stay distinct for 0.001–0.009 and for 126.90–127.10 alike.
+const decimalsFor = (step) => (step > 0 ? Math.min(6, Math.max(0, Math.ceil(-Math.log10(step)) + 1)) : 2)
+const fmt = (value, step) => (Number.isInteger(value) ? String(value) : value.toFixed(decimalsFor(step)))
+const stepOf = (values) => (Math.max(...values) - Math.min(...values)) / 100
 const MAX_GROUPS = 8
 const MAX_BARS = 10
 
@@ -33,7 +36,9 @@ function meanByGroup(rows, xKey, yKey, t) {
     .map((item) => ({ label: item.label, n: item.values.length, mean: item.values.reduce((a, b) => a + b, 0) / item.values.length }))
   const shown = bars.slice(0, MAX_BARS)
   const title = t('charts.meanTitle').replace('{y}', yKey).replace('{x}', xKey)
-  const table = [[xKey, 'n', `mean ${yKey}`], ...shown.map((item) => [item.label, item.n, fmt(item.mean)])]
+  const step = stepOf(bars.map((item) => item.mean))
+  // The table lists every group, including those past the bars' cap.
+  const table = [[xKey, 'n', `mean ${yKey}`], ...bars.map((item) => [item.label, item.n, fmt(item.mean, step)])]
   if (shown.length === 0) return { title, empty: t('charts.noValues').replace('{column}', yKey) }
   const note = bars.length > MAX_BARS ? t('charts.barsShown').replace('{shown}', MAX_BARS).replace('{total}', bars.length) : undefined
   // Bars start at zero; a negative mean has no length on this axis, so it is table-only.
@@ -46,13 +51,13 @@ function meanByGroup(rows, xKey, yKey, t) {
       <div
         className="bar-chart"
         role="img"
-        aria-label={`Mean ${yKey} ranges from ${fmt(Math.min(...shown.map((item) => item.mean)))} to ${fmt(max)} across ${shown.length} groups.`}
+        aria-label={`Mean ${yKey} ranges from ${fmt(Math.min(...shown.map((item) => item.mean)), step)} to ${fmt(max, step)} across ${shown.length} groups.`}
       >
         {shown.map((item) => (
-          <div className="bar-chart__row" key={item.label} title={`${item.label}: ${fmt(item.mean)} (n ${item.n})`}>
+          <div className="bar-chart__row" key={item.label} title={`${item.label}: ${fmt(item.mean, step)} (n ${item.n})`}>
             <span>{item.label}</span>
             <i style={{ '--bar-width': `${max > 0 ? (item.mean / max) * 100 : 0}%` }} />
-            <strong>{fmt(item.mean)}</strong>
+            <strong>{fmt(item.mean, step)}</strong>
           </div>
         ))}
       </div>
@@ -67,7 +72,8 @@ function distribution(rows, column, t) {
   if (values.length === 0) return { title, empty: t('charts.noValues').replace('{column}', column) }
   const bins = histogram(values)
   const peak = Math.max(...bins.map((bin) => bin.count))
-  const range = (bin) => `${fmt(bin.start)}–${fmt(bin.end)}`
+  const width = bins[0].end - bins[0].start
+  const range = (bin) => `${fmt(bin.start, width)}–${fmt(bin.end, width)}`
   return {
     title,
     note: t('charts.sample').replace('{n}', values.length).replace('{missing}', missing),
@@ -89,8 +95,8 @@ function distribution(rows, column, t) {
           ))}
         </div>
         <div className="histogram__axis" aria-hidden="true">
-          <span>{fmt(bins[0].start)}</span>
-          <span>{fmt(bins.at(-1).end)}</span>
+          <span>{fmt(bins[0].start, width)}</span>
+          <span>{fmt(bins.at(-1).end, width)}</span>
         </div>
       </div>
     ),
@@ -112,9 +118,10 @@ function boxPlot(rows, column, group, t) {
   if (boxes.length === 0) return { title, empty: t('charts.noValues').replace('{column}', column) }
   const low = Math.min(...boxes.map((box) => box.min))
   const high = Math.max(...boxes.map((box) => box.max))
+  const step = (high - low) / 100
   const at = (value) => `${high === low ? 50 : ((value - low) / (high - low)) * 100}%`
   const summary = (box) =>
-    `${box.label} · n ${box.n} · min ${fmt(box.min)} · Q1 ${fmt(box.q1)} · median ${fmt(box.median)} · Q3 ${fmt(box.q3)} · max ${fmt(box.max)}` +
+    `${box.label} · n ${box.n} · min ${fmt(box.min, step)} · Q1 ${fmt(box.q1, step)} · median ${fmt(box.median, step)} · Q3 ${fmt(box.q3, step)} · max ${fmt(box.max, step)}` +
     (box.outliers.length ? ` · ${box.outliers.length} outlier(s)` : '')
   return {
     title,
@@ -135,18 +142,18 @@ function boxPlot(rows, column, group, t) {
                 <i className="boxplot__outlier" key={index} style={{ left: at(value) }} />
               ))}
             </div>
-            <strong>{fmt(box.median)}</strong>
+            <strong>{fmt(box.median, step)}</strong>
           </div>
         ))}
         <div className="histogram__axis" aria-hidden="true">
-          <span>{fmt(low)}</span>
-          <span>{fmt(high)}</span>
+          <span>{fmt(low, step)}</span>
+          <span>{fmt(high, step)}</span>
         </div>
       </div>
     ),
     table: [
       [group || '—', 'n', 'min', 'Q1', 'median', 'Q3', 'max'],
-      ...boxes.map((box) => [box.label, box.n, ...[box.min, box.q1, box.median, box.q3, box.max].map(fmt)]),
+      ...boxes.map((box) => [box.label, box.n, ...[box.min, box.q1, box.median, box.q3, box.max].map((value) => fmt(value, step))]),
     ],
   }
 }
