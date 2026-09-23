@@ -204,12 +204,12 @@ test('policy packs install, reject bad JSON, and remove only after confirmation'
   const json = panel.getByLabel('Policy pack JSON')
   await json.fill('{ not json')
   await panel.getByRole('button', { name: 'Install pack' }).click()
-  await expect(panel.getByRole('status')).toContainText('Not valid JSON')
+  await expect(panel.locator('p.gov-notice[role="status"]')).toContainText('Not valid JSON')
   expect(requests.filter((r) => r.method === 'PUT')).toHaveLength(0)
 
   await json.fill('{"id":"demo-pack","version":"2.0.0"}')
   await panel.getByRole('button', { name: 'Install pack' }).click()
-  await expect(panel.getByRole('status')).toContainText('Installed demo-pack@2.0.0')
+  await expect(panel.locator('p.gov-notice[role="status"]')).toContainText('Installed demo-pack@2.0.0')
   await expect(panel).toContainText('Tenant pack · tenant:<default>')
   expect(JSON.parse(requests.find((r) => r.method === 'PUT').body)).toEqual({ id: 'demo-pack', version: '2.0.0' })
 
@@ -223,7 +223,7 @@ test('policy packs install, reject bad JSON, and remove only after confirmation'
 
   await panel.getByRole('button', { name: 'Remove pack' }).click()
   await dialog.getByRole('button', { name: 'Remove pack' }).click()
-  await expect(panel.getByRole('status')).toContainText('Pack removed')
+  await expect(panel.locator('p.gov-notice[role="status"]')).toContainText('Pack removed')
   expect(requests.filter((r) => r.method === 'DELETE')).toHaveLength(1)
   await expect(panel).toContainText('Global policy · builtin')
 })
@@ -262,7 +262,7 @@ test('DP ledger reset needs confirmation and shows the re-read value', async ({ 
 
   await panel.getByRole('button', { name: 'Reset budget' }).click()
   await dialog.getByRole('button', { name: 'Reset budget' }).click()
-  await expect(panel.getByRole('status')).toContainText('spent ε now 0')
+  await expect(panel.locator('p.gov-notice[role="status"]')).toContainText('spent ε now 0')
   await expect(panel.getByRole('img')).toHaveAccessibleName('0 of 10 epsilon spent by this tenant.')
 })
 
@@ -516,7 +516,7 @@ test('removing the blocking pack clears the stale verdict and unlocks Full Run',
   const panel = page.getByRole('region', { name: 'Policy packs' })
   await panel.getByRole('button', { name: 'Remove pack' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Remove pack' }).click()
-  await expect(panel.getByRole('status')).toContainText('Pack removed')
+  await expect(panel.locator('p.gov-notice[role="status"]')).toContainText('Pack removed')
   await expect(page.getByRole('button', { name: 'Full Run' })).toBeEnabled()
 })
 
