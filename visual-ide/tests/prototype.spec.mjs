@@ -181,11 +181,12 @@ test('keyboard path reaches the preflight dialog and authenticates the run gate'
   await expect(startRun).toBeFocused()
 
   // Full Run submits to the real backend. Without a reachable xazz-server the UI must
-  // report an honest connection failure rather than inventing a synthetic success.
+  // report an honest failure rather than inventing a synthetic success. vite preview
+  // answers POST /execute with 404, which the UI reports as the server's answer.
   await page.keyboard.press('Enter')
-  await expect(page.getByText(/xazz-server unreachable|Waiting for xazz-exec/).first()).toBeVisible({
-    timeout: 10_000,
-  })
+  await expect(
+    page.getByText(/xazz-server unreachable|xazz-server answered \d{3}|Waiting for xazz-exec/).first(),
+  ).toBeVisible({ timeout: 10_000 })
   assertRuntime()
 })
 
