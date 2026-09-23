@@ -204,6 +204,10 @@ const en = {
     boxNote: 'Box Q1–Q3 · line median · whiskers 1.5×IQR · dots beyond',
     groupsShown: 'Largest {shown} of {total} groups · box Q1–Q3 · whiskers 1.5×IQR',
     noNumeric: 'The returned rows have no numeric column to chart.',
+    noValues: '{column} has no numeric value in the returned rows, so there is nothing to draw.',
+    noGroupColumn: 'Mean by group needs a text column to group by; the returned rows have none.',
+    negativeMeans: 'Some group means are negative; bars from zero cannot show them, so see the table.',
+    barsShown: 'First {shown} of {total} groups · see the table for the rest',
     trainingNa: 'Not available in this version. Loss curves need per-epoch history, which TrainReport does not carry yet (#117, #129); ROC, PR and a confusion matrix need classification metrics (#163). The final training and validation loss are in Monitor.',
   },
   mobile: {
@@ -482,6 +486,10 @@ const ko = {
     boxNote: '상자 Q1–Q3 · 선 중앙값 · 수염 1.5×IQR · 점은 그 밖',
     groupsShown: '그룹 {total}개 중 큰 {shown}개 · 상자 Q1–Q3 · 수염 1.5×IQR',
     noNumeric: '반환된 행에 차트로 그릴 숫자 컬럼이 없습니다.',
+    noValues: '반환된 행의 {column}에 숫자 값이 없어 그릴 것이 없습니다.',
+    noGroupColumn: '그룹별 평균에는 묶을 텍스트 컬럼이 필요한데, 반환된 행에는 없습니다.',
+    negativeMeans: '음수인 그룹 평균이 있어 0에서 시작하는 막대로는 보일 수 없습니다. 표를 보세요.',
+    barsShown: '그룹 {total}개 중 처음 {shown}개 · 나머지는 표에서 확인',
     trainingNa: '이 버전에서는 제공되지 않습니다. 손실 곡선에는 에폭별 이력이 필요한데 TrainReport에 아직 없습니다(#117, #129). ROC·PR 곡선과 혼동행렬에는 분류 지표가 필요합니다(#163). 최종 학습·검증 손실은 모니터에서 볼 수 있습니다.',
   },
   mobile: {

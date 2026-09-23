@@ -3,50 +3,73 @@ import { StatusBadge } from './Common'
 import { useLanguage } from '../i18n'
 import { fiveNumber, histogram, numericValues } from '../chartStats'
 
-const isNumeric = (col) => /f64|f32|float|int|^[ui]\d+$/i.test(col.type)
-const isText = (col) => /str|string/i.test(col.type)
-const fmt = (value) => (Number.isInteger(value) ? String(value) : value.toFixed(2))
+// Anchored: list[f64] / array[f64] contain "f64" but arrive as text, not numbers.
+const isNumeric = (col) => /^(?:[fiu]\d+|float|int|integer|double)$/i.test(col.type)
+const isText = (col) => /^(?:str|string|utf8)$/i.test(col.type)
+// Four significant digits keep small-magnitude columns (lr, p-values) distinguishable.
+const fmt = (value) => (Number.isInteger(value) ? String(value) : String(parseFloat(value.toPrecision(4))))
 const MAX_GROUPS = 8
+const MAX_BARS = 10
+
+/** Rows split by the text value of `group` (Map: any label, including "constructor", is safe). */
+function groupRows(rows, group) {
+  const groups = new Map()
+  for (const row of rows) {
+    const key = String(row[group] ?? '—')
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(row)
+  }
+  return groups
+}
 
 // Builders return { title, note?, plot, table } for one view; plain functions, not components.
 function meanByGroup(rows, xKey, yKey, t) {
-  const grouped = {}
-  for (const row of rows) {
-    const value = Number(row[yKey])
-    if (Number.isFinite(value)) (grouped[String(row[xKey] ?? '—')] ??= []).push(value)
-  }
-  const bars = Object.entries(grouped)
-    .map(([label, values]) => ({ label, mean: values.reduce((a, b) => a + b, 0) / values.length }))
-    .slice(0, 10)
-  const max = Math.max(...bars.map((item) => item.mean))
+  if (!xKey) return { title: t('charts.meanTitle').replace('{y}', yKey).replace('{x}', '—'), empty: t('charts.noGroupColumn') }
+  const groups = groupRows(rows, xKey)
+  // Nulls are not zeros: each mean is over the group's numeric values only.
+  const bars = [...groups]
+    .map(([label, groupRowsOfLabel]) => ({ label, values: numericValues(groupRowsOfLabel, yKey).values }))
+    .filter((item) => item.values.length > 0)
+    .map((item) => ({ label: item.label, n: item.values.length, mean: item.values.reduce((a, b) => a + b, 0) / item.values.length }))
+  const shown = bars.slice(0, MAX_BARS)
+  const title = t('charts.meanTitle').replace('{y}', yKey).replace('{x}', xKey)
+  const table = [[xKey, 'n', `mean ${yKey}`], ...shown.map((item) => [item.label, item.n, fmt(item.mean)])]
+  if (shown.length === 0) return { title, empty: t('charts.noValues').replace('{column}', yKey) }
+  const note = bars.length > MAX_BARS ? t('charts.barsShown').replace('{shown}', MAX_BARS).replace('{total}', bars.length) : undefined
+  // Bars start at zero; a negative mean has no length on this axis, so it is table-only.
+  if (shown.some((item) => item.mean < 0)) return { title, note, empty: t('charts.negativeMeans'), table }
+  const max = Math.max(...shown.map((item) => item.mean))
   return {
-    title: t('charts.meanTitle').replace('{y}', yKey).replace('{x}', xKey),
+    title,
+    note,
     plot: (
       <div
         className="bar-chart"
         role="img"
-        aria-label={`Mean ${yKey} ranges from ${Math.min(...bars.map((item) => item.mean))} to ${max} across ${bars.length} groups.`}
+        aria-label={`Mean ${yKey} ranges from ${fmt(Math.min(...shown.map((item) => item.mean)))} to ${fmt(max)} across ${shown.length} groups.`}
       >
-        {bars.map((item) => (
-          <div className="bar-chart__row" key={item.label} title={`${item.label}: ${item.mean.toFixed(4)}`}>
+        {shown.map((item) => (
+          <div className="bar-chart__row" key={item.label} title={`${item.label}: ${fmt(item.mean)} (n ${item.n})`}>
             <span>{item.label}</span>
-            <i style={{ '--bar-width': `${(item.mean / max) * 100}%` }} />
-            <strong>{item.mean.toFixed(2)}</strong>
+            <i style={{ '--bar-width': `${max > 0 ? (item.mean / max) * 100 : 0}%` }} />
+            <strong>{fmt(item.mean)}</strong>
           </div>
         ))}
       </div>
     ),
-    table: [[xKey, `mean ${yKey}`], ...bars.map((item) => [item.label, item.mean.toFixed(4)])],
+    table,
   }
 }
 
 function distribution(rows, column, t) {
   const { values, missing } = numericValues(rows, column)
+  const title = t('charts.distributionTitle').replace('{column}', column)
+  if (values.length === 0) return { title, empty: t('charts.noValues').replace('{column}', column) }
   const bins = histogram(values)
   const peak = Math.max(...bins.map((bin) => bin.count))
   const range = (bin) => `${fmt(bin.start)}–${fmt(bin.end)}`
   return {
-    title: t('charts.distributionTitle').replace('{column}', column),
+    title,
     note: t('charts.sample').replace('{n}', values.length).replace('{missing}', missing),
     plot: (
       <div className="histogram">
@@ -76,18 +99,17 @@ function distribution(rows, column, t) {
 }
 
 function boxPlot(rows, column, group, t) {
-  const byGroup = new Map()
-  for (const row of rows) {
-    const key = group ? String(row[group] ?? '—') : t('charts.allRows')
-    if (!byGroup.has(key)) byGroup.set(key, [])
-    byGroup.get(key).push(row)
-  }
+  const byGroup = group ? groupRows(rows, group) : new Map([[t('charts.allRows'), rows]])
+  const title = group
+    ? t('charts.boxTitle').replace('{column}', column).replace('{group}', group)
+    : t('charts.boxTitleAll').replace('{column}', column)
   const boxes = [...byGroup]
     .map(([label, groupRows]) => ({ label, values: numericValues(groupRows, column).values }))
     .filter((item) => item.values.length > 0)
     .sort((a, b) => b.values.length - a.values.length)
     .slice(0, MAX_GROUPS)
     .map((item) => ({ label: item.label, ...fiveNumber(item.values) }))
+  if (boxes.length === 0) return { title, empty: t('charts.noValues').replace('{column}', column) }
   const low = Math.min(...boxes.map((box) => box.min))
   const high = Math.max(...boxes.map((box) => box.max))
   const at = (value) => `${high === low ? 50 : ((value - low) / (high - low)) * 100}%`
@@ -95,7 +117,7 @@ function boxPlot(rows, column, group, t) {
     `${box.label} · n ${box.n} · min ${fmt(box.min)} · Q1 ${fmt(box.q1)} · median ${fmt(box.median)} · Q3 ${fmt(box.q3)} · max ${fmt(box.max)}` +
     (box.outliers.length ? ` · ${box.outliers.length} outlier(s)` : '')
   return {
-    title: group ? t('charts.boxTitle').replace('{column}', column).replace('{group}', group) : t('charts.boxTitleAll').replace('{column}', column),
+    title,
     note:
       byGroup.size > MAX_GROUPS
         ? t('charts.groupsShown').replace('{shown}', MAX_GROUPS).replace('{total}', byGroup.size)
@@ -154,7 +176,7 @@ export function ResultCharts({ runResult }) {
       : mode === 'box'
         ? boxPlot(rows, column, group, t)
         : mode === 'mean'
-          ? meanByGroup(rows, text[0] ?? columns[0]?.name ?? '', column, t)
+          ? meanByGroup(rows, text[0], column, t)
           : null
 
   return (
@@ -212,9 +234,11 @@ export function ResultCharts({ runResult }) {
         <p className="chart-note chart-note--inline">{t('charts.trainingNa')}</p>
       ) : !view ? (
         <p className="chart-note chart-note--inline">{t('charts.noNumeric')}</p>
+      ) : view.empty && !view.table ? (
+        <p className="chart-note chart-note--inline">{view.empty}</p>
       ) : (
         <>
-          {view.plot}
+          {view.plot ?? <p className="chart-note">{view.empty}</p>}
           <details>
             <summary>{t('charts.table')}</summary>
             <table>

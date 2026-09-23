@@ -21,6 +21,10 @@ assert.equal(bins.reduce((sum, bin) => sum + bin.count, 0), values.length, 'ever
 assert.equal(bins.at(-1).end, 4)
 assert.ok(bins.at(-1).count >= 1, 'the maximum is counted in the closed last bin')
 assert.deepEqual(histogram([5, 5, 5]), [{ start: 5, end: 5, count: 3 }])
+assert.deepEqual(histogram([]), [], 'an all-null column has no bins rather than NaN edges')
+const negative = histogram([-3, -1, 0, 2])
+assert.equal(negative[0].start, -3)
+assert.equal(negative.reduce((sum, bin) => sum + bin.count, 0), 4)
 
 assert.deepEqual(numericValues([{ a: 1 }, { a: null }, { a: 'x' }, { a: 2.5 }], 'a'), {
   values: [1, 2.5],

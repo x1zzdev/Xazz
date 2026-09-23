@@ -42,11 +42,13 @@ export function fiveNumber(values) {
 
 /**
  * Equal-width bins over [min, max]; Sturges' bin count by default. The last bin is
- * closed so the maximum is counted. A constant column is one bin.
+ * closed so the maximum is counted. A constant column is one bin; no values, no bins.
  */
 export function histogram(values, binCount = Math.ceil(Math.log2(values.length)) + 1) {
-  const min = Math.min(...values)
-  const max = Math.max(...values)
+  if (values.length === 0) return []
+  // reduce, not Math.min(...values): spreading a large result would overflow the call stack.
+  const min = values.reduce((a, b) => Math.min(a, b))
+  const max = values.reduce((a, b) => Math.max(a, b))
   if (min === max) return [{ start: min, end: max, count: values.length }]
   const width = (max - min) / binCount
   const bins = Array.from({ length: binCount }, (_, i) => ({
