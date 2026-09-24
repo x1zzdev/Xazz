@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -259,6 +260,15 @@ jobs:
             echo ""
             echo "    ./xazz-server"
             echo ""
+            echo "## Container image (GHCR)"
+            echo ""
+            echo "Multi-arch (\`linux/amd64\`, \`linux/arm64\`) images are published from this release:"
+            echo ""
+            echo "    docker pull ghcr.io/x1zzdev/xazz:${VERSION#v}"
+            echo "    docker run --rm -p 8005:8005 -v \"\$PWD/data:/data\" ghcr.io/x1zzdev/xazz:${VERSION#v}"
+            echo ""
+            echo "Ports, volumes and uid permissions: \`docs/DOCKER.md\`."
+            echo ""
             echo "## Installation"
             echo ""
             echo "1. Download the archive for your platform"
@@ -293,3 +303,46 @@ jobs:
             ${PRERELEASE} \
             "${archives[@]}" \
             release/checksums.sha256
+
+  docker:
+    name: Publish container image · GHCR
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

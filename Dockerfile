@@ -7,8 +7,10 @@
 #   open http://127.0.0.1:8005        # Visual IDE + REST API
 #
 # The image bundles: xazz (CLI), xazz-runner (isolated engine bridge),
-# xazz-server (REST API + IDE), and the built Visual IDE under /app/web.
+# xazz-exec (Polars engine — required next to the runner), and xazz-server
+# (REST API + IDE) with the built Visual IDE under /app/web.
 # Mount a host directory at /data to read/write datasets and artifacts.
+# Ports, volumes, uid 10001 permissions, GHCR tags: docs/DOCKER.md
 
 # ── Stage 1: Rust binaries ─────────────────────────────────────────────────
 FROM rust:1-bookworm AS rust-builder
@@ -20,7 +22,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .
-RUN cargo build --release -p xazz -p xazz-runner -p xazz-server
+# xazz-exec is required: xazz-runner resolves it next to itself (no PATH fallback).
+RUN cargo build --release -p xazz -p xazz-runner -p xazz-exec -p xazz-server
 
 # ── Stage 2: Visual IDE frontend ───────────────────────────────────────────
 FROM node:20-bookworm-slim AS web-builder
@@ -40,6 +43,7 @@ WORKDIR /app
 COPY --from=rust-builder \
     /src/target/release/xazz \
     /src/target/release/xazz-runner \
+    /src/target/release/xazz-exec \
     /src/target/release/xazz-server \
     /app/
 COPY --from=web-builder /web/dist /app/web

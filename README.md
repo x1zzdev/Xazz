@@ -293,7 +293,7 @@ python benches/run_readme_benchmark.py --xlarge
 | `import "std/..."` | Embedded standard library — reusable schemas (`std/common`) and models (`std/math`, `std/models`) | Stable |
 | `xazz-lsp` | Language server — `xazz check` diagnostics + hover/go-to-def/rename via symbol table (Track B3) | Stable |
 | VS Code extension | `vscode-xazz/` — LSP client, Run/Check commands, syntax highlighting (Track E1) | Preview |
-| Docker image | `Dockerfile` + `docker-compose.yml` — server + runner + IDE, mountable `/data` (Track E2) | Preview |
+| Docker image | `Dockerfile` + `docker-compose.yml` — server + runner + exec + IDE, mountable `/data`; ports/volumes/permissions in [`docs/DOCKER.md`](docs/DOCKER.md); GHCR multi-arch tags on release (Track E2, #176) | Preview |
 | CI action | `.github/actions/xazz` composite action + policy-gate workflow (Track E3) | Preview |
 | `xazz new` | Scaffold project with sample CSV and runnable example | Stable |
 | `xazz emit rust` | Transpile `.xzz` → Rust source (Polars LazyFrame + Burn) | Stable |
