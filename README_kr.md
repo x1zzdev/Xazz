@@ -286,21 +286,31 @@ python benches/render_benchmark_chart.py        # 위 차트 재생성
 |---------|-------------|--------|
 | `xazz run` | `.xzz` 파이프라인 컴파일·실행 (`--json` 기계 판독 결과, `--opt` Typed IR 최적화 패스) | Stable |
 | `xazz check` | 정적 의미 분석 — 미선언 변수/컬럼, 중복 선언, 잘못된 cast, did-you-mean 제안, 행:열 단위 진단 | Stable |
-| `xazz import` | CSV 스키마 자동 추론 → 타입 블록 생성 (EUC-KR/CP949 자동 감지) | Stable |
-| DuckDB 커넥터 | `load("duckdb://...?sql=...")` — 인메모리·파일 DuckDB를 파이프라인 소스로 사용 (Track A3) | Stable |
-| PostgreSQL 커넥터 | `load("postgres://...?sql=...")` — PostgreSQL 쿼리를 파이프라인 소스로 사용 (Track A3) | Stable |
+| `xazz import` | CSV 스키마 자동 추론 → 타입 블록 생성 (EUC-KR/CP949, Parquet, Arrow) | Stable |
 | `import "mod.xzz"` | 모듈 시스템 — `type`/`model`/`v` 파이프라인을 파일 간 공유 (사이클 fail-closed) | Stable |
-| `xazz-lsp` | 언어 서버 — `xazz check` 진단 + hover/go-to-def (심볼 테이블) (Track B3) | Stable |
+| `import "std/..."` | 내장 표준 라이브러리 — 재사용 스키마(`std/common`)와 모델(`std/math`, `std/models`) | Stable |
+| `xazz-lsp` | 언어 서버 — `xazz check` 진단 + 심볼 테이블 기반 hover/go-to-def/rename (Track B3) | Stable |
+| VS Code 확장 | `vscode-xazz/` — LSP 클라이언트, Run/Check 명령, 문법 강조 (Track E1) | Preview |
+| Docker 이미지 | `Dockerfile` + `docker-compose.yml` — server + runner + exec + IDE, `/data` 마운트; 포트/볼륨/권한은 [`docs/DOCKER.md`](docs/DOCKER.md); 릴리스 시 GHCR 멀티아키 태그 (Track E2, #176) | Preview |
+| CI action | `.github/actions/xazz` composite action + policy-gate 워크플로 (Track E3) | Preview |
 | `xazz new` | 샘플 CSV + 실행 가능한 예제가 포함된 프로젝트 생성 | Stable |
 | `xazz emit rust` | `.xzz` → Rust 소스 변환 (Polars LazyFrame + Burn) | Stable |
 | `xazz policy` | Policy-as-Code 가드레일 — 실행 전 개인정보·시크릿 유출 차단 | Stable |
 | `model {}` + `train()` | Burn 딥러닝 모델 선언·학습 (Adam + MSE, 검증 분할, 조기 종료, `metric:` 선택 및 `sort:`/`top:` 리포트 정렬 하이퍼파라미터 스윕, 체크포인트) | Stable |
 | `withDp(epsilon:)` | 차등 프라이버시 노이즈 (laplace / gaussian) + 예산 추적 | Stable |
 | 내장 `chart {}` | 결과를 bar / line / pie / scatter로 렌더링 (HTML) | Stable |
-| `Option<T>` 타입 시스템 | 널 안전 컬럼 선언, `fillNull(strategy:)` | Stable |
+| `load()` + `save()` | 컬럼 소스(`.parquet`/`.arrow`) 확장자 자동 감지; `sep:`/`header:` CSV 옵션; CSV/Parquet/Arrow 아티팩트 저장 | Stable |
+| DuckDB 커넥터 | `load("duckdb://...?sql=...")` — 인메모리·파일 DuckDB를 파이프라인 소스로 사용 (Track A3) | Stable |
+| PostgreSQL 커넥터 | `load("postgres://...?sql=...")` — PostgreSQL 쿼리를 파이프라인 소스로 사용 (Track A3) | Stable |
+| `Option<T>` 타입 시스템 | 널 안전 컬럼 선언 — non-nullable 컬럼에 `fillNull`은 컴파일 오류 | Stable |
 | 26 파이프라인 연산자 | `filter`, `groupBy`, `agg([...])`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
 | Visual IDE | 노드 기반 파이프라인 편집기 + 모니터, `xazz-server`가 서빙 | Stable |
+| 런 히스토리 | SQLite 영속 런 레코드 — `GET /runs`, `GET /runs/:id` (Track C1) | Stable |
+| 인증 & 멀티테넌시 | `XAZZ_SERVER_TOKEN` / `XAZZ_TENANT_TOKENS` + `X-Xazz-Tenant`; 위임 정책 변경용 `XAZZ_ADMIN_TOKEN` + `X-Xazz-Actor` — 테넌트별 런 히스토리·감사 (Track C2) | Stable |
+| 파이프라인 카탈로그 | `POST /catalog` — Typed IR 기반 파이프라인 카탈로그 + 컬럼 계보 (Track C3) | Stable |
+| Python 바인딩 | Python에서 `xazz.check/run/policy` — CLI와 동일한 진단 (Track C4) | Stable |
 | `xazz sde` | 합성 데이터 생성 엔진 | Stable |
+| `xazz registry` | 정책 팩(`xazz.policy.json`)·stdlib 모듈(`std/`) 조회/설치 — 오프라인; `registry deploy`가 서버로 팩 배포 (Track E4/C2) | Stable |
 | `xazz sanitize` | 파인튜닝 데이터 정화 — PII 스캔, 중복·편향 검사 (Track F3) | Stable |
 | 모델 프로비넌스 | 정책 레지스트리 게이트 — `hf://` 모델 참조, 라이선스·미검증 웨이트 차단 (Track F5) | Stable |
 
@@ -315,8 +325,11 @@ python benches/render_benchmark_chart.py        # 위 차트 재생성
 | Phase 3 — IDE 통합 | Visual IDE, 그래픽 파이프라인 편집기 | ✅ 완료 |
 | Phase 4 — Typed IR & 최적화 | 단일 Typed IR, 이중 해석 제거, IR 최적화(`--opt`) | ✅ 완료 (v0.3.0) |
 | Phase 5 — 언어 확장 | 연산자 확장, join 개선, 스키마 진화 | 🚧 진행 중 |
+| Phase 5.5 — 데이터 스케일 | 컬럼 소스·아티팩트 출력 (`load`/`save`: Parquet, Arrow) | ✅ save/load (#52) |
 | Phase 6 — AI 확장 | GPU 백엔드(burn-tch / burn-wgpu), 분산 학습, NQP | 🔭 계획 |
 | Phase 7 — GenAI 거버넌스 | 프롬프트 입력 게이트, LLM 출력 재스캔, 파인튜닝 데이터 정화 (burn-engine LoRA/QLoRA 연동), 모델 프로비넌스 | 🔭 계획 (Track F) |
+
+**스케일 로드맵:** 데이터 볼륨, 프로그램 규모, 팀/조직 범위, ML 깊이를 확장하는 전체 계획과 항목별 GitHub 이슈·실행 순서는 [docs/ROADMAP.md](docs/ROADMAP.md)에 있습니다.
 
 ---
 
