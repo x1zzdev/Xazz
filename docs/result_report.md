@@ -26,19 +26,19 @@
 
 Python 기반 AI 파이프라인은 데이터 과학자에게 뛰어난 생산성을 제공하지만, 파이프라인이 대규모화될수록 구조적 한계가 표면화된다. 런타임에서만 드러나는 타입 오류와 NaN(결측치) 처리 실패는 분산 학습 도중 치명적인 중단을 유발하고, Python과 네이티브 코드 사이의 메모리 복사 오버헤드는 성능 병목으로 작용한다. 결과적으로 이는 GPU 연산 자원의 막대한 낭비와 반복적인 디버깅에 따른 개발 생산성 저하로 이어진다.
 
-Xazz는 이 세 가지 한계를 정면에서 해결하고자 한다. 첫째, Rust 강타입 시스템과 `Option<T>` 기반 정적 널 안전성으로 결측치·타입 오류를 컴파일 단계에서 검증하여, 학습 실행 전에 오류를 차단함으로써 대규모 분산 학습 시 발생할 수 있는 불필요한 GPU 연산 자원 손실을 사전에 방지한다. 둘째, Apache Arrow 기반 메모리 레이아웃을 통해 Polars 전처리 결과에서 Burn 딥러닝 텐서로 전환할 때 불필요한 중간 복사를 제거하고 **남는 복사 경계(f64→f32, columnar→row-major, host→device)를 메모리 모델로 명시**하는 직접 버퍼 데이터 전환을 구현한다. 셋째, Policy-as-Code 정적 가드레일, 차등 프라이버시(DP) 노이즈, 온프레미스 sLM 코드 자동 보정 어댑터(QLoRA 파인튜닝은 Phase 8 진행 중), SHA-256 감사 로그를 결합하여 금융·의료 등 민감 데이터의 보안 규제 요구를 충족한다.
+Xazz는 이 세 가지 한계를 정면에서 해결하고자 한다. 첫째, Rust 강타입 시스템과 `Option<T>` 기반 정적 널 안전성으로 결측치·타입 오류를 컴파일 단계에서 검증하여, 학습 실행 전에 오류를 차단함으로써 대규모 분산 학습 시 발생할 수 있는 불필요한 GPU 연산 자원 손실을 사전에 방지한다. 둘째, Apache Arrow 기반 메모리 레이아웃을 통해 Polars 전처리 결과에서 Burn 딥러닝 텐서로 전환할 때 불필요한 중간 복사를 제거하고 **남는 복사 경계(f64→f32, columnar→row-major, host→device)를 메모리 모델로 명시**하는 직접 버퍼 데이터 전환을 구현한다. 셋째, Policy-as-Code 정적 가드레일, 차등 프라이버시(DP) 노이즈, 온프레미스 sLM 코드 자동 보정 어댑터(QLoRA 파인튜닝은 sLM R&D 진행 중), SHA-256 감사 로그를 결합하여 금융·의료 등 민감 데이터의 보안 규제 요구를 충족한다.
 
 아울러 Xazz는 AI-Native 선언형 문법을 채택하여 Rust의 거친 학습 곡선 없이도 데이터 과학자와 입문자가 즉시 파이프라인을 작성할 수 있도록 설계되었다. 모호성이 없는 정적 타입 스키마와 명확한 DSL 구조는 LLM/AI Agent가 코드를 오차 없이 정확히 생성·수정하고, 온프레미스 sLM이 정적 분석을 통해 실시간으로 자동 리뷰·보정하는 'Agent-Ready Environment'를 제공한다. 이로써 보안 compliance가 중요한 기업형 AI 환경에서 파이썬 파이프라인의 하이퍼 퍼포먼스 모듈로 즉시 통합되어 탁월한 효율을 발휘하는 오픈소스 플랫폼을 완성하고자 한다.
 
 **개발환경**
 
-- 언어: Rust 2024 Edition (stable toolchain), TypeScript/React, Python (sLM 파인튜닝 — Phase 8)
+- 언어: Rust 2024 Edition (stable toolchain), TypeScript/React, Python (sLM 파인튜닝 — sLM R&D)
 - DL 프레임워크: Burn v0.21 (CPU 백엔드 ndarray, autodiff 지원)
 - 데이터 엔진: Polars v0.53 (lazy / csv / strings / regex)
 - 백엔드 서버: Axum 0.8 (REST API), Tokio, SHA-256 감사 로그
 - 프론트엔드: React 18, @xyflow/react 12 (노드 기반 Visual IDE), Vite
 - 보안/프라이버시: Policy-as-Code 정적 가드레일, DP 노이즈(Laplace/Gaussian Mechanism)
-- sLM 서빙: Qwen2.5-Coder-1.5B, Ollama 온프레미스 (Unsloth + QLoRA 파인튜닝은 Phase 8 — 현재 미실행)
+- sLM 서빙: Qwen2.5-Coder-1.5B, Ollama 온프레미스 (Unsloth + QLoRA 파인튜닝은 sLM R&D — 현재 미실행)
 - CI/CD: GitHub Actions, Playwright E2E 테스트, Cargo test / clippy
 - 워크스페이스: xazz, xazz-core, xazz-compiler, xazz-exec, xazz-runner, xazz-server
 
@@ -63,7 +63,14 @@ Xazz는 이 세 가지 한계를 정면에서 해결하고자 한다. 첫째, Ru
 - **[정적 가드레일]** Policy-as-Code 기반 정적 규칙으로 실행 전 단계에서 개인정보 유출·보안 컴플라이언스 위반 코드를 탐지·차단 (Definition of Done: 위반 코드 실시간 차단)
 - **[프라이버시 R&D]** Rust/Python 환경에서 Laplace / Gaussian Mechanism 기반 차등 프라이버시(DP) 노이즈 주입 알고리즘 구현 — 지정된 Privacy Budget 하에서 Polars DataFrame 연산 결과에 노이즈를 적용하고, Privacy Budget 소모 상태를 모니터링
 - **[sLM 어댑터(실험)]** Qwen2.5-Coder-1.5B 보안 위반 코드 보정 어댑터 및 Ollama 기반 온프레미스 서빙 훅 구현. 단, **QLoRA 파인튜닝 학습은 아직 실행되지 않았다** (재현 가능한 학습·평가 스캐폴드는 `experiments/slm_guardrail/` 에 공개). 정적 가드레일에 차단된 코드를 결정적 규칙으로 자동 보정하고, sLM 제안은 채택 전에 동일 정책 엔진으로 재검증한다
-- **[비주얼 콘솔 UI]** React·@xyflow/react 기반으로 데이터 전처리·딥러닝 컴파일 파이프라인 흐름을 시각화하는 웹 IDE
+- **[비주얼 콘솔 UI]** React·@xyflow/react 기반으로 데이터 전처리·딥러닝 컴파일 파이프라인 흐름을 시각화하는 웹 IDE. 거버넌스 패널(런 히스토리, 감사 해시 체인, 정책 팩, DP 원장), 컬럼 계보, 실행 진행 상태를 서버 응답 그대로 표시한다
+- **[모듈 시스템 & 표준 라이브러리]** `import "mod.xzz"`로 `type`/`model`/파이프라인을 파일 간 공유하고(사이클 fail-closed), 내장 stdlib(`std/common`, `std/math`, `std/models`)을 설치 없이 임포트
+- **[언어 서버 & 편집기 통합]** `xazz-lsp`가 `xazz check` 진단과 hover/go-to-def/rename(심볼 테이블)을 제공하고, VS Code 확장(`vscode-xazz/`)이 이를 구동
+- **[데이터 소스 커넥터]** 컬럼 소스(`.parquet`/`.arrow`) 확장자 자동 감지, CSV `sep:`/`header:` 옵션, DuckDB(`load("duckdb://…")`)·PostgreSQL(`load("postgres://…")`) 소스, `save()` 아티팩트 출력
+- **[추론 백엔드]** ONNX export·ONNX Runtime 추론, WebGPU(`burn-wgpu`)·LibTorch/CUDA(`burn-tch`) GPU 백엔드와 device/EP 선택, 추론 캐시(LRU)·행 단위 chunking
+- **[정책 팩 & 카탈로그]** `xazz registry`로 정책 팩·stdlib 조회/설치 및 서버 테넌트 배포, `POST /catalog`로 파이프라인 카탈로그·컬럼 계보 산출
+- **[데이터 정화 & 프로비넌스]** `xazz sanitize`로 파인튜닝 데이터 PII 스캔·중복·편향 검사, `hf://` 모델 참조의 라이선스·미검증 웨이트 차단
+- **[Python 바인딩 & 배포]** Python에서 `xazz.check/run/policy` 호출, Docker 이미지(멀티아키 GHCR)와 GitHub Actions composite action·정책 게이트 워크플로
 - **[신뢰성 인프라]** SHA-256 append-only 해시 체인 감사 로그로 모든 연산 이력을 영구 보존하고 변조를 검증(조회·재생·체인 무결성 API)하며, GitHub Actions 기반 CI/CD·자동화 테스트(Rust 전체 + Visual IDE 프런트엔드) 환경 구축. `xazz run --json`으로 기계 판독 실행 결과, `xazz-runner --check-engine`으로 실행 엔진 가용성 진단
 
 **구동 및 시연**
@@ -108,16 +115,18 @@ cd my-project
 
 | Phase | 목표 | 상태 |
 |---|---|---|
-| Phase 1 | DSL 문법·타입 시스템·컴파일러 파이프라인 | 완료 |
-| Phase 2 | Polars 연동·CLI 도구·차트 출력 | 완료 |
-| Phase 3 | Visual IDE·그래픽 파이프라인 편집기 | 완료 |
-| Phase 4 | 연산자 확장·join 개선·스키마 진화 | 진행 중 |
-| Phase 5 | Burn 딥러닝 계층(모델·학습·체크포인트), NQP | 딥러닝 완료 / NQP Experimental |
-| Phase 6 | DP 노이즈 주입 모듈 + Polars→Burn 데이터 변환 인터페이스 | 완료 |
-| Phase 7 | 정적 가드레일 + 자동 보정 모듈 (sLM 어댑터·QLoRA 파이프라인 스캐폴드) | 완료 (학습은 Phase 8) |
-| Phase 8 | sLM 실학습(QLoRA) · GGUF 배포 · 보정 정확도 측정 | 진행 중 |
+| Phase 1 — Core Language | DSL 문법·타입 시스템·컴파일러 파이프라인 | 완료 |
+| Phase 2 — Execution Layer | Polars 연동·CLI 도구·차트 출력 | 완료 |
+| Phase 3 — IDE Integration | Visual IDE·그래픽 파이프라인 편집기 | 완료 |
+| Phase 4 — Typed IR & Optimizer | 단일 Typed IR·이중 파싱 제거·IR 최적화(`--opt`) | 완료 (v0.3.0) |
+| Phase 5 — Expanded Language | 연산자 확장·join 개선·스키마 진화 | 진행 중 |
+| Phase 5.5 — Data Scale | 컬럼 소스·아티팩트 출력 (`load`/`save`: Parquet, Arrow) | 완료 (#52) |
+| Phase 6 — AI Expansion | GPU 백엔드(burn-tch / burn-wgpu)·분산 학습·NQP | 계획 |
+| Phase 7 — GenAI Governance | 프롬프트 입력 게이트·LLM 출력 재스캔·파인튜닝 데이터 정화·모델 프로비넌스 | 계획 (Track F) |
 
-향후 계획: Phase 4(연산자·조인·스키마 진화) 및 Phase 5(NQP 쿼리 플래너 고도화) 완성, GPU 백엔드 및 분산 학습 지원, sLM 파인튜닝 데이터·보정 정확도 고도화 및 다양한 언어 모델 확장, 커뮤니티 기여·유지보수 체계 지속 강화.
+별도 R&D 트랙: sLM 보안 코드 자동 보정 어댑터(현재 공개 모델 Qwen2.5-Coder-1.5B를 Ollama로 서빙하는 **유형 1**)는 QLoRA 실학습·GGUF 배포·보정 정확도 측정을 진행 중이며, 학습 완료 시 유형 2로 갱신합니다.
+
+향후 계획: Phase 5(연산자·조인·스키마 진화) 완성, GPU 백엔드·분산 학습 지원, sLM 파인튜닝 데이터·보정 정확도 고도화 및 다양한 언어 모델 확장, 커뮤니티 기여·유지보수 체계 지속 강화.
 
 **소감 및 후기**
 
@@ -129,33 +138,40 @@ cd my-project
 
 | 번호 | 라이브러리명 | 버전 | 라이선스 | 공식 저장소 URL | 사용 목적 및 주요 기능 |
 |---|---|---|---|---|---|
-| 1 | polars | 0.53 | MIT | https://github.com/pola-rs/polars | 데이터 전처리 LazyFrame 연산 그래프 엔진 |
-| 2 | burn | 0.21 | MIT | https://github.com/tracel-ai/burn | 딥러닝 모델 학습·추론 컴파일 엔진 |
-| 3 | burn-ndarray | 0.21 | MIT | https://github.com/tracel-ai/burn | CPU 백엔드 텐서 연산 (autodiff) |
-| 4 | clap | 4.4 | MIT/Apache-2.0 | https://github.com/clap-rs/clap | CLI 인자 파싱 |
+| 1 | polars | 0.53.0 | MIT | https://github.com/pola-rs/polars | 데이터 전처리 LazyFrame 연산 그래프 엔진 |
+| 2 | burn | 0.21.0 | MIT | https://github.com/tracel-ai/burn | 딥러닝 모델 학습·추론 컴파일 엔진 |
+| 3 | burn-ndarray | 0.21.0 | MIT | https://github.com/tracel-ai/burn | CPU 백엔드 텐서 연산 (autodiff) |
+| 4 | clap | 4.6 | MIT/Apache-2.0 | https://github.com/clap-rs/clap | CLI 인자 파싱 |
 | 5 | serde / serde_json | 1.0 | MIT/Apache-2.0 | https://github.com/serde-rs/serde | 직렬화·JSON 파싱 |
-| 6 | csv | 1.3 | MIT/Apache-2.0 | https://github.com/BurntSushi/rust-csv | CSV 파싱·스키마 추론 |
+| 6 | csv | 1.4 | MIT/Apache-2.0 | https://github.com/BurntSushi/rust-csv | CSV 파싱·스키마 추론 |
 | 7 | encoding_rs | 0.8 | MIT/Apache-2.0 | https://github.com/hsivonen/encoding_rs | EUC-KR(CP949) 한글 CSV 디코딩 |
 | 8 | anyhow | 1.0 | MIT/Apache-2.0 | https://github.com/dtolnay/anyhow | 오류 처리 |
-| 9 | indicatif | 0.17 | MIT | https://github.com/console-rs/indicatif | CLI 진행률 표시 |
-| 10 | colored | 2.1 | MPL-2.0 | https://github.com/mackwic/colored | CLI 색상 출력 |
+| 9 | indicatif | 0.18 | MIT | https://github.com/console-rs/indicatif | CLI 진행률 표시 |
+| 10 | colored | 3.1 | MPL-2.0 | https://github.com/mackwic/colored | CLI 색상 출력 |
 | 11 | axum | 0.8 | MIT | https://github.com/tokio-rs/axum | REST API 서버 프레임워크 |
 | 12 | tokio | 1 | MIT | https://github.com/tokio-rs/tokio | 비동기 런타임 |
-| 13 | tower-http | 0.6 | MIT | https://github.com/tower-rs/tower-http | CORS 미들웨어 |
+| 13 | tower-http | 0.6 | MIT | https://github.com/tower-rs/tower-http | CORS·정적 파일 미들웨어 |
 | 14 | uuid | 1 | Apache-2.0/MIT | https://github.com/uuid-rs/uuid | 감사 로그 UUID |
-| 15 | sha2 | 0.10 | MIT/Apache-2.0 | https://github.com/RustCrypto/hashes | SHA-256 감사 로그 해시 |
+| 15 | sha2 | 0.10.9 | MIT/Apache-2.0 | https://github.com/RustCrypto/hashes | SHA-256 감사 로그 해시 |
 | 16 | chrono | 0.4 | MIT/Apache-2.0 | https://github.com/chronotope/chrono | 감사 로그 타임스탬프 |
 | 17 | tempfile | 3 | MIT/Apache-2.0 | https://github.com/Stebalien/tempfile | 임시 파일 처리 |
-| 18 | react | 18.3.1 | MIT | https://github.com/facebook/react | 프론트엔드 UI 렌더링 |
-| 19 | react-dom | 18.3.1 | MIT | https://github.com/facebook/react | DOM 렌더링 |
-| 20 | @xyflow/react | 12.10.2 | MIT | https://github.com/xyflow/xyflow | 노드 기반 Visual IDE 플로우 |
-| 21 | lucide-react | 1.16.0 | ISC | https://github.com/lucide-icons/lucide | 아이콘 |
-| 22 | vite | 7.3.6 | MIT | https://github.com/vitejs/vite | 프론트엔드 빌드 도구 |
-| 23 | @playwright/test | 1.55.1 | Apache-2.0 | https://github.com/microsoft/playwright | E2E·대비 테스트 |
-| 24 | Qwen2.5-Coder-1.5B | 1.5B | Apache-2.0 | https://github.com/QwenLM/Qwen2.5-Coder | 보안 위반 코드 자동 보정 sLM (Ollama 어댑터 — QLoRA 학습은 Phase 8 진행 중) |
-| 25 | Unsloth | - | Apache-2.0 | https://github.com/unslothai/unsloth | sLM 파인튜닝 최적화 (QLoRA, Phase 8) |
-| 26 | llama.cpp | - | MIT | https://github.com/ggml-org/llama.cpp | GGUF 모델 추론·서빙 |
-| 27 | Ollama | - | MIT | https://github.com/ollama/ollama | 온프레미스 sLM 모델 서빙/실행 |
+| 18 | rusqlite | 0.40 | MIT | https://github.com/rusqlite/rusqlite | 런 히스토리·정책 이력·DP 원장 SQLite 저장소 |
+| 19 | duckdb | 1.10505.0 | MIT | https://github.com/duckdb/duckdb-rs | DuckDB 소스 커넥터 (`load("duckdb://…")`) |
+| 20 | postgres | 0.19 | MIT/Apache-2.0 | https://github.com/sfackler/rust-postgres | PostgreSQL 소스 커넥터 (`load("postgres://…")`) |
+| 21 | ort | 2.0.0-rc.13 | MIT/Apache-2.0 | https://github.com/pykeio/ort | ONNX Runtime 추론 백엔드 |
+| 22 | tower-lsp | 0.20 | MIT/Apache-2.0 | https://github.com/ebkalderon/tower-lsp | LSP 서버 (`xazz-lsp`) |
+| 23 | wgpu | 29.0 | MIT/Apache-2.0 | https://github.com/gfx-rs/wgpu | WebGPU GPU 백엔드 (`--features wgpu`, optional) |
+| 24 | tch | 0.22 | MIT/Apache-2.0 | https://github.com/LaurentMazare/tch-rs | LibTorch/CUDA 백엔드 (`--features cuda`, optional) |
+| 25 | react | 19.3.0 | MIT | https://github.com/facebook/react | 프론트엔드 UI 렌더링 |
+| 26 | react-dom | 19.3.0 | MIT | https://github.com/facebook/react | DOM 렌더링 |
+| 27 | @xyflow/react | 12.11.6 | MIT | https://github.com/xyflow/xyflow | 노드 기반 Visual IDE 플로우 |
+| 28 | lucide-react | 1.47.0 | ISC | https://github.com/lucide-icons/lucide | 아이콘 |
+| 29 | vite | 8.3.0 | MIT | https://github.com/vitejs/vite | 프론트엔드 빌드 도구 |
+| 30 | @playwright/test | 1.63.0 | Apache-2.0 | https://github.com/microsoft/playwright | E2E·대비 테스트 |
+| 31 | Qwen2.5-Coder-1.5B | 1.5B | Apache-2.0 | https://github.com/QwenLM/Qwen2.5-Coder | 보안 위반 코드 자동 보정 sLM (Ollama 어댑터 — QLoRA 학습은 sLM R&D 진행 중) |
+| 32 | Unsloth | - | Apache-2.0 | https://github.com/unslothai/unsloth | sLM 파인튜닝 최적화 (QLoRA, sLM R&D) |
+| 33 | llama.cpp | - | MIT | https://github.com/ggml-org/llama.cpp | GGUF 모델 추론·서빙 |
+| 34 | Ollama | - | MIT | https://github.com/ollama/ollama | 온프레미스 sLM 모델 서빙/실행 |
 
 ---
 
@@ -181,7 +197,7 @@ cd my-project
 | 항 목 | 내 용 |
 |---|---|
 | 학습 데이터셋 정보 | 보안 위반→안전 코드 대조 데이터셋 구성 스캐폴드 (`experiments/slm_guardrail/build_dataset.py`) — QLoRA 학습 미실행 |
-| 데이터 정제/가공 방법 요약 | 개인정보 비식별화(마스킹) 조치, 오픈소스 출품을 위한 프롬프트 포맷 변환 및 필터링, 보안 위반 코드와 안전한 보정 코드의 instruction/response 구조로 정제 (Phase 8) |
+| 데이터 정제/가공 방법 요약 | 개인정보 비식별화(마스킹) 조치, 오픈소스 출품을 위한 프롬프트 포맷 변환 및 필터링, 보안 위반 코드와 안전한 보정 코드의 instruction/response 구조로 정제 (sLM R&D) |
 | 새로 생성된 가중치 공개 저장소 URL | [미해당 — 학습 미실행. QLoRA 학습 완료 시 Hugging Face 공개 URL 기재] |
 | 가중치 파일 정보 및 배포방식 | [미해당 — 학습 미실행] |
 
