@@ -36,3 +36,16 @@ PR #224의 Windows CI 실패 원인을 확인한다. 앞서 PR #213의 Windows C
 - 관측값: `run 35979829706 is still in progress; logs will be available when it is complete`.
 - GitHub run 전체가 끝나지 않아 실패 job의 로그를 받지 못했다. SUT 미도달이며 성공 기준 미충족. 현재 원인은 조회 도구의 flag나 파서가 아니라 **run 완료 전 로그 비공개**라는 외부 상태다.
 - kill 기준에 따라 로그 조회를 다시 실행하지 않고 동결한다. CI 실패를 코드 결함으로 판정하지 않는다. 새 run 완료 상태와 사용자 재개 지시가 있으면 이 문서의 가설·기준을 갱신한 뒤 한 번만 다시 판별한다.
+
+## 사용자 재개와 새 증거 (2026-09-24)
+
+- 사용자가 "다시 진행"을 명시했다. GitHub run `35979829706`은 `completed/failure`로 바뀌었고 Windows job `107568811717`도 완료됐다. 이전 차단 원인인 run 진행 중 상태가 해소됐다.
+- 같은 공식 CLI 경로 `gh run view --job 107568811717 --log-failed`를 한 번만 다시 조회한다. 성공 기준은 실제 실패 step과 오류 줄을 읽는 것이다. 동일한 사전 단계 오류가 나면 다시 동결하고 새 대안으로 자동 전환하지 않는다.
+
+## 로그 조회 결과와 국소 수정 실험
+
+- 재개 후 동일 명령 1회는 exit 0이며 Windows 실패 step에 도달했다. 실패는 `cargo clippy`의 `src/schema.rs:311:1`에서 `items after a test module`; 테스트 모듈 뒤 `infer_columnar_schema_via_runner`가 `src/schema.rs:365`에 남아 있고 `-D warnings`로 실패했다. 이전 `pre-SUT` 실패와 구분된다.
+- 위험도 재판정: 테스트 모듈의 위치만 옮기는 되돌릴 수 있는 국소 수정이므로 LOW. 사용자 기능·API·테스트 기대값은 바꾸지 않는다. 프로세스 스킬이 3개 겹치므로 LOW의 targeted check 1회만 완료 게이트로 삼고 reviewer를 추가하지 않는다.
+- 가설 하나: `#[cfg(test)] mod tests`를 파일의 마지막 항목으로 이동하면 Clippy의 `items_after_test_module` 실패가 사라진다.
+- 사전등록 성공: 저장소 CI와 같은 `cargo clippy --workspace --all-targets -- -D warnings`가 exit 0. kill: 동일 lint가 남거나 다른 새 경고가 발생하면 변경을 채택하지 않고 원인을 재분석한다. 노이즈 바닥은 경고 0개이며 1개도 허용하지 않는다. 적용 상한은 이 한 lint/CI 차단 해소이고 다른 플랫폼 테스트 실패 해결을 주장하지 않는다.
+- 롤백: 편집 전 anchor branch를 만들고 `git restore --source <anchor> -- src/schema.rs` 한 명령으로 원본 bytes를 복구한다.
