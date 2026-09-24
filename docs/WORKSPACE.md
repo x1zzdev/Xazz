@@ -11,14 +11,16 @@ Rust 바이너리는 정적 링크됩니다.
 
 ```
 Xazz/
-├── Cargo.toml              ← workspace + xazz CLI (루트 패키지, version 0.3.0 단일 소스)
+├── Cargo.toml              ← workspace + xazz CLI (루트 패키지, workspace version 단일 소스)
 ├── src/                    ← xazz CLI (경량 — Polars/Tokio 없음)
 │   ├── main.rs             ← run 명령어 → xazz-runner 서브프로세스 스폰
 │   ├── cli.rs
+│   ├── http.rs
 │   ├── policy_cli.rs
-│   ├── predict.rs
 │   ├── project.rs
+│   ├── registry.rs
 │   ├── schema.rs
+│   ├── sde.rs
 │   └── whoami.rs
 │
 ├── xazz-core/              ← 공유 핵심 타입 (ZERO 무거운 의존성)
@@ -26,6 +28,7 @@ Xazz/
 │       ├── lib.rs
 │       ├── ast.rs          ← AST 노드 (Expr, Stmt, PipelineOp, ...)
 │       ├── ir.rs           ← Typed IR (ColType/Schema/TypedExpr/DataOp/MLOp/SideOp/Step)
+│       ├── i18n.rs         ← 진단 메시지 번역
 │       ├── token.rs        ← Token, Span
 │       └── error.rs        ← CompileError, ErrorKind
 │
@@ -39,6 +42,8 @@ Xazz/
 │       ├── lexer.rs
 │       ├── parser.rs
 │       ├── checker.rs      ← 정적 분석 + Typed IR 생성 (analyze_program/compile_ir)
+│       ├── catalog.rs      ← 파이프라인 카탈로그
+│       ├── modules.rs      ← 모듈 import 처리
 │       ├── opt.rs          ← IR 최적화 (상수 폴딩/Select 병합/조건 푸시다운)
 │       ├── codegen.rs      ← 예전 문자열 codegen (emit 경로에서만 참고)
 │       ├── emitter.rs      ← emit rust 트랜스파일러
@@ -52,6 +57,8 @@ Xazz/
 │       ├── lower.rs        ← DataOp → Polars LazyFrame lowering
 │       ├── dl.rs           ← MLOp → Burn 학습/예측
 │       ├── dp.rs           ← withDp + (ε, δ) 조성 회계
+│       ├── sanitize.rs     ← 데이터 정제
+│       ├── schema_infer.rs ← CSV 스키마 추론
 │       ├── chart.rs        ← DataFrame → JSON spec → Chart.js HTML
 │       └── tensor_bridge.rs← Polars → Burn 텐서 변환 (연속 버퍼 직접 읽기)
 │
