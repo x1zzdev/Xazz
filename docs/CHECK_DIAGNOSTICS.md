@@ -4,8 +4,8 @@ These four snippets fail before any CSV is opened. Save each as the indicated
 `.xzz` file and run `XAZZ_LANG=en xazz check <file>`. The commands below were
 reproduced with the current CLI; each exits 1 with one error.
 
-Run `xazz check <file> --json` to see the 1-based `line:col` location. The
-plain-text output shows the message and suggestion without the location. For
+The plain-text and `--json` output both report a 1-based `line:col` location.
+The output excerpts below omit the file summary and final error count. For
 three cases, column 1 identifies the start of the offending statement.
 
 | Case | Reported `line:col` |
@@ -26,7 +26,8 @@ v warm = raw |> filter(temperture_c > 20)
 ```
 
 ```text
-❌ [error] expression: column 'temperture_c' does not exist in the schema.
+❌ [error [line 3: col 24]] expression: column 'temperture_c' does not exist in the schema.
+   💡 Schema 'expression' does not contain column 'temperture_c'.
 💡 available columns: temperature_c
   Did you mean: col("temperature_c")?
 ```
@@ -42,7 +43,8 @@ v selected = raw |> select(["missing"])
 ```
 
 ```text
-❌ [error] select: column 'missing' does not exist in the schema.
+❌ [error [line 3: col 1]] select: column 'missing' does not exist in the schema.
+   💡 Schema 'select' does not contain column 'missing'.
 💡 available columns: pm10
   Did you mean: col("pm10")?
 ```
@@ -58,7 +60,7 @@ v bad = raw |> cast("pm10", "decimal")
 ```
 
 ```text
-❌ [error] cast("pm10", "decimal") : unknown type 'decimal'. Supported types: "float", "int", "str", "bool"
+❌ [error [line 3: col 1]] cast("pm10", "decimal") : unknown type 'decimal'. Supported types: "float", "int", "str", "bool"
 ```
 
 ## `Option<T>`: `fillNull` on a non-nullable column
@@ -72,7 +74,7 @@ v filled = raw |> fillNull("pm10", strategy: "mean")
 ```
 
 ```text
-❌ [error] fillNull("pm10", ...) : column 'pm10' is declared as a non-nullable type. Declare 'pm10' as Option<float> in the schema, or remove this operation.
+❌ [error [line 3: col 1]] fillNull("pm10", ...) : column 'pm10' is declared as a non-nullable type. Declare 'pm10' as Option<float> in the schema, or remove this operation.
 ```
 
 Declare `pm10: Option<float>` if empty values are expected, or remove the
