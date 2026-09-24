@@ -2,11 +2,13 @@
  * stdoutParser.mjs — unit tests for the stdout marker parser (issue #51).
  *
  * Covers the `[xazz:*]` marker contract consumed by the Visual IDE:
- *   - single-line `[xazz:chart] {JSON}` (current format)
+ *   - single-line `[xazz:chart] {JSON}` for bar/line/pie/scatter (current format)
  *   - legacy two-line `[xazz:chart]` + JSON (fallback)
+ *   - `[xazz:train] {JSON}` / `[xazz:model] {JSON}` → train/model events
  *   - `[xazz:dp] {JSON}` is not a chart/error event — it falls through to text
  *   - `[xazz:result] {JSON}` is exposed as text
  *   - `[xazz:error]` + `AI_SUGGESTION:` legacy block → error event
+ *   - `[xazz RUNTIME ERROR]` / `[xazz PARSER ERROR]` / `[xazz IO ERROR]` → error event
  *   - non-marker lines → text events
  *
  * Run:  cd visual-ide && npm run test:stdout
@@ -89,6 +91,25 @@ const fallback = parseStdout([
 ])[0]
 assert.equal(fallback.chartType, 'bar', 'unknown chartType falls back to bar')
 
+// ── single-line [xazz:chart] {JSON} — scatter ────────────────────────────────
+
+const scatterPayload = {
+  chartType: 'scatter',
+  title: 'pm10 vs pm25',
+  x: 'pm10',
+  y: 'pm25',
+  data: [{ pm10: '1.5', pm25: 2 }],
+}
+const scatter = parseStdout([`[xazz:chart] ${JSON.stringify(scatterPayload)}`])[0]
+assert.equal(scatter.type, 'chart', 'scatter marker yields a chart event')
+assert.equal(scatter.chartType, 'scatter', 'scatter chartType is preserved')
+assert.deepEqual(
+  { x: scatter.data[0].x, y: scatter.data[0].y },
+  { x: 1.5, y: 2 },
+  'scatter rows expose numeric x/y and coerce strings',
+)
+assert.ok(!('label' in scatter.data[0]), 'scatter rows do not get label/value fields')
+
 // ── legacy two-line [xazz:chart] + JSON (fallback) ───────────────────────────
 
 const legacy = parseStdout(['[xazz:chart]', JSON.stringify(piePayload)])
@@ -119,6 +140,52 @@ assert.equal(resultEvents.length, 1, 'a [xazz:result] line yields one event')
 assert.equal(resultEvents[0].type, 'text', '[xazz:result] is surfaced as text')
 assert.equal(resultEvents[0].text, resultLine, '[xazz:result] text keeps the raw line')
 
+// ── [xazz:train] {JSON} → train event ────────────────────────────────────────
+
+const trainPayload = {
+  type: 'train_stmt',
+  success: true,
+  source_var: 'air',
+  model_name: 'AirNet',
+  report: { epochs: 10, final_loss: 0.05 },
+}
+const trainEvents = parseStdout([`[xazz:train] ${JSON.stringify(trainPayload)}`])
+assert.equal(trainEvents.length, 1, 'a [xazz:train] line yields one event')
+assert.equal(trainEvents[0].type, 'train', '[xazz:train] yields a train event')
+assert.deepEqual(
+  trainEvents[0].report,
+  { epochs: 10, final_loss: 0.05 },
+  'the nested report is unwrapped',
+)
+assert.equal(trainEvents[0].raw.model_name, 'AirNet', 'the raw payload is retained')
+
+const bareTrain = parseStdout([`[xazz:train] ${JSON.stringify({ epochs: 3 })}`])[0]
+assert.deepEqual(
+  bareTrain.report,
+  { epochs: 3 },
+  'payload is used as report when the report key is absent',
+)
+
+// ── [xazz:model] {JSON} → model event ────────────────────────────────────────
+
+const modelPayload = {
+  type: 'model_decl',
+  name: 'AirNet',
+  layers: ['Linear(3, 16)', 'ReLU', 'Linear(16, 1)'],
+}
+const modelEvents = parseStdout([`[xazz:model] ${JSON.stringify(modelPayload)}`])
+assert.equal(modelEvents.length, 1, 'a [xazz:model] line yields one event')
+assert.equal(modelEvents[0].type, 'model', '[xazz:model] yields a model event')
+assert.equal(modelEvents[0].model.name, 'AirNet', 'the model payload is exposed')
+assert.equal(modelEvents[0].model.layers.length, 3, 'model layers are preserved')
+
+// ── malformed inline train/model payloads fall back to text ──────────────────
+
+const badTrain = parseStdout(['[xazz:train] {not json'])[0]
+assert.equal(badTrain.type, 'text', 'unparseable [xazz:train] payload becomes text')
+const badModel = parseStdout(['[xazz:model] {not json'])[0]
+assert.equal(badModel.type, 'text', 'unparseable [xazz:model] payload becomes text')
+
 // ── [xazz:error] + AI_SUGGESTION legacy block ────────────────────────────────
 
 const errorEvents = parseStdout([
@@ -138,6 +205,26 @@ assert.equal(
 
 const errorNoSuggestion = parseStdout(['[xazz:error]', 'ERROR: plain failure'])
 assert.equal(errorNoSuggestion[0].suggestion, null, 'suggestion is null when absent')
+
+// ── [xazz <KIND> ERROR] generic error lines ──────────────────────────────────
+
+const runtimeErr = parseStdout(['[xazz RUNTIME ERROR] column pm10 not found'])[0]
+assert.equal(runtimeErr.type, 'error', 'a [xazz RUNTIME ERROR] line yields an error event')
+assert.equal(runtimeErr.code, 'RUNTIME', 'the error kind becomes the code')
+assert.equal(runtimeErr.message, 'column pm10 not found', 'the trailing message is captured')
+assert.ok(runtimeErr.suggestion, 'generic errors carry a re-run suggestion')
+
+const parserErr = parseStdout(['[xazz PARSER ERROR] unexpected token `|>`'])[0]
+assert.equal(parserErr.code, 'PARSER', 'the parser error kind is captured')
+assert.equal(parserErr.message, 'unexpected token `|>`', 'the parser error message is captured')
+
+// ── [xazz IO ERROR] line ─────────────────────────────────────────────────────
+
+const ioErr = parseStdout(['[xazz IO ERROR] data file not found: data/x.csv'])[0]
+assert.equal(ioErr.type, 'error', 'a [xazz IO ERROR] line yields an error event')
+assert.equal(ioErr.code, 'IO_ERROR', 'IO errors use the IO_ERROR code')
+assert.equal(ioErr.message, 'data file not found: data/x.csv', 'the IO message is captured')
+assert.ok(ioErr.suggestion.includes('data/'), 'IO errors suggest checking the data/ path')
 
 // ── random / non-marker lines ────────────────────────────────────────────────
 
@@ -162,5 +249,5 @@ assert.equal(getErrorEvents(mixed).length, 1, 'getErrorEvents isolates error eve
 assert.equal(getTextEvents(mixed).length, 1, 'getTextEvents isolates text events')
 
 console.log(
-  'stdoutParser: ok; single-line=chart(dp ignored,result text); legacy=chart,error; helpers=3',
+  'stdoutParser: ok; chart(bar,line,pie,scatter); train/model; error(io,runtime,parser,legacy); helpers=3',
 )

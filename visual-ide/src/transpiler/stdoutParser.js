@@ -6,16 +6,23 @@
  * stdout 라인 배열을 type-driven structured event 로 변환합니다.
  *
  * ── Output Contracts ─────────────────────────────────────────────────────────
- *   [x1zz:chart]           → 다음 줄: JSON payload → ChartEvent
- *   [x1zz:error]           → 다음 줄: ERROR[CODE]: message
+ *   [xazz:chart] {JSON}    → 한 줄 payload → ChartEvent
+ *                            (구형: `[xazz:chart]` 단독 + 다음 줄 JSON)
+ *   [xazz:train] {JSON}    → TrainEvent (report: Burn 학습 리포트)
+ *   [xazz:model] {JSON}    → ModelEvent (모델 선언 메타데이터)
+ *   [xazz:error]           → 다음 줄: ERROR[CODE]: message
  *                            선택적 다음 줄: AI_SUGGESTION: guidance → ErrorEvent
+ *   [xazz IO ERROR] …      → ErrorEvent (code: IO_ERROR)
+ *   [xazz RUNTIME ERROR] … → ErrorEvent (code: RUNTIME)
  *   (접두어 없음)           → TextEvent
  *
  * ── Event Types ──────────────────────────────────────────────────────────────
  * @typedef {{ type: 'chart', chartType: 'bar'|'line'|'pie'|'scatter', title: string, data: any[] }} ChartEvent
+ * @typedef {{ type: 'train', report: any, raw: any }} TrainEvent
+ * @typedef {{ type: 'model', model: any, raw: any }} ModelEvent
  * @typedef {{ type: 'error', code: string, message: string, suggestion: string|null }} ErrorEvent
  * @typedef {{ type: 'text',  text: string }} TextEvent
- * @typedef {ChartEvent | ErrorEvent | TextEvent} ExecutionEvent
+ * @typedef {ChartEvent | TrainEvent | ModelEvent | ErrorEvent | TextEvent} ExecutionEvent
  */
 
 const PREFIX_CHART    = '[xazz:chart]';
@@ -167,9 +174,9 @@ export function parseStdout(lines) {
       continue;
     }
 
-    // ── [x1zz IO ERROR] ──────────────────────────────────────────────────────
-    // load() 런타임 파일 IO 실패 시 출력되는 에러 형식
-    // 예: [x1zz IO ERROR] DATA file not found: C:\...\data\seoul_air_2026.csv
+    // ── [xazz IO ERROR] ──────────────────────────────────────────────────────
+    // 파일 IO/경로 실패 시 출력되는 에러 형식
+    // 예: [xazz IO ERROR] DATA file not found: C:\...\data\seoul_air_2026.csv
     if (trimmed.startsWith(PREFIX_IO_ERROR)) {
       const message = trimmed.slice(PREFIX_IO_ERROR.length).trim();
       events.push({
@@ -198,7 +205,7 @@ export function parseStdout(lines) {
       continue;
     }
 
-    // ── [x1zz:error] (호환) ──────────────────────────────────────────────
+    // ── [xazz:error] (호환) ──────────────────────────────────────────────
     if (trimmed === PREFIX_ERROR) {
       i++;
       let errorLineRaw = '';
