@@ -41,10 +41,11 @@ Only needed once (skip if `target/release/xazz` and friends already exist):
 ```bash
 cargo build --release -p xazz
 cargo build --release -p xazz-runner
+cargo build --release -p xazz-exec
 cargo build --release -p xazz-server
 ```
 
-You should now have `target/release/{xazz, xazz-runner, xazz-server}`.
+You should now have `target/release/{xazz, xazz-runner, xazz-exec, xazz-server}`. The first three binaries must stay together for `xazz run`.
 
 Install the IDE frontend dependencies (one time):
 
@@ -72,8 +73,8 @@ Tips:
 - The `Air` type must declare all four CSV columns
   (`observed_at, district, pm25, temperature_c`) or the runtime will fail with a
   duplicate-column error.
-- `xazz` and `xazz-runner` need to live in the same directory. After a release
-  build they are both in `target/release/`, so this is handled.
+- `xazz`, `xazz-runner`, and `xazz-exec` need to live in the same directory. A
+  release build puts all three in `target/release/`.
 
 ---
 
@@ -167,14 +168,70 @@ pipeline programmatically.
 
 ---
 
-## Troubleshooting
+## Common errors and fixes
 
-| Problem | Fix |
-|---|---|
-| Pipeline fails loading data | Use `visual-ide/data/seoul_air_quality.csv`, not `examples/data/` (LFS placeholders) |
-| `duplicate column` error | All four CSV columns must be declared in the `Air` type |
-| Can't find `xazz-runner` | Put `xazz` and `xazz-runner` in the same directory |
-| Port 8005 already taken | Stop the existing `xazz-server` first |
-| Port 5173 taken | Vite picks another port automatically — use that address |
-| Visual IDE returns 404 from the backend | Use the Vite dev server (5173); same-origin serving is only shipped in the release package |
-| IDE binary not found by the server | Set `XAZZ_EXEC_PATH` (see Step 3) |
+The excerpts below were reproduced with the repository CLI/server on macOS. Run the commands from the repository root unless the example says otherwise.
+
+### Misspelled column
+
+Reproduce with `sed 's/mean("pm25")/mean("pm52")/' demo/preprocess_chart.xzz > /tmp/xazz-bad-column.xzz && ./target/debug/xazz check /tmp/xazz-bad-column.xzz`:
+
+```text
+❌ [error] aggregate: column 'pm52' does not exist in the schema.
+💡 available columns: district, observed_at, pm25, temperature_c
+  Did you mean: col("pm25")?
+```
+
+Fix the name and check again: `sed 's/mean("pm52")/mean("pm25")/' /tmp/xazz-bad-column.xzz > /tmp/xazz-fixed-column.xzz && ./target/debug/xazz check /tmp/xazz-fixed-column.xzz`.
+
+### Nullability or type mismatch
+
+Reproduce with `sed 's/fillNull("pm25", strategy: "mean")/fillNull("district", strategy: "mean")/' demo/preprocess_chart.xzz > /tmp/xazz-bad-type.xzz && ./target/debug/xazz check /tmp/xazz-bad-type.xzz`. `district` is declared as non-nullable `string`:
+
+```text
+❌ [error] fillNull("district", ...) : column 'district' is declared as a non-nullable type. Declare 'district' as Option<string> in the schema, or remove this operation.
+⚠️  [warning] fillNull("district", <number>) : filling string column 'district' with a number may change its type.
+```
+
+Use the nullable numeric column instead: `sed 's/fillNull("district", strategy: "mean")/fillNull("pm25", strategy: "mean")/' /tmp/xazz-bad-type.xzz > /tmp/xazz-fixed-type.xzz && ./target/debug/xazz check /tmp/xazz-fixed-type.xzz`. If nulls are valid for your real column, declare `Option<T>` and choose a fill value of the same type.
+
+### CSV encoding cannot be decoded
+
+This minimal file contains a byte that is invalid in UTF-8 and EUC-KR. Work in a scratch directory because `xazz import` writes `main.xzz` in the current directory:
+
+```bash
+XAZZ_BIN="$PWD/target/debug/xazz"
+mkdir -p /tmp/xazz-demo-encoding
+python3 -c 'from pathlib import Path; Path("/tmp/xazz-demo-encoding/bad.csv").write_bytes(b"col\n\xff\n")'
+(cd /tmp/xazz-demo-encoding && "$XAZZ_BIN" import bad.csv)
+```
+
+It reports:
+
+```text
+UTF-8 디코딩도 실패: invalid utf-8 sequence of 1 bytes from index 4
+```
+
+For this example the byte is Latin-1, so `iconv -f ISO-8859-1 -t UTF-8 /tmp/xazz-demo-encoding/bad.csv > /tmp/xazz-demo-encoding/fixed.csv && (cd /tmp/xazz-demo-encoding && "$XAZZ_BIN" import fixed.csv)` repairs it. For real data, identify the source encoding before choosing `iconv -f`; valid EUC-KR CSV already has an automatic fallback.
+
+### Runner or engine binary is missing
+
+Build only `xazz` (`cargo build -p xazz`), then run `target/debug/xazz run demo/preprocess_chart.xzz`:
+
+```text
+xazz-runner not found (PATH fallback is disabled for security). Set XAZZ_RUNNER_PATH to an absolute path or place xazz-runner next to the xazz binary.
+```
+
+Fix it with `cargo build -p xazz-runner -p xazz-exec`. Keep `xazz`, `xazz-runner`, and `xazz-exec` together in `target/debug/`. For a custom layout, set absolute `XAZZ_RUNNER_PATH` and `XAZZ_EXEC_PATH` paths instead of relying on `PATH`.
+
+### Server port is in use
+
+Start one listener on `127.0.0.1:8005` (for example, `python3 -m http.server 8005` in another terminal), then start `target/debug/xazz-server`. On macOS the second process reports:
+
+```text
+called `Result::unwrap()` on an `Err` value: Os { code: 48, kind: AddrInUse, message: "Address already in use" }
+```
+
+Stop the process already using the port, or use `XAZZ_BIND=127.0.0.1:8006 target/debug/xazz-server` and point the IDE to it with `VITE_API_BASE_URL=http://127.0.0.1:8006 npm run dev`. If port 5173 is occupied, Vite prints its chosen replacement port; open that address.
+
+Other demo problems: use `visual-ide/data/seoul_air_quality.csv` rather than the LFS placeholders under `examples/data/`; declare all four `Air` CSV columns to avoid a duplicate-column error; use `XAZZ_EXEC_PATH` if the server cannot locate the CLI; and use the Vite dev server on port 5173 for local IDE development.
