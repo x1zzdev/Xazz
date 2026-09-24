@@ -226,7 +226,7 @@ Xazz is a modularized Rust workspace. The CLI stays a 2–5 MB binary; heavyweig
 | **`xazz-runner`** | Process-isolated subprocess bridge (IPC) with execution timeout |
 | **`xazz-server`** | Axum REST API, SHA-256 audit log, sLM correction hook, IDE serving |
 
-Deep details live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/WORKSPACE.md](docs/WORKSPACE.md). New to the terms? See the [glossary](docs/GLOSSARY.md).
+Deep details live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/WORKSPACE.md](docs/WORKSPACE.md). New to the terms? See the [glossary](docs/GLOSSARY.md). The diagrams have [editable sources and regeneration steps](docs/figures/README.md).
 
 ---
 

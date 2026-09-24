@@ -3,6 +3,7 @@
 This document describes the compiler pipeline, type system, IR, and execution model of Xazz.
 
 For workspace structure and dependency graph, see [WORKSPACE.md](WORKSPACE.md). For short definitions, see the [glossary](GLOSSARY.md).
+For editable diagram sources and regeneration, see [figures/README.md](figures/README.md).
 
 ---
 

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="460" viewBox="0 0 1280 460" font-family="Inter, -apple-system, 'Segoe UI', sans-serif">
+  <defs>
+    <marker id="t1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+    </marker>
+    <marker id="t2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#166534"/>
+    </marker>
+  </defs>
+  <rect width="1280" height="460" fill="#ffffff"/>
+  <rect x="0" y="0" width="1280" height="6" fill="#1e3a5f"/>
+  <text x="36" y="46" font-size="26" font-weight="800" fill="#0f172a">Errors before GPUs, not during training</text>
+  <text x="36" y="70" font-size="13.5" fill="#64748b">A NaN or type mismatch found at epoch 30 costs the whole cluster wait. Xazz refuses to compile instead.</text>
+
+  <!-- Python timeline -->
+  <rect x="36" y="100" width="1208" height="150" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="56" y="130" font-size="13" font-weight="700" fill="#64748b">PYTHON · failures surface at runtime</text>
+  <line x1="70" y1="185" x2="1210" y2="185" stroke="#cbd5e1" stroke-width="2.5" marker-end="url(#t1)"/>
+  <circle cx="120" cy="185" r="7" fill="#94a3b8"/>
+  <text x="120" y="165" font-size="11.5" font-weight="600" fill="#475569" text-anchor="middle">ship code</text>
+  <circle cx="330" cy="185" r="7" fill="#94a3b8"/>
+  <text x="330" y="165" font-size="11.5" font-weight="600" fill="#475569" text-anchor="middle">data load · preprocessing</text>
+  <circle cx="560" cy="185" r="7" fill="#94a3b8"/>
+  <text x="560" y="165" font-size="11.5" font-weight="600" fill="#475569" text-anchor="middle">GPU allocated · training…</text>
+  <g>
+    <circle cx="800" cy="185" r="9" fill="#b91c1c"/>
+    <text x="800" y="160" font-size="11.5" font-weight="700" fill="#b91c1c" text-anchor="middle">💥 crash: NaN in pm25</text>
+    <text x="800" y="214" font-size="11.5" fill="#b91c1c" text-anchor="middle">hours in · GPU cycles burned</text>
+  </g>
+  <path d="M 800 220 q 40 26 80 0" fill="none" stroke="#b91c1c" stroke-width="2" marker-end="url(#t1)"/>
+  <text x="1010" y="238" font-size="11.5" font-weight="700" fill="#b91c1c" text-anchor="middle">fix → re-queue GPU → repeat</text>
+
+  <!-- Xazz timeline -->
+  <rect x="36" y="278" width="1208" height="150" rx="14" fill="#f0fdf4" stroke="#bbf7d0"/>
+  <text x="56" y="308" font-size="13" font-weight="700" fill="#166534">XAZZ · failures surface at compile time</text>
+  <line x1="70" y1="363" x2="1210" y2="363" stroke="#86efac" stroke-width="2.5" marker-end="url(#t2)"/>
+  <circle cx="120" cy="363" r="7" fill="#22c55e"/>
+  <text x="120" y="343" font-size="11.5" font-weight="600" fill="#166534" text-anchor="middle">xazz check</text>
+  <g>
+    <circle cx="330" cy="363" r="9" fill="#166534"/>
+    <text x="330" y="338" font-size="11.5" font-weight="700" fill="#166534" text-anchor="middle">error: Option&lt;float&gt; unhandled (10:16)</text>
+    <text x="330" y="392" font-size="11.5" fill="#166534" text-anchor="middle">milliseconds · zero GPU contact</text>
+  </g>
+  <circle cx="620" cy="363" r="7" fill="#22c55e"/>
+  <text x="620" y="343" font-size="11.5" font-weight="600" fill="#166534" text-anchor="middle">fix the one line</text>
+  <circle cx="880" cy="363" r="7" fill="#22c55e"/>
+  <text x="880" y="343" font-size="11.5" font-weight="600" fill="#166534" text-anchor="middle">re-check passes</text>
+  <circle cx="1080" cy="363" r="7" fill="#22c55e"/>
+  <text x="1080" y="343" font-size="11.5" font-weight="600" fill="#166534" text-anchor="middle">train with clean data</text>
+
+  <text x="36" y="446" font-size="12.5" fill="#475569">Static null-safety (Option&lt;T>) and the type checker move failure to the cheapest moment: before the cluster is touched.</text>
+</svg>
