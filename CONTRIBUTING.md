@@ -8,10 +8,11 @@ Thanks for your interest in Xazz! Whether you want to report a bug, propose a fe
 
 | Contribution type | Status |
 |-------------------|--------|
-| Issues (bugs, ideas, discussion) | Open |
+| [Discussions](https://github.com/x1zzdev/Xazz/discussions) (questions, ideas, projects) | Open |
+| [Issues](https://github.com/x1zzdev/Xazz/issues) (reproducible bugs, agreed work) | Open |
 | Pull Requests | Open |
 
-If you have feedback or find a bug, please open a GitHub Issue — all issue reports are welcome. For code changes, the build and contribution guidelines below will help you get started.
+For help, use [Q&A](https://github.com/x1zzdev/Xazz/discussions/categories/q-a). Share proposals in [Ideas](https://github.com/x1zzdev/Xazz/discussions/categories/ideas) and projects in [Show and tell](https://github.com/x1zzdev/Xazz/discussions/categories/show-and-tell). For a reproducible bug, open a GitHub Issue. Report vulnerabilities privately through [Security advisories](https://github.com/x1zzdev/Xazz/security/advisories/new).
 
 ---
 
@@ -105,7 +106,7 @@ When filing a GitHub Issue, please include:
 - `.xzz` source that reproduces the issue (minimal reproduction preferred)
 - Full error output
 
-**For feature requests or discussion:**
+**For proposals in Discussions → Ideas:**
 - What problem you are trying to solve
 - What behavior you would expect
 - Any relevant context

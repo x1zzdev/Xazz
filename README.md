@@ -337,7 +337,7 @@ python benches/run_readme_benchmark.py --xlarge
 
 ## Contributing
 
-Xazz is an open-source project — bug reports, ideas, and discussions via GitHub Issues are always welcome, and code contributions via Pull Requests are open to everyone.
+Xazz is an open-source project. Ask questions and share ideas in [Discussions](https://github.com/x1zzdev/Xazz/discussions); report reproducible bugs in [Issues](https://github.com/x1zzdev/Xazz/issues); contribute code via Pull Requests. Report vulnerabilities [privately](https://github.com/x1zzdev/Xazz/security/advisories/new).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for local build instructions and contribution guidelines.
 
