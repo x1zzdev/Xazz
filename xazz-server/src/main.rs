@@ -1021,6 +1021,14 @@ fn parse_stdout_markers(
 
 // ── POST /schema ──────────────────────────────────────────────────────────────
 
+fn validate_upload_size(len: usize) -> Result<(), StatusCode> {
+    if len > MAX_UPLOAD_BYTES {
+        Err(StatusCode::PAYLOAD_TOO_LARGE)
+    } else {
+        Ok(())
+    }
+}
+
 async fn handle_schema(
     mut multipart: Multipart,
 ) -> Result<Json<SchemaResponse>, (StatusCode, String)> {
@@ -1058,9 +1066,7 @@ async fn handle_schema(
                 .await
                 .map_err(|e| read_err(e, "파일 읽기 실패"))?;
             // Upload size upper bound — reject if exceeded (disk DoS prevention).
-            if data.len() > MAX_UPLOAD_BYTES {
-                return Err(too_large());
-            }
+            validate_upload_size(data.len()).map_err(|_| too_large())?;
             file_bytes = Some(data.to_vec());
         }
     }
@@ -2117,6 +2123,15 @@ fn internal_err(msg: String) -> (StatusCode, Json<ExecuteResponse>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn oversized_upload_is_rejected() {
+        assert_eq!(validate_upload_size(MAX_UPLOAD_BYTES), Ok(()));
+        assert_eq!(
+            validate_upload_size(MAX_UPLOAD_BYTES + 1),
+            Err(StatusCode::PAYLOAD_TOO_LARGE)
+        );
+    }
 
     /// Test AppState — a permit count large enough that the execution semaphore does not
     /// impose test concurrency limits.
