@@ -1,9 +1,11 @@
-# Xazz server + Visual IDE (issue #66, E2)
+# Xazz server + Visual IDE (issue #66, E2 · #176)
 #
 #   docker compose up --build
 #   open http://127.0.0.1:8005
 #
-# Mounts ./data at /data for datasets and artifacts.
+# Mounts ./data at /data for datasets, uploads/, audit_log/ and artifacts.
+# The runtime user is uid/gid 10001 — see docs/DOCKER.md for permissions
+# (sudo chown -R 10001:10001 data) and the full port/volume table.
 services:
   xazz:
     build:
