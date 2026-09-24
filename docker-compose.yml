@@ -4,6 +4,7 @@
 #   open http://127.0.0.1:8005
 #
 # Uses a Docker-managed volume for writable data and the seeded sample.
+# Existing ./data users: migrate before the first up (docs/DOCKER.md).
 # See docs/DOCKER.md for host bind-mount permissions and the full port/volume table.
 services:
   xazz:

@@ -64,6 +64,25 @@ follow the permissions instructions below. A bind mount hides the image's seeded
 sample; copy `visual-ide/data/seoul_air_quality.csv` to
 `./data/visual-ide/data/seoul_air_quality.csv` before trying the default Full Run.
 
+### Upgrading from the earlier `./data` bind mount
+
+The default mount changed to a named volume for the one-command demo. Docker does
+not move existing `./data` files automatically. **Before the first `docker compose
+up` with this version**, either keep the old `./data:/data` line in your local
+Compose file, or copy the existing state into the new volume:
+
+```bash
+docker compose build
+docker compose run --rm --no-deps -v "$PWD/data:/legacy:ro" --entrypoint sh xazz \
+  -c 'cp -nR /legacy/. /data/'
+docker compose up
+```
+
+The copy leaves `./data` untouched and does not overwrite files already in the
+new volume. Check History and the audit chain before using the new volume for
+other runs. If the copy reports a permission error, stop and use the original
+`./data:/data` mount until file ownership is resolved.
+
 Server state that is **not** on `/data` by default:
 
 | Path in container | Notes |
