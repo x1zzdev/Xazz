@@ -8,25 +8,34 @@ without a `PATH` entry.
 ## Quick start (local build)
 
 ```bash
-docker compose up --build
+docker compose up
 # open http://127.0.0.1:8005
 ```
+
+Compose builds `xazz:local` when it is missing. It uses a Docker-managed
+`xazz-data` volume so a fresh checkout needs no host-directory permission setup.
+The image includes the synthetic air-quality sample at
+`/data/visual-ide/data/seoul_air_quality.csv`. In the IDE, open Monitor and use
+**Check safe example** or **Check unsafe example** to compare static policy
+verdicts. Neither button executes code or changes the current pipeline.
 
 Or without compose:
 
 ```bash
 docker build -t xazz:local .
-docker run --rm -p 8005:8005 -v "$PWD/data:/data" xazz:local
+docker run --rm -p 8005:8005 -v xazz-data:/data xazz:local
 ```
 
-## Published images (GHCR)
+## Release images (GHCR)
 
-Release tags (`v*`) publish multi-arch images (`linux/amd64`, `linux/arm64`)
-from `.github/workflows/release.yml`:
+The next release tag (`v*`) will trigger a multi-arch image build
+(`linux/amd64`, `linux/arm64`) in `.github/workflows/release.yml`. No GHCR image
+was available when this guide was updated; use the local Compose build above
+until a published tag is verified. After publication:
 
 ```bash
-docker pull ghcr.io/x1zzdev/xazz:latest   # or :0.3.1, :0.3
-docker run --rm -p 8005:8005 -v "$PWD/data:/data" ghcr.io/x1zzdev/xazz:latest
+docker pull ghcr.io/x1zzdev/xazz:latest   # or a verified release tag
+docker run --rm -p 8005:8005 -v xazz-data:/data ghcr.io/x1zzdev/xazz:latest
 ```
 
 Prerelease tags (`v1.0.0-rc.1`) do not move `latest`.
@@ -44,10 +53,35 @@ The server binds `127.0.0.1` by default on a bare binary. Inside the container
 
 | Container path | Compose / run flag | What lives there |
 |----------------|--------------------|------------------|
-| `/data` | `./data:/data` | Datasets you `load(...)`, chart HTML, and other artifacts. `WORKDIR` is `/data`, so relative paths in `.xzz` resolve here. |
+| `/data` | `xazz-data:/data` | Synthetic sample, datasets you `load(...)`, chart HTML, and other artifacts. `WORKDIR` is `/data`, so relative paths in `.xzz` resolve here. |
 
 The image also declares `VOLUME /data` so an anonymous volume is created if you
 omit the mount.
+The Compose named volume persists after `docker compose down`; removing it with
+`docker compose down -v` deletes runs, audit records, uploads, and artifacts.
+To use host files instead, replace `xazz-data:/data` with `./data:/data` and
+follow the permissions instructions below. A bind mount hides the image's seeded
+sample; copy `visual-ide/data/seoul_air_quality.csv` to
+`./data/visual-ide/data/seoul_air_quality.csv` before trying the default Full Run.
+
+### Upgrading from the earlier `./data` bind mount
+
+The default mount changed to a named volume for the one-command demo. Docker does
+not move existing `./data` files automatically. **Before the first `docker compose
+up` with this version**, either keep the old `./data:/data` line in your local
+Compose file, or copy the existing state into the new volume:
+
+```bash
+docker compose build
+docker compose run --rm --no-deps -v "$PWD/data:/legacy:ro" --entrypoint sh xazz \
+  -c 'cp -nR /legacy/. /data/'
+docker compose up
+```
+
+The copy leaves `./data` untouched and does not overwrite files already in the
+new volume. Check History and the audit chain before using the new volume for
+other runs. If the copy reports a permission error, stop and use the original
+`./data:/data` mount until file ownership is resolved.
 
 Server state that is **not** on `/data` by default:
 
@@ -73,8 +107,8 @@ On a fresh host:
 
 ```bash
 mkdir -p data
-sudo chown -R 10001:10001 data   # match the container user
-docker compose up --build
+sudo chown -R 10001:10001 data   # only for a host bind mount
+docker compose up
 ```
 
 If your host uid already owns the folder (e.g. a dev checkout), either chown to
@@ -105,13 +139,13 @@ and export `UID`/`GID` before `docker compose up`.
 
 ## Smoke checklist (clean host)
 
-1. `docker pull ghcr.io/x1zzdev/xazz:<tag>` (or `compose up --build`).
+1. `docker pull ghcr.io/x1zzdev/xazz:<tag>` after publication (or `docker compose up` for the local image).
 2. `curl -fsS http://127.0.0.1:8005/health` → `{"status":"ok",…}`.
 3. Open `http://127.0.0.1:8005` — Visual IDE loads (no CDN requests).
 4. Full Run on the seeded pipeline — Preview returns rows (needs `/data` writable).
 5. History tab shows the run; Governance panels read `/dp/budget` and
    `/security/audit/chain`.
-6. `docker compose down` — with a bind mount, audit log and runs survive
-   `up` again.
+6. `docker compose down` — the named volume keeps the audit log and runs for
+   the next `up`.
 
 Record the image tag and host OS/arch with the result (issue #176).

@@ -87,6 +87,10 @@ cargo build --release -p xazz -p xazz-runner
 # 두 바이너리 모두 target/release/에 생성됩니다
 ```
 
+### Option C — Docker 로컬 브라우저 데모
+
+Docker Compose를 설치한 뒤 저장소 루트에서 `docker compose up`을 실행하고 <http://127.0.0.1:8005>를 여세요. IDE에는 합성 공기질 샘플이 포함됩니다. Monitor의 **Check safe example / Check unsafe example** 버튼은 정적 정책 검사만 수행하며 코드를 실행하지 않습니다. Full Run은 현재 파이프라인을 실제로 실행하므로 별도 확인이 필요합니다. Compose는 실행 기록, 감사 기록, 업로드, 산출물에 Docker 관리형 `xazz-data` 볼륨을 사용합니다. **기존 `./data` 사용자는 볼륨을 바꾸기 전에 [이전 절차](docs/DOCKER.md#upgrading-from-the-earlier-data-bind-mount)를 따르세요.**
+
 ### 첫 파이프라인 (60초)
 
 ```bash

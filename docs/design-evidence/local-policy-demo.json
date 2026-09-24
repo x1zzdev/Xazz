@@ -1,0 +1,62 @@
+{
+  "schema_version": "1.3",
+  "workflow": {
+    "mode": "PATCH",
+    "reason": "Issue #159 adds a bounded example selector inside the existing Monitor view.",
+    "affected_task": "Compare a permitted and blocked policy check in the local browser demo.",
+    "intended_outcome": "Show both server verdicts without executing an example or replacing the current pipeline.",
+    "current_contract": "docs/design-system/xazz/MASTER.md and pages/monitor.md; /security/policy/check returns a static verdict.",
+    "invariants": ["Full Run stays an explicit action", "Example checks do not change the current DAG or its policy verdict", "The Monitor design tokens remain unchanged"],
+    "affected_gates": ["button names and keyboard activation", "busy state", "policy verdict truth", "laptop layout"],
+    "rendered_evidence": {
+      "kind": "browser_assertion",
+      "artifact": "visual-ide/tests/governance.spec.mjs:75",
+      "result": "Playwright rendered both verdicts, showed the selected source, kept Full Run enabled, and observed zero /execute requests; governance suite 25/25 passed."
+    },
+    "omitted_deep_gates_reason": "The primary route, shared visual system, and service handoff are unchanged; no actual-user study was available."
+  },
+  "risk": {
+    "profile": "LOW",
+    "rationale": "This receipt covers the reversible Monitor touchpoint only. The same PR's Compose data-volume change uses the separate STANDARD code review gate.",
+    "profile_change": null,
+    "waivers": []
+  },
+  "brief": {
+    "actor": "Developer or reviewer opening the local Xazz demo",
+    "context": "The existing Monitor view can check the current pipeline but offers no immediate policy comparison.",
+    "job_or_motivation": "See why one sample passes and another is blocked before trying a Full Run.",
+    "observed_problem": "Issue #159 asks for safe and unsafe example buttons; the Monitor toolbar had only Check policy and Remediate.",
+    "desired_user_outcome": "One click shows the static server verdict and exact inspected source.",
+    "desired_service_outcome": "The local Compose demo makes the guardrail behavior visible without a public remote server.",
+    "success_criteria": ["Both examples return visibly distinct server verdicts", "No example triggers /execute or changes the current DAG"],
+    "constraints": ["Reuse existing Monitor tokens and policy panel", "Do not imply a static check executed a pipeline"]
+  },
+  "problem": {
+    "statement": "A first-time viewer cannot compare policy outcomes in the local IDE without preparing code manually.",
+    "journey_scope": "touchpoint_only",
+    "omission_reason": "The existing landing, workspace navigation, and backend policy endpoint remain in place."
+  },
+  "evidence": [
+    {
+      "id": "E-159",
+      "type": "decision",
+      "source_id": "https://github.com/x1zzdev/Xazz/issues/159",
+      "summary": "The owner chose a local Docker Compose demo with safe and unsafe example buttons."
+    },
+    {
+      "id": "E-CHECK",
+      "type": "observation",
+      "source_id": "xazz-server/src/main.rs handle_policy_check",
+      "summary": "The policy endpoint checks supplied source statically and does not execute it."
+    }
+  ],
+  "user_test": {
+    "status": "not_run",
+    "reason": "No representative participant tested this patch."
+  },
+  "verdict": {
+    "decision": "continue",
+    "rationale": "The affected browser interaction passed; the broader Docker smoke remains unverified in this environment.",
+    "next_step": "Run the Compose and clean-host smoke when Docker is available, then review the complete issue acceptance criteria."
+  }
+}
