@@ -1,0 +1,37 @@
+# CODEOWNERS — review routing (#148)
+#
+# The first match wins. Keep paths specific: a broad rule would silently take
+# ownership away from the more specific one below it.
+
+# Default owner for everything not matched below.
+*                                   @ax1s-x1zz
+
+# Visual IDE (frontend, UX, monitoring) — issue #104 workstream.
+/visual-ide/                        @codingbear107 @ax1s-x1zz
+
+# Compiler, runtime and server.
+/xazz-core/                         @ax1s-x1zz
+/xazz-compiler/                     @ax1s-x1zz
+/xazz-exec/                         @ax1s-x1zz
+/xazz-runner/                       @ax1s-x1zz
+/xazz-server/                       @ax1s-x1zz
+/xazz-lsp/                          @ax1s-x1zz
+/xazz-stdlib/                       @ax1s-x1zz
+/src/                               @ax1s-x1zz
+
+# Examples and Python bindings.
+/examples/                          @ax1s-x1zz
+/python/                            @ax1s-x1zz
+
+# Docs, figures and submission material.
+/docs/                              @ax1s-x1zz
+README.md                           @ax1s-x1zz
+README_kr.md                        @ax1s-x1zz
+
+# Build, CI and release plumbing.
+/Cargo.toml                         @ax1s-x1zz
+/Cargo.lock                         @ax1s-x1zz
+/Dockerfile                         @ax1s-x1zz
+/docker-compose.yml                 @ax1s-x1zz
+/deny.toml                          @ax1s-x1zz
+/.github/                           @ax1s-x1zz

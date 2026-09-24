@@ -1,0 +1,30 @@
+name: Labels
+
+# Keep the repository labels in sync with .github/labels.yml (#149).
+# Runs only when the label definitions change, and never deletes labels that are
+# not listed (delete-other-labels: false), so manual labels are preserved.
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/labels.yml"
+      - ".github/workflows/labels.yml"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Sync labels
+        uses: EndBug/label-sync@v2
+        with:
+          config-file: .github/labels.yml
+          delete-other-labels: false
+          token: ${{ secrets.GITHUB_TOKEN }}

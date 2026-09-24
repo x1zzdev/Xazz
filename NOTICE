@@ -1,0 +1,14 @@
+Xazz
+Copyright 2026 Jangseowoo (ax1s.xazz.com) and the Xazz contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes third-party open-source software. The authoritative,
+machine-checked dependency set lives in Cargo.lock and visual-ide/package-lock.json;
+its licenses are enforced in CI by cargo-deny (deny.toml) and enumerated in the
+SBOM in docs/result_report.md (붙임1). See THIRD_PARTY_NOTICES.md for a summary.
+
+Optional components are not bundled by default:
+- Qwen2.5-Coder-1.5B (Apache-2.0) is fetched and served by the operator's own
+  Ollama instance when the optional sLM hook is enabled; no model weights are
+  redistributed with Xazz.

@@ -1,0 +1,79 @@
+# Label definitions (#149). Synced to the repository by
+# .github/workflows/labels.yml (add/update only; labels not listed here are
+# left untouched). Colors are 6-digit hex without '#'.
+
+- name: bug
+  color: d73a4a
+  description: Something isn't working
+
+- name: enhancement
+  color: a2eeef
+  description: New feature or request
+
+- name: documentation
+  color: 0075ca
+  description: Improvements or additions to documentation
+
+- name: question
+  color: d876e3
+  description: Further information is requested
+
+- name: security
+  color: ededed
+  description: Security policy, guardrail or audit
+
+- name: roadmap
+  color: 0e8a16
+  description: Scale roadmap track
+
+- name: chore
+  color: ededed
+  description: Maintenance or housekeeping
+
+- name: dependencies
+  color: 0366d6
+  description: Pull requests that update a dependency file
+
+- name: github_actions
+  color: "000000"
+  description: Pull requests that update GitHub Actions code
+
+- name: rust
+  color: "000000"
+  description: Pull requests that update Rust code
+
+- name: javascript
+  color: "168700"
+  description: Pull requests that update JavaScript code
+
+- name: scale:language
+  color: 0e8a16
+  description: Scale roadmap track
+
+- name: scale:data
+  color: 0e8a16
+  description: Scale roadmap track
+
+- name: scale:ml
+  color: 0e8a16
+  description: Scale roadmap track
+
+- name: scale:platform
+  color: 0e8a16
+  description: Scale roadmap track
+
+- name: scale:ecosystem
+  color: 0e8a16
+  description: Scale roadmap track
+
+- name: scale:genai
+  color: 7d3b8e
+  description: "Track F — GenAI governance (input/output gates, fine-tuning sanitization, provenance)"
+
+- name: good first issue
+  color: 7057ff
+  description: Good for newcomers
+
+- name: help wanted
+  color: "008672"
+  description: Extra attention is needed
