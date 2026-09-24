@@ -318,7 +318,7 @@ python benches/render_benchmark_chart.py        # 위 차트 재생성
 
 ## 기여
 
-Xazz는 오픈소스 프로젝트입니다 — 버그 제보, 아이디어, 논의는 GitHub Issues로 언제든 환영하며, 코드 기여는 Pull Request로 열려 있습니다.
+Xazz는 오픈소스 프로젝트입니다. 질문과 아이디어는 [Discussions](https://github.com/x1zzdev/Xazz/discussions), 재현 가능한 버그는 [Issues](https://github.com/x1zzdev/Xazz/issues), 코드 기여는 Pull Request로 받습니다. 보안 문제는 [비공개로 제보](https://github.com/x1zzdev/Xazz/security/advisories/new)해 주세요.
 
 로컬 빌드 방법과 기여 가이드는 [CONTRIBUTING.md](CONTRIBUTING.md)에서 확인하세요.
 
