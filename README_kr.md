@@ -22,7 +22,7 @@
 [![Version: v0.3.1](https://img.shields.io/badge/Version-v0.3.1-green.svg)](https://github.com/x1zzdev/Xazz/releases)
 [![CI](https://github.com/x1zzdev/Xazz/actions/workflows/ci.yml/badge.svg)](https://github.com/x1zzdev/Xazz/actions/workflows/ci.yml)
 
-[English README](README.md)
+[English](README.md) · [한국어](README_kr.md) · [日本語](README_ja.md) · [简体中文](README_zh.md)
 
 <img src="docs/assets/ide_run_result.png" alt="Xazz Visual IDE — xazz-server에 대해 실제로 실행된 Full Run: 노드 캔버스, 생성된 .xzz 소스, 실행 영수증" width="100%">
 
