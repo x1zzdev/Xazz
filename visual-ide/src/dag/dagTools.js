@@ -10,25 +10,25 @@
  *   security  — 정적 가드레일 · 차등 프라이버시 (issue #2 / #3)
  */
 export const DAG_TOOLS = [
-  { id: 'fileInput', name: 'File Input', category: 'inout', icon: 'Database', description: 'CSV 데이터 로드 (스키마 추론)' },
-  { id: 'select', name: 'Select', category: 'prep', icon: 'Columns', description: '컬럼 선택' },
-  { id: 'filter', name: 'Filter', category: 'prep', icon: 'Filter', description: '조건부 필터' },
-  { id: 'fillNull', name: 'Fill Null', category: 'prep', icon: 'PenLine', description: '결측치 채우기' },
-  { id: 'dropNull', name: 'Drop Null', category: 'prep', icon: 'Trash2', description: 'null 행 제거' },
-  { id: 'sort', name: 'Sort', category: 'prep', icon: 'ArrowUpDown', description: '정렬 (orderBy)' },
-  { id: 'take', name: 'Take', category: 'prep', icon: 'Scissors', description: '상위 N 행' },
-  { id: 'groupBy', name: 'Group By', category: 'transform', icon: 'Group', description: '그룹 집계' },
-  { id: 'count', name: 'Count', category: 'transform', icon: 'Hash', description: '행 수' },
-  { id: 'chart', name: 'Chart', category: 'transform', icon: 'BarChart2', description: '시각화' },
+  { id: 'fileInput', name: 'File Input', category: 'inout', icon: 'Database', description: 'Load CSV data (schema inference)' },
+  { id: 'select', name: 'Select', category: 'prep', icon: 'Columns', description: 'Select columns' },
+  { id: 'filter', name: 'Filter', category: 'prep', icon: 'Filter', description: 'Filter rows by condition' },
+  { id: 'fillNull', name: 'Fill Null', category: 'prep', icon: 'PenLine', description: 'Fill missing values' },
+  { id: 'dropNull', name: 'Drop Null', category: 'prep', icon: 'Trash2', description: 'Drop rows with null' },
+  { id: 'sort', name: 'Sort', category: 'prep', icon: 'ArrowUpDown', description: 'Sort rows (orderBy)' },
+  { id: 'take', name: 'Take', category: 'prep', icon: 'Scissors', description: 'First N rows' },
+  { id: 'groupBy', name: 'Group By', category: 'transform', icon: 'Group', description: 'Group and aggregate' },
+  { id: 'count', name: 'Count', category: 'transform', icon: 'Hash', description: 'Row count' },
+  { id: 'chart', name: 'Chart', category: 'transform', icon: 'BarChart2', description: 'Visualise' },
 
   // ML (Burn)
-  { id: 'model', name: 'Model', category: 'ml', icon: 'BrainCircuit', description: '모델 선언 (model {})' },
-  { id: 'train', name: 'Train', category: 'ml', icon: 'GraduationCap', description: 'Burn 학습' },
-  { id: 'predict', name: 'Predict', category: 'ml', icon: 'Sparkles', description: '모델 예측' },
+  { id: 'model', name: 'Model', category: 'ml', icon: 'BrainCircuit', description: 'Declare a model (model {})' },
+  { id: 'train', name: 'Train', category: 'ml', icon: 'GraduationCap', description: 'Train with Burn' },
+  { id: 'predict', name: 'Predict', category: 'ml', icon: 'Sparkles', description: 'Predict with a model' },
 
   // 보안 (Policy-as-Code · 차등 프라이버시) — #2·#3
-  { id: 'guardrail', name: 'Guardrail', category: 'security', icon: 'ShieldCheck', description: '정적 가드레일 · 개인정보 차단' },
-  { id: 'dp', name: 'DP Noise', category: 'security', icon: 'Lock', description: '차등 프라이버시 노이즈 (Laplace/Gaussian)' },
+  { id: 'guardrail', name: 'Guardrail', category: 'security', icon: 'ShieldCheck', description: 'Static guardrail · blocks personal data' },
+  { id: 'dp', name: 'DP Noise', category: 'security', icon: 'Lock', description: 'Differential-privacy noise (Laplace/Gaussian)' },
 ]
 
 // 노드별 기본 파라미터
@@ -57,61 +57,61 @@ export const DAG_DEFAULT_PARAMS = {
  */
 export const NODE_PARAM_FIELDS = {
   fileInput: [
-    { key: 'filePath', label: '파일 경로', type: 'text', placeholder: 'visual-ide/data/...csv' },
+    { key: 'filePath', label: 'File path', type: 'text', placeholder: 'visual-ide/data/...csv' },
   ],
   select: [
-    { key: 'columns', label: '선택할 컬럼 (쉼표 구분)', type: 'text', placeholder: 'pm25, temperature_c' },
+    { key: 'columns', label: 'Columns to keep (comma-separated)', type: 'text', placeholder: 'pm25, temperature_c' },
   ],
   filter: [
-    { key: 'column', label: '컬럼', type: 'text', placeholder: 'pm25' },
-    { key: 'operator', label: '연산자', type: 'select', options: ['==', '!=', '>', '>=', '<', '<='] },
-    { key: 'value', label: '값', type: 'text', placeholder: '35' },
+    { key: 'column', label: 'Column', type: 'text', placeholder: 'pm25' },
+    { key: 'operator', label: 'Operator', type: 'select', options: ['==', '!=', '>', '>=', '<', '<='] },
+    { key: 'value', label: 'Value', type: 'text', placeholder: '35' },
   ],
   fillNull: [
-    { key: 'column', label: '컬럼', type: 'text', placeholder: 'pm25' },
-    { key: 'value', label: '채울 값', type: 'text', placeholder: '31.0' },
+    { key: 'column', label: 'Column', type: 'text', placeholder: 'pm25' },
+    { key: 'value', label: 'Fill value', type: 'text', placeholder: '31.0' },
   ],
-  dropNull: [{ key: 'column', label: '컬럼', type: 'text', placeholder: 'pm25' }],
+  dropNull: [{ key: 'column', label: 'Column', type: 'text', placeholder: 'pm25' }],
   sort: [
-    { key: 'column', label: '정렬 컬럼', type: 'text', placeholder: 'pm25' },
-    { key: 'descending', label: '내림차순', type: 'checkbox' },
+    { key: 'column', label: 'Sort column', type: 'text', placeholder: 'pm25' },
+    { key: 'descending', label: 'Descending', type: 'checkbox' },
   ],
-  take: [{ key: 'n', label: '행 수', type: 'number' }],
+  take: [{ key: 'n', label: 'Rows', type: 'number' }],
   groupBy: [
-    { key: 'column', label: '그룹 컬럼', type: 'text', placeholder: 'district' },
-    { key: 'agg', label: '집계', type: 'select', options: ['count', 'sum', 'mean', 'min', 'max'] },
-    { key: 'aggColumn', label: '집계 대상 컬럼', type: 'text', placeholder: 'pm25 (count면 비워도 됨)' },
+    { key: 'column', label: 'Group column', type: 'text', placeholder: 'district' },
+    { key: 'agg', label: 'Aggregate', type: 'select', options: ['count', 'sum', 'mean', 'min', 'max'] },
+    { key: 'aggColumn', label: 'Aggregate column', type: 'text', placeholder: 'pm25 (empty for count)' },
   ],
   count: [],
   chart: [
-    { key: 'chartType', label: '차트 유형', type: 'select', options: ['bar', 'line', 'scatter', 'pie', 'area'] },
-    { key: 'x', label: 'X 축', type: 'text', placeholder: 'district' },
-    { key: 'y', label: 'Y 축', type: 'text', placeholder: 'pm25_pred' },
-    { key: 'title', label: '제목', type: 'text', placeholder: '차트 제목' },
+    { key: 'chartType', label: 'Chart type', type: 'select', options: ['bar', 'line', 'scatter', 'pie', 'area'] },
+    { key: 'x', label: 'X axis', type: 'text', placeholder: 'district' },
+    { key: 'y', label: 'Y axis', type: 'text', placeholder: 'pm25_pred' },
+    { key: 'title', label: 'Title', type: 'text', placeholder: 'Chart title' },
   ],
   model: [
-    { key: 'name', label: '모델 이름', type: 'text', placeholder: 'AirPredictor' },
-    { key: 'layers', label: '레이어 (Burn)', type: 'text', placeholder: 'Dense(32) -> ReLU() -> Dense(1)' },
+    { key: 'name', label: 'Model name', type: 'text', placeholder: 'AirPredictor' },
+    { key: 'layers', label: 'Layers (Burn)', type: 'text', placeholder: 'Dense(32) -> ReLU() -> Dense(1)' },
   ],
   train: [
-    { key: 'modelName', label: '모델 이름', type: 'text', placeholder: 'AirPredictor' },
-    { key: 'modelVar', label: '모델 변수', type: 'text', placeholder: 'predictor_model' },
-    { key: 'target', label: '목표 컬럼', type: 'text', placeholder: 'pm25' },
-    { key: 'epochs', label: '에폭', type: 'number' },
-    { key: 'lr', label: '학습률', type: 'number', step: '0.001' },
+    { key: 'modelName', label: 'Model name', type: 'text', placeholder: 'AirPredictor' },
+    { key: 'modelVar', label: 'Model variable', type: 'text', placeholder: 'predictor_model' },
+    { key: 'target', label: 'Target column', type: 'text', placeholder: 'pm25' },
+    { key: 'epochs', label: 'Epochs', type: 'number' },
+    { key: 'lr', label: 'Learning rate', type: 'number', step: '0.001' },
   ],
   predict: [
-    { key: 'modelVar', label: '모델 변수', type: 'text', placeholder: 'predictor_model' },
-    { key: 'as', label: '예측 컬럼명', type: 'text', placeholder: 'pred' },
+    { key: 'modelVar', label: 'Model variable', type: 'text', placeholder: 'predictor_model' },
+    { key: 'as', label: 'Prediction column', type: 'text', placeholder: 'pred' },
   ],
   guardrail: [
-    { key: 'policy', label: '정책', type: 'select', options: ['PII', 'SQL', 'SECRET'] },
-    { key: 'action', label: '위반 동작', type: 'select', options: ['block', 'warn', 'mask'] },
+    { key: 'policy', label: 'Policy', type: 'select', options: ['PII', 'SQL', 'SECRET'] },
+    { key: 'action', label: 'On violation', type: 'select', options: ['block', 'warn', 'mask'] },
   ],
   dp: [
-    { key: 'mechanism', label: '메커니즘', type: 'select', options: ['laplace', 'gaussian'] },
+    { key: 'mechanism', label: 'Mechanism', type: 'select', options: ['laplace', 'gaussian'] },
     { key: 'epsilon', label: 'Privacy Budget (ε)', type: 'number', step: '0.1' },
-    { key: 'sensitivity', label: '민감도 (Δf)', type: 'number', step: '0.1' },
+    { key: 'sensitivity', label: 'Sensitivity (Δf)', type: 'number', step: '0.1' },
   ],
 }
 
@@ -226,17 +226,33 @@ export function seedFromStaticPipeline() {
         },
       },
     ],
+    // React Flow keys edges by id; without one every seeded edge shares key undefined.
     edges: [
-      { source: 'load', target: 'schema' },
-      { source: 'schema', target: 'fill' },
-      { source: 'fill', target: 'filter' },
-      { source: 'filter', target: 'train' },
-      { source: 'filter', target: 'predict' },
-      { source: 'train', target: 'predict' },
-      { source: 'predict', target: 'take' },
-    ],
+      ['load', 'schema'],
+      ['schema', 'fill'],
+      ['fill', 'filter'],
+      ['filter', 'train'],
+      ['filter', 'predict'],
+      ['train', 'predict'],
+      ['predict', 'take'],
+    ].map(([source, target]) => ({ id: `e-${source}-${target}`, source, target })),
   }
 }
+/**
+ * CSV bytes → text for the offline fallback. UTF-8 first (fatal, so a Korean
+ * Windows export does not silently turn into U+FFFD), then EUC-KR — the WHATWG
+ * "euc-kr" decoder is windows-949, so CP949 files decode too. Mirrors the server's
+ * decode_bytes order.
+ */
+export async function decodeCsv(file) {
+  const bytes = await file.arrayBuffer()
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return new TextDecoder('euc-kr').decode(bytes)
+  }
+}
+
 /**
  * CSV 텍스트에서 컬럼명/타입을 자동 감지한다. (브라우저 파일 선택용)
  * @param {string} text

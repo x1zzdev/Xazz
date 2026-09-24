@@ -33,7 +33,7 @@ use std::sync::Arc;
 
 use axum::{
     Router,
-    extract::{Extension, Multipart, Path, Query, State},
+    extract::{DefaultBodyLimit, Extension, Multipart, Path, Query, State},
     http::{HeaderValue, StatusCode, header::AUTHORIZATION},
     middleware::{self, Next},
     response::{IntoResponse, Json},
@@ -406,7 +406,13 @@ async fn main() {
     let store = Arc::new(store::Store::new());
     let app = Router::new()
         .route("/execute", post(handle_execute))
-        .route("/schema", post(handle_schema))
+        // axum caps request bodies at 2 MB by default, which rejected uploads long
+        // before handle_schema's own MAX_UPLOAD_BYTES check could answer 413. The
+        // extra 1 MB covers multipart framing so that check stays the one that decides.
+        .route(
+            "/schema",
+            post(handle_schema).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES + 1024 * 1024)),
+        )
         .route("/health", get(handle_health))
         .route("/security/audit", post(handle_security_audit))
         .route("/security/verify", post(handle_security_verify))
@@ -1021,28 +1027,39 @@ async fn handle_schema(
     // Extract the file field from the multipart
     let mut file_bytes: Option<Vec<u8>> = None;
     let mut original_name = "upload.csv".to_string();
-
-    while let Some(field) = multipart.next_field().await.map_err(|e| {
+    let too_large = || {
         (
-            StatusCode::BAD_REQUEST,
-            format!("multipart 파싱 실패: {}", e),
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!(
+                "파일이 너무 큽니다. 최대 {} MB 까지 허용됩니다.",
+                MAX_UPLOAD_BYTES / (1024 * 1024)
+            ),
         )
-    })? {
+    };
+    // The route's body limit surfaces here as a multipart error whose status is 413;
+    // answer it with the same message as the explicit size check below.
+    let read_err = |e: axum::extract::multipart::MultipartError, what: &str| {
+        if e.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            too_large()
+        } else {
+            (StatusCode::BAD_REQUEST, format!("{what}: {e}"))
+        }
+    };
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| read_err(e, "multipart 파싱 실패"))?
+    {
         if field.name() == Some("file") {
             original_name = field.file_name().unwrap_or("upload.csv").to_string();
             let data = field
                 .bytes()
                 .await
-                .map_err(|e| (StatusCode::BAD_REQUEST, format!("파일 읽기 실패: {}", e)))?;
+                .map_err(|e| read_err(e, "파일 읽기 실패"))?;
             // Upload size upper bound — reject if exceeded (disk DoS prevention).
             if data.len() > MAX_UPLOAD_BYTES {
-                return Err((
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    format!(
-                        "파일이 너무 큽니다. 최대 {} MB 까지 허용됩니다.",
-                        MAX_UPLOAD_BYTES / (1024 * 1024)
-                    ),
-                ));
+                return Err(too_large());
             }
             file_bytes = Some(data.to_vec());
         }

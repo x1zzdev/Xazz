@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Landing, ProjectStart } from './components/Landing'
 import { Workspace } from './components/Workspace'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { LanguageProvider, useLanguage } from './i18n'
 
 const validStates = new Set(['ready', 'preflight', 'running', 'success', 'error'])
@@ -33,7 +34,7 @@ function AppRoutes() {
   const [route, setRoute] = useState(readRoute)
   // Language now lives in one place for every screen instead of being a prop the
   // workspace route used to drop on the floor.
-  const { language, setLanguage } = useLanguage()
+  const { language, setLanguage, t } = useLanguage()
 
   useEffect(() => {
     const sync = () => setRoute(readRoute())
@@ -61,19 +62,15 @@ function AppRoutes() {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }
 
-  if (route.screen === 'start') {
-    return (
+  const screen =
+    route.screen === 'start' ? (
       <ProjectStart
         onBack={() => navigate('landing')}
         onOpenWorkspace={() => navigate('workspace', 'ready')}
         language={language}
         onLanguageChange={setLanguage}
       />
-    )
-  }
-
-  if (route.screen === 'workspace') {
-    return (
+    ) : route.screen === 'workspace' ? (
       <Workspace
         initialState={route.state}
         onHome={() => navigate('landing')}
@@ -82,10 +79,18 @@ function AppRoutes() {
           setRoute((current) => ({ ...current, screen: 'workspace', state }))
         }}
       />
+    ) : (
+      <Landing onOpenSample={() => navigate('start')} />
     )
-  }
 
-  return <Landing onOpenSample={() => navigate('start')} />
+  // Route-level boundary: panel boundaries inside the workspace catch first; this one
+  // keeps a crash in any screen from blanking the app. Keyed by screen, so navigating
+  // away is itself a recovery.
+  return (
+    <ErrorBoundary key={route.screen} name={t('errors.panels.page')}>
+      {screen}
+    </ErrorBoundary>
+  )
 }
 
 export function App() {

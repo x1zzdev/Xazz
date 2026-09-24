@@ -1,0 +1,73 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Wireframe · IDE governed run</title>
+<style>body{margin:24px;font:14px system-ui;background:#f2f2f2;color:#222}.frames{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.frame{background:#ffffff;border:1px solid #999999;padding:12px}.label{font-size:12px;color:#555555;margin-bottom:8px}.bar{height:10px;background:#cccccc;margin:6px 0}
+.row{border:1px solid #bbbbbb;padding:6px;margin:6px 0;font-size:11px;color:#666666}.btn{display:inline-block;border:1px solid #444444;padding:6px 10px;margin-top:8px;font-size:12px}
+.btn[data-primary]{border-width:2px;font-weight:700}</style></head><body><h1>IDE governed run — greybox</h1><p>Placeholder structure only. Flow: ../flows/ide-governed-run.mmd</p><div class="frames">
+<section class="frame" data-screen="workspace"><div class="label">workspace · Workspace split view</div><div class="bar"></div>
+<div class="row">topbar: brand · status axes · Full Run</div>
+<div class="row">rail | canvas | inspector</div>
+<div class="row">dock tabs: preview · delta · chart · logs · receipt · history</div>
+<span class="btn" data-primary>Full Run</span></section>
+<section class="frame" data-screen="monitor"><div class="label">monitor · Monitor with governance panels</div><div class="bar"></div>
+<div class="row">existing: burn · run DP report · resource · guardrail</div>
+<div class="row">access: tenant · token · actor (memory only)</div>
+<div class="row">DP ledger: spent/total track · window · resets-at</div>
+<div class="row">audit chain: verdict · record list (hash, prev)</div>
+<div class="row">policy pack: active · install · remove · history · TTL</div>
+<span class="btn" data-primary>Verify chain</span></section>
+<section class="frame" data-screen="packError"><div class="label">packError · Pack rejected message</div><div class="bar"></div>
+<div class="row">inline banner under JSON field</div>
+<div class="row">server parser message verbatim</div>
+<span class="btn" data-primary>Install</span></section>
+<section class="frame" data-screen="removeConfirm"><div class="label">removeConfirm · Remove pack confirmation</div><div class="bar"></div>
+<div class="row">dialog: tenant falls back to global policy</div>
+<div class="row">change is recorded in history</div>
+<span class="btn" data-primary>Remove pack</span></section>
+<section class="frame" data-screen="resetConfirm"><div class="label">resetConfirm · Reset budget confirmation</div><div class="bar"></div>
+<div class="row">dialog: spent epsilon returns to 0</div>
+<div class="row">reset attributed to actor</div>
+<span class="btn" data-primary>Reset</span></section>
+<section class="frame" data-screen="broken"><div class="label">broken · Chain mismatch with first bad record</div><div class="bar"></div>
+<div class="row">integrity axis: mismatch</div>
+<div class="row">first failing record index + reason</div>
+<span class="btn" data-primary>Refresh</span></section>
+<section class="frame" data-screen="preflight"><div class="label">preflight · Preflight dialog</div><div class="bar"></div>
+<div class="row">execution contract</div>
+<div class="row">confirmation checkbox</div>
+<span class="btn" data-primary>Start full run</span></section>
+<section class="frame" data-screen="running"><div class="label">running · Running overlay with elapsed time</div><div class="bar"></div>
+<div class="row">elapsed seconds (browser)</div>
+<div class="row">lifecycle: sent · executing · result</div>
+<div class="row">epoch progress: not available</div>
+<span class="btn" data-primary>Stop waiting</span></section>
+<section class="frame" data-screen="result"><div class="label">result · Result dock receipt</div><div class="bar"></div>
+<div class="row">receipt rows incl. run id</div>
+<div class="row">code hash</div>
+<span class="btn" data-primary>Trace columns</span></section>
+<section class="frame" data-screen="blocked"><div class="label">blocked · Blocked by policy</div><div class="bar"></div>
+<div class="row">violations list</div>
+<div class="row">remediate action</div>
+<span class="btn" data-primary>Monitor</span></section>
+<section class="frame" data-screen="timedOut"><div class="label">timedOut · Stopped waiting</div><div class="bar"></div>
+<div class="row">server may still execute</div>
+<div class="row">dropped request is not recorded</div>
+<span class="btn" data-primary>Run again</span></section>
+<section class="frame" data-screen="history"><div class="label">history · Run history tab</div><div class="bar"></div>
+<div class="row">list: id · status · rows · time · hash</div>
+<div class="row">refresh</div>
+<span class="btn" data-primary>Refresh</span></section>
+<section class="frame" data-screen="runDetail"><div class="label">runDetail · Run detail receipt</div><div class="bar"></div>
+<div class="row">status · rows · created</div>
+<div class="row">hash vs current editor</div>
+<div class="row">rows only if cached this session</div>
+<span class="btn" data-primary>Restore result</span></section>
+<section class="frame" data-screen="notFound"><div class="label">notFound · Run not found for tenant</div><div class="bar"></div>
+<div class="row">404 message</div>
+<div class="row">cross-tenant = not found</div>
+<span class="btn" data-primary>Refresh</span></section>
+<section class="frame" data-screen="lineage"><div class="label">lineage · Column lineage in inspector</div><div class="bar"></div>
+<div class="row">table: output · sources · step</div>
+<div class="row">diagram toggle</div>
+<div class="row">selected column highlights sources</div>
+<span class="btn" data-primary>Table</span></section>
+</div></body></html>

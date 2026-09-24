@@ -1,0 +1,37 @@
+flowchart TD
+  open([Open workspace]):::entry --> workspace[Workspace split view]
+  workspace -->|click "Monitor"| monitor[Monitor with governance panels]
+  monitor -->|click "Split"| workspace
+  monitor -->|click "Install" pack| install[[PUT /security/policy]]
+  install --> installed{Pack accepted?}
+  installed -->|200| monitor
+  installed -->|400 parse error| packError[Pack rejected message]:::error
+  packError -->|edit JSON, click "Install"| monitor
+  monitor -->|click "Remove"| removeConfirm[Remove pack confirmation]
+  removeConfirm -->|click "Remove pack"| monitor
+  removeConfirm -->|click "Cancel"| monitor
+  monitor -->|click "Reset budget"| resetConfirm[Reset budget confirmation]
+  resetConfirm -->|click "Reset"| monitor
+  resetConfirm -->|click "Cancel"| monitor
+  monitor -->|click "Verify chain"| verify[[GET /security/audit/chain]]
+  verify --> intact{Chain intact?}
+  intact -->|intact true| monitor
+  intact -->|intact false| broken[Chain mismatch with first bad record]:::error
+  broken -->|click "Refresh"| monitor
+  workspace -->|click "Full Run"| preflight[Preflight dialog]
+  preflight -->|click "Back to canvas"| workspace
+  preflight -->|click "Start full run"| running[Running overlay with elapsed time]
+  running --> outcome{Response?}
+  outcome -->|success| result[Result dock receipt]
+  outcome -->|422 blocked| blocked[Blocked by policy]:::error
+  outcome -->|timeout or stop waiting| timedOut[Stopped waiting]:::error
+  blocked -->|click "Monitor"| monitor
+  timedOut -->|click "Run again"| preflight
+  result -->|click "History"| history[Run history tab]
+  history -->|click a run| runDetail[Run detail receipt]
+  runDetail -->|click "Restore result"| result
+  runDetail -->|404| notFound[Run not found for tenant]:::error
+  notFound -->|click "Refresh"| history
+  result -->|click "Trace columns"| lineage[Column lineage in inspector]
+  lineage -->|done| reviewed([Run reviewed]):::exit
+  workspace -->|click "Home"| leave([Leave workspace]):::exit

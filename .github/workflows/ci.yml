@@ -57,7 +57,7 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
-  # ── 프런트엔드 (Visual IDE) — Vite 빌드 + 컨트랙트/대비 테스트 ───────────────
+  # ── 프런트엔드 (Visual IDE) — Vite 빌드 + 컨트랙트/stdout/대비/E2E 테스트 ─────
   frontend:
     name: Frontend · Visual IDE
     runs-on: ubuntu-latest
@@ -85,10 +85,26 @@ jobs:
       - name: Contract tests
         run: npm run test:contract
 
+      - name: Stdout marker parser tests
+        run: npm run test:stdout
+
       - name: Contrast tests
         run: |
           npx playwright install --with-deps chromium
           npm run test:contrast
+
+      # 브라우저는 위 단계에서 이미 설치됐다. playwright.config.mjs 의 webServer 가
+      # 빌드와 preview 를 띄우고, 서버 응답은 테스트가 page.route 로 대신한다.
+      - name: E2E tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-test-results
+          path: visual-ide/test-results/
+          retention-days: 7
 
   # ── 라이선스 · 의존성 정책 (deny.toml) ──────────────────────────────────────
   licenses:

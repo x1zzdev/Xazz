@@ -6,7 +6,10 @@ import {
   CircleDashed,
   FlaskConical,
   GitFork,
+  RefreshCw,
+  TriangleAlert,
 } from 'lucide-react'
+import { useLanguage } from '../i18n'
 
 export function Brand({ onHome, inverse = false }) {
   const content = (
@@ -90,5 +93,44 @@ export function InlineIcon({ icon: Icon, children }) {
       <Icon size={15} aria-hidden="true" />
       {children}
     </span>
+  )
+}
+
+/** Loading placeholder: grey bars only, never numbers (the pulse stops under reduced motion). */
+export function Skeleton({ lines = 3, label }) {
+  return (
+    <div className="skeleton" role="status" aria-label={label} aria-busy="true">
+      {Array.from({ length: lines }, (_, index) => (
+        <i key={index} style={{ '--skeleton-width': `${92 - index * 18}%` }} />
+      ))}
+    </div>
+  )
+}
+
+/**
+ * `offline` = the server was not reached; `error` = it answered non-2xx. The status and
+ * the server's own message are shown verbatim so the next action is obvious.
+ */
+export function ServerProblem({ state, onRetry }) {
+  const { t } = useLanguage()
+  const offline = state.status === 'offline'
+  return (
+    <div className="server-problem" role="note">
+      <TriangleAlert size={15} aria-hidden="true" />
+      <p>
+        <strong>
+          {offline
+            ? t('server.offlineTitle')
+            : t('server.errorTitle').replace('{status}', state.error?.status ?? '?')}
+        </strong>
+        <span>{offline ? t('server.offlineBody') : state.error?.message}</span>
+      </p>
+      {onRetry && (
+        <button className="button button--tool-secondary button--compact" type="button" onClick={onRetry}>
+          <RefreshCw size={13} aria-hidden="true" />
+          {t('server.retry')}
+        </button>
+      )}
+    </div>
   )
 }

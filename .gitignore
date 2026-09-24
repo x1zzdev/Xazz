@@ -74,3 +74,7 @@ xazz.db
 
 # Local work queue (see NEXT.md)
 NEXT.md
+
+# Visual IDE 데모 영상 (visual-ide/scripts/demo.mjs 로 재생성). 발표용 한국어 최종본 한 벌만 커밋한다.
+docs/assets/demo/*.webm
+!docs/assets/demo/xazz-demo-ko.webm

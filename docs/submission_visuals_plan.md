@@ -67,6 +67,29 @@ AI-Native 문법", "AI Agent 시대에 최적화된 파이프라인 플랫폼"�
 
 ---
 
+## D. Visual IDE 데모 자료 (2차 평가, #154)
+
+모두 실제 xazz-server(로컬 릴리스 빌드)에 대해 `visual-ide/scripts/demo.mjs`가 자동으로 만든다.
+대본은 `docs/demo/demo-scenario.md`, 슬라이드 뼈대는 `docs/demo/presentation-outline.md`.
+
+| 자료 | 파일 | 보여주는 것 | 관련 이슈 |
+|---|---|---|---|
+| 데모 영상 (한국어 자막, 영어본은 스크립트로 생성) | `docs/assets/demo/xazz-demo-ko.webm` | 5분 시나리오의 자동 재현본 | #154 |
+| 실행 진행 | `docs/assets/ide_run_progress.png` | 브라우저 측정 경과 시간·요청 단계, 에폭 진행률 "제공되지 않음" | #113 |
+| 런 히스토리 | `docs/assets/ide_run_history.png` | 서버에 남은 실행 목록과 다시 연 영수증 | #107 |
+| 감사 체인 / 변조 | `docs/assets/ide_audit_chain.png`, `ide_audit_tamper.png` | 체인 검증과 변조 레코드 위치 표시 (B3 대체) | #108 |
+| 정책 팩 | `docs/assets/ide_policy_packs.png` | 테넌트 팩 설치와 변경 이력 | #109 |
+| 정책 차단 | `docs/assets/ide_policy_block.png` | 식별자 노출 차단과 보정 diff (B2의 결정적 보정) | #109 |
+| DP 원장 | `docs/assets/ide_dp_ledger.png` | 테넌트 ε 원장 | #110 |
+| 스키마 추론 | `docs/assets/ide_schema_inference.png` | CSV 업로드 → 서버 스키마 추론 | #114 |
+| 컬럼 계보 | `docs/assets/ide_lineage.png` | 집계 컬럼의 원본 추적 | #116 |
+| 한국어 화면 | `docs/assets/ide_governance_ko.png` | 거버넌스 패널 한국어 | #115 |
+
+다시 만들기: 저장소 루트에서 `./target/release/xazz-server`를 띄운 뒤
+`cd visual-ide && node scripts/demo.mjs --tamper ../audit_log/audit.jsonl`.
+
+---
+
 ## 권장 마무리 순서
 
 1. #3(DP+바인딩) 완료 → **C1 다이어그램 + A3 메모리 도식** 확정

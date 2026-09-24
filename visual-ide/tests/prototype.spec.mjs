@@ -9,10 +9,14 @@ function observeRuntime(page) {
   // "xazz-server offline" state when it is absent. The browser still logs the
   // failed request itself, which no try/catch can suppress, so an offline probe
   // is not a defect. Real script errors and any other failed resource still fail.
+  // Without VITE_API_BASE_URL the preview build calls the API on its own origin,
+  // where vite preview answers 404 — the same "no server" condition.
   const API_ORIGIN = 'http://127.0.0.1:8005'
+  const API_PATH = /^\/(execute|health|schema|catalog|runs|dp\/|security\/)/
   const isOfflineProbe = (message) => {
     if (!/ERR_CONNECTION_REFUSED|Failed to load resource/.test(message.text())) return false
-    return (message.location()?.url || '').startsWith(API_ORIGIN)
+    const url = message.location()?.url || ''
+    return url.startsWith(API_ORIGIN) || API_PATH.test(new URL(url, 'http://x').pathname)
   }
 
   page.on('console', (message) => {
@@ -177,11 +181,12 @@ test('keyboard path reaches the preflight dialog and authenticates the run gate'
   await expect(startRun).toBeFocused()
 
   // Full Run submits to the real backend. Without a reachable xazz-server the UI must
-  // report an honest connection failure rather than inventing a synthetic success.
+  // report an honest failure rather than inventing a synthetic success. vite preview
+  // answers POST /execute with 404, which the UI reports as the server's answer.
   await page.keyboard.press('Enter')
-  await expect(page.getByText(/xazz-server unreachable|Waiting for xazz-exec/).first()).toBeVisible({
-    timeout: 10_000,
-  })
+  await expect(
+    page.getByText(/xazz-server unreachable|xazz-server answered \d{3}|Waiting for xazz-exec/).first(),
+  ).toBeVisible({ timeout: 10_000 })
   assertRuntime()
 })
 

@@ -9,7 +9,7 @@
     "capture": "node scripts/capture.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "test:contrast": "node tests/contrast.mjs && playwright test tests/computed-contrast.spec.mjs",
-    "test:contract": "node tests/contract.mjs",
+    "test:contract": "node tests/contract.mjs && node tests/auditChain.mjs",
     "test:stdout": "node tests/stdoutParser.mjs",
     "test:e2e": "playwright test"
   },

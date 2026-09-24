@@ -109,6 +109,8 @@ p {
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
 summary:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--focus);
@@ -4592,4 +4594,694 @@ summary:focus-visible,
   font-style: normal;
   color: #6ee7b7;
   font-size: 0.62rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   IDE workstream #104 — error boundary, loading, governance, history,
+   run progress, lineage. Tokens only from MASTER.md dark column; no gauges,
+   no count-ups, no glow (pages/monitor.md).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.button--compact {
+  min-height: 32px;
+  gap: 6px;
+  padding-inline: 10px;
+  font-size: 11px;
+}
+
+.button--danger {
+  color: var(--dark-canvas);
+  background: var(--danger-dark);
+  border-color: var(--danger-dark);
+}
+
+.button--danger:hover:not(:disabled) {
+  background: #ffb0b0;
+  border-color: #ffb0b0;
+}
+
+/* #111 — a crashed panel stays inside its own region. */
+.panel-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 16px;
+  padding: 14px 16px;
+  color: var(--dark-text-2);
+  background: var(--dark-surface-2);
+  border: 1px solid var(--danger-dark);
+  border-radius: 8px;
+}
+
+.panel-error > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--danger-dark);
+}
+
+.panel-error__body strong {
+  display: block;
+  color: var(--dark-text);
+  font-size: 13px;
+}
+
+.panel-error__body p {
+  margin: 4px 0 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.panel-error__body code {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--dark-text-2);
+  font-family: var(--font-code);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.panel-error__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* #113 — loading placeholder: grey bars, opacity-only pulse. */
+.skeleton {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+.skeleton i {
+  display: block;
+  width: var(--skeleton-width, 80%);
+  height: 10px;
+  background: var(--dark-surface-3);
+  border-radius: 4px;
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.result-dock__body > .skeleton {
+  padding: 16px;
+}
+
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.server-problem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 10px;
+  margin: 10px 0 0;
+  padding: 12px;
+  color: var(--dark-text-2);
+  background: var(--dark-canvas);
+  border: 1px solid var(--dark-control-border);
+  border-radius: 6px;
+}
+
+.server-problem > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--warning-dark);
+}
+
+.server-problem p {
+  display: grid;
+  flex: 1 1 200px;
+  gap: 3px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.server-problem strong {
+  color: var(--dark-text);
+  font-size: 12px;
+}
+
+.result-dock__body > .server-problem {
+  margin: 16px;
+}
+
+/* Native <dialog> for destructive confirmations. */
+.confirm-dialog {
+  width: min(440px, calc(100vw - 32px));
+  padding: 20px;
+  color: var(--dark-text);
+  background: var(--dark-surface);
+  border: 1px solid var(--dark-control-border);
+  border-radius: 10px;
+}
+
+.confirm-dialog::backdrop {
+  background: rgb(5 8 7 / 72%);
+}
+
+.confirm-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.confirm-dialog p {
+  margin: 0 0 18px;
+  color: var(--dark-text-2);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Governance section (#108 #109 #110) — spans both Monitor columns. */
+.gov-section {
+  display: grid;
+  gap: 16px;
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--dark-border);
+}
+
+.gov-section__head h2 {
+  margin: 8px 0 4px;
+  color: var(--dark-text);
+  font-size: 14px;
+}
+
+.gov-section__head p {
+  margin: 0;
+  color: var(--dark-text-2);
+  font-size: 11px;
+}
+
+.gov-access {
+  padding: 10px 14px;
+  background: var(--dark-surface);
+  border: 1px solid var(--dark-border);
+  border-radius: 10px;
+}
+
+.gov-access summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dark-text-2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gov-access form {
+  margin-top: 10px;
+}
+
+.gov-access__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.gov-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gov-field span {
+  color: var(--dark-text-3);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.gov-field input,
+.gov-field textarea,
+.lineage-panel select {
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  color: var(--dark-text);
+  background: var(--dark-canvas);
+  border: 1px solid var(--dark-control-border);
+  border-radius: 6px;
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+
+.gov-field textarea {
+  resize: vertical;
+}
+
+.gov-field--wide {
+  grid-column: 1 / -1;
+}
+
+.gov-actions,
+.gov-inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.gov-inline-form .gov-field {
+  flex: 1 1 200px;
+}
+
+.gov-file {
+  position: relative;
+  cursor: pointer;
+}
+
+.gov-file input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.gov-file:focus-within {
+  outline: 2px solid var(--focus-dark);
+  outline-offset: 3px;
+}
+
+.gov-pack-form {
+  margin-top: 14px;
+}
+
+.gov-notice {
+  margin: 10px 0 0;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.gov-notice--ok {
+  color: var(--dark-text);
+  background: var(--dark-canvas);
+  border: 1px solid var(--dark-control-border);
+}
+
+.gov-notice--error {
+  color: var(--danger-dark);
+  background: var(--dark-canvas);
+  border: 1px solid var(--danger-dark);
+}
+
+.gov-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.gov-verdict p {
+  flex: 1 1 220px;
+  margin: 0;
+}
+
+.gov-verdict--ok {
+  color: var(--dark-text);
+  background: var(--dark-canvas);
+  border: 1px solid var(--success-dark);
+}
+
+.gov-verdict--broken {
+  color: var(--danger-dark);
+  background: var(--dark-canvas);
+  border: 1px solid var(--danger-dark);
+}
+
+.gov-verdict--broken strong {
+  color: var(--danger-dark);
+}
+
+.gov-table-wrap {
+  max-height: 260px;
+  margin-top: 12px;
+  overflow: auto;
+  border: 1px solid var(--dark-border);
+  border-radius: 6px;
+}
+
+.monitor-view .gov-table {
+  margin-top: 0;
+}
+
+.monitor-view .gov-table th {
+  position: sticky;
+  top: 0;
+  background: var(--dark-surface);
+}
+
+.monitor-view .gov-table code {
+  color: var(--dark-text);
+  font-family: var(--font-code);
+  font-size: 10px;
+}
+
+.monitor-view .gov-table tr.is-broken td {
+  color: var(--danger-dark);
+  background: var(--dark-canvas);
+}
+
+.monitor-view .gov-table tr.is-broken td:first-child {
+  box-shadow: inset 3px 0 0 var(--danger-dark);
+}
+
+.gov-tag {
+  margin-left: 6px;
+  padding: 1px 5px;
+  color: var(--dark-text-2);
+  border: 1px solid var(--dark-control-border);
+  border-radius: 4px;
+  font-size: 9px;
+}
+
+.gov-subsection {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--dark-border);
+}
+
+.gov-subsection > strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dark-text);
+  font-size: 11px;
+}
+
+.gov-timeline {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0 0 0 12px;
+  border-left: 1px solid var(--dark-control-border);
+  list-style: none;
+}
+
+.gov-timeline li {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 2px 8px;
+  color: var(--dark-text-2);
+  font-size: 11px;
+}
+
+.gov-timeline code {
+  grid-row: span 2;
+  color: var(--dark-text);
+  font-family: var(--font-code);
+}
+
+.gov-timeline li span:last-child {
+  color: var(--dark-text-3);
+  font-size: 10px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Run history (#107) — list beside the reopened receipt. */
+.run-history {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.4fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.run-history__list {
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--dark-border);
+}
+
+.run-history__meta {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  color: var(--dark-text-3);
+  background: var(--dark-surface);
+  border-bottom: 1px solid var(--dark-border);
+  font-size: 10px;
+}
+
+.run-history ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.run-history li button {
+  display: grid;
+  grid-template-columns: 44px 72px 56px minmax(0, 1fr) 76px;
+  align-items: center;
+  width: 100%;
+  min-height: 34px;
+  gap: 8px;
+  padding: 0 12px;
+  color: var(--dark-text-2);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--dark-border);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.run-history li button:hover,
+.run-history li button.is-selected {
+  color: var(--dark-text);
+  background: var(--dark-surface-3);
+}
+
+.run-history li button code {
+  color: var(--dark-text-3);
+  font-family: var(--font-code);
+  font-size: 10px;
+}
+
+.run-history__status--failed {
+  color: var(--warning-dark);
+}
+
+.run-history__detail {
+  min-width: 0;
+  min-height: 0;
+  padding: 12px 16px;
+  overflow: auto;
+}
+
+.run-history__detail > .delta-note {
+  margin: 0;
+}
+
+.run-detail__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--dark-text);
+  font-size: 13px;
+}
+
+.run-detail .receipt__rows {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+/* Fill the unused cells of the last row so the 1px gap colour does not show as a block. */
+.run-detail .receipt__rows::after {
+  content: '';
+  grid-column: auto / -1;
+  background: var(--dark-surface-2);
+}
+
+/* Run progress (#113) */
+.run-overlay p.run-overlay__elapsed {
+  color: var(--dark-text);
+  font-family: var(--font-code);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.run-overlay__steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 10px;
+}
+
+.run-overlay__steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--dark-text-3);
+}
+
+.run-overlay__steps li.is-done,
+.run-overlay__steps li.is-current {
+  color: var(--dark-text);
+}
+
+.run-overlay__steps li.is-current svg {
+  animation: spin 1.1s linear infinite;
+}
+
+/* Column lineage (#116) */
+.inspector .lineage-panel h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lineage-panel__hint,
+.lineage-panel__stale {
+  margin: 0 0 8px;
+  color: var(--dark-text-3);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.lineage-panel__stale {
+  color: var(--warning-dark);
+}
+
+.lineage-panel__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 6px;
+}
+
+.lineage-panel__controls label {
+  display: grid;
+  gap: 3px;
+  color: var(--dark-text-3);
+  font-size: 10px;
+}
+
+.segmented-control--compact button {
+  min-height: 26px;
+}
+
+.lineage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+.lineage-table th,
+.lineage-table td {
+  padding: 4px 6px;
+  color: var(--dark-text-2);
+  text-align: left;
+  border-bottom: 1px solid var(--dark-border);
+}
+
+.lineage-table th {
+  color: var(--dark-text-3);
+}
+
+.lineage-table button,
+.lineage-diagram button {
+  padding: 2px 4px;
+  color: var(--dark-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-family: var(--font-code);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.lineage-table tr.is-selected td {
+  background: var(--dark-surface-3);
+}
+
+.lineage-table tr.is-selected button,
+.lineage-diagram li.is-selected button {
+  border-color: var(--brand-dark);
+}
+
+.lineage-diagram {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lineage-diagram li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--dark-text-3);
+  font-size: 10px;
+}
+
+.lineage-diagram__sources {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.lineage-diagram code {
+  padding: 1px 5px;
+  color: var(--dark-text-2);
+  border: 1px solid var(--dark-control-border);
+  border-radius: 4px;
+  font-family: var(--font-code);
+}
+
+.lineage-diagram code.is-source {
+  color: var(--dark-text);
+  border-color: var(--brand-dark);
+}
+
+/* #114 — schema inference status inside the node params. */
+.dag-notice {
+  margin: 0;
+  padding: 6px 8px;
+  color: var(--dark-text-2);
+  background: var(--dark-canvas);
+  border: 1px solid var(--dark-control-border);
+  border-radius: 6px;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.dag-notice--error {
+  color: var(--danger-dark);
+  border-color: var(--danger-dark);
 }

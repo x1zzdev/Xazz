@@ -23,7 +23,7 @@ const PROPOSED_SCOPE = 'Synthetic structure · not measured · proposed contract
  * proposed panel must never be able to look alike, so the status drives surface, rule,
  * text colour, and plot hatching together — not colour alone.
  */
-function MonitorPanel({ contract, icon: Icon, title, unit, maturity, scope, children }) {
+export function MonitorPanel({ contract, icon: Icon, title, unit, maturity, scope, children }) {
   return (
     <section className={`monitor-panel monitor-panel--${contract}`} aria-label={title}>
       <header className="monitor-panel__head">
@@ -198,7 +198,8 @@ function BurnPanel({ runState, training, model }) {
         </summary>
         <ol>
           {modelInfo.layers.map((layer, index) => (
-            <li key={layer}>
+            // Layers repeat (ReLU twice), so position is the identity.
+            <li key={index}>
               <code>{layer}</code>
               <span>{modelInfo.burn_code[index]}</span>
             </li>
@@ -313,7 +314,7 @@ function PrivacyBudgetPanel({ dp }) {
 
       <div className="monitor-chart">
         <div className="monitor-chart__heading">
-          <strong>Epsilon consumed this session</strong>
+          <strong>Epsilon consumed by this run</strong>
           <span>
             {dp.mechanism} mechanism · applied to the aggregated output
           </span>
@@ -334,9 +335,10 @@ function PrivacyBudgetPanel({ dp }) {
           </div>
         </div>
         <p className="monitor-caveat">
-          The budget is per execution session — each Full Run starts a fresh one.
-          Repeated queries spend epsilon cumulatively, and a query that would push
-          total over budget is refused to block noise-averaging reconstruction.
+          This run started with the tenant’s remaining budget, and the report above
+          comes from its own [xazz:dp] marker. Spending carries across runs: the
+          tenant-wide ledger is in Governance below, and a query that would push it
+          over budget is refused to block noise-averaging reconstruction.
         </p>
       </div>
     </MonitorPanel>
@@ -627,7 +629,7 @@ function GuardrailPanel({ policy, remediation, originalCode }) {
   )
 }
 
-export function MonitorView({ runState, training, model, dp, policy, remediation, originalCode }) {
+export function MonitorView({ runState, training, model, dp, policy, remediation, originalCode, children }) {
   return (
     <div className="monitor-view" aria-label="Run monitoring">
       <div className="monitor-view__rail" aria-hidden="true" />
@@ -642,6 +644,7 @@ export function MonitorView({ runState, training, model, dp, policy, remediation
           remediation={remediation}
           originalCode={originalCode}
         />
+        {children}
       </div>
     </div>
   )

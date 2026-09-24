@@ -203,3 +203,52 @@ assert.match(workspaceMonitor, /view === 'monitor'/)
 console.log(
   `contract: ok; fixture=100→${scenario.resultCount}; requirements=18/18; forbidden CDN/effects=0; ml-nodes=${mlNodes.length}; monitor-panels=3`,
 )
+
+// ── IDE workstream #104 ─────────────────────────────────────────────────────
+//
+// A bearer token lives in memory only; the new panels keep the Monitor view's
+// honesty rules; a run's recorded status is a process exit, never a pipeline verdict.
+
+const api = await read('visual-ide/src/api.js')
+assert.doesNotMatch(api, /\b(localStorage|sessionStorage)\.\w/, 'server access (bearer token) must never be persisted')
+
+const governance = await read('visual-ide/src/components/Governance.jsx')
+const runHistory = await read('visual-ide/src/components/RunHistory.jsx')
+for (const [name, source] of [
+  ['Governance.jsx', governance],
+  ['RunHistory.jsx', runHistory],
+]) {
+  for (const forbidden of [/\baudited\b/i, /\bsandboxed\b/i, /budget safe/i, /policy passed/i, /gauge|donut|sparkline/i]) {
+    assert.doesNotMatch(source, forbidden, `${name}: forbidden claim ${forbidden}`)
+  }
+}
+assert.match(runHistory, /status === 'success' \? 'Exited' : 'Exit failed'/)
+assert.doesNotMatch(runHistory, /Succeeded/, 'a stored run status must not become a pipeline verdict')
+assert.match(governance, /axis="Integrity" tone="success">\s*Verified/)
+assert.match(governance, /axis="Integrity" tone="danger">\s*Mismatch/)
+
+// Every literal t('key') resolves in both languages, and the two dictionaries hold
+// exactly the same keys — a missing Korean string cannot hide behind the fallback.
+const { createServer } = await import('vite')
+const vite = await createServer({ root: prototypeRoot, logLevel: 'silent', server: { middlewareMode: true } })
+const { DICTIONARIES } = await vite.ssrLoadModule('/src/i18n.jsx')
+await vite.close()
+const keyPaths = (node, prefix = '') =>
+  Object.entries(node).flatMap(([key, value]) =>
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? keyPaths(value, `${prefix}${key}.`)
+      : [`${prefix}${key}`],
+  )
+const enKeys = new Set(keyPaths(DICTIONARIES.en))
+const koKeys = new Set(keyPaths(DICTIONARIES.ko))
+assert.deepEqual([...enKeys].filter((key) => !koKeys.has(key)), [], 'keys missing in ko')
+assert.deepEqual([...koKeys].filter((key) => !enKeys.has(key)), [], 'keys missing in en')
+const { readdir } = await import('node:fs/promises')
+const componentFiles = (await readdir(resolve(prototypeRoot, 'src/components'))).map((file) => `visual-ide/src/components/${file}`)
+const usedKeys = new Set()
+for (const file of [...componentFiles, 'visual-ide/src/App.jsx']) {
+  for (const match of (await read(file)).matchAll(/\bt\('([\w.]+)'\)/g)) usedKeys.add(match[1])
+}
+assert.deepEqual([...usedKeys].filter((key) => !enKeys.has(key)), [], 't() keys missing from the dictionaries')
+
+console.log(`contract #104: ok; i18n keys=${enKeys.size} en=ko; literal t() keys=${usedKeys.size}`)

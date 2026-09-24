@@ -58,3 +58,17 @@ ambient blobs) and adds:
 The master's `.xzz` bracket-and-compiler-rail motif appears once, as the thin vertical rail that
 joins the three panels down the left edge — the same rail that joins pipeline nodes in the graph,
 so the Monitor view reads as the same program seen from a different angle.
+
+## Governance section (#104)
+
+Added manually for `0TO1` work inside the accepted master (`../../../design/ide-governance-brief.md`);
+`MASTER.md` is unchanged.
+
+- Sits below the run panels and spans both columns. Its heading says the values are live from
+  xazz-server and independent of the last Full Run, so tenant-wide state is never read as this run's.
+- Every panel names its endpoint in the scope line and has five states: loading (grey skeleton bars,
+  no numbers), offline, error (status and server message verbatim), empty, ready.
+- The ε ledger is the existing linear budget track; no gauge. The audit verdict uses the Integrity
+  axis only (`Verified` / `Mismatch`) and names the first failing record in text, never colour alone.
+- Destructive actions (remove pack, reset budget) go through a native `<dialog>` that opens focused
+  on Cancel.

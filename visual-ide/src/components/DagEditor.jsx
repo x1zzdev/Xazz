@@ -37,8 +37,9 @@ import {
   Trash2,
 } from 'lucide-react'
 import { transpileToX1zz } from '../transpiler/x1zzTranspiler'
-import { useLanguage } from '../i18n'
-import { DAG_DEFAULT_PARAMS, DAG_TOOLS, NODE_PARAM_FIELDS, SEED_SCHEMA, detectCsvSchema, seedFromStaticPipeline } from '../dag/dagTools'
+import { localizeField, localizeToolDescription, useLanguage } from '../i18n'
+import { DAG_DEFAULT_PARAMS, DAG_TOOLS, NODE_PARAM_FIELDS, SEED_SCHEMA, decodeCsv, detectCsvSchema, seedFromStaticPipeline } from '../dag/dagTools'
+import { ApiError, MAX_UPLOAD_BYTES, inferSchema } from '../api'
 
 // ── 아이콘 레지스트리 (문자열 → 컴포넌트) ───────────────────────────────────
 const ICONS = {
@@ -62,6 +63,7 @@ const getIcon = (name) => ICONS[name] || Plus
 
 // ── 커스텀 노드 ─────────────────────────────────────────────────────────────
 function DagNode({ id, data, selected }) {
+  const { t } = useLanguage()
   const Icon = getIcon(data?.icon)
   const isSource = data?.source === true
   const guardrail = data?.guardrailStatus
@@ -74,7 +76,8 @@ function DagNode({ id, data, selected }) {
         {data?.category === 'security' && guardrail && (
           <span
             className={`dag-node__guardrail dag-node__guardrail--${guardrail}`}
-            title={`Guardrail: ${guardrail}`}
+            title={t(`dag.guardrail.${guardrail}`)}
+            aria-label={t(`dag.guardrail.${guardrail}`)}
           >
             {guardrail === 'blocked' ? '!' : guardrail === 'passed' ? '✓' : '·'}
           </span>
@@ -109,14 +112,16 @@ function migrateLegacyNodes(nodes) {
 
 
 function DagCanvasInner({ onCodeChange, guardrailStatus }) {
-  const { t } = useLanguage()
+  const { language, t } = useLanguage()
   const seed = useMemo(() => {
     try {
       const saved = localStorage.getItem('xazz_dag')
       if (saved) {
         const parsed = JSON.parse(saved)
         if (parsed?.nodes?.length) {
-          return { nodes: migrateLegacyNodes(parsed.nodes), edges: parsed.edges || [] }
+          // DAGs saved from the seed before it carried edge ids get one here.
+          const edges = (parsed.edges || []).map((e) => (e.id ? e : { ...e, id: `e-${e.source}-${e.target}` }))
+          return { nodes: migrateLegacyNodes(parsed.nodes), edges }
         }
       }
     } catch (_) {}
@@ -261,7 +266,7 @@ function DagCanvasInner({ onCodeChange, guardrailStatus }) {
                     e.dataTransfer.effectAllowed = 'move'
                   }}
                   draggable
-                  title={tool.description}
+                  title={localizeToolDescription(tool, language)}
                 >
                   <Icon size={13} aria-hidden="true" />
                   <span>{tool.name}</span>
@@ -305,7 +310,7 @@ function DagCanvasInner({ onCodeChange, guardrailStatus }) {
           <div className="dag-side__head">
             <span className="eyebrow">{t('dag.generated')}</span>
             <button type="button" className="dag-mini-btn" onClick={copyCode} title={t('dag.copy')}>
-              {copied ? <Check size={12} /> : <Copy size={12} />}{' '}
+              {copied ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}{' '}
               {copied ? t('dag.copied') : t('dag.copy')}
             </button>
           </div>
@@ -317,12 +322,12 @@ function DagCanvasInner({ onCodeChange, guardrailStatus }) {
             <span className="eyebrow">{t('dag.params')}</span>
             {selectedId && (
               <button type="button" className="dag-mini-btn dag-mini-btn--danger" onClick={removeSelected} title={t('dag.delete')}>
-                <Trash2 size={12} /> Delete
+                <Trash2 size={12} aria-hidden="true" /> {t('dag.delete')}
               </button>
             )}
           </div>
           {selectedId ? (
-            <NodeParamsEditor nodeId={selectedId} nodes={nodes} setNodes={setNodes} />
+            <NodeParamsEditor key={selectedId} nodeId={selectedId} nodes={nodes} setNodes={setNodes} />
           ) : (
             <p className="dag-side__empty">{t('dag.paramsEmpty')}</p>
           )}
@@ -330,10 +335,10 @@ function DagCanvasInner({ onCodeChange, guardrailStatus }) {
 
         <div className="dag-side__actions">
           <button type="button" className="dag-btn dag-btn--run" onClick={saveDag}>
-            <Play size={14} /> {t('dag.save')}
+            <Play size={14} aria-hidden="true" /> {t('dag.save')}
           </button>
           <button type="button" className="dag-btn dag-btn--ghost" onClick={resetDag}>
-            <RotateCcw size={13} /> {t('dag.reset')}
+            <RotateCcw size={13} aria-hidden="true" /> {t('dag.reset')}
           </button>
         </div>
       </aside>
@@ -343,14 +348,21 @@ function DagCanvasInner({ onCodeChange, guardrailStatus }) {
 
 // ── 선택 노드 파라미터 편집 (NODE_PARAM_FIELDS 기반 직관적 폼) ──────────────
 function NodeParamsEditor({ nodeId, nodes, setNodes }) {
-  const { t } = useLanguage()
+  const { language, t } = useLanguage()
+  const [notice, setNotice] = useState(null)
   const node = nodes.find((n) => n.id === nodeId)
   if (!node) return null
   const type = node.type
   const p = node.data?.parameters || {}
-  const fields = NODE_PARAM_FIELDS[type] || []
+  const fields = (NODE_PARAM_FIELDS[type] || []).map((f) => localizeField(type, f, language))
   const update = (patch) =>
-    setNodes((nds) => nds.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, parameters: { ...p, ...patch } } } : n)))
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === nodeId
+          ? { ...n, data: { ...n.data, parameters: { ...(n.data?.parameters || {}), ...patch } } }
+          : n,
+      ),
+    )
 
   const renderField = (f) => {
     const value = p[f.key]
@@ -371,7 +383,16 @@ function NodeParamsEditor({ nodeId, nodes, setNodes }) {
         className="dag-field__input"
         type={f.type === 'number' ? 'number' : 'text'}
         step={f.step}
-        value={value ?? ''}
+        // Seeded Select nodes hold [{name, keep}]; show the kept names (the transpiler's
+        // rule), and typing stores the comma string it also accepts.
+        value={
+          Array.isArray(value)
+            ? value
+                .filter((c) => typeof c === 'string' || c.keep !== false)
+                .map((c) => (typeof c === 'string' ? c : c.name))
+                .join(', ')
+            : (value ?? '')
+        }
         placeholder={f.placeholder}
         onChange={(e) => update({ [f.key]: f.type === 'number' ? Number(e.target.value) : e.target.value })}
       />
@@ -380,7 +401,38 @@ function NodeParamsEditor({ nodeId, nodes, setNodes }) {
 
   if (!fields.length) return <span className="dag-p__empty">{t('dag.noParams')}</span>
 
-  // fileInput: 파일 선택 → CSV 컬럼/타입 자동감지로 스키마 설정 (실패 위험 제거)
+  // fileInput (#114): xazz-server POST /schema 가 스키마를 추론하고 업로드 사본 경로를
+  // 돌려준다. 서버에 닿지 않을 때만 브라우저 감지로 대신하고, 어느 쪽인지 표시한다.
+  // 서버가 파일을 거부(4xx/5xx)하면 대신하지 않는다 — 거부 사유가 곧 답이다.
+  const pickFile = async (file) => {
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setNotice({ tone: 'error', text: (tr) => tr('dag.tooLarge') })
+      return
+    }
+    setNotice({ tone: 'busy', text: (tr) => tr('dag.inferring') })
+    try {
+      const { schema, filePath } = await inferSchema(file)
+      update({ filePath, detectedSchema: schema, schemaSource: 'server' })
+      setNotice({
+        tone: 'ok',
+        text: (tr) =>
+          `${tr('dag.detectedServer').replace('{n}', schema.length)} · ${tr('dag.uploadNote').replace('{path}', filePath)}`,
+      })
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setNotice({ tone: 'error', text: (tr) => `${tr('dag.serverRejected')}: ${err.message}` })
+        return
+      }
+      try {
+        const schema = detectCsvSchema(await decodeCsv(file))
+        update({ filePath: file.name, detectedSchema: schema, schemaSource: 'browser' })
+        setNotice({ tone: 'ok', text: (tr) => tr('dag.detectedBrowser').replace('{n}', schema.length) })
+      } catch (readErr) {
+        setNotice({ tone: 'error', text: (tr) => `${tr('dag.readFailed')}: ${readErr.message}` })
+      }
+    }
+  }
+
   if (type === 'fileInput') {
     return (
       <div className="dag-params">
@@ -390,23 +442,18 @@ function NodeParamsEditor({ nodeId, nodes, setNodes }) {
             className="dag-field__input"
             type="file"
             accept=".csv,.txt"
-            onChange={async (e) => {
+            onChange={(e) => {
               const file = e.target.files?.[0]
-              if (!file) return
-              try {
-                const text = await file.text()
-                const schema = detectCsvSchema(text)
-                update({ filePath: file.name, detectedSchema: schema })
-                window.alert(
-                  `${t('dag.detected').replace('{n}', schema.length)}: ${schema.map((c) => `${c.name}:${c.type}`).join(', ')}`,
-                )
-              } catch (err) {
-                window.alert(`${t('dag.readFailed')}: ${err.message}`)
-              }
               e.target.value = ''
+              if (file) pickFile(file)
             }}
           />
         </label>
+        {notice && (
+          <p className={`dag-notice dag-notice--${notice.tone}`} role="status">
+            {notice.text(t)}
+          </p>
+        )}
         {fields.map((f) => (
           <label key={f.key} className="dag-field">
             <span className="dag-field__label">{f.label}{f.hint ? <i> · {f.hint}</i> : null}</span>

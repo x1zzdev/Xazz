@@ -94,3 +94,49 @@ test('code line numbers meet contrast in default, selected, and error rows', asy
     'error code line number',
   )
 })
+
+// #112 — prefers-reduced-motion. The running state has every moving part at once:
+// the overlay spinner, the current-step spinner, skeleton pulses and animated edges.
+// The no-preference pass proves the probe can see motion, so a green reduce pass
+// means the motion was removed, not that the selectors missed.
+const MOVING = [
+  '.run-overlay__pulse svg',
+  '.run-overlay__steps li.is-current svg',
+  '.skeleton i',
+  '.react-flow__edge.animated path',
+]
+
+async function motion(page) {
+  return page.evaluate((selectors) => {
+    const seconds = (value) => Math.max(...value.split(',').map((part) => parseFloat(part) * (part.trim().endsWith('ms') ? 0.001 : 1)))
+    return selectors.map((selector) => {
+      const node = document.querySelector(selector)
+      if (!node) return { selector, found: false }
+      const style = getComputedStyle(node)
+      return {
+        selector,
+        found: true,
+        animation: style.animationName === 'none' ? 0 : seconds(style.animationDuration) * Number(style.animationIterationCount === 'infinite' ? Infinity : style.animationIterationCount),
+        transition: seconds(style.transitionDuration),
+      }
+    })
+  }, MOVING)
+}
+
+test('reduced motion stops spinners, skeleton pulses and animated edges', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.goto('/?screen=workspace&state=running')
+  await expect(page.locator('.run-overlay')).toBeVisible()
+  for (const probe of await motion(page)) {
+    expect(probe.found, `${probe.selector} must exist in the running state`).toBe(true)
+    expect(probe.animation, `${probe.selector} animates by default`).toBeGreaterThan(0.1)
+  }
+
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  for (const probe of await motion(page)) {
+    expect(probe.animation, `${probe.selector} must not animate under reduce`).toBeLessThanOrEqual(0.001)
+    expect(probe.transition, `${probe.selector} must not transition under reduce`).toBeLessThanOrEqual(0.001)
+  }
+  const button = await page.getByRole('button', { name: 'Full Run' }).evaluate((node) => getComputedStyle(node).transitionDuration)
+  expect(parseFloat(button)).toBeLessThanOrEqual(0.001)
+})

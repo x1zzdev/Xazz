@@ -23,6 +23,7 @@ import {
   FileCode2,
   FileText,
   FolderTree,
+  History,
   Info,
   ListTree,
   LoaderCircle,
@@ -41,11 +42,15 @@ import {
   Workflow,
   X,
 } from 'lucide-react'
-import { Brand, StatusBadge } from './Common'
+import { Brand, ServerProblem, Skeleton, StatusBadge } from './Common'
 import { MonitorView } from './Monitor'
+import { GovernanceSection } from './Governance'
+import { ErrorBoundary } from './ErrorBoundary'
+import { LineagePanel } from './Lineage'
+import { RunHistory } from './RunHistory'
 import { LocaleSwitch, localizeStep, useLanguage } from '../i18n'
 import DagEditor from './DagEditor'
-import { checkPolicy, executeCode, checkHealth, remediateCode, API_BASE_URL } from '../api'
+import { ApiError, checkPolicy, executeCode, checkHealth, remediateCode, API_BASE_URL } from '../api'
 
 // executeCode 기본 타임아웃(ms) — api.js 와 동일한 기본값 (ML 훈련 고려 5분)
 const EXEC_TIMEOUT_MS = 5 * 60 * 1000
@@ -123,6 +128,11 @@ function useCodeHash(dagCode) {
   useEffect(() => {
     let active = true
     const compute = async () => {
+      // Web Crypto exists only on HTTPS or localhost; elsewhere say so instead of throwing.
+      if (!crypto.subtle) {
+        if (active) setHash('Not available · needs HTTPS or localhost')
+        return
+      }
       // 실제 실행되는 코드(dagCode)의 무결성 해시를 계산한다.
       const bytes = new TextEncoder().encode(dagCode ?? '')
       const digest = await crypto.subtle.digest('SHA-256', bytes)
@@ -173,8 +183,22 @@ function DownloadDemoCsv({ rows }) {
   )
 }
 
+// "The server refused" and "there is no server" need different next actions.
+function serverFailure(what, err) {
+  return err instanceof ApiError
+    ? `${what} failed · xazz-server answered ${err.status}: ${err.message}`
+    : `${what} unavailable · xazz-server offline?`
+}
+
+// Process axis for a Full Run that returned no process evidence: a dropped request
+// (stop / timeout) may still be running; a refused or unreachable one never started.
+function processWithoutEvidence(execError) {
+  return execError.kind === 'stopped' || execError.kind === 'timeout' ? 'Termination unknown' : 'Not started'
+}
+
 function WorkspaceTopbar({
   runState,
+  execError,
   onHome,
   onLiveCheck,
   onFullRun,
@@ -192,9 +216,11 @@ function WorkspaceTopbar({
   const processLabel =
     runState === 'running'
       ? 'Running'
-      : ['success', 'error'].includes(runState)
-        ? 'Exited'
-        : 'Not started'
+      : execError
+        ? processWithoutEvidence(execError)
+        : ['success', 'error'].includes(runState)
+          ? 'Exited'
+          : 'Not started'
   const backendTone =
     backendReachable === null
       ? 'neutral'
@@ -205,7 +231,7 @@ function WorkspaceTopbar({
   return (
     <header
       className="workspace-topbar"
-      inert={isInert ? '' : undefined}
+      inert={isInert || undefined}
       aria-hidden={isInert ? 'true' : undefined}
     >
       <div className="workspace-topbar__brand">
@@ -515,7 +541,7 @@ function CodePane({ selectedNode, runState }) {
   )
 }
 
-function Inspector({ selectedNode: rawNode, runState, runResult }) {
+function Inspector({ selectedNode: rawNode, runState, runResult, code }) {
   const { language, t } = useLanguage()
   const selectedNode = localizeStep(rawNode, language)
   const realRows = Array.isArray(runResult?.rows) ? runResult.rows.length : null
@@ -556,24 +582,28 @@ function Inspector({ selectedNode: rawNode, runState, runResult }) {
       </section>
       <section>
         <h3>{t('inspector.impact')}</h3>
-        <dl className="impact-grid">
-          <div>
-            <dt>{t('inspector.rows')}</dt>
-            <dd>{detail.rows}</dd>
-          </div>
-          <div>
-            <dt>{t('inspector.nulls')}</dt>
-            <dd>{detail.nulls}</dd>
-          </div>
-          <div>
-            <dt>{t('inspector.schema')}</dt>
-            <dd>{detail.schema}</dd>
-          </div>
-          <div>
-            <dt>{t('inspector.duration')}</dt>
-            <dd>{detail.duration}</dd>
-          </div>
-        </dl>
+        {runState === 'running' ? (
+          <Skeleton lines={4} label={t('progress.waitingRows')} />
+        ) : (
+          <dl className="impact-grid">
+            <div>
+              <dt>{t('inspector.rows')}</dt>
+              <dd>{detail.rows}</dd>
+            </div>
+            <div>
+              <dt>{t('inspector.nulls')}</dt>
+              <dd>{detail.nulls}</dd>
+            </div>
+            <div>
+              <dt>{t('inspector.schema')}</dt>
+              <dd>{detail.schema}</dd>
+            </div>
+            <div>
+              <dt>{t('inspector.duration')}</dt>
+              <dd>{detail.duration}</dd>
+            </div>
+          </dl>
+        )}
         <p className={`impact-source ${runState === 'running' ? 'is-stale' : ''}`}>
           {runState === 'running'
             ? t('inspector.stale')
@@ -604,6 +634,7 @@ function Inspector({ selectedNode: rawNode, runState, runResult }) {
           </span>
         </div>
       </section>
+      <LineagePanel code={code} />
       <div className="inspector__truth">
         <Info size={15} aria-hidden="true" />
         <p>{t('inspector.note')}</p>
@@ -612,12 +643,38 @@ function Inspector({ selectedNode: rawNode, runState, runResult }) {
   )
 }
 
-function PreviewTable({ runResult, backendReachable, execError }) {
+function StoppedWaiting({ execError, onRunAgain }) {
+  const { t } = useLanguage()
+  return (
+    <div className="result-empty" role="note">
+      <TriangleAlert size={16} aria-hidden="true" />
+      <p>
+        <strong>
+          {execError.kind === 'timeout' ? t('progress.timedOutTitle') : t('progress.stoppedTitle')}
+        </strong>
+        <span>{t('progress.stoppedBody')}</span>
+      </p>
+      <button className="button button--tool-secondary button--compact" type="button" onClick={onRunAgain}>
+        <Play size={13} aria-hidden="true" />
+        {t('progress.runAgain')}
+      </button>
+    </div>
+  )
+}
+
+function PreviewTable({ runResult, runState, execError, onRunAgain }) {
   const { t } = useLanguage()
   const hasResult = Array.isArray(runResult?.rows) && runResult.rows.length > 0
   const schema = Array.isArray(runResult?.schema) ? runResult.schema : []
   const columns = hasResult && schema.length > 0 ? schema : []
 
+  if (runState === 'running') return <Skeleton lines={5} label={t('progress.waitingRows')} />
+  if (execError?.kind === 'error') {
+    return <ServerProblem state={{ status: 'error', error: execError }} onRetry={onRunAgain} />
+  }
+  if (execError && execError.kind !== 'offline') {
+    return <StoppedWaiting execError={execError} onRunAgain={onRunAgain} />
+  }
   if (execError) {
     return (
       <div className="result-empty" role="note">
@@ -842,7 +899,19 @@ function ChartPanel({ runResult }) {
 function RunTimeline({ runState, runResult, execError }) {
   const rows = Array.isArray(runResult?.rows) ? runResult.rows.length : undefined
   const items =
-    execError
+    execError?.kind === 'error'
+      ? [
+          ['Process', `Not started · xazz-server answered ${execError.status}`, 'warning'],
+          ['Pipeline', 'Not executed', 'warning'],
+          ['Artifact', 'No outcome returned', 'warning'],
+        ]
+      : execError && execError.kind !== 'offline'
+      ? [
+          ['Process', 'Request dropped · the server may still be executing', 'warning'],
+          ['Pipeline', 'Unknown · a dropped request is not recorded', 'warning'],
+          ['Artifact', 'No outcome returned to this browser', 'warning'],
+        ]
+      : execError
       ? [
           ['Process', 'xazz-server unreachable', 'error'],
           ['Pipeline', `No execute call completed`, 'warning'],
@@ -905,9 +974,15 @@ function RunTimeline({ runState, runResult, execError }) {
   )
 }
 
-function LogsPanel({ runResult, execError }) {
+function LogsPanel({ runResult, execError, onRunAgain }) {
   const logs = Array.isArray(runResult?.logs) ? runResult.logs : []
   const stdout = runResult?.stdout || ''
+  if (execError?.kind === 'error') {
+    return <ServerProblem state={{ status: 'error', error: execError }} onRetry={onRunAgain} />
+  }
+  if (execError && execError.kind !== 'offline') {
+    return <StoppedWaiting execError={execError} onRunAgain={onRunAgain} />
+  }
   if (execError) {
     return (
       <div className="logs-panel" role="note">
@@ -1008,25 +1083,33 @@ function Receipt({ hash, runState, runResult, execError }) {
           <span className="eyebrow">Run receipt · real Full Run</span>
           <h3>
             {isError
-              ? execError
+              ? execError?.kind === 'offline'
                 ? 'xazz-server unreachable'
-                : 'Pipeline exited with an error'
+                : execError?.kind === 'error'
+                  ? `xazz-server answered ${execError.status}`
+                  : execError
+                    ? 'Stopped waiting for xazz-server'
+                    : 'Pipeline exited with an error'
               : 'Pipeline evidence is complete'}
           </h3>
           <p>
             {isError
-              ? (execError
+              ? (execError?.kind === 'offline'
                   ? 'Full Run could not reach the backend. No pipeline executed.'
-                  : (runResult?.error || 'xazz-exec reported an error in stderr.'))
+                  : execError?.kind === 'error'
+                    ? `No pipeline executed. ${execError.message}`
+                    : execError
+                    ? 'The request was dropped. The server may still execute it, but the run is not recorded.'
+                    : (runResult?.error || 'xazz-exec reported an error in stderr.'))
               : 'Success returned a structured result with no detected runtime error.'}
           </p>
         </div>
         <div className="receipt__axes">
           <StatusBadge axis="Process" tone="neutral">
-            {isError ? 'Exited / blocked' : 'Exited'}
+            {execError ? processWithoutEvidence(execError) : isError ? 'Exited / blocked' : 'Exited'}
           </StatusBadge>
           <StatusBadge axis="Pipeline" tone={isError ? 'warning' : 'success'}>
-            {isError ? (execError ? 'Not executed' : 'Partial') : 'Succeeded'}
+            {isError ? (execError?.kind === 'offline' || execError?.kind === 'error' ? 'Not executed' : execError ? 'Unknown' : 'Partial') : 'Succeeded'}
           </StatusBadge>
           <StatusBadge axis="Control" tone="neutral">
             Not configured
@@ -1042,7 +1125,7 @@ function Receipt({ hash, runState, runResult, execError }) {
       <dl className="receipt__rows">
         <div>
           <dt>Run ID</dt>
-          <dd>Not available from browser /execute</dd>
+          <dd>{runResult?.run_id ?? 'Not returned by /execute · blocked or unreachable runs are not recorded'}</dd>
         </div>
         <div>
           <dt>Endpoint</dt>
@@ -1069,7 +1152,7 @@ function Receipt({ hash, runState, runResult, execError }) {
         </div>
         <div>
           <dt>Warnings</dt>
-          <dd>{isError ? (execError ? 'Backend connection failed' : 'Pipeline produced stderr') : 'None in returned result'}</dd>
+          <dd>{isError ? (execError?.kind === 'offline' ? 'Backend connection failed' : execError?.kind === 'error' ? execError.message : execError ? 'Stopped waiting · the server may still finish' : 'Pipeline produced stderr') : 'None in returned result'}</dd>
         </div>
         <div>
           <dt>Node durations</dt>
@@ -1104,7 +1187,10 @@ function ResultDock({
   hash,
   runResult,
   execError,
-  backendReachable,
+  revision,
+  sessionResults,
+  onRestore,
+  onRunAgain,
 }) {
   const { t } = useLanguage()
   const tabs = [
@@ -1113,14 +1199,23 @@ function ResultDock({
     ['chart', PanelBottom],
     ['logs', TerminalSquare],
     ['receipt', ShieldCheck],
+    ['history', History],
   ]
 
   const content =
     tab === 'preview' ? (
       <PreviewTable
         runResult={runResult}
-        backendReachable={backendReachable}
+        runState={runState}
         execError={execError}
+        onRunAgain={onRunAgain}
+      />
+    ) : tab === 'history' ? (
+      <RunHistory
+        revision={revision}
+        currentHash={hash}
+        sessionResults={sessionResults}
+        onRestore={onRestore}
       />
     ) : tab === 'delta' ? (
       <DeltaPanel runResult={runResult} />
@@ -1129,7 +1224,7 @@ function ResultDock({
     ) : tab === 'receipt' ? (
       <Receipt hash={hash} runState={runState} runResult={runResult} execError={execError} />
     ) : runState === 'error' ? (
-      <LogsPanel runResult={runResult} execError={execError} />
+      <LogsPanel runResult={runResult} execError={execError} onRunAgain={onRunAgain} />
     ) : (
       <RunTimeline runState={runState} runResult={runResult} execError={execError} />
     )
@@ -1153,8 +1248,12 @@ function ResultDock({
         ))}
         <div className="result-dock__scope">
           <span>
-            {execError
+            {execError?.kind === 'offline'
               ? 'xazz-server offline'
+              : execError?.kind === 'error'
+                ? `xazz-server answered ${execError.status}`
+              : execError
+                ? 'Request dropped · not recorded'
               : runState === 'running'
                 ? 'Full Run in progress'
                 : runState === 'error'
@@ -1348,32 +1447,89 @@ function PreflightDialog({
   )
 }
 
-function RunOverlay({ onViewLogs, connected }) {
+function useElapsedSeconds(startedAt) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+  return Math.max(0, Math.floor((now - startedAt) / 1000))
+}
+
+/**
+ * Run progress (#113). /execute is synchronous — xazz-server writes the run record
+ * and answers only after the process exits, and streams nothing — so the honest
+ * progress signal is the request lifecycle plus time measured in this browser.
+ * Per-epoch progress stays "Not available" until the server emits it.
+ */
+function RunOverlay({ startedAt, onViewLogs, onStop }) {
+  const { t } = useLanguage()
+  const elapsed = useElapsedSeconds(startedAt)
+  const steps = [
+    ['sent', 'done'],
+    ['server', 'current'],
+    ['result', 'pending'],
+  ]
   return (
-    <div className="run-overlay" role="status" aria-live="polite">
+    <div className="run-overlay">
       <div className="run-overlay__pulse">
         <LoaderCircle aria-hidden="true" />
       </div>
       <div>
-        <span className="eyebrow">Process running · xazz-server</span>
-        <strong>Waiting for xazz-exec to return evidence</strong>
-        <p>
-          Full Run is executing against the backend. Node progress is not streamed, so
-          status stays Unknown until the structured result returns.
+        {/* Only the fixed heading is live: an atomic region around the ticking timer
+            would be re-read every second (WebKit ignores a nested aria-live off). */}
+        <div role="status" aria-live="polite">
+          <span className="eyebrow">{t('progress.eyebrow')}</span>
+          <strong>{t('progress.title')}</strong>
+        </div>
+        <p className="run-overlay__elapsed" role="timer">
+          {t('progress.elapsed').replace('{s}', elapsed)}
         </p>
+        <ol className="run-overlay__steps">
+          {steps.map(([id, status]) => (
+            <li key={id} className={`is-${status}`}>
+              {status === 'done' ? (
+                <Check size={12} aria-hidden="true" />
+              ) : status === 'current' ? (
+                <LoaderCircle size={12} aria-hidden="true" />
+              ) : (
+                <CircleDashed size={12} aria-hidden="true" />
+              )}
+              {t(`progress.steps.${id}`)}
+            </li>
+          ))}
+        </ol>
+        <p>{t('progress.epochs')}</p>
+        <p className="run-overlay__stop-note">{t('progress.stopNote')}</p>
       </div>
       <div className="run-overlay__actions">
         <button className="button button--tool-secondary" type="button" onClick={onViewLogs}>
           <TerminalSquare size={15} aria-hidden="true" />
-          View logs
+          {t('progress.viewLogs')}
         </button>
-        <button className="button button--tool-secondary" type="button" disabled>
+        <button
+          className="button button--tool-secondary"
+          type="button"
+          onClick={onStop}
+        >
           <Square size={14} aria-hidden="true" />
-          Cancel unavailable
+          {t('progress.stop')}
         </button>
       </div>
     </div>
   )
+}
+
+function useNarrowViewport() {
+  const query = '(max-width: 1023px)'
+  const [narrow, setNarrow] = useState(() => window.matchMedia(query).matches)
+  useEffect(() => {
+    const media = window.matchMedia(query)
+    const sync = () => setNarrow(media.matches)
+    media.addEventListener('change', sync)
+    return () => media.removeEventListener('change', sync)
+  }, [])
+  return narrow
 }
 
 export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
@@ -1404,10 +1560,19 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
   const [remediation, setRemediation] = useState(null)
   const [guardrailSource, setGuardrailSource] = useState(null)
   const [guardrailChecking, setGuardrailChecking] = useState(false)
+  const [serverRevision, setServerRevision] = useState(0)
+  const [runStartedAt, setRunStartedAt] = useState(() => Date.now())
+  const sessionResults = useRef(new Map()).current
+  const abortRef = useRef(null)
   const fullRunRef = useRef(null)
+  const narrow = useNarrowViewport()
+  const { t } = useLanguage()
   const hash = useCodeHash(dagCode)
   const selectedNode = pipeline.find((node) => node.id === selectedId) ?? pipeline[0]
   const guardrailBlocked = Boolean(policyReport && !policyReport.safe_to_execute)
+  // Graph, code, inspector and monitor show pipeline evidence. When the Full Run
+  // returned none (unreachable, refused, dropped), they must not point at a failed step.
+  const evidenceState = execError ? 'ready' : runState
 
   useEffect(() => {
     let active = true
@@ -1421,7 +1586,9 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
 
   useEffect(() => {
     setRunState(initialState)
-    if (initialState === 'error') {
+    // The URL mirrors run state; a Full Run that returned no evidence also lands on
+    // 'error' here, and must not jump to the prototype's failed step.
+    if (initialState === 'error' && !execError) {
       setSelectedId('fill')
       setTab('logs')
     } else if (initialState === 'success') {
@@ -1450,9 +1617,12 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
     setExecError(null)
     setAcknowledged(false)
     setLiveMessage(`Executing on xazz-server · ${API_BASE_URL}`)
+    setRunStartedAt(Date.now())
+    abortRef.current = new AbortController()
     changeState('running')
     try {
-      const result = await executeCode(dagCode)
+      const result = await executeCode(dagCode, { signal: abortRef.current.signal })
+      if (result.run_id != null) sessionResults.set(result.run_id, result)
       setRunResult(result)
       setBackendReachable(true)
       if (result.success && !result.error) {
@@ -1472,34 +1642,54 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
         changeState('error')
       }
     } catch (err) {
-      const aborted =
-        (typeof err === 'object' && err !== null && err.name === 'AbortError') ||
-        (err instanceof DOMException && err.name === 'AbortError')
-      if (aborted) {
-        // 요청이 타임아웃됨 — 서버는 응답했을 수도 있으나 오래 걸림
+      // AbortSignal.timeout rejects with TimeoutError; the user's Stop waiting with
+      // AbortError. Either drops the request: xazz-server keeps executing, but the
+      // dropped handler never records the run, its audit record or its ε spend.
+      const name = typeof err === 'object' && err !== null ? err.name : ''
+      if (err instanceof ApiError) {
+        // The server answered — that is proof it is reachable, even on 4xx/5xx.
         setBackendReachable(true)
-        setExecError('Execution timed out. The server may still be processing (e.g. long training).')
-        setLiveMessage(`Execution timed out after ${EXEC_TIMEOUT_MS / 1000}s`)
+        setExecError({ kind: 'error', status: err.status, message: err.message })
+        setLiveMessage(`xazz-server answered ${err.status} · no pipeline executed`)
+      } else if (name === 'TimeoutError' || name === 'AbortError') {
+        // The request was sent; only the response was dropped.
+        setBackendReachable(true)
+        const kind = name === 'TimeoutError' ? 'timeout' : 'stopped'
+        setExecError({ kind, message: String(err?.message ?? err) })
+        setLiveMessage(
+          kind === 'timeout'
+            ? `Stopped waiting after ${EXEC_TIMEOUT_MS / 1000}s · the request was dropped and is not recorded`
+            : 'Stopped waiting · the request was dropped and is not recorded',
+        )
       } else {
         setBackendReachable(false)
-        setExecError(err instanceof Error ? err.message : String(err))
+        setExecError({ kind: 'offline', message: err instanceof Error ? err.message : String(err) })
         setLiveMessage(`xazz-server unreachable · ${API_BASE_URL}`)
       }
+      // No process evidence came back, so the canvas keeps its selection instead of
+      // pointing at a failed step (see evidenceState and the initialState effect).
       setExecuting(false)
       setRunState('error')
-      setSelectedId('fill')
       setTab('logs')
       onStateChange('error')
     } finally {
       setExecuting(false)
+      abortRef.current = null
+      setServerRevision((value) => value + 1)
     }
   }
 
+  const restoreRun = (runId) => {
+    const result = sessionResults.get(runId)
+    if (!result) return
+    setRunResult(result)
+    setExecError(null)
+    setLiveMessage(`Restored run #${runId} from this browser session`)
+    changeState(result.success && !result.error ? 'success' : 'error')
+    setTab('preview')
+  }
+
   const runLiveCheck = () => {
-    if (backendReachable === false) {
-      setLiveMessage(`xazz-server unreachable · check ${API_BASE_URL}`)
-      return
-    }
     setLiveMessage(`Checking xazz-server · ${API_BASE_URL}`)
     checkHealth().then((ok) => {
       setBackendReachable(ok)
@@ -1516,16 +1706,16 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
     setGuardrailSource(dagCode)
     try {
       const report = await checkPolicy(dagCode)
-      if (report && report.policy) {
+      if (report?.policy) {
         setPolicyReport(report.policy)
         setLiveMessage(
           report.policy.safe_to_execute
             ? `Guardrail check passed · ${report.policy.violations?.length ?? 0} violation(s)`
             : `Guardrail blocked · ${report.policy.violations?.length ?? 0} violation(s)`,
         )
-      } else {
-        setLiveMessage('Guardrail check unavailable · server offline?')
       }
+    } catch (err) {
+      setLiveMessage(serverFailure('Guardrail check', err))
     } finally {
       setGuardrailChecking(false)
     }
@@ -1544,9 +1734,16 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
             : 'Remediation generated · manual review still required',
         )
       }
-    } catch {
-      setLiveMessage('Remediation unavailable · server offline?')
+    } catch (err) {
+      setLiveMessage(serverFailure('Remediation', err))
     }
+  }
+
+  // A guardrail verdict belongs to the tenant and pack it was checked under.
+  const clearGuardrail = () => {
+    setPolicyReport(null)
+    setRemediation(null)
+    setGuardrailSource(null)
   }
 
   const openPreflight = () => {
@@ -1564,13 +1761,14 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
       <a
         className="skip-link skip-link--dark"
         href="#compiler-canvas"
-        inert={runState === 'preflight' ? '' : undefined}
+        inert={runState === 'preflight' || undefined}
         aria-hidden={runState === 'preflight' ? 'true' : undefined}
       >
         Skip to Compiler Canvas
       </a>
       <WorkspaceTopbar
         runState={runState}
+        execError={execError}
         onHome={onHome}
         onLiveCheck={runLiveCheck}
         onFullRun={openPreflight}
@@ -1586,7 +1784,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
       />
       <div
         className="workspace-shell"
-        inert={runState === 'preflight' ? '' : undefined}
+        inert={runState === 'preflight' || undefined}
         aria-hidden={runState === 'preflight' ? 'true' : undefined}
       >
         <SourceRail selectedId={selectedId} onSelect={setSelectedId} />
@@ -1596,6 +1794,12 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
             className={`compiler-split compiler-split--${view}`}
             data-testid="compiler-split"
           >
+            <ErrorBoundary
+              key={view}
+              name={t('errors.panels.canvas')}
+              onReset={view === 'edit' ? () => localStorage.removeItem('xazz_dag') : undefined}
+              resetLabel={t('errors.discardDag')}
+            >
             {view === 'monitor' ? (
               <div className="monitor-view-wrap">
                 <div className="guardrail-toolbar" aria-label="Guardrail actions">
@@ -1627,14 +1831,23 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
                   </button>
                 </div>
                 <MonitorView
-                  runState={runState}
+                  runState={evidenceState}
                   training={runResult?.training}
                   model={runResult?.model}
                   dp={runResult?.dp}
                   policy={policyReport}
                   remediation={remediation}
                   originalCode={guardrailSource}
-                />
+                >
+                  <GovernanceSection
+                    revision={serverRevision}
+                    onAccessChange={() => {
+                      clearGuardrail()
+                      setServerRevision((value) => value + 1)
+                    }}
+                    onPolicyChange={clearGuardrail}
+                  />
+                </MonitorView>
               </div>
             ) : view === 'edit' ? (
               <DagEditor
@@ -1653,26 +1866,39 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
                   <PipelineCanvas
                     selectedId={selectedId}
                     onSelect={setSelectedId}
-                    runState={runState}
+                    runState={evidenceState}
                   />
                 )}
                 {view !== 'graph' && (
-                  <CodePane selectedNode={selectedNode} runState={runState} />
+                  <CodePane selectedNode={selectedNode} runState={evidenceState} />
                 )}
               </>
             )}
+            </ErrorBoundary>
           </div>
         </main>
-        <Inspector selectedNode={selectedNode} runState={runState} runResult={runResult} />
-        <ResultDock
-          tab={tab}
-          onTab={setTab}
-          runState={runState}
-          hash={hash}
-          runResult={runResult}
-          execError={execError}
-          backendReachable={backendReachable}
-        />
+        <ErrorBoundary name={t('errors.panels.inspector')}>
+          <Inspector
+            selectedNode={selectedNode}
+            runState={evidenceState}
+            runResult={runResult}
+            code={dagCode}
+          />
+        </ErrorBoundary>
+        <ErrorBoundary name={t('errors.panels.results')}>
+          <ResultDock
+            tab={tab}
+            onTab={setTab}
+            runState={runState}
+            hash={hash}
+            runResult={runResult}
+            execError={execError}
+            revision={serverRevision}
+            sessionResults={sessionResults}
+            onRestore={restoreRun}
+            onRunAgain={() => openPreflight()}
+          />
+        </ErrorBoundary>
       </div>
       {runState === 'preflight' && (
         <PreflightDialog
@@ -1683,20 +1909,23 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
         />
       )}
       {runState === 'running' && (
-        <RunOverlay onViewLogs={() => setTab('logs')} connected={backendReachable} />
+        <RunOverlay
+          startedAt={runStartedAt}
+          onViewLogs={() => setTab('logs')}
+          onStop={() => abortRef.current?.abort()}
+        />
       )}
-      <div className="workspace-mobile-note">
-        <Brand inverse />
-        <Workflow aria-hidden="true" />
-        <h1>Compiler Canvas is a desktop tool.</h1>
-        <p>
-          The mobile landing experience is supported. Open this workspace at 1024px or
-          wider to inspect graph, code, and evidence together.
-        </p>
-        <button className="button button--tool-secondary" type="button" onClick={onHome}>
-          Return to landing
-        </button>
-      </div>
+      {narrow && (
+        <div className="workspace-mobile-note">
+          <Brand inverse />
+          <Workflow aria-hidden="true" />
+          <h1>{t('mobile.title')}</h1>
+          <p>{t('mobile.body')}</p>
+          <button className="button button--tool-secondary" type="button" onClick={onHome}>
+            {t('mobile.back')}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,0 +1,465 @@
+{
+  "schema_version": "1.1",
+  "workflow": {
+    "mode": "0TO1",
+    "reason": "New governance panels, a History tab and a lineage view are added inside the accepted master (issues #107-#116); MASTER.md is the visual-system constraint and is not re-persisted.",
+    "first_value": "Opening Monitor shows the tenant's live epsilon ledger and the audit-chain verdict before any run.",
+    "efficacy_moment": "After a Full Run the ledger's spent epsilon and the chain's record count change, and History lists the new run id."
+  },
+  "risk": {
+    "profile": "STRICT",
+    "rationale": "Inherits ml-monitoring.json: representing audit integrity, policy control or privacy spend falsely would assert controls that do not exist; the panels also expose destructive admin actions (policy removal, budget reset).",
+    "profile_change": null,
+    "waivers": []
+  },
+  "brief": {
+    "actor": "Python data or ML developer (P-001) and the contest reviewer watching the demo",
+    "context": "xazz-server exposes /runs, /security/audit/*, /security/policy*, /dp/budget*, /catalog and /schema; the IDE called five endpoints only (#104).",
+    "job_or_motivation": "Show that a pipeline run is governed: what ran, under which policy, what privacy it spent, and that the record was not altered.",
+    "observed_problem": "Server capabilities had no screen, so the security story could not be demonstrated; runs could not be reopened; the run overlay could not tell slow from stuck.",
+    "desired_user_outcome": "Reopen a past run, see the live ledger, verify the audit chain and manage the policy pack, each value labelled with its source.",
+    "desired_service_outcome": "The #154 demo covers check, block, run, budget, audit and lineage inside the IDE.",
+    "success_criteria": [
+      "Every new panel renders loading, offline, error, empty and ready from the real server response.",
+      "A tampered audit.jsonl renders Integrity: Mismatch and names the first bad record.",
+      "Nothing the server does not return is shown as measured.",
+      "en/ko dictionaries hold identical keys."
+    ],
+    "constraints": [
+      "../design/state-contract.md axes and vocabulary",
+      "../design-system/xazz/pages/monitor.md anti-generic rules",
+      "bearer tokens never persisted",
+      "local mode ignores tenant headers"
+    ]
+  },
+  "problem": {
+    "statement": "The IDE could not show the governance evidence xazz-server already records, so a reviewer could not see what ran, under which policy, at what privacy cost, or whether the record changed.",
+    "journey_scope": "touchpoint_only",
+    "omission_reason": "No new service handoff or owner; panels read existing server contracts."
+  },
+  "evidence": [
+    {
+      "id": "E-201",
+      "type": "observation",
+      "source_id": "GitHub issue #104",
+      "summary": "visual-ide used five of the server's endpoints; run history, audit log, policy packs and DP budget had no screen."
+    },
+    {
+      "id": "E-202",
+      "type": "observation",
+      "source_id": "xazz-server/src/main.rs handle_execute",
+      "summary": "/execute is synchronous and streams nothing; the run row is written after the process exits."
+    },
+    {
+      "id": "E-203",
+      "type": "observation",
+      "source_id": "local release build 2026-09-24",
+      "summary": "A request dropped by the client leaves no run row and no audit record although the process ran."
+    },
+    {
+      "id": "E-204",
+      "type": "observation",
+      "source_id": "local release build 2026-09-24",
+      "summary": "/schema rejected any upload above 2 MB before its own 50 MB check (axum default body limit)."
+    },
+    {
+      "id": "E-205",
+      "type": "observation",
+      "source_id": "../design/research/ide-governance/flow-refs.md",
+      "summary": "MLflow, Sigstore Rekor, Marquez, Styra DAS and Snowflake DP reference flows."
+    }
+  ],
+  "traceability": {
+    "pain_points": [
+      {
+        "id": "P-201",
+        "statement": "The governance story cannot be demonstrated from the IDE.",
+        "evidence_ids": [
+          "E-201"
+        ]
+      }
+    ],
+    "insights": [
+      {
+        "id": "I-201",
+        "statement": "Records to look up read best as lists with a detail next to the evidence they explain.",
+        "evidence_ids": [
+          "E-205"
+        ]
+      }
+    ],
+    "hmw": [
+      {
+        "id": "H-201",
+        "statement": "How might a reviewer verify a run's governance without leaving the workspace?",
+        "evidence_ids": [
+          "E-201"
+        ]
+      }
+    ],
+    "selected_solutions": [
+      {
+        "id": "ALT-201",
+        "statement": "Governance section in Monitor, History tab in the dock, lineage in the inspector.",
+        "evidence_ids": [
+          "E-201",
+          "E-205"
+        ]
+      }
+    ],
+    "tests": [
+      {
+        "id": "T-201",
+        "statement": "visual-ide/tests/governance.spec.mjs (24 e2e) and tests/auditChain.mjs against a real server fixture.",
+        "evidence_ids": [
+          "E-201",
+          "E-203"
+        ]
+      }
+    ],
+    "kpis": [
+      {
+        "id": "KPI-201",
+        "statement": "Reviewer can name, for each governance value, whether the server measured it.",
+        "evidence_ids": [
+          "E-201"
+        ]
+      }
+    ]
+  },
+  "journey": [
+    {
+      "step": "J-1",
+      "action": "Run the sample",
+      "goal": "Know the run is progressing",
+      "touchpoint": "Run overlay",
+      "friction": "No progress signal",
+      "evidence": [
+        "E-202"
+      ],
+      "failure": "User reloads and loses the result",
+      "recovery": "Browser-measured elapsed time and lifecycle; Stop waiting states the dropped request is not recorded"
+    },
+    {
+      "step": "J-2",
+      "action": "Open Monitor",
+      "goal": "See policy, privacy and audit state",
+      "touchpoint": "Governance section",
+      "friction": "No screen existed",
+      "evidence": [
+        "E-201"
+      ],
+      "failure": "Server offline or refusing",
+      "recovery": "Offline and error states with the server's own message and Retry"
+    },
+    {
+      "step": "J-3",
+      "action": "Reopen a past run",
+      "goal": "Show the receipt of an earlier run",
+      "touchpoint": "History tab",
+      "friction": "Only the last run was visible",
+      "evidence": [
+        "E-201"
+      ],
+      "failure": "Run of another tenant",
+      "recovery": "404 shown as not found for this tenant"
+    }
+  ],
+  "blueprint": [
+    {
+      "frontstage": "Audit chain panel verdict and record table",
+      "backstage": "audit_log.rs append + verify_chain",
+      "support_system_data": "audit_log/audit.jsonl",
+      "owner": "xazz-server maintainers",
+      "failure_point": "Out-of-process edit of the log",
+      "recovery": "Integrity: Mismatch with the first failing record from a browser replay",
+      "metric": "Tampered records located by the replay / tampered records"
+    }
+  ],
+  "alternatives": {
+    "considered": [
+      {
+        "id": "ALT-201",
+        "summary": "Governance section inside Monitor plus a History tab in the dock and lineage in the inspector"
+      },
+      {
+        "id": "ALT-202",
+        "summary": "A sixth top-level Governance canvas view"
+      }
+    ],
+    "selected": "ALT-201",
+    "selection_criteria": [
+      "Keeps each record next to the evidence it explains",
+      "Fits the demo path through Monitor"
+    ],
+    "rejected_reasons": [
+      {
+        "alternative_id": "ALT-202",
+        "reason": "Splits what the run did from what the tenant allows and adds a view to learn"
+      }
+    ],
+    "remaining_uncertainty": "Whether a longer Monitor scroll hides the governance section from first-time users."
+  },
+  "prototype": {
+    "unknown": "Whether reviewers read server-measured governance values as distinct from run-local reports.",
+    "hypothesis": "Labelling each panel's source and keeping measured and unavailable states structurally distinct is enough.",
+    "fidelity": "Working code against a real local server",
+    "task": "Run, open Monitor, verify the chain, reopen the run from History",
+    "success_criterion": "Participant names the source of each governance value"
+  },
+  "interaction_states": [
+    {
+      "task": "Governance panels, run history and run progress",
+      "states": {
+        "default": {
+          "status": "covered",
+          "evidence": "../assets/ide_audit_chain.png"
+        },
+        "focus": {
+          "status": "covered",
+          "evidence": "tests/governance.spec.mjs::policy packs ... Cancel is focused when the dialog opens"
+        },
+        "pressed": {
+          "status": "covered",
+          "evidence": "Lineage table/diagram and run list use aria-pressed buttons"
+        },
+        "disabled": {
+          "status": "covered",
+          "evidence": "tests/governance.spec.mjs::an empty retention field cannot silently save"
+        },
+        "loading_pending": {
+          "status": "covered",
+          "evidence": "tests/governance.spec.mjs::a pending run shows browser-measured progress"
+        },
+        "empty": {
+          "status": "covered",
+          "evidence": "tests/governance.spec.mjs::run history shows empty and offline states"
+        },
+        "partial_stale": {
+          "status": "covered",
+          "evidence": "Lineage shows 'Code changed since the last trace'; ledger re-reads when its window rolls"
+        },
+        "error": {
+          "status": "covered",
+          "evidence": "tests/governance.spec.mjs::a server that refuses the run is shown as its answer"
+        },
+        "cancelled": {
+          "status": "covered",
+          "evidence": "tests/governance.spec.mjs::a dropped request marks termination unknown and no failed step"
+        },
+        "success": {
+          "status": "covered",
+          "evidence": "../assets/ide_run_history.png"
+        },
+        "recovery": {
+          "status": "covered",
+          "evidence": "tests/governance.spec.mjs::a crashing panel is contained and a corrupt saved DAG can be discarded"
+        }
+      }
+    }
+  ],
+  "accessibility": {
+    "keyboard": {
+      "status": "pass",
+      "evidence": "governance.spec.mjs drives dialogs, tabs and forms by role; confirm dialogs open focused on Cancel and close on Escape"
+    },
+    "visible_focus": {
+      "status": "pass",
+      "evidence": "Global focus-visible rule extended to select and textarea"
+    },
+    "accessible_name": {
+      "status": "pass",
+      "evidence": "Panels are labelled regions; dialog titles use useId so two dialogs never share a label"
+    },
+    "contrast": {
+      "status": "pass",
+      "evidence": "npm run test:contrast 3 passed; new UI uses MASTER dark tokens only"
+    },
+    "overflow": {
+      "status": "pass",
+      "evidence": "prototype.spec.mjs horizontal-overflow checks still pass"
+    },
+    "target_reachability": {
+      "status": "pass",
+      "evidence": "Compact buttons keep a 32px visual target inside the desktop-only workspace"
+    }
+  },
+  "responsiveness": {
+    "mobile": {
+      "status": "not_applicable",
+      "reason": "Workspace is desktop-only; the mobile note now renders only below 1024px (#115)"
+    },
+    "laptop": {
+      "status": "pass",
+      "evidence": "governance.spec.mjs at 1440x960"
+    },
+    "large": {
+      "status": "pass",
+      "evidence": "../assets/ide_audit_tamper.png"
+    }
+  },
+  "heuristic_review": {
+    "status": "completed",
+    "reviewer": "fresh harness-code-reviewer (initial + delta)",
+    "findings": [
+      {
+        "id": "HR-201",
+        "severity": "MEDIUM",
+        "status": "resolved",
+        "summary": "Dropped, refused or unreachable runs showed a failed pipeline step and Process Exited.",
+        "evidence": "tests/governance.spec.mjs"
+      },
+      {
+        "id": "HR-202",
+        "severity": "MEDIUM",
+        "status": "resolved",
+        "summary": "A stale guardrail verdict survived a tenant or pack change and kept Full Run locked.",
+        "evidence": "tests/governance.spec.mjs"
+      },
+      {
+        "id": "HR-203",
+        "severity": "LOW",
+        "status": "open",
+        "summary": "Receipt, timeline and dock-scope prose remain English-only.",
+        "evidence": "visual-ide/src/components/Workspace.jsx"
+      }
+    ],
+    "evidence": "PR description"
+  },
+  "user_test": {
+    "status": "not_run",
+    "reason": "No participants in this slice; the demo reviewers are not a usability study."
+  },
+  "artifacts": {
+    "design_system": "../design-system/xazz/MASTER.md (inherited, not re-persisted)",
+    "screenshots": [
+      "../assets/ide_run_history.png",
+      "../assets/ide_audit_chain.png",
+      "../assets/ide_audit_tamper.png",
+      "../assets/ide_policy_packs.png",
+      "../assets/ide_dp_ledger.png",
+      "../assets/ide_lineage.png",
+      "../assets/ide_run_progress.png",
+      "../assets/ide_schema_inference.png"
+    ],
+    "interaction_evidence": [
+      "tests/governance.spec.mjs",
+      "tests/auditChain.mjs",
+      "tests/computed-contrast.spec.mjs"
+    ],
+    "commit": "feat/104-ide-workstream",
+    "prototype_or_figma": "visual-ide (npm run dev with VITE_API_BASE_URL)"
+  },
+  "review": {
+    "reviewer": "harness-code-reviewer (fresh, initial + delta)",
+    "timestamp": "2026-09-24T01:30:00Z",
+    "open_issues": [
+      {
+        "id": "F10",
+        "severity": "LOW",
+        "status": "open",
+        "summary": "Receipt, timeline and dock-scope prose are English-only, as before this slice.",
+        "evidence": "visual-ide/src/components/Workspace.jsx"
+      }
+    ],
+    "exceptions": [
+      {
+        "gate": "user_test",
+        "reason": "No participants in this slice.",
+        "risk": "Reviewers may still read server values and run-local reports as one grade.",
+        "owner": "repository maintainer",
+        "revisit": "Before the second-round presentation rehearsal (#180)."
+      }
+    ]
+  },
+  "kpis": [
+    {
+      "id": "KPI-201",
+      "definition": "Source attribution accuracy for governance values",
+      "formula": "correct source attributions divided by attributions asked",
+      "baseline": 0,
+      "target": 0.9,
+      "measurement_window": "One moderated round of five participants",
+      "data_source": "Moderated task test",
+      "owner": "repository maintainer",
+      "decision_threshold": "Below 0.9, revise the scope lines"
+    }
+  ],
+  "verdict": {
+    "decision": "revise",
+    "rationale": "Implementation, states, accessibility checks and automated evidence are complete; no participant has used the panels.",
+    "next_step": "Moderated check with five developers, then team review on the pull request."
+  },
+  "flow": {
+    "references": [
+      {
+        "name": "MLflow Tracking UI",
+        "source": "https://mlflow.org/docs/latest/ml/tracking/",
+        "borrow": "Row click opens a detail that is the receipt"
+      },
+      {
+        "name": "Sigstore Rekor",
+        "source": "https://search.sigstore.dev",
+        "borrow": "Verdict computed from the log itself"
+      },
+      {
+        "name": "Marquez",
+        "source": "https://github.com/MarquezProject/marquez",
+        "borrow": "Selecting an output column highlights its sources"
+      }
+    ],
+    "path": "../design/flows/ide-governed-run.mmd",
+    "entries": [
+      "open"
+    ],
+    "screens": [
+      "workspace",
+      "monitor",
+      "history",
+      "runDetail",
+      "lineage",
+      "preflight",
+      "running",
+      "result"
+    ],
+    "error_branches": [
+      "packError",
+      "broken",
+      "blocked",
+      "timedOut",
+      "notFound"
+    ],
+    "gate_checks": {
+      "reachability": "pass",
+      "decision_exits": "pass",
+      "dead_ends": "pass",
+      "exit_connectivity": "pass"
+    }
+  },
+  "wireframe": {
+    "path": "../design/wireframes/ide-governed-run.html",
+    "screens_rendered": [
+      "workspace",
+      "monitor",
+      "packError",
+      "removeConfirm",
+      "resetConfirm",
+      "broken",
+      "preflight",
+      "running",
+      "result",
+      "blocked",
+      "timedOut",
+      "history",
+      "runDetail",
+      "notFound",
+      "lineage"
+    ],
+    "gate_checks": {
+      "parity": "pass",
+      "primary_action": "pass",
+      "greyscale_only": "pass"
+    },
+    "reviewed_by": "flow_lint.py PASS"
+  }
+}

@@ -21,8 +21,8 @@
   },
   "resource_efficiency": {
     "maturity": "Planned",
-    "proposed_endpoint": "GET /run/{run_id}/resources",
-    "blocking_gap": "/health returns server status, version, and timestamp only. No run_id is issued by /execute.",
+    "proposed_endpoint": "GET /runs/{id}/resources (#128)",
+    "blocking_gap": "/execute now returns a run_id, but no endpoint reports per-stage CPU or memory for it yet.",
     "samples": [
       { "stage": "preprocess", "cpu_percent": 34, "memory_mb": 210 },
       { "stage": "compile", "cpu_percent": 61, "memory_mb": 340 },
