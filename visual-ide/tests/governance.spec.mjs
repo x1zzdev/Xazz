@@ -72,6 +72,34 @@ async function openMonitor(page) {
   await expect(page.locator('.gov-section')).toBeVisible()
 }
 
+test('local policy demo compares safe and unsafe sources without running the pipeline', async ({ page }) => {
+  const requests = await mockServer(page, {
+    'POST /security/policy/check': (request) => {
+      const code = request.postDataJSON().code
+      const blocked = code.includes('name, patient_id')
+      return {
+        safe_to_execute: !blocked,
+        policy_origin: 'builtin',
+        policy: {
+          policy_id: 'builtin', policy_version: '1', domain: 'common', risk_level: 'medium',
+          safe_to_execute: !blocked, scanned_statements: 1,
+          violations: blocked ? [{ rule_id: 'XZP001', rule_name: 'DIRECT_IDENTIFIER_EXPOSED', severity: 'block', message: 'Direct identifier exposure', columns: ['name', 'patient_id'] }] : [],
+          warnings: [],
+        },
+      }
+    },
+  })
+  await openMonitor(page)
+  await page.getByRole('button', { name: 'Check safe example' }).click()
+  await expect(page.getByText('Guardrail check passed')).toBeVisible()
+  await page.getByRole('button', { name: 'Check unsafe example' }).click()
+  await expect(page.getByText('Policy check blocked execution')).toBeVisible()
+  await expect(page.getByLabel('unsafe example source')).toContainText('name, patient_id')
+  await expect(page.getByRole('button', { name: 'Full Run' })).toBeEnabled()
+  expect(requests.filter((request) => request.path === '/security/policy/check')).toHaveLength(2)
+  expect(requests.filter((request) => request.path === '/execute')).toHaveLength(0)
+})
+
 // ── #107 Run history ────────────────────────────────────────────────────────
 
 test('run history lists server runs and reopens one on the Process axis', async ({ page }) => {

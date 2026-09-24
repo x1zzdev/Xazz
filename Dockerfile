@@ -47,6 +47,7 @@ COPY --from=rust-builder \
     /src/target/release/xazz-server \
     /app/
 COPY --from=web-builder /web/dist /app/web
+COPY visual-ide/data/seoul_air_quality.csv /data/visual-ide/data/seoul_air_quality.csv
 
 # Non-root runtime user.
 RUN useradd -m -u 10001 xazz && mkdir -p /data && chown -R xazz:xazz /app /data

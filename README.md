@@ -87,6 +87,10 @@ cargo build --release -p xazz -p xazz-runner
 # both binaries land in target/release/
 ```
 
+### Option C — Local browser demo with Docker
+
+With Docker Compose installed, clone this repository and run `docker compose up` at its root, then open <http://127.0.0.1:8005>. The IDE includes a synthetic air-quality sample and **Check safe example / Check unsafe example** buttons under Monitor. Those buttons perform a static policy check; they do not execute either example. Full Run executes the current pipeline and requires explicit confirmation. Compose stores runs, audit records, uploads, and artifacts in a Docker-managed `xazz-data` volume. See [Docker setup and data access](docs/DOCKER.md).
+
 ### Your first pipeline (60 seconds)
 
 ```bash

@@ -54,6 +54,11 @@ import { ApiError, checkPolicy, executeCode, checkHealth, remediateCode, API_BAS
 
 // executeCode 기본 타임아웃(ms) — api.js 와 동일한 기본값 (ML 훈련 고려 5분)
 const EXEC_TIMEOUT_MS = 5 * 60 * 1000
+// Static policy examples only: no dataset is loaded and neither source is executed.
+const policyExamples = {
+  safe: 'v output = load("demo.csv") :: Patient |> select([age_band]);',
+  unsafe: 'v output = load("demo.csv") :: Patient |> select([name, patient_id]);',
+}
 import {
   chartData,
   codeLines,
@@ -1557,6 +1562,8 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
   const [execError, setExecError] = useState(null)
   const [executing, setExecuting] = useState(false)
   const [policyReport, setPolicyReport] = useState(null)
+  const [policyExample, setPolicyExample] = useState(null)
+  const [exampleReport, setExampleReport] = useState(null)
   const [remediation, setRemediation] = useState(null)
   const [guardrailSource, setGuardrailSource] = useState(null)
   const [guardrailChecking, setGuardrailChecking] = useState(false)
@@ -1702,6 +1709,8 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
   }
 
   const runPolicyCheck = async () => {
+    setPolicyExample(null)
+    setExampleReport(null)
     setGuardrailChecking(true)
     setGuardrailSource(dagCode)
     try {
@@ -1721,7 +1730,30 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
     }
   }
 
+  const runPolicyExample = async (kind) => {
+    setPolicyExample(kind)
+    setExampleReport(null)
+    setGuardrailChecking(true)
+    try {
+      const report = await checkPolicy(policyExamples[kind])
+      if (report?.policy) {
+        setExampleReport(report.policy)
+        setLiveMessage(
+          report.policy.safe_to_execute
+            ? 'Safe example · policy check passed'
+            : `Unsafe example · policy blocked ${report.policy.violations?.length ?? 0} violation(s)`,
+        )
+      }
+    } catch (err) {
+      setLiveMessage(serverFailure('Example policy check', err))
+    } finally {
+      setGuardrailChecking(false)
+    }
+  }
+
   const runRemediate = async () => {
+    setPolicyExample(null)
+    setExampleReport(null)
     setGuardrailSource(dagCode)
     try {
       const response = await remediateCode(dagCode)
@@ -1744,6 +1776,8 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
     setPolicyReport(null)
     setRemediation(null)
     setGuardrailSource(null)
+    setPolicyExample(null)
+    setExampleReport(null)
   }
 
   const openPreflight = () => {
@@ -1830,14 +1864,32 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
                     Remediate
                   </button>
                 </div>
+                <div className="policy-examples" aria-label="Policy examples">
+                  <span>Local policy demo · checks only; the current pipeline is unchanged</span>
+                  <button className="button button--tool-secondary" type="button"
+                    onClick={() => runPolicyExample('safe')}
+                    disabled={guardrailChecking || runState === 'running'}>
+                    Check safe example
+                  </button>
+                  <button className="button button--tool-secondary" type="button"
+                    onClick={() => runPolicyExample('unsafe')}
+                    disabled={guardrailChecking || runState === 'running'}>
+                    Check unsafe example
+                  </button>
+                </div>
+                {policyExample && (
+                  <pre className="policy-examples__source" aria-label={`${policyExample} example source`}>
+                    {policyExamples[policyExample]}
+                  </pre>
+                )}
                 <MonitorView
                   runState={evidenceState}
                   training={runResult?.training}
                   model={runResult?.model}
                   dp={runResult?.dp}
-                  policy={policyReport}
-                  remediation={remediation}
-                  originalCode={guardrailSource}
+                  policy={policyExample ? exampleReport : policyReport}
+                  remediation={policyExample ? null : remediation}
+                  originalCode={policyExample ? policyExamples[policyExample] : guardrailSource}
                 >
                   <GovernanceSection
                     revision={serverRevision}

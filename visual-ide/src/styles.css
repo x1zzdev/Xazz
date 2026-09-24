@@ -3991,6 +3991,30 @@ summary:focus-visible,
   font-weight: 600;
 }
 
+.policy-examples {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--dark-border);
+}
+
+.policy-examples > span {
+  margin-right: auto;
+  color: var(--dark-text-2);
+  font-size: 12px;
+}
+
+.policy-examples__source {
+  margin: 0;
+  padding: 10px 16px;
+  overflow-x: auto;
+  color: var(--dark-text-2);
+  background: var(--dark-surface-2);
+  font-size: 12px;
+}
+
 .guardrail-result {
   display: flex;
   align-items: center;
