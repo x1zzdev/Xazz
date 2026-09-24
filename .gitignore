@@ -47,6 +47,8 @@ checkpoints/
 
 # 보안 데모용 합성 데이터 (생성기로 재생성 — examples/security/generate_patients.py)
 examples/security/data/
+# 반도체 SPC 예제 합성 데이터 (생성기로 재생성 — examples/semiconductor/generate_wafer_data.py)
+examples/semiconductor/data/
 
 # 시연 영상 생성물 (demo/capture.sh + demo/make_video.py 로 재생성)
 demo/_capture/

@@ -1,0 +1,78 @@
+// Semiconductor etch SPC — wafer metrology pipeline (issue #173)
+//
+// Synthetic data only: python3 generate_wafer_data.py
+//
+//   cd examples/semiconductor
+//   xazz check main.xzz
+//   xazz run main.xzz
+//
+// Statistical process control (SPC) on etch metrology: drop what the tool never
+// measured and what no process can produce, summarise the critical dimension
+// (CD) per tool, chart the lot-mean CD (X-bar) of the tool that drifts, and count
+// readings above the baseline control limit.
+
+type WaferMeasurement = {
+    lot_id:         string,
+    wafer_id:       int,
+    site:           int,
+    tool:           string,
+    chamber:        string,
+    measured_at:    string,
+    thickness_nm:   Option<float>,
+    cd_nm:          float,
+    temperature_c:  float,
+    particle_count: int,
+}
+
+// ── 1. Missing sites and sensor glitches ────────────────────────────────────
+// A skipped site has no thickness; 0.0 nm and 999.9 nm are glitches, not film.
+v raw = load("data/wafer_metrology.csv") :: WaferMeasurement
+
+v clean = raw
+    |> dropNull("thickness_nm")
+    |> filter(col("thickness_nm") > 50.0)
+    |> filter(col("thickness_nm") < 150.0)
+
+// ── 2. Particles per tool ───────────────────────────────────────────────────
+v particles = clean
+    |> groupBy("tool")
+    |> sum("particle_count")
+    |> orderBy("tool")
+    |> chart {
+        type:  bar,
+        x:     tool,
+        y:     particle_count,
+        title: "Particles per etch tool",
+    }
+
+// ── 3. X-bar chart: lot-mean CD on ETCH-02 ──────────────────────────────────
+// Filters the tool, not the chamber: both chambers are averaged. Chamber B
+// carries the +0.12 nm/lot drift, so the mean climbs; the other tools stay flat.
+v etch02_xbar = clean
+    |> filter(col("tool") == "ETCH-02")
+    |> groupBy("lot_id")
+    |> mean("cd_nm")
+    |> orderBy("lot_id")
+    |> chart {
+        type:  line,
+        x:     lot_id,
+        y:     cd_nm,
+        title: "ETCH-02 X-bar — lot mean CD (nm)",
+    }
+
+// ── 4. CD summary per tool ──────────────────────────────────────────────────
+// mean / std / count per tool; the runtime names them cd_nm_mean, cd_nm_std, cd_nm_count.
+v cd_summary = clean
+    |> groupBy("tool")
+    |> agg([mean("cd_nm"), std("cd_nm"), count("cd_nm")])
+    |> orderBy("tool")
+
+// ── 5. Readings outside the control limits ──────────────────────────────────
+// Phase I limits come from the qualified baseline (target 45.00 nm, σ 0.35 nm):
+// UCL = 45.00 + 3σ = 46.05, LCL = 45.00 − 3σ = 43.95. They stay fixed while
+// production is monitored — recomputing them from drifting data would hide the drift.
+v above_ucl = clean
+    |> filter(col("cd_nm") > 46.05)
+    |> groupBy("tool")
+    |> count("cd_nm")
+    |> orderBy("tool")
