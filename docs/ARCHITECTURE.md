@@ -235,6 +235,12 @@ directly calls the Polars LazyFrame API (plus Burn for `model {}`/`train()`).
 This is a standalone introspection/embedding path — it is independent of the
 runtime execution path, which now consumes the Typed IR.
 
+**Single-location text mapping:** `xazz-compiler/src/polars_text.rs` owns the
+expression, fill value, aggregate, and cast → Polars *source-text* mapping shared
+by `codegen.rs` and `emitter.rs`. Runtime execution is a separate layer:
+`xazz-exec/src/lower.rs` lowers the Typed IR into actual Polars `LazyFrame` and
+`Expr` objects. The text mapping does not execute the pipeline.
+
 ---
 
 ## Audit & Results Markers
