@@ -85,8 +85,25 @@ Binaries are produced in `target/release/`. For `xazz run` to work, both `xazz` 
 ### Run tests
 
 ```bash
-cargo test
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo deny check --all-features  # requires cargo-deny locally; CI runs its action
 ```
+
+CI runs the Rust checks in that order, then runs the license and dependency policy check. To test only the crate you changed, use the matching command below; run the full checks before requesting review.
+
+| Crate | Focused test | Note |
+|---|---|---|
+| `xazz` (CLI) | `cargo test -p xazz` | CLI commands and import |
+| `xazz-core` | `cargo test -p xazz-core` | Shared types |
+| `xazz-compiler` | `cargo test -p xazz-compiler` | Parser, checker, and emitter |
+| `xazz-exec` | `cargo test -p xazz-exec` | Builds the heavier Polars/Burn engine |
+| `xazz-runner` | `cargo test -p xazz-runner` | Execution subprocess |
+| `xazz-server` | `cargo test -p xazz-server` | HTTP and policy routes |
+| `xazz-lsp` | `cargo test -p xazz-lsp` | Language server |
+
+For Visual IDE changes, run `npm ci` and the `test:contract`, `test:stdout`, `test:contrast`, and `test:e2e` scripts from `visual-ide/`, as in `.github/workflows/ci.yml`.
 
 ---
 
@@ -116,6 +133,7 @@ When filing a GitHub Issue, please include:
 ## Code Style
 
 - Rust: follow `rustfmt` defaults. Run `cargo fmt` before committing.
+- Other text files: follow the root [`.editorconfig`](.editorconfig) (UTF-8, LF, two-space indentation for YAML/TOML/JS/JSX; Rust remains four spaces).
 - Commit messages: use conventional commit format (`feat:`, `fix:`, `docs:`, `chore:`, etc.).
 - No Polars/Tokio imports in `xazz` (CLI) or `xazz-compiler` crates.
 
