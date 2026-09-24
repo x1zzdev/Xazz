@@ -1076,7 +1076,6 @@ mod tests {
     fn cleanup(checkpoint_path: &str) {
         let _ = std::fs::remove_file(checkpoint_path);
         let _ = std::fs::remove_file(crate::dl::manifest_path(checkpoint_path));
-        let _ = std::fs::remove_dir("checkpoints");
     }
 
     #[test]
@@ -1736,7 +1735,6 @@ mod acceptance {
         for ckpt in [&cpu.report.checkpoint_path, &gpu.report.checkpoint_path] {
             let _ = std::fs::remove_file(format!("{}.onnx", ckpt.trim_end_matches(".json")));
         }
-        let _ = std::fs::remove_dir("checkpoints");
     }
 
     #[cfg(feature = "cuda")]

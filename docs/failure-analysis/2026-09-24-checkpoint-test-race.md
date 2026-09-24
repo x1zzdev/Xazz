@@ -35,3 +35,9 @@ Ubuntu/macOS/Windows에서 `xazz-exec` 테스트가 체크포인트를 안정적
 - 변경 상한: 병렬 테스트 파일 정리 경합만 해소하며 생산 기능·기존 플랫폼 파일시스템 결함까지 해결했다고 주장하지 않는다.
 - 롤백: 편집 전 anchor branch에서 `git restore --source anchor/checkpoint-test-race-20260924 -- xazz-exec/src/backend.rs xazz-exec/src/dl/onnx_export.rs` 한 명령.
 - 사람만 답할 사항: 새 CI에서도 원인 판별이 안 되거나 실제 OS 파일시스템 접근이 필요할 때 테스트 호스트 제공.
+
+## 로컬 실험 영수증
+
+- Anchor `anchor/checkpoint-test-race-20260924` = `73c03091076671be50cab764c68bb5c3ac4de829`에서 테스트 코드의 공용 `remove_dir("checkpoints")` 세 호출만 제거했다.
+- `/Users/gibeom/.cargo/bin/cargo test -p xazz-exec --lib`: exit 0, `83 passed; 0 failed`, 병렬 기본 설정. 링크 단계에 `ld: __eh_frame section too large` 비차단 경고 1개가 있었다.
+- ledger: 공용 디렉터리 삭제 제거 → 로컬 `xazz-exec` lib `83/83` 통과 → PR CI의 Windows/macOS 결과가 남아 있어 최종 채택 판정 보류.
