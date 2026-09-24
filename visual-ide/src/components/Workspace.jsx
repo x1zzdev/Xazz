@@ -1647,9 +1647,13 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
       // dropped handler never records the run, its audit record or its ε spend.
       const name = typeof err === 'object' && err !== null ? err.name : ''
       if (err instanceof ApiError) {
+        // The server answered — that is proof it is reachable, even on 4xx/5xx.
+        setBackendReachable(true)
         setExecError({ kind: 'error', status: err.status, message: err.message })
         setLiveMessage(`xazz-server answered ${err.status} · no pipeline executed`)
       } else if (name === 'TimeoutError' || name === 'AbortError') {
+        // The request was sent; only the response was dropped.
+        setBackendReachable(true)
         const kind = name === 'TimeoutError' ? 'timeout' : 'stopped'
         setExecError({ kind, message: String(err?.message ?? err) })
         setLiveMessage(
