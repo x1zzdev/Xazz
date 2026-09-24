@@ -49,3 +49,11 @@ PR #224의 Windows CI 실패 원인을 확인한다. 앞서 PR #213의 Windows C
 - 가설 하나: `#[cfg(test)] mod tests`를 파일의 마지막 항목으로 이동하면 Clippy의 `items_after_test_module` 실패가 사라진다.
 - 사전등록 성공: 저장소 CI와 같은 `cargo clippy --workspace --all-targets -- -D warnings`가 exit 0. kill: 동일 lint가 남거나 다른 새 경고가 발생하면 변경을 채택하지 않고 원인을 재분석한다. 노이즈 바닥은 경고 0개이며 1개도 허용하지 않는다. 적용 상한은 이 한 lint/CI 차단 해소이고 다른 플랫폼 테스트 실패 해결을 주장하지 않는다.
 - 롤백: 편집 전 anchor branch를 만들고 `git restore --source <anchor> -- src/schema.rs` 한 명령으로 원본 bytes를 복구한다.
+
+## 실험 영수증
+
+- 원본 anchor: `anchor/ci-clippy-schema-20260924` = `2ae07cffed32187e7be013925b337dbb5e134814`.
+- 테스트 모듈을 `src/schema.rs`의 마지막 항목으로 이동했다. 테스트 내용과 `infer_columnar_schema_via_runner` 본문은 그대로다.
+- 첫 로컬 검사 호출은 `zsh:1: command not found: cargo`로 SUT 미도달. 설치된 Cargo가 `/Users/gibeom/.cargo/bin/cargo`에 있음을 확인하고 agent-owned PATH 입력만 수정했다.
+- `/Users/gibeom/.cargo/bin/cargo clippy --workspace --all-targets -- -D warnings`: exit 0, `Finished dev profile ... in 3.17s`. 사전등록 성공 충족, 경고 0개. Windows runner에서의 재검증은 PR CI 결과로 별도 확인한다.
+- ledger: 테스트 모듈을 파일 끝으로 이동 → Clippy 실패 1개에서 로컬 Clippy 경고 0개 → 채택.

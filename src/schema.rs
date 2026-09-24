@@ -307,6 +307,40 @@ pub fn import_file(file: &str) -> Result<()> {
     Ok(())
 }
 
+/// Infer a columnar schema by asking the execution engine (`xazz-exec --schema`)
+/// via the xazz-runner IPC bridge. Returns the generated `type` block + load.
+fn infer_columnar_schema_via_runner(file: &str) -> Result<std::string::String> {
+    use std::process::Command;
+
+    let runner = crate::find_runner()
+        .map_err(|e| anyhow::anyhow!("xazz-runner 을 찾을 수 없습니다: {}", e))?;
+
+    let output = Command::new(&runner)
+        .arg("--schema")
+        .arg(file)
+        .output()
+        .with_context(|| format!("xazz-exec --schema '{}' 실행 실패", file))?;
+
+    if !output.status.success() {
+        let stderr = std::string::String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow::anyhow!(
+            "컬럼형 스키마 추론 실패 ({}): {}",
+            file,
+            stderr.trim()
+        ));
+    }
+
+    let stdout = std::string::String::from_utf8_lossy(&output.stdout);
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow::anyhow!(
+            "xazz-exec 가 스키마를 반환하지 않음: {}",
+            file
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,38 +392,4 @@ mod tests {
             "type Sample = {\n    id: int,\n    value: float\n};\n\nv sample = load(\"sample.csv\") :: Sample"
         );
     }
-}
-
-/// Infer a columnar schema by asking the execution engine (`xazz-exec --schema`)
-/// via the xazz-runner IPC bridge. Returns the generated `type` block + load.
-fn infer_columnar_schema_via_runner(file: &str) -> Result<std::string::String> {
-    use std::process::Command;
-
-    let runner = crate::find_runner()
-        .map_err(|e| anyhow::anyhow!("xazz-runner 을 찾을 수 없습니다: {}", e))?;
-
-    let output = Command::new(&runner)
-        .arg("--schema")
-        .arg(file)
-        .output()
-        .with_context(|| format!("xazz-exec --schema '{}' 실행 실패", file))?;
-
-    if !output.status.success() {
-        let stderr = std::string::String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow::anyhow!(
-            "컬럼형 스키마 추론 실패 ({}): {}",
-            file,
-            stderr.trim()
-        ));
-    }
-
-    let stdout = std::string::String::from_utf8_lossy(&output.stdout);
-    let trimmed = stdout.trim();
-    if trimmed.is_empty() {
-        return Err(anyhow::anyhow!(
-            "xazz-exec 가 스키마를 반환하지 않음: {}",
-            file
-        ));
-    }
-    Ok(trimmed.to_string())
 }
