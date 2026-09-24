@@ -18,8 +18,9 @@ pub struct Cli {
 pub enum Commands {
     /// Run xazz data analysis code
     ///
-    /// Example: xazz run examples/poc_script.xzz
-    /// Example: xazz run examples/pipeline.xzz --output result.csv
+    /// Example: xazz run demo/preprocess_chart.xzz
+    ///
+    /// Example: xazz run demo/preprocess_chart.xzz --output result.csv
     Run {
         /// Path to the .xzz source file to run
         file: PathBuf,
@@ -40,13 +41,13 @@ pub enum Commands {
 
         /// Print the structured JSON execution result (machine-readable)
         ///
-        /// Example: xazz run examples/poc_script.xzz --json
+        /// Example: xazz run demo/preprocess_chart.xzz --json
         #[arg(long)]
         json: bool,
 
         /// Enable the typed IR optimization pass (e.g. filter reordering)
         ///
-        /// Example: xazz run examples/pipeline.xzz --opt
+        /// Example: xazz run demo/preprocess_chart.xzz --opt
         #[arg(long)]
         opt: bool,
     },
@@ -56,8 +57,9 @@ pub enum Commands {
     /// Detects undeclared variables/models/schemas, columns not in a schema,
     /// and type mismatches before execution.
     ///
-    /// Example: xazz check examples/poc_script.xzz
-    /// Example: xazz check examples/poc_script.xzz --json
+    /// Example: xazz check demo/preprocess_chart.xzz
+    ///
+    /// Example: xazz check demo/preprocess_chart.xzz --json
     Check {
         /// Path to the .xzz source file to analyze
         file: PathBuf,
@@ -73,8 +75,10 @@ pub enum Commands {
     /// before execution; with --fix, also proposes a safe alternative.
     ///
     /// Example: xazz policy examples/security/patient_unsafe.xzz
+    ///
     /// Example: xazz policy examples/security/patient_unsafe.xzz --fix
-    /// Example: xazz policy pipeline.xzz --fix --out safe.xzz --json
+    ///
+    /// Example: xazz policy examples/security/patient_unsafe.xzz --fix --out safe.xzz --json
     Policy {
         /// Path to the .xzz source file to check
         file: PathBuf,
@@ -94,7 +98,7 @@ pub enum Commands {
 
     /// Convert a .xzz script to another language/format and output it
     ///
-    /// Example: xazz emit rust examples/poc_script.xzz --out output.rs
+    /// Example: xazz emit rust demo/preprocess_chart.xzz --out output.rs
     Emit {
         /// Output format (currently supported: rust)
         format: String,
@@ -130,7 +134,7 @@ pub enum Commands {
 
     /// Read a CSV file and add the type definition and load statement to main.xzz
     ///
-    /// Example: xazz import data/seoul_air.csv
+    /// Example: xazz import visual-ide/data/seoul_air_quality.csv
     Import {
         /// Path to the CSV file to import
         file: String,
@@ -152,8 +156,11 @@ pub enum Commands {
     /// Browse and install policy packs / stdlib modules (issue #68, E4)
     ///
     /// Example: xazz registry list
+    ///
     /// Example: xazz registry show healthcare
+    ///
     /// Example: xazz registry install healthcare --out xazz.policy.json
+    ///
     /// Example: xazz registry install models --out std/models.xzz
     Registry {
         #[command(subcommand)]
