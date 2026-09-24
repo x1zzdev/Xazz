@@ -222,7 +222,7 @@ Xazz는 모듈화된 Rust 워크스페이스입니다. CLI는 2–5 MB 경량 �
 | **`xazz-runner`** | 프로세스 격리 서브프로세스 브리지 (IPC) + 실행 타임아웃 |
 | **`xazz-server`** | Axum REST API, SHA-256 감사 로그, sLM 보정 연동, IDE 서빙 |
 
-심층 내용은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)와 [docs/WORKSPACE.md](docs/WORKSPACE.md)에 정리되어 있습니다.
+심층 내용은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)와 [docs/WORKSPACE.md](docs/WORKSPACE.md)에 정리되어 있습니다. 용어는 [용어집](docs/GLOSSARY.md)을 참고하세요.
 
 ---
 

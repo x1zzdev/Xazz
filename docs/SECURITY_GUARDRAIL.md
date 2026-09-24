@@ -89,6 +89,7 @@ Detected secrets are always masked. `900101-1234568` is reported only as `90****
 ² `warn` if `require_dp_for_sensitive_aggregate: false`.
 
 Every severity can be overridden via `rule_severity` in the policy file.
+When adding or changing a rule in [`xazz-compiler/src/policy/mod.rs`](../xazz-compiler/src/policy/mod.rs), update this table's ID, name, behavior, and default severity in the same change.
 
 ### Literal-detection precision
 
