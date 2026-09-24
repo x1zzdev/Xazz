@@ -172,7 +172,14 @@ datasets. This track makes Xazz handle real workloads.
 - [x] `burn-tch` (CUDA) provider behind `--features cuda` (2026-09-22) — `LibTorch`
       device selection via `XAZZ_CUDA_DEVICE` (default 0), fails closed with a clear
       message when the linked LibTorch has no CUDA runtime
+- [x] `burn-wgpu` real-hardware acceptance — passed on Windows 11 / RTX 4070 Laptop +
+      Intel Arc iGPU (2026-09-25); `XAZZ_DEVICE=dgpu:0` / `igpu:0` verified to select the
+      intended adapter via per-process GPU engine counters
+      (`docs/design/gpu-backend-acceptance.md`)
 - [ ] Real-hardware acceptance on a CUDA host — `cargo test -p xazz-exec --features cuda -- --ignored`
+      ⚠️ Attempted 2026-09-25 on the RTX 4070 host with the `x86_64-pc-windows-gnu` toolchain:
+      LibTorch 2.9.0+cu128 downloads, but torch-sys' C++ shim does not compile under g++
+      (MSVC-only flags/ABI). **Requires the MSVC toolchain on Windows** — retry pending.
 - Depends on: none (Burn API is backend-agnostic). Acceptance: same `.xzz` trains on CPU and CUDA with identical reported losses.
   ⏳ **Provider landed 2026-09-22**: `burn-tch` wired through the trait + `train_on_device`/
   `predict_on_device` device threading; the gated acceptance test needs a CUDA host with a
@@ -185,6 +192,10 @@ datasets. This track makes Xazz handle real workloads.
 - [x] ONNX → inference without re-training — `OnnxBackend::predict` runs the exported
       graph through ONNX Runtime (`ort`, binaries auto-downloaded) (2026-09-22)
 - [ ] Real ONNX Runtime acceptance on a standard toolchain — `cargo test -p xazz-exec --features onnx -- --ignored`
+      ⚠️ Attempted 2026-09-25 on Windows with the `x86_64-pc-windows-gnu` toolchain:
+      `ort-sys` ships prebuilt binaries only for `*-windows-msvc`
+      (`no prebuilt binaries available for target x86_64-pc-windows-gnu`). **Requires the MSVC
+      toolchain on Windows**; macOS `coreml` run still pending (`docs/design/gpu-backend-acceptance.md`).
 - Unlocks ecosystem interop and model serving
 - Depends on: D1 (device mapping). Acceptance: exported ONNX runs in onnxruntime with same prediction.
   ⏳ **Provider landed 2026-09-22**: export + `ort` runtime + parity test wired; the local
