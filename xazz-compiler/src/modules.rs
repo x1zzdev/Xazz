@@ -551,6 +551,20 @@ mod tests {
     }
 
     #[test]
+    fn embedded_stdlib_imports_pass_the_checker() {
+        for name in ["common", "math", "models"] {
+            let main = parse(&format!("import \"std/{name}\";"));
+            let resolved = resolve_imports(&main, &std::env::temp_dir()).expect("stdlib resolve");
+            let (check, _) = crate::analyze_program(&resolved.program);
+            assert!(
+                check.errors.is_empty(),
+                "std/{name} checker errors: {:?}",
+                check.errors
+            );
+        }
+    }
+
+    #[test]
     fn unknown_stdlib_module_errors() {
         let main = parse("import \"std/nope\";");
         let err = resolve_imports(&main, &std::env::temp_dir()).expect_err("unknown stdlib");
