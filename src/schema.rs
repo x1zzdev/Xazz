@@ -307,6 +307,59 @@ pub fn import_file(file: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn infer_fixture(bytes: &[u8]) -> String {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("xazz-import-{}-{nonce}", std::process::id()));
+        fs::create_dir(&dir).unwrap();
+        let path = dir.join("sample.csv");
+        fs::write(&path, bytes).unwrap();
+        let csv_path = path.to_str().unwrap();
+        let generated = infer_csv_schema(csv_path)
+            .unwrap()
+            .replace(csv_path, "sample.csv");
+        fs::remove_file(path).unwrap();
+        fs::remove_dir(dir).unwrap();
+        generated
+    }
+
+    #[test]
+    fn csv_import_golden_comma_delimiter_and_header() {
+        let generated = infer_fixture(b"id,name,amount,active\n1,Ada,2.5,true\n2,Bob,,false\n");
+        assert_eq!(
+            generated,
+            "type Sample = {\n    id: int,\n    name: string,\n    amount: Option<float>,\n    active: bool\n};\n\nv sample = load(\"sample.csv\") :: Sample"
+        );
+    }
+
+    #[test]
+    fn csv_import_golden_euc_kr() {
+        let (bytes, _, had_errors) = encoding_rs::EUC_KR.encode("이름,나이\n가나,20\n");
+        assert!(!had_errors);
+        let generated = infer_fixture(&bytes);
+        assert_eq!(
+            generated,
+            "type Sample = {\n    이름: string,\n    나이: int\n};\n\nv sample = load(\"sample.csv\") :: Sample"
+        );
+    }
+
+    #[test]
+    fn csv_import_golden_utf8_bom_header() {
+        let generated = infer_fixture(b"\xef\xbb\xbfid,value\n1,3.5\n");
+        assert_eq!(
+            generated,
+            "type Sample = {\n    id: int,\n    value: float\n};\n\nv sample = load(\"sample.csv\") :: Sample"
+        );
+    }
+}
+
 /// Infer a columnar schema by asking the execution engine (`xazz-exec --schema`)
 /// via the xazz-runner IPC bridge. Returns the generated `type` block + load.
 fn infer_columnar_schema_via_runner(file: &str) -> Result<std::string::String> {
