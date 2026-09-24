@@ -119,6 +119,24 @@ pub fn analyze_program(program: &Program) -> (CheckResult, ir::TypedProgram) {
     )
 }
 
+/// Analyze a parsed source program while retaining token spans for diagnostics.
+/// The tokens must correspond to the statements in `program` in source order.
+pub fn analyze_program_with_tokens(
+    program: &Program,
+    tokens: &[crate::Token],
+) -> (CheckResult, ir::TypedProgram) {
+    let stmt_tokens = segment_statements(tokens, program.stmts.len());
+    let mut a = Analyzer::new(Some(stmt_tokens));
+    a.check_program(program);
+    (
+        CheckResult {
+            errors: a.errors,
+            warnings: a.warnings,
+        },
+        a.ir,
+    )
+}
+
 /// Returns the result of lexing, parsing, and checking a source string.
 ///
 /// If there is a lexer/parser error, returns (Err, empty result).
@@ -144,19 +162,8 @@ pub fn compile_ir(
     };
     match crate::Parser::new(tokens.clone()).parse() {
         Ok(program) => {
-            let stmt_tokens = segment_statements(&tokens, program.stmts.len());
-            let mut a = Analyzer::new(Some(stmt_tokens));
-            for stmt in &program.stmts {
-                a.check_stmt(stmt);
-                a.cur_stmt += 1;
-            }
-            (
-                Ok((program, a.ir)),
-                CheckResult {
-                    errors: a.errors,
-                    warnings: a.warnings,
-                },
-            )
+            let (check, ir) = analyze_program_with_tokens(&program, &tokens);
+            (Ok((program, ir)), check)
         }
         Err(e) => (Err(e), CheckResult::default()),
     }

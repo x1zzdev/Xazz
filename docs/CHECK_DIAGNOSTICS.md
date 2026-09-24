@@ -4,17 +4,16 @@ These four snippets fail before any CSV is opened. Save each as the indicated
 `.xzz` file and run `XAZZ_LANG=en xazz check <file>`. The commands below were
 reproduced with the current CLI; each exits 1 with one error.
 
-**Location limitation:** The offending expression is on source line 3 in each
-snippet, but `xazz check --json` currently reports `"line": 0, "col": 0` for
-these semantic errors. The plain-text output does not show a location. The
-`0:0` below is the actual reported value, **not** a valid source position.
+Run `xazz check <file> --json` to see the 1-based `line:col` location. The
+plain-text output shows the message and suggestion without the location. For
+three cases, column 1 identifies the start of the offending statement.
 
-| Case | Offending source line | Reported `line:col` |
-|---|---:|---:|
-| Did-you-mean | 3 | `0:0` |
-| Undeclared column | 3 | `0:0` |
-| Invalid cast type | 3 | `0:0` |
-| Non-nullable `fillNull` | 3 | `0:0` |
+| Case | Reported `line:col` |
+|---|---:|
+| Did-you-mean | `3:24` |
+| Undeclared column | `3:1` |
+| Invalid cast type | `3:1` |
+| Non-nullable `fillNull` | `3:1` |
 
 ## Did-you-mean: mistyped column
 

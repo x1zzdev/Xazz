@@ -185,7 +185,7 @@ v prediction = dataset
 
 Every image below is captured from this repository: the binaries in `target/release`, the demos in `demo/`, the IDE in `visual-ide/`, against the bundled Seoul air-quality sample.
 
-**Static analysis catches the typo before execution** — with a did-you-mean suggestion. See the [diagnostic gallery](docs/CHECK_DIAGNOSTICS.md) for four reproducible cases and the current location-reporting limitation:
+**Static analysis catches the typo before execution** — with a did-you-mean suggestion and `line:col` in JSON output. See the [diagnostic gallery](docs/CHECK_DIAGNOSTICS.md) for four reproducible cases:
 
 <img src="docs/assets/demo_check.png" alt="xazz check output: column 'temperture_c' does not exist — did you mean col(temperature_c)?" width="80%">
 

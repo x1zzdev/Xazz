@@ -247,12 +247,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (parse_result, result) = {
                 // Parse, then resolve `import "path.xzz"` relative to the file's dir (issue #69).
                 use xazz_compiler::{Lexer, Parser};
-                let parsed = Lexer::new(&source)
-                    .tokenize()
-                    .and_then(|tokens| Parser::new(tokens).parse());
+                let parsed = Lexer::new(&source).tokenize().and_then(|tokens| {
+                    Parser::new(tokens.clone())
+                        .parse()
+                        .map(|program| (tokens, program))
+                });
                 match parsed {
                     Err(e) => (Err(e), xazz_compiler::CheckResult::default()),
-                    Ok(program) => {
+                    Ok((tokens, program)) => {
                         let src_dir = std::path::Path::new(&file)
                             .parent()
                             .map(|p| {
@@ -278,8 +280,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 )
                             }
                             Ok(resolved) => {
-                                let (check, _ir) =
-                                    xazz_compiler::analyze_program(&resolved.program);
+                                let (check, _ir) = if resolved.modules.is_empty() {
+                                    xazz_compiler::checker::analyze_program_with_tokens(
+                                        &resolved.program,
+                                        &tokens,
+                                    )
+                                } else {
+                                    xazz_compiler::analyze_program(&resolved.program)
+                                };
                                 (Ok(resolved.program), check)
                             }
                         }
