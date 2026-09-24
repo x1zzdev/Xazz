@@ -46,7 +46,8 @@ v particles = clean
     }
 
 // ── 3. X-bar chart: lot-mean CD on ETCH-02 ──────────────────────────────────
-// Its chamber B drifts upward lot by lot; the other tools stay on target.
+// Filters the tool, not the chamber: both chambers are averaged. Chamber B
+// carries the +0.12 nm/lot drift, so the mean climbs; the other tools stay flat.
 v etch02_xbar = clean
     |> filter(col("tool") == "ETCH-02")
     |> groupBy("lot_id")
