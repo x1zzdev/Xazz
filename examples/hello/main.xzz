@@ -1,0 +1,19 @@
+// Run from examples/hello: xazz check main.xzz && xazz run main.xzz
+type Sale = {
+    item: string,
+    category: string,
+    amount: int,
+}
+
+v sales = load("sales.csv") :: Sale
+v chart_by_category = sales
+    |> filter(amount > 0)
+    |> groupBy("category")
+    |> sum("amount")
+    |> orderBy("category")
+    |> chart {
+        type: bar,
+        x: category,
+        y: amount,
+        title: "Sales by category",
+    }
