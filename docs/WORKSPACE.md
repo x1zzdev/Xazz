@@ -62,7 +62,7 @@ Xazz/
 │       ├── chart.rs        ← DataFrame → JSON spec → Chart.js HTML
 │       └── tensor_bridge.rs← Polars → Burn 텐서 변환 (연속 버퍼 직접 읽기)
 │
-├── xazz-runner/            ← 실행 바이너리 (CLI가 서브프로세스로 스폰)
+├── xazz-runner/            ← xazz-exec를 스폰하는 IPC 브리지 (CLI가 스폰)
 │   └── src/
 │       └── main.rs         ← xazz-runner <file.xzz> [--verbose] [--output] + 타임아웃 하드닝
 │
@@ -95,7 +95,7 @@ Xazz/
 └─────────────────────────────────────────────────────────────────┘
 
          [run 명령어: std::process::Command 서브프로세스 스폰 + 타임아웃]
-xazz CLI ──spawn──► xazz-runner ──link──► xazz-exec ──link──► Polars
+xazz CLI ──spawn──► xazz-runner ──spawn──► xazz-exec ──link──► Polars
 (통신: CLI args만)
 
 ┌─────────────────────────────────────────────────────────────────┐
@@ -103,7 +103,7 @@ xazz CLI ──spawn──► xazz-runner ──link──► xazz-exec ──li
 │  xazz-runner <file.xzz> [--verbose] [--output path.csv]         │
 │  실행 타임아웃(XAZZ_EXEC_TIMEOUT_SECS) 하드닝 — 프로세스 격리     │
 └────────────────┬────────────────────────────────────────────────┘
-                 │ depends on
+                 │ spawns
                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    xazz-exec                                    │
@@ -133,7 +133,7 @@ xazz-server: axum + tokio + xazz-compiler (독립 바이너리 — Polars 는 �
 | `xazz-core` | AST/Token/Error 공유 타입 + **Typed IR** (`ir.rs`) | 없음 (serde만) | ✅ 간접 |
 | `xazz-compiler` | Lexer/Parser/**Checker→Typed IR**/**Opt**/Emitter + Policy-as-Code 가드레일 | 없음 | ✅ emit · policy · check |
 | `xazz-exec` | `lower`(DataOp→Polars) + `dl`(Burn) + `dp` + `chart` + runtime: Typed IR 1회 소비 | **Polars, encoding_rs, Burn** | ❌ 없음 |
-| `xazz-runner` | 실행 바이너리 + 타임아웃 하드닝 | xazz-exec 통해 간접 | ❌ 없음 |
+| `xazz-runner` | 실행 IPC 브리지 + 타임아웃 하드닝 | 없음 (`xazz-exec`를 스폰) | ❌ 없음 |
 | `xazz-server` | REST API + 보안/감사/가드레일 엔드포인트 | axum, tokio, sha2, xazz-compiler | ❌ 없음 |
 
 ---
@@ -143,9 +143,9 @@ xazz-server: axum + tokio + xazz-compiler (독립 바이너리 — Polars 는 �
 ```
 xazz run file.xzz
     │
-    ├─ find_runner() → 같은 디렉토리의 xazz-runner.exe 또는 PATH
-    │
-    └─ std::process::Command::new("xazz-runner")
+    ├─ find_runner() → XAZZ_RUNNER_PATH 또는 같은 디렉터리의 xazz-runner(.exe)
+│
+    └─ std::process::Command::new(resolved_runner_path)
            .arg("file.xzz")
            .arg("--verbose")      // optional
            .arg("--output")       // optional
@@ -171,7 +171,7 @@ xazz CLI → tokio (🚫 비동기 런타임 링크됨)
 ### After (의존성 격리 — Polars가 CLI에서 제거됨)
 ```
 xazz CLI → xazz-compiler → xazz-core → serde
-xazz-runner → xazz-exec → polars (✅ 분리된 바이너리)
+xazz-runner ──spawn──► xazz-exec → polars (✅ 분리된 바이너리)
 ```
 
 ### Binary Size Impact (예상)
@@ -191,11 +191,11 @@ cargo build --release
 # CLI 단독 빌드 (경량)
 cargo build -p xazz --release
 
-# 실행 엔진 단독 빌드 (Polars 포함)
-cargo build -p xazz-runner --release
+# IPC 브리지와 실행 엔진 빌드 (Polars는 xazz-exec에만 포함)
+cargo build -p xazz-runner -p xazz-exec --release
 
-# 배포 시 두 바이너리를 같은 디렉토리에 배치
-# xazz.exe + xazz-runner.exe
+# 배포 시 세 바이너리를 같은 디렉터리에 배치
+# xazz(.exe) + xazz-runner(.exe) + xazz-exec(.exe)
 ```
 
 ---
