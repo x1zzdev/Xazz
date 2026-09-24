@@ -1074,9 +1074,11 @@ mod tests {
     }
 
     fn cleanup(checkpoint_path: &str) {
+        // Remove only this test's files. Deleting the shared `checkpoints/` directory
+        // races with other tests running in parallel (a save between create_dir_all and
+        // save_file would fail), so the directory is left in place.
         let _ = std::fs::remove_file(checkpoint_path);
         let _ = std::fs::remove_file(crate::dl::manifest_path(checkpoint_path));
-        let _ = std::fs::remove_dir("checkpoints");
     }
 
     #[test]
@@ -1736,7 +1738,8 @@ mod acceptance {
         for ckpt in [&cpu.report.checkpoint_path, &gpu.report.checkpoint_path] {
             let _ = std::fs::remove_file(format!("{}.onnx", ckpt.trim_end_matches(".json")));
         }
-        let _ = std::fs::remove_dir("checkpoints");
+        // The shared `checkpoints/` directory is intentionally not removed: deleting it
+        // races with parallel tests that are mid-save.
     }
 
     #[cfg(feature = "cuda")]

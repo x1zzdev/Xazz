@@ -661,6 +661,7 @@ mod tests {
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(&trained.report.checkpoint_path);
         let _ = std::fs::remove_file(crate::dl::manifest_path(&trained.report.checkpoint_path));
-        let _ = std::fs::remove_dir("checkpoints");
+        // The shared `checkpoints/` directory is not removed: deleting it races with
+        // parallel tests that are mid-save.
     }
 }
