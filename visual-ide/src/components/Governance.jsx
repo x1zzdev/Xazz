@@ -15,6 +15,7 @@ import { useServerData } from '../useServerData'
 import { findFirstBreak } from '../auditChain'
 import {
   ApiError,
+  deleteDpWindow,
   deletePolicy,
   deletePolicyTtl,
   getApiAccess,
@@ -26,6 +27,7 @@ import {
   getPolicyTtl,
   putPolicy,
   putPolicyTtl,
+  putDpWindow,
   resetDpBudget,
   setApiAccess,
   verifyAuditChain,
@@ -169,10 +171,11 @@ function countdown(seconds) {
 function DpLedgerPanel({ revision }) {
   const { t } = useLanguage()
   const time = useLocaleTime()
-  const [state, reload] = useServerData(getDpBudget, revision)
+  const [state, reload, replace] = useServerData(getDpBudget, revision)
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState(null)
+  const [windowDraft, setWindowDraft] = useState('')
   const data = state.status === 'ready' ? state.data : null
   const windowed = Number(data?.window_secs) > 0 && Number(data?.resets_at) > 0
   const now = useNow(windowed)
@@ -199,6 +202,29 @@ function DpLedgerPanel({ revision }) {
       setConfirming(false)
       reload()
     }
+  }
+
+  const changeWindow = async (action) => {
+    setBusy(true)
+    try {
+      const after = await action()
+      replace(after)
+      setNotice({ tone: 'ok', text: (tr) => tr('gov.dp.windowSaved') })
+    } catch (error) {
+      setNotice({ tone: 'error', text: () => error.message })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const saveWindow = (event) => {
+    event.preventDefault()
+    const secs = Number(windowDraft)
+    if (!/^\d+$/.test(windowDraft.trim()) || !Number.isSafeInteger(secs)) {
+      setNotice({ tone: 'error', text: (tr) => tr('gov.dp.windowInvalid') })
+      return
+    }
+    changeWindow(() => putDpWindow(secs))
   }
 
   const total = Number(data?.total_epsilon)
@@ -273,6 +299,30 @@ function DpLedgerPanel({ revision }) {
               </dd>
             </div>
           </dl>
+          <form className="gov-inline-form" noValidate onSubmit={saveWindow}>
+            <label className="gov-field">
+              <span>{t('gov.dp.windowInput')}</span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={windowDraft}
+                onChange={(event) => setWindowDraft(event.target.value)}
+              />
+            </label>
+            <button className="button button--tool-secondary button--compact" type="submit" disabled={busy}>
+              {t('gov.dp.windowSave')}
+            </button>
+            <button
+              className="button button--tool-secondary button--compact"
+              type="button"
+              disabled={busy || data.window_source !== 'tenant'}
+              onClick={() => changeWindow(deleteDpWindow)}
+            >
+              {t('gov.dp.windowClear')}
+            </button>
+          </form>
+          <p className="monitor-caveat">{t('gov.dp.windowNote')}</p>
           <div className="gov-actions">
             <RefreshButton onClick={reload} label={t('gov.refresh')} />
             <button

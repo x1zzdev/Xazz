@@ -206,6 +206,55 @@ test('a policy that fails to load is shown as fail-closed', async ({ page }) => 
 
 // ── #110 DP ledger ──────────────────────────────────────────────────────────
 
+test('DP window keeps zero override distinct from clearing and survives reload', async ({ page }) => {
+  let windowSecs = 60
+  let source = 'global'
+  const view = () => ({
+    ...defaults()['GET /dp/budget'], window_secs: windowSecs,
+    window_source: source, resets_at: windowSecs ? 1800000000 : 0,
+  })
+  const requests = await mockServer(page, {
+    'GET /dp/budget': view,
+    'PUT /dp/budget/window': (request) => {
+      windowSecs = request.postDataJSON().window_secs
+      if (windowSecs > 315360000) return { http: 400, text: 'window_secs must be at most 315360000 seconds' }
+      source = 'tenant'
+      return view()
+    },
+    'DELETE /dp/budget/window': () => {
+      windowSecs = 60
+      source = 'global'
+      return view()
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Differential-privacy ledger' })
+  const input = panel.getByLabel('Window length (seconds)')
+  await expect(panel).toContainText('60s · global')
+  await input.fill('-1')
+  await panel.getByRole('button', { name: 'Save window' }).click()
+  await expect(panel.getByRole('status')).toContainText('non-negative whole number')
+  await input.fill('1.5')
+  await panel.getByRole('button', { name: 'Save window' }).click()
+  expect(requests.filter((r) => r.method === 'PUT')).toHaveLength(0)
+
+  await input.fill('0')
+  await panel.getByRole('button', { name: 'Save window' }).click()
+  await expect(panel).toContainText('No rolling window · tenant')
+  await expect(panel).toContainText('Only on an explicit reset')
+  expect(JSON.parse(requests.find((r) => r.method === 'PUT').body)).toEqual({ window_secs: 0 })
+  await page.reload()
+  await page.getByRole('button', { name: 'Monitor' }).click()
+  await expect(panel).toContainText('No rolling window · tenant')
+
+  await panel.getByRole('button', { name: 'Use global window' }).click()
+  await expect(panel).toContainText('60s · global')
+  expect(requests.filter((r) => r.method === 'DELETE' && r.path === '/dp/budget/window')).toHaveLength(1)
+  await panel.getByLabel('Window length (seconds)').fill('315360001')
+  await panel.getByRole('button', { name: 'Save window' }).click()
+  await expect(panel.getByRole('status')).toContainText('window_secs must be at most 315360000 seconds')
+})
+
 test('DP ledger reset needs confirmation and shows the re-read value', async ({ page }) => {
   let spent = 2.5
   const requests = await mockServer(page, {

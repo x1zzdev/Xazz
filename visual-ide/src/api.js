@@ -155,6 +155,9 @@ export const deletePolicyTtl = () => request('/security/policy/history/ttl', { m
 // ── Differential-privacy ledger (#110)
 export const getDpBudget = () => request('/dp/budget')
 export const resetDpBudget = () => request('/dp/budget/reset', { method: 'POST' })
+export const putDpWindow = (windowSecs) =>
+  request('/dp/budget/window', { method: 'PUT', json: { window_secs: windowSecs } })
+export const deleteDpWindow = () => request('/dp/budget/window', { method: 'DELETE' })
 
 // ── Column lineage (#116) — static compile only, nothing executes.
 export const fetchCatalog = (code) =>

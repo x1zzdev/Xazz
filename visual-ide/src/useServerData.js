@@ -29,5 +29,6 @@ export function useServerData(load, revision) {
   }, [revision, nonce])
 
   const reload = useCallback(() => setNonce((value) => value + 1), [])
-  return [state, reload]
+  const replace = useCallback((data) => setState({ status: 'ready', data }), [])
+  return [state, reload, replace]
 }
