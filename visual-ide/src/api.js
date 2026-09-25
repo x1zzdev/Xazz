@@ -120,6 +120,12 @@ export function checkPolicy(code) {
   return request('/security/policy/check', { method: 'POST', json: { code } })
 }
 
+export const checkInference = ({ code, prompt, response, model_fingerprint }) =>
+  request('/security/inference/check', {
+    method: 'POST',
+    json: { code, prompt, response, ...(model_fingerprint ? { model_fingerprint } : {}) },
+  })
+
 /**
  * POST /security/remediate — 차단된 코드의 안전한 대체 코드와 위반 리포트를 받는다 (issue #2).
  *
@@ -148,13 +154,19 @@ export const deletePolicy = () => request('/security/policy', { method: 'DELETE'
 export const getPolicyHistory = ({ limit = 20, offset = 0 } = {}) =>
   request(`/security/policy/history?limit=${limit}&offset=${offset}`)
 export const getPolicyTtl = () => request('/security/policy/history/ttl')
+export const getPolicyTtlHistory = ({ limit = 20, offset = 0 } = {}) =>
+  request(`/security/policy/history/ttl/history?limit=${limit}&offset=${offset}`)
 export const putPolicyTtl = (ttlSecs) =>
   request('/security/policy/history/ttl', { method: 'PUT', json: { ttl_secs: ttlSecs } })
 export const deletePolicyTtl = () => request('/security/policy/history/ttl', { method: 'DELETE' })
 
 // ── Differential-privacy ledger (#110)
 export const getDpBudget = () => request('/dp/budget')
+export const getDpResetHistory = () => request('/dp/budget/history')
 export const resetDpBudget = () => request('/dp/budget/reset', { method: 'POST' })
+export const putDpWindow = (windowSecs) =>
+  request('/dp/budget/window', { method: 'PUT', json: { window_secs: windowSecs } })
+export const deleteDpWindow = () => request('/dp/budget/window', { method: 'DELETE' })
 
 // ── Column lineage (#116) — static compile only, nothing executes.
 export const fetchCatalog = (code) =>

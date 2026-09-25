@@ -4922,6 +4922,10 @@ summary:focus-visible,
   border: 1px solid var(--danger-dark);
 }
 
+.gov-hash {
+  overflow-wrap: anywhere;
+}
+
 .gov-verdict {
   display: flex;
   flex-wrap: wrap;
