@@ -9,6 +9,16 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Security — 클라이언트 연결이 끊겨도 런 회계·감사·DP 정산 완료 (GHSA-wxqx-r7f6-qq3p)
+
+- **`xazz-server`** — `/execute` 핸들러가 실행과 후처리(런 기록·감사 체인 추가·DP 예약 정산)를
+  클라이언트 future와 분리된 blocking 태스크(`run_execution_job`)에서 끝까지 수행한다.
+  클라이언트가 응답 전에 연결을 끊어도 실행된 파이프라인이 감사 체인·ε 원장·`/runs`에 남는다
+- 회귀 테스트 `disconnected_execute_still_audits_and_records` — 클라이언트를 중간에 끊은 뒤
+  런·감사 레코드가 기록되는지 검증
+- 테스트 격리 — `test_state()`가 호출마다 별도 SQLite 파일을 사용해 병렬 실행 시
+  `database is locked`로 실패하던 플레이크를 제거
+
 ### Docs — GPU/ONNX 백엔드 빌드·실행 가이드 (issue #151)
 
 - **`docs/GPU_BACKENDS.md`** — `xazz-exec`의 `wgpu`/`cuda`/`onnx`/`onnx-cuda`/
