@@ -1,0 +1,85 @@
+# Docker image smoke test — issue #176.
+#
+# Builds the image on a clean GitHub runner, runs it, and checks the paths the
+# release image is expected to serve: /health, the bundled IDE, a Full Run via
+# /execute (which needs xazz-exec), and run-history persistence.
+#
+# Runs on demand and on a scratch branch so it can be exercised without cutting
+# a release. See docs/DOCKER.md for the manual clean-host checklist.
+
+name: Docker smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ci/docker-smoke
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Build image and smoke the server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: xazz:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run container
+        run: |
+          docker run -d --name xazz-smoke -p 8005:8005 xazz:smoke
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8005/health >/dev/null; then
+              echo "server is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "server did not become healthy in time"
+          docker logs xazz-smoke
+          exit 1
+
+      - name: Smoke /health, IDE, Full Run, persistence
+        run: |
+          set -euo pipefail
+
+          echo "== /health =="
+          curl -fsS http://127.0.0.1:8005/health
+          echo
+
+          echo "== bundled IDE =="
+          curl -fsS -o /dev/null -w "GET / -> HTTP %{http_code}\n" http://127.0.0.1:8005/
+          curl -fsS -o /dev/null -w "GET /index.html -> HTTP %{http_code}\n" \
+            http://127.0.0.1:8005/index.html
+
+          echo "== Full Run (/execute) =="
+          cat > /tmp/pipeline.json <<'JSON'
+          {"code":"type Air = { observed_at: string, district: string, pm25: Option<float>, temperature_c: float };\nv raw = load(\"visual-ide/data/seoul_air_quality.csv\") :: Air |> cast(\"pm25\", \"float\") |> fillNull(\"pm25\", strategy: \"mean\") |> select([district, pm25, temperature_c]);"}
+          JSON
+          curl -fsS -X POST http://127.0.0.1:8005/execute \
+            -H 'content-type: application/json' \
+            --data @/tmp/pipeline.json | head -c 400
+          echo
+
+          echo "== run history persisted =="
+          curl -fsS http://127.0.0.1:8005/runs | head -c 300
+          echo
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs xazz-smoke || true

@@ -23,13 +23,21 @@ RUN apt-get update \
 
 COPY . .
 # xazz-exec is required: xazz-runner resolves it next to itself (no PATH fallback).
-RUN cargo build --release -p xazz -p xazz-runner -p xazz-exec -p xazz-server
+# The cargo registry and target dir are cache mounts so rebuilds skip unchanged
+# crates. A cache mount is not part of the image layer, so the finished binaries
+# are copied to /out for the runtime stage to pick up.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    cargo build --release -p xazz -p xazz-runner -p xazz-exec -p xazz-server \
+    && mkdir -p /out \
+    && cp target/release/xazz target/release/xazz-runner \
+          target/release/xazz-exec target/release/xazz-server /out/
 
 # ── Stage 2: Visual IDE frontend ───────────────────────────────────────────
 FROM node:20-bookworm-slim AS web-builder
 WORKDIR /web
 COPY visual-ide/package*.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY visual-ide/ ./
 RUN npm run build
 
@@ -41,10 +49,10 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY --from=rust-builder \
-    /src/target/release/xazz \
-    /src/target/release/xazz-runner \
-    /src/target/release/xazz-exec \
-    /src/target/release/xazz-server \
+    /out/xazz \
+    /out/xazz-runner \
+    /out/xazz-exec \
+    /out/xazz-server \
     /app/
 COPY --from=web-builder /web/dist /app/web
 COPY visual-ide/data/seoul_air_quality.csv /data/visual-ide/data/seoul_air_quality.csv
