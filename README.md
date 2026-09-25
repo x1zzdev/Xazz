@@ -334,6 +334,7 @@ python benches/run_readme_benchmark.py --xlarge
 | Phase 5.5 — Data Scale | Columnar sources & artifact output (`load`/`save`: Parquet, Arrow) | ✅ save/load (#52) |
 | Phase 6 — AI Expansion | GPU backends (burn-tch / burn-wgpu), distributed training, NQP | 🔭 Planned |
 | Phase 7 — GenAI Governance | Prompt input gate, LLM output re-scan, fine-tuning data sanitization (burn-engine LoRA/QLoRA pairing), model provenance | 🔭 Planned (Track F) |
+| Track G — Community | Multi-language docs + Discussions, release/contribution guides, local playground | 🚧 In progress ([#155](https://github.com/x1zzdev/Xazz/issues/155)) |
 
 **Scale roadmap:** the full plan to grow data volume, program size, team/org reach, and ML depth — with per-item GitHub issues and an execution order — lives in [docs/ROADMAP.md](docs/ROADMAP.md).
 

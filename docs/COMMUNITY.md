@@ -3,7 +3,8 @@
 > Why this file exists: the second-round evaluation rewards *community expansion
 > potential* — how the project is managed, how people join, and how knowledge is
 > shared. This document is the plan behind that, and every item links to a
-> GitHub issue. See [ROADMAP.md](ROADMAP.md) for the language/platform tracks.
+> GitHub issue. Track G is also reflected in [ROADMAP.md](ROADMAP.md#track-g--community-scale-docs-releases-playground)
+> and the README roadmap table; this file is the plan behind it.
 
 The plan runs in three steps, in order. Each step makes the next one cheaper:
 docs lower the entry barrier, release/contribution rules keep the flow steady,
@@ -46,8 +47,8 @@ and only then does an install-free playground make sense.
 
 ## Status
 
-- [ ] #156 Open GitHub Discussions
-- [ ] #157 Multi-language docs
-- [ ] #158 Release & contribution guide
-- [ ] #160 Reflect Track G in ROADMAP/README
-- [ ] #159 Web playground / hosted demo
+- [x] #156 Open GitHub Discussions
+- [x] #157 Multi-language docs
+- [x] #158 Release & contribution guide
+- [x] #160 Reflect Track G in ROADMAP/README
+- [x] #159 Web playground / hosted demo

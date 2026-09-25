@@ -107,9 +107,44 @@ For Visual IDE changes, run `npm ci` and the `test:contract`, `test:stdout`, `te
 
 ---
 
+## Contribution path
+
+Every change follows the same path:
+
+1. **Discuss / file** — ask in [Discussions](https://github.com/x1zzdev/Xazz/discussions) or open an issue. Reproducible bugs and agreed work become issues.
+2. **Pick** — grab a `good first issue` / `help wanted` item, or comment on an issue to claim it.
+3. **PR** — branch, implement with a test, and run the gates in [Run tests](#run-tests). Draft PRs are welcome early.
+4. **Review** — a maintainer and CI review. Address feedback with new commits rather than force-pushing over review history.
+5. **Merge** — a maintainer merges once CI is green and the review is approved.
+
+## Contributor ladder
+
+Maintainers are grown from contributors. Each rung is earned by doing the work,
+not by asking for the title.
+
+| Level | What you do | How you get there |
+|---|---|---|
+| **Contributor** | File issues, open PRs, join Discussions. | Your first merged PR. |
+| **Regular contributor** | Repeated reviewed contributions; help triage and review others' PRs. | A track record of merged PRs and useful reviews. |
+| **Reviewer** | Review PRs in an area and can approve them. | Nominated by a maintainer after sustained ownership of an area. |
+| **Maintainer** | Merge rights, releases, security triage, roadmap. | Invited by existing maintainers; see [GOVERNANCE.md](GOVERNANCE.md). |
+
 ## First Contributions
 
-Not sure where to start? Look for issues labeled **`good first issue`** or **`help wanted`** — they're a great place to begin. We're happy to answer questions and help you get your first PR merged. Don't hesitate to open a draft PR early for feedback.
+New here? Look for issues labeled **`good first issue`** or **`help wanted`** — they are scoped to be self-contained and come with pointers. Comment on the issue to claim it, open a draft PR early for feedback, and ask in [Q&A](https://github.com/x1zzdev/Xazz/discussions/categories/q-a) when stuck — we would rather answer a question than have you guess.
+
+### Good first issue rules
+
+Maintainers curate `good first issue` items:
+
+- The issue states a clear outcome and acceptance criteria.
+- The fix is expected to touch one crate (or one IDE area) and add one test.
+- A maintainer leaves a short "where to start" note in the issue.
+- If the issue turns out larger than advertised, say so and split it rather than leaving a newcomer stuck.
+
+## Releasing
+
+Release cadence, the checklist, and the release-note template live in [docs/RELEASING.md](docs/RELEASING.md).
 
 ---
 

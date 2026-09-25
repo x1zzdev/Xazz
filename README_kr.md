@@ -328,6 +328,7 @@ python benches/render_benchmark_chart.py        # 위 차트 재생성
 | Phase 5.5 — 데이터 스케일 | 컬럼 소스·아티팩트 출력 (`load`/`save`: Parquet, Arrow) | ✅ save/load (#52) |
 | Phase 6 — AI 확장 | GPU 백엔드(burn-tch / burn-wgpu), 분산 학습, NQP | 🔭 계획 |
 | Phase 7 — GenAI 거버넌스 | 프롬프트 입력 게이트, LLM 출력 재스캔, 파인튜닝 데이터 정화 (burn-engine LoRA/QLoRA 연동), 모델 프로비넌스 | 🔭 계획 (Track F) |
+| Track G — 커뮤니티 | 다국어 문서 + Discussions, 릴리스·기여 가이드, 로컬 플레이그라운드 | 🚧 진행 중 ([#155](https://github.com/x1zzdev/Xazz/issues/155)) |
 
 **스케일 로드맵:** 데이터 볼륨, 프로그램 규모, 팀/조직 범위, ML 깊이를 확장하는 전체 계획과 항목별 GitHub 이슈·실행 순서는 [docs/ROADMAP.md](docs/ROADMAP.md)에 있습니다.
 
