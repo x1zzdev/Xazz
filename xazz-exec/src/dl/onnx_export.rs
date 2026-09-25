@@ -609,7 +609,7 @@ mod tests {
     use super::*;
     use polars::prelude::*;
     use protobuf::Message;
-    use xazz_compiler::ast::{LayerKind, TrainConfig};
+    use xazz_compiler::ast::{EmbeddingVocab, LayerKind, TrainConfig};
 
     fn train_tiny(layers: &[LayerKind]) -> TrainedModel {
         let df = df!(
@@ -663,5 +663,123 @@ mod tests {
         let _ = std::fs::remove_file(crate::dl::manifest_path(&trained.report.checkpoint_path));
         // The shared `checkpoints/` directory is not removed: deleting it races with
         // parallel tests that are mid-save.
+    }
+
+    /// Exports `trained` and parses the artifact back into a `ModelProto`.
+    fn export_proto(trained: &TrainedModel, path: &str) -> onnx::ModelProto {
+        export(trained, path).expect("export");
+        let bytes = std::fs::read(path).expect("read onnx");
+        let mut proto = onnx::ModelProto::new();
+        proto.merge_from_bytes(&bytes).expect("parse onnx");
+        proto
+    }
+
+    /// Removes the ONNX artifact and the checkpoint it was derived from.
+    fn cleanup(trained: &TrainedModel, path: &str) {
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(&trained.report.checkpoint_path);
+        let _ = std::fs::remove_file(crate::dl::manifest_path(&trained.report.checkpoint_path));
+    }
+
+    /// Conv1d -> ReLU -> Dense exports Reshape → Conv (Same padding) → Reshape,
+    /// with a rank-3 [out_ch, in_ch, kernel] weight initializer.
+    #[test]
+    fn conv1d_export_emits_reshape_conv_reshape() {
+        let trained = train_tiny(&[
+            LayerKind::Conv1d {
+                out_channels: 2,
+                kernel_size: 2,
+            },
+            LayerKind::ReLU,
+            LayerKind::Dense(1),
+        ]);
+        let path = "checkpoints/onnx_conv_unit.onnx";
+        let proto = export_proto(&trained, path);
+
+        let op_types: Vec<&str> = proto
+            .get_graph()
+            .get_node()
+            .iter()
+            .map(|n| n.get_op_type())
+            .collect();
+        assert_eq!(
+            op_types,
+            vec!["Reshape", "Conv", "Reshape", "Relu", "Gemm", "Identity"]
+        );
+
+        let conv_w = proto
+            .get_graph()
+            .get_initializer()
+            .iter()
+            .find(|t| t.get_name() == "cw0")
+            .expect("Conv1d weight initializer");
+        assert_eq!(conv_w.get_dims(), &[2, 1, 2]);
+
+        // Burn splits Same padding as [floor((k-1)/2), ceil((k-1)/2)].
+        let conv_node = proto
+            .get_graph()
+            .get_node()
+            .iter()
+            .find(|n| n.get_op_type() == "Conv")
+            .expect("Conv node");
+        let pads = conv_node
+            .get_attribute()
+            .iter()
+            .find(|a| a.get_name() == "pads")
+            .expect("Conv pads attribute");
+        assert_eq!(pads.get_ints(), &[1, 0]);
+
+        cleanup(&trained, path);
+    }
+
+    /// Embedding -> Dense exports the per-column index path
+    /// (Split → Clip → Add(offset) → Concat → Cast → Gather → Reshape) and a
+    /// combined rank-2 [sum(vocab), embed_dim] weight initializer.
+    #[test]
+    fn embedding_export_emits_split_clip_gather() {
+        let trained = train_tiny(&[
+            LayerKind::Embedding {
+                vocab: EmbeddingVocab::Shared(6),
+                embed_dim: 2,
+            },
+            LayerKind::Dense(1),
+        ]);
+        let path = "checkpoints/onnx_embed_unit.onnx";
+        let proto = export_proto(&trained, path);
+
+        let op_types: Vec<&str> = proto
+            .get_graph()
+            .get_node()
+            .iter()
+            .map(|n| n.get_op_type())
+            .collect();
+        assert_eq!(
+            op_types,
+            vec![
+                "Split", "Clip", "Clip", "Add", "Concat", "Cast", "Gather", "Reshape", "Gemm",
+                "Identity"
+            ]
+        );
+
+        // Shared vocab 6 over 2 input columns → one combined table [12, 2].
+        let emb_w = proto
+            .get_graph()
+            .get_initializer()
+            .iter()
+            .find(|t| t.get_name() == "ew0")
+            .expect("Embedding weight initializer");
+        assert_eq!(emb_w.get_dims(), &[12, 2]);
+
+        // Column 1 is offset past column 0's 6 rows; column 0 starts at 0.
+        let offsets: Vec<f32> = proto
+            .get_graph()
+            .get_initializer()
+            .iter()
+            .filter(|t| t.get_name().starts_with("eoff0_"))
+            .map(|t| t.get_float_data()[0])
+            .collect();
+        assert_eq!(offsets, vec![6.0]);
+
+        cleanup(&trained, path);
     }
 }
