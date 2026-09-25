@@ -19,6 +19,7 @@
 # Security & process
 
 - [Security guardrail](SECURITY_GUARDRAIL.md)
+- [Collaboration rules](COLLABORATION.md)
 - [Community](COMMUNITY.md)
 - [Releasing](RELEASING.md)
 - [Translating](TRANSLATING.md)
