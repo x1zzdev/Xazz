@@ -66,6 +66,8 @@ are added from sustained, high-quality contributors.
 - Every release updates `CHANGELOG.md` (Keep a Changelog format).
 - Release artifacts are signed by checksum; the bundled Visual IDE is included
   under `web/`.
+- The cadence, the pre-release checklist, and the release-note template live in
+  [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Quality & security management
 

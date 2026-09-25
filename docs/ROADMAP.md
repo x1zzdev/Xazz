@@ -315,6 +315,39 @@ are exactly where "safe data in, auditable output out" becomes a real requiremen
 
 ---
 
+## Track G — Community scale (docs, releases, playground)
+
+Community expansion is planned and tracked in [COMMUNITY.md](COMMUNITY.md) as
+Track G. The steps run in order — docs lower the entry barrier, release and
+contribution rules keep the flow steady, then an install-free playground makes
+sense. Tracking issue: #155.
+
+### G1. Multi-language docs + Discussions — issues #156 / #157
+- [x] GitHub Discussions (Q&A, Ideas, Show and tell, Announcements) opened and
+      linked from README, CONTRIBUTING, and the issue chooser (#156)
+- [x] `README_ja` / `README_zh` plus a translation guide, English kept as the
+      single source of truth (#157)
+
+### G2. Release & contribution guide — issue #158
+- [ ] `docs/RELEASING.md` — release cadence, checklist, and a release-note
+      template tied to the `CHANGELOG.md` sections
+- [ ] Contributor ladder and first-PR / `good first issue` rules in
+      `CONTRIBUTING.md`
+
+### G3. Web playground / hosted demo — issue #159
+- [x] Local one-command demo (`docker compose up`) with safe/unsafe policy
+      examples; no public remote server, abuse limits out of scope (#159)
+
+### G4. Reflect the track in governance — issue #160
+- [ ] Track G in this roadmap and the README roadmap table, every item linked
+      to its issue
+
+Depends on: nothing hard; G3 builds on E2 (Docker). Acceptance: the public
+roadmap and README both show Track G with live issue links, and a newcomer can
+go from the README to a merged first PR using only the linked docs.
+
+---
+
 ## Recommended execution order
 
 Efficiency rule: **value-per-effort first, then dependency chain.** Do not start C2 before C1, or B3 before B2.
@@ -348,5 +381,6 @@ Legend: 🔴 no external dependency | 🟠 depends on an earlier step | 🟢 par
 - README roadmap Phase 5/6 rows remain the public status surface.
 - Each issue carries a `scale:*` label matching its track (`genai:*` for Track F).
 - Update this file and the README table when a milestone's acceptance criteria are met.
-- Community expansion (docs, Discussions, releases, playground) is tracked in
-  [COMMUNITY.md](COMMUNITY.md) as Track G; its issues mirror the steps there.
+- Community expansion (docs, Discussions, releases, playground) is Track G
+  above; [COMMUNITY.md](COMMUNITY.md) holds the plan behind it and its issues
+  mirror the steps.
