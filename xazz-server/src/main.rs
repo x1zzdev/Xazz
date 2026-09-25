@@ -167,6 +167,11 @@ const DEFAULT_DP_RESERVATION_TTL_SECS: u64 = 3600;
 /// default; this keeps "no budget left" enforceable while non-DP runs proceed.
 const MIN_REMAINING_BUDGET: f64 = 1e-12;
 
+/// Upper bound for a DP budget window (~10 years). Longer values are rejected on
+/// write and clamped on read, so `anchor + window_secs` can never overflow when
+/// `resets_at` is computed.
+const MAX_DP_WINDOW_SECS: u64 = 10 * 365 * 24 * 60 * 60;
+
 /// Parses the configured per-tenant (ε, δ) envelope from raw env values.
 fn resolve_dp_envelope(eps_raw: Option<&str>, delta_raw: Option<&str>) -> (f64, f64) {
     let epsilon = eps_raw
@@ -188,8 +193,12 @@ fn tenant_dp_envelope() -> (f64, f64) {
 }
 
 /// Parses the DP budget window length. Invalid or `0` means "cumulative, no window".
+/// Values above [`MAX_DP_WINDOW_SECS`] are clamped so a stale env setting cannot
+/// overflow the `resets_at` computation.
 fn resolve_dp_window(raw: Option<&str>) -> u64 {
-    raw.and_then(|v| v.parse::<u64>().ok()).unwrap_or(0)
+    raw.and_then(|v| v.parse::<u64>().ok())
+        .map(|secs| secs.min(MAX_DP_WINDOW_SECS))
+        .unwrap_or(0)
 }
 
 /// Reads the per-tenant DP budget window from the environment (0 = disabled).
@@ -228,7 +237,7 @@ struct DpWindow {
 fn effective_dp_window(store: &store::Store, tenant: &str) -> Result<DpWindow, String> {
     match store.get_dp_window(tenant)? {
         Some(secs) => Ok(DpWindow {
-            secs,
+            secs: secs.min(MAX_DP_WINDOW_SECS),
             source: "tenant",
         }),
         None => Ok(DpWindow {
@@ -1933,6 +1942,12 @@ async fn handle_dp_window_set(
     Json(payload): Json<DpWindowRequest>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let tenant = tenant_str(tenant.as_str());
+    if payload.window_secs > MAX_DP_WINDOW_SECS {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("window_secs must be at most {MAX_DP_WINDOW_SECS} seconds (~10 years)"),
+        ));
+    }
     state
         .store
         .set_dp_window(tenant, payload.window_secs)
@@ -2009,14 +2024,29 @@ fn dp_budget_view(
     } else {
         0
     };
+    // An in-flight run holds the tenant's remaining envelope in `dp_reservation`.
+    // Subtract it here so `remaining_*` never overstates what a new run could
+    // actually claim before that reservation is settled (issue #123).
+    let reservation = state
+        .store
+        .live_dp_reservation(tenant)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let (reserved_eps, reserved_delta, reservation_expires_at) = match &reservation {
+        Some((r, expires_at)) => (r.epsilon, r.delta, *expires_at),
+        None => (0.0, 0.0, 0),
+    };
     Ok(json!({
         "tenant": tenant,
         "spent_epsilon": spent_eps,
         "spent_delta": spent_delta,
+        "reserved_epsilon": reserved_eps,
+        "reserved_delta": reserved_delta,
         "total_epsilon": total_eps,
         "total_delta": total_delta,
-        "remaining_epsilon": (total_eps - spent_eps).max(0.0),
-        "remaining_delta": (total_delta - spent_delta).max(0.0),
+        "remaining_epsilon": (total_eps - spent_eps - reserved_eps).max(0.0),
+        "remaining_delta": (total_delta - spent_delta - reserved_delta).max(0.0),
+        "in_flight": reservation.is_some(),
+        "reservation_expires_at": reservation_expires_at,
         "window_secs": window.secs,
         "window_source": window.source,
         "window_started_at": anchor,
@@ -2676,6 +2706,99 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(cleared["window_source"], json!("global"));
         assert_eq!(cleared["window_secs"], json!(tenant_dp_window_secs()));
         assert!(state.store.get_dp_window(&tenant).expect("read").is_none());
+    }
+
+    /// A window above the cap is rejected; the cap itself is accepted (issue #125).
+    #[tokio::test]
+    async fn dp_window_rejects_above_cap() {
+        let state = test_state();
+        let tenant = format!("dp-window-cap-{}", std::process::id());
+        // Seed a budget row so the accepted override also re-anchors a window.
+        state
+            .store
+            .add_dp_spend(&tenant, 1.0, 0.0, 0)
+            .expect("seed spend");
+
+        let err = handle_dp_window_set(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            Json(DpWindowRequest {
+                window_secs: MAX_DP_WINDOW_SECS + 1,
+            }),
+        )
+        .await
+        .expect_err("window above cap was accepted");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+
+        let body = handle_dp_window_set(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            Json(DpWindowRequest {
+                window_secs: MAX_DP_WINDOW_SECS,
+            }),
+        )
+        .await
+        .expect("window at cap")
+        .0;
+        assert_eq!(body["window_secs"], json!(MAX_DP_WINDOW_SECS));
+        assert!(body["resets_at"].as_i64().unwrap() > 0);
+    }
+
+    /// Env/stored windows above the cap are clamped so `resets_at` cannot overflow.
+    #[test]
+    fn resolve_dp_window_clamps_above_cap() {
+        let at_cap = MAX_DP_WINDOW_SECS.to_string();
+        assert_eq!(resolve_dp_window(Some(&at_cap)), MAX_DP_WINDOW_SECS);
+        assert_eq!(resolve_dp_window(Some("999999999")), MAX_DP_WINDOW_SECS);
+        assert_eq!(resolve_dp_window(Some("0")), 0);
+        assert_eq!(resolve_dp_window(Some("not-a-number")), 0);
+    }
+
+    /// GET /dp/budget reflects an in-flight reservation: `remaining_*` is reduced
+    /// and `in_flight` stays set until the reservation is settled (issue #123).
+    #[tokio::test]
+    async fn dp_budget_reflects_in_flight_reservation() {
+        let state = test_state();
+        let tenant = format!("dp-inflight-{}", std::process::id());
+        state
+            .store
+            .add_dp_spend(&tenant, 1.0, 0.0, 0)
+            .expect("seed spend");
+
+        // Baseline: no reservation, remaining is total minus spend.
+        let before = handle_dp_budget(State(state.clone()), Extension(tenant.clone()))
+            .await
+            .expect("budget")
+            .0;
+        assert_eq!(before["in_flight"], json!(false));
+        assert!((before["remaining_epsilon"].as_f64().unwrap() - 9.0).abs() < 1e-12);
+
+        // A run claims the tenant's remaining envelope.
+        let held = state
+            .store
+            .reserve_dp_budget(&tenant, 10.0, 1e-4, 0, 3600)
+            .expect("reserve")
+            .expect("granted");
+        let during = handle_dp_budget(State(state.clone()), Extension(tenant.clone()))
+            .await
+            .expect("budget")
+            .0;
+        assert_eq!(during["in_flight"], json!(true));
+        assert!((during["reserved_epsilon"].as_f64().unwrap() - 9.0).abs() < 1e-12);
+        assert_eq!(during["remaining_epsilon"], json!(0.0));
+
+        // Settling releases it; the billed spend is then reflected.
+        state
+            .store
+            .settle_dp_reservation(&tenant, &held.id, 2.0, 0.0, 0)
+            .expect("settle");
+        let after = handle_dp_budget(State(state), Extension(tenant))
+            .await
+            .expect("budget")
+            .0;
+        assert_eq!(after["in_flight"], json!(false));
+        assert!((after["spent_epsilon"].as_f64().unwrap() - 3.0).abs() < 1e-12);
+        assert!((after["remaining_epsilon"].as_f64().unwrap() - 7.0).abs() < 1e-12);
     }
 
     /// A tenant can override its own policy-history retention window; the global
