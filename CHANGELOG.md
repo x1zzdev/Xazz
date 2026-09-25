@@ -9,6 +9,16 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Docs — GPU/ONNX 백엔드 빌드·실행 가이드 (issue #151)
+
+- **`docs/GPU_BACKENDS.md`** — `xazz-exec`의 `wgpu`/`cuda`/`onnx`/`onnx-cuda`/
+  `onnx-tensorrt`/`onnx-directml`/`onnx-coreml` feature별 요구사항·빌드 명령,
+  플랫폼별 주의(Windows MSVC 전용, macOS CoreML), 런타임 선택 변수
+  (`XAZZ_BACKEND`, 통합 `XAZZ_DEVICE`, 폴백 `XAZZ_WGPU_DEVICE`/`XAZZ_CUDA_DEVICE`/
+  `XAZZ_ORT_EP`/`XAZZ_ORT_DEVICE`, `XAZZ_INFER_*`)와 acceptance 실행·현재 검증 상태 표
+- **`README.md`** "Build from source"에 GPU/ONNX feature 안내와 문서 링크,
+  **`DEMO_GUIDE.md`** 빌드 단계에 GPU 선택 안내 링크 추가
+
 ### Build — Windows GPU 기능 MSVC 툴체인 가드 (issue #103)
 
 - **`xazz-exec/build.rs`** — `windows-gnu` 타깃에서 `cuda`/`onnx*` feature를 켜면

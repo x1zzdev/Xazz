@@ -87,6 +87,12 @@ cargo build --release -p xazz -p xazz-runner
 # both binaries land in target/release/
 ```
 
+Optional GPU / ONNX acceleration is a Cargo feature on `xazz-exec`
+(`wgpu`, `cuda`, `onnx`, `onnx-cuda`, `onnx-tensorrt`, `onnx-directml`,
+`onnx-coreml`) and is selected at runtime with `XAZZ_BACKEND` / `XAZZ_DEVICE`.
+See [docs/GPU_BACKENDS.md](docs/GPU_BACKENDS.md) for the build matrix, platform
+requirements, and device-selection variables.
+
 ### Option C — Local browser demo with Docker
 
 With Docker Compose installed, clone this repository and run `docker compose up` at its root, then open <http://127.0.0.1:8005>. The IDE includes a synthetic air-quality sample and **Check safe example / Check unsafe example** buttons under Monitor. Those buttons perform a static policy check; they do not execute either example. Full Run executes the current pipeline and requires explicit confirmation. Compose uses a Docker-managed `xazz-data` volume for runs, audit records, uploads, and artifacts. **Existing `./data` users must follow the [upgrade steps](docs/DOCKER.md#upgrading-from-the-earlier-data-bind-mount) before switching mounts.**

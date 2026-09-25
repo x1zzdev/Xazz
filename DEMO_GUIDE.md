@@ -47,6 +47,11 @@ cargo build --release -p xazz-server
 
 You should now have `target/release/{xazz, xazz-runner, xazz-exec, xazz-server}`. The first three binaries must stay together for `xazz run`.
 
+> **GPU / ONNX (optional).** To train on a GPU, rebuild `xazz-exec` with a
+> backend feature (`cargo build --release -p xazz-exec --features wgpu`) and set
+> `XAZZ_BACKEND` / `XAZZ_DEVICE`. The default CPU build needs none of this — see
+> [docs/GPU_BACKENDS.md](docs/GPU_BACKENDS.md).
+
 Install the IDE frontend dependencies (one time):
 
 ```bash
