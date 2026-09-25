@@ -184,6 +184,10 @@ error: build script logged errors
 | 3 | **xazz-runner 기본 타임아웃 300s** — iGPU/CPU로 큰 학습 시 96 epoch에서 종료 | 장시간 학습이 조용히 잘림 | `XAZZ_EXEC_TIMEOUT_SECS` 안내 강화, 또는 `train` 존재 시 기본값 상향 검토 |
 | 4 | **Windows에서 cuda/onnx는 MSVC 전용** (§4, §5) | gnu 툴체인 사용자는 빌드 불가 | `xazz-exec/Cargo.toml` feature 주석과 README에 명시 |
 
+> 위 제안 1·4는 반영됐다: `xazz-exec/build.rs`가 `windows-gnu` + `cuda`/`onnx*` 조합을
+> 빌드 초입에서 MSVC 설치 안내와 함께 차단하고(`XAZZ_ALLOW_WINDOWS_GNU_GPU=1`로 우회),
+> `CONTRIBUTING.md` "Optional GPU backends"에 `--release`·MSVC 요건을 문서화했다.
+
 ### 6.2 남은 검증
 
 - [ ] **CUDA 실기** — 같은 호스트에서 VS Build Tools 설치 후 `rustup default stable-msvc`로 전체 재빌드하여 §4 재실행

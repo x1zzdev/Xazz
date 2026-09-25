@@ -19,6 +19,12 @@ path = "src/main.rs"
 # 아래 feature 는 해당 하드웨어/SDK가 있는 호스트에서만 켠다. 각 백엔드의
 # 실기 acceptance 테스트는 `#[ignore]` 로 게이트되어 있다
 # (`cargo test -p xazz-exec --features cuda -- --ignored`).
+#
+# ⚠️  Windows 에서 `cuda`/`onnx*` 는 MSVC 툴체인 전용이다. LibTorch 는 MSVC ABI
+#     로만 배포되고 ONNX Runtime 은 windows-gnu prebuilt 가 없어 GNU 툴체인으로는
+#     빌드되지 않는다(build.rs 가 사전 차단). `rustup default stable-x86_64-pc-windows-msvc`
+#     + VS Build Tools("Desktop development with C++")가 필요하다.
+#     참고: docs/design/gpu-backend-acceptance.md §4-§6.
 [features]
 default = []
 cuda = ["dep:burn-tch", "dep:tch"]
@@ -68,6 +74,7 @@ burn-wgpu = { version = "0.21", optional = true }
 # located via the `LIBTORCH` env var). Build a CUDA LibTorch (set
 # `TORCH_CUDA_VERSION`) to run on an NVIDIA GPU; `tch` is a direct dependency so
 # the provider can probe CUDA availability without panicking.
+# Windows: MSVC toolchain only (LibTorch is MSVC-ABI; see the features note).
 burn-tch = { version = "0.21", optional = true }
 tch = { version = "0.22", optional = true }
 
@@ -77,6 +84,7 @@ tch = { version = "0.22", optional = true }
 # the ONNX protobuf types without a build-time `protoc`, and `protobuf` is its
 # serialization trait. `tls-rustls` is used instead of the default `tls-native`
 # so the download needs no system OpenSSL (`openssl-sys`).
+# Windows: MSVC toolchain only (`ort-sys` has no windows-gnu prebuilt).
 ort = { version = "2.0.0-rc.13", default-features = false, features = [
     "std",
     "download-binaries",

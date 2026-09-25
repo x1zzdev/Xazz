@@ -105,6 +105,19 @@ CI runs the Rust checks in that order, then runs the license and dependency poli
 
 For Visual IDE changes, run `npm ci` and the `test:contract`, `test:stdout`, `test:contrast`, and `test:e2e` scripts from `visual-ide/`, as in `.github/workflows/ci.yml`.
 
+### Optional GPU backends
+
+`xazz-exec` ships CPU-only by default; GPU providers are opt-in cargo features:
+
+| Feature | Provider | Acceptance (gated, `#[ignore]`) |
+|---|---|---|
+| `wgpu` | `burn-wgpu` (no SDK needed) | `cargo test --release -p xazz-exec --features wgpu -- --ignored --nocapture` |
+| `cuda` | `burn-tch` / LibTorch | `TORCH_CUDA_VERSION=cu128 cargo test --release -p xazz-exec --features cuda -- --ignored --nocapture` |
+| `onnx` | ONNX Runtime (`ort`) | `cargo test --release -p xazz-exec --features onnx -- --ignored --nocapture` |
+
+- Use `--release` for GPU feature tests: under `windows-gnu` the debug test binary can exceed the 4 GB PE limit.
+- **Windows: `cuda`/`onnx*` require the MSVC toolchain.** LibTorch is MSVC-ABI and ONNX Runtime has no `windows-gnu` prebuilt, so `build.rs` fails fast unless you install `stable-x86_64-pc-windows-msvc` + VS Build Tools ("Desktop development with C++"). Set `XAZZ_ALLOW_WINDOWS_GNU_GPU=1` only to bypass the guard (unsupported). See `docs/design/gpu-backend-acceptance.md` §4–§6.
+
 ---
 
 ## Contribution path

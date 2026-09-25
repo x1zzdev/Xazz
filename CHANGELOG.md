@@ -9,6 +9,18 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Build — Windows GPU 기능 MSVC 툴체인 가드 (issue #103)
+
+- **`xazz-exec/build.rs`** — `windows-gnu` 타깃에서 `cuda`/`onnx*` feature를 켜면
+  빌드 초입에 MSVC 설치 안내(`rustup default stable-x86_64-pc-windows-msvc` + VS
+  Build Tools)와 함께 중단한다. LibTorch는 MSVC ABI 전용이고 `ort-sys`에는
+  windows-gnu prebuilt가 없어 GNU 툴체인에서는 컴파일이 불가능한데, 지금까지는
+  torch-sys/ort-sys의 장황한 C++·다운로드 오류로만 드러났다. `XAZZ_ALLOW_WINDOWS_GNU_GPU=1`
+  로 가드를 우회할 수 있다(비지원)
+- **`xazz-exec/Cargo.toml`** feature 주석과 **`CONTRIBUTING.md`** "Optional GPU backends"
+  표에 `--release`(windows-gnu debug 바이너리 4GB 초과) 및 Windows MSVC 요건 명시
+- `docs/design/gpu-backend-acceptance.md` §6.1에 반영 표기
+
 ### Docs — GPU 백엔드 실기 검증 기록 (issue #103)
 
 - **`docs/design/gpu-backend-acceptance.md`** — Windows 11 / RTX 4070 Laptop + Intel Arc iGPU
