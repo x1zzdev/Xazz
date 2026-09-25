@@ -1583,9 +1583,12 @@ fn emit_dl_sweep_call(
                         epochs_no_improve += 1;
                     }}
                 }}
+                let val_line = final_val_loss
+                    .map(|v| format!("  val_loss = {{v:.6}}"))
+                    .unwrap_or_default();
                 println!(
-                    "[Epoch {{epoch:>3}}/{{}}]  train_loss(MSE) = {{:.6}}",
-                    epochs, final_train_loss
+                    "[Epoch {{epoch:>3}}/{{}}]  train_loss = {{:.6}}{{}}",
+                    epochs, final_train_loss, val_line
                 );
                 if let Some(p) = patience {{
                     if val_n > 0 && epochs_no_improve >= p {{
@@ -2304,6 +2307,26 @@ mod tests {
         assert!(
             out.contains("final_val_loss = vloss.into_data().to_vec::<f32>()"),
             "검증 손실 계산 누락: {out}"
+        );
+    }
+
+    /// D3 sweep: each epoch prints val_loss when a validation split is set, so
+    /// convergence and early stopping are visible in generated code (issue #129).
+    #[test]
+    fn emit_rust_sweep_epoch_prints_val_loss() {
+        let out = emit(
+            "type S = { a: float, y: float };
+             model M { Dense(4) -> Dense(1) }
+             v data = load(\"x.csv\") :: S;
+             run data |> train(M, target: \"y\", epochs: [3, 5], validation_split: 0.2);",
+        );
+        assert!(
+            out.contains("val_loss = {v:.6}"),
+            "에폭별 val_loss 출력 누락: {out}"
+        );
+        assert!(
+            out.contains("train_loss = {:.6}{}"),
+            "에폭 출력이 train_loss/val_loss 형식이 아님: {out}"
         );
     }
 
