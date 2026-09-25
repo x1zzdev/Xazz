@@ -180,6 +180,7 @@ function DpLedgerPanel({ revision }) {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState(null)
   const [windowDraft, setWindowDraft] = useState('')
+  useEffect(() => setNotice(null), [revision])
   const data = state.status === 'ready' ? state.data : null
   const windowed = Number(data?.window_secs) > 0 && Number(data?.resets_at) > 0
   const now = useNow(windowed)
@@ -195,28 +196,38 @@ function DpLedgerPanel({ revision }) {
   }, [rolled, reload, data?.resets_at])
 
   const reset = async () => {
+    const accessAtStart = getApiAccess()
     setBusy(true)
     try {
       const after = await resetDpBudget()
-      setNotice({ tone: 'ok', text: (tr) => tr('gov.dp.resetDone').replace('{spent}', num(after?.spent_epsilon)) })
-      reloadResets()
+      if (getApiAccess() === accessAtStart) {
+        setNotice({ tone: 'ok', text: (tr) => tr('gov.dp.resetDone').replace('{spent}', num(after?.spent_epsilon)) })
+        reloadResets()
+      }
     } catch (error) {
-      setNotice({ tone: 'error', text: (tr) => `${tr('gov.dp.resetFailed')}: ${error.message}` })
+      if (getApiAccess() === accessAtStart) {
+        setNotice({ tone: 'error', text: (tr) => `${tr('gov.dp.resetFailed')}: ${error.message}` })
+      }
     } finally {
       setBusy(false)
       setConfirming(false)
-      reload()
+      if (getApiAccess() === accessAtStart) reload()
     }
   }
 
   const changeWindow = async (action) => {
+    const accessAtStart = getApiAccess()
     setBusy(true)
     try {
       const after = await action()
-      replace(after)
-      setNotice({ tone: 'ok', text: (tr) => tr('gov.dp.windowSaved') })
+      if (getApiAccess() === accessAtStart) {
+        replace(after)
+        setNotice({ tone: 'ok', text: (tr) => tr('gov.dp.windowSaved') })
+      }
     } catch (error) {
-      setNotice({ tone: 'error', text: () => error.message })
+      if (getApiAccess() === accessAtStart) {
+        setNotice({ tone: 'error', text: () => error.message })
+      }
     } finally {
       setBusy(false)
     }
@@ -565,29 +576,37 @@ function InferenceCheckPanel({ onChecked }) {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
+  const draftVersion = useRef(0)
+  const changeDraft = (name, value) => {
+    draftVersion.current += 1
+    setDraft((current) => ({ ...current, [name]: value }))
+    setResult(null)
+    setError(null)
+  }
   const field = (name, rows = 2) => (
     <label className="gov-field gov-field--wide">
       <span>{t(`gov.inference.${name}`)}</span>
       {rows ? (
         <textarea rows={rows} value={draft[name]} autoComplete="off" spellCheck={false}
-          onChange={(event) => setDraft({ ...draft, [name]: event.target.value })} />
+          onChange={(event) => changeDraft(name, event.target.value)} />
       ) : (
         <input value={draft[name]} autoComplete="off" spellCheck={false}
-          onChange={(event) => setDraft({ ...draft, [name]: event.target.value })} />
+          onChange={(event) => changeDraft(name, event.target.value)} />
       )}
     </label>
   )
   const submit = async (event) => {
     event.preventDefault()
+    const submittedVersion = draftVersion.current
     setBusy(true)
     setError(null)
     setResult(null)
     try {
       const checked = await checkInference(draft)
-      setResult(checked)
+      if (draftVersion.current === submittedVersion) setResult(checked)
       onChecked()
     } catch (problem) {
-      setError(problem)
+      if (draftVersion.current === submittedVersion) setError(problem)
     } finally {
       setBusy(false)
     }
@@ -609,7 +628,7 @@ function InferenceCheckPanel({ onChecked }) {
           </button>
           <button className="button button--tool-secondary button--compact" type="button"
             disabled={busy}
-            onClick={() => { setDraft({ code: '', prompt: '', response: '', model_fingerprint: '' }); setResult(null); setError(null) }}>
+            onClick={() => { draftVersion.current += 1; setDraft({ code: '', prompt: '', response: '', model_fingerprint: '' }); setResult(null); setError(null) }}>
             {t('gov.inference.clear')}
           </button>
         </div>
@@ -666,6 +685,7 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
   const [policyState, reloadPolicy] = useServerData(getPolicy, revision)
   const [historyState, reloadHistory] = useServerData(loadPolicyHistory, revision)
   const [ttlOffset, setTtlOffset] = useState(0)
+  useEffect(() => setTtlOffset(0), [revision])
   const [ttlHistoryState, reloadTtlHistory] = useServerData(
     () => getPolicyTtlHistory({ offset: ttlOffset }), `${revision}:${ttlOffset}`,
   )

@@ -170,6 +170,37 @@ test('inference gate blocks a leaked key and refreshes its audit record', async 
   await expect(panel.getByLabel('Control: Blocked')).toHaveCount(0)
 })
 
+test('inference verdict clears when the checked text changes, including during a request', async ({ page }) => {
+  let releaseSecond
+  let checks = 0
+  await mockServer(page, {
+    'POST /security/inference/check': async () => {
+      checks += 1
+      if (checks === 2) await new Promise((resolve) => { releaseSecond = resolve })
+      return { safe_to_emit: true, findings: [], audit_index: checks, chain_valid: true,
+        prompt_hash: 'a'.repeat(64), response_hash: 'b'.repeat(64) }
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Inference output gate' })
+  await panel.getByLabel('.xzz source code').fill('v x = 1;')
+  await panel.getByLabel('Prompt', { exact: true }).fill('summarize')
+  const response = panel.getByLabel('Model response')
+  await response.fill('Nothing sensitive.')
+  await panel.getByRole('button', { name: 'Check response' }).click()
+  await expect(panel.getByLabel('Control: Safe to emit')).toBeVisible()
+  await response.fill('The key AKIAIOSFODNN7EXAMPLE was exposed.')
+  await expect(panel.getByLabel('Control: Safe to emit')).toHaveCount(0)
+
+  await response.fill('Another safe response.')
+  await panel.getByRole('button', { name: 'Check response' }).click()
+  await expect.poll(() => Boolean(releaseSecond)).toBe(true)
+  await response.fill('The key AKIAIOSFODNN7EXAMPLE was exposed.')
+  releaseSecond()
+  await expect(panel.getByRole('button', { name: 'Check response' })).toBeEnabled()
+  await expect(panel.getByLabel('Control: Safe to emit')).toHaveCount(0)
+})
+
 test('audit chain shows the server verdict and names a tampered record', async ({ page }) => {
   await mockServer(page)
   await openMonitor(page)
@@ -240,6 +271,32 @@ test('TTL change history pages and refreshes after a retention change', async ({
   await expect(table.getByRole('row').nth(1)).toContainText('clear')
   await expect(table.getByRole('row').nth(1)).toContainText('3600')
   expect(requests.some((r) => r.path === '/security/policy/history/ttl/history')).toBe(true)
+})
+
+test('TTL history returns to page one when server access changes', async ({ page }) => {
+  const requests = await mockServer(page, {
+    'GET /security/policy/history/ttl/history': (request) => {
+      const tenant = request.headers()['x-xazz-tenant']
+      const offset = Number(new URL(request.url()).searchParams.get('offset'))
+      const history = tenant === 'A'
+        ? Array.from({ length: 21 }, (_, id) => ({ id, action: 'set', changed_by: 'A', changed_at: 1790000000 - id })).slice(offset, offset + 20)
+        : [{ id: 100, action: 'set', changed_by: 'B', changed_at: 1790000000 }].slice(offset, offset + 20)
+      return { tenant, limit: 20, offset, history }
+    },
+  })
+  await openMonitor(page)
+  await page.getByText('Server access').click()
+  const tenantInput = page.getByLabel('Tenant (X-Xazz-Tenant)')
+  await tenantInput.fill('A')
+  await page.getByRole('button', { name: 'Apply and reload panels' }).click()
+  const panel = page.getByRole('region', { name: 'Policy packs' })
+  await panel.getByRole('button', { name: 'Next' }).click()
+  await expect(panel).toContainText('Page 2')
+  await tenantInput.fill('B')
+  await page.getByRole('button', { name: 'Apply and reload panels' }).click()
+  await expect(panel).toContainText('Page 1')
+  await expect(panel.getByRole('table', { name: 'Retention change history' })).toContainText('B')
+  expect(requests.some((r) => r.path === '/security/policy/history/ttl/history' && r.headers['x-xazz-tenant'] === 'B')).toBe(true)
 })
 
 test('policy packs install, reject bad JSON, and remove only after confirmation', async ({ page }) => {
@@ -348,6 +405,36 @@ test('DP window keeps zero override distinct from clearing and survives reload',
   await panel.getByLabel('Window length (seconds)').fill('315360001')
   await panel.getByRole('button', { name: 'Save window' }).click()
   await expect(panel.getByRole('status')).toContainText('window_secs must be at most 315360000 seconds')
+})
+
+test('a late DP window answer cannot replace another tenant’s ledger', async ({ page }) => {
+  let releaseA
+  await mockServer(page, {
+    'GET /dp/budget': (request) => {
+      const tenant = request.headers()['x-xazz-tenant']
+      return { ...defaults()['GET /dp/budget'], tenant, window_secs: tenant === 'A' ? 10 : 20, window_source: 'global' }
+    },
+    'PUT /dp/budget/window': (request) => new Promise((resolve) => {
+      releaseA = () => resolve({ ...defaults()['GET /dp/budget'], tenant: 'A', window_secs: 99, window_source: 'tenant' })
+    }),
+  })
+  await openMonitor(page)
+  await page.getByText('Server access').click()
+  const tenantInput = page.getByLabel('Tenant (X-Xazz-Tenant)')
+  await tenantInput.fill('A')
+  await page.getByRole('button', { name: 'Apply and reload panels' }).click()
+  const panel = page.getByRole('region', { name: 'Differential-privacy ledger' })
+  await expect(panel).toContainText('10s · global')
+  await panel.getByLabel('Window length (seconds)').fill('99')
+  await panel.getByRole('button', { name: 'Save window' }).click()
+  await expect.poll(() => Boolean(releaseA)).toBe(true)
+  await tenantInput.fill('B')
+  await page.getByRole('button', { name: 'Apply and reload panels' }).click()
+  await expect(panel).toContainText('20s · global')
+  releaseA()
+  await expect(panel.getByRole('button', { name: 'Save window' })).toBeEnabled()
+  await expect(panel).toContainText('20s · global')
+  await expect(panel).not.toContainText('99s · tenant')
 })
 
 test('DP reset history shows the actor and spend from before reset', async ({ page }) => {

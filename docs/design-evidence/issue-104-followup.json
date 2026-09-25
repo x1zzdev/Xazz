@@ -11,7 +11,7 @@
     "rendered_evidence": {
       "kind": "browser_assertion",
       "artifact": "visual-ide/tests/governance.spec.mjs",
-      "result": "Playwright Governance suite: 29 passed, including window persistence, reset actor history, TTL paging and inference block plus audit refresh."
+      "result": "Playwright Governance suite: 29 passed on initial candidate; targeted delta paths: 3 passed for edited inference text and tenant transitions."
     },
     "omitted_deep_gates_reason": "No new route, primary journey, service handoff, token, or visual direction is introduced."
   },

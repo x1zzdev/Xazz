@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from './api'
 
 /**
@@ -12,6 +12,8 @@ import { ApiError } from './api'
 export function useServerData(load, revision) {
   const [state, setState] = useState({ status: 'loading' })
   const [nonce, setNonce] = useState(0)
+  const currentRevision = useRef(revision)
+  currentRevision.current = revision
 
   useEffect(() => {
     let live = true
@@ -29,6 +31,8 @@ export function useServerData(load, revision) {
   }, [revision, nonce])
 
   const reload = useCallback(() => setNonce((value) => value + 1), [])
-  const replace = useCallback((data) => setState({ status: 'ready', data }), [])
+  const replace = useCallback((data) => {
+    if (currentRevision.current === revision) setState({ status: 'ready', data })
+  }, [revision])
   return [state, reload, replace]
 }
