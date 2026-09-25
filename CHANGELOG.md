@@ -9,6 +9,17 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Docs — GPU 백엔드 실기 검증 기록 (issue #103)
+
+- **`docs/design/gpu-backend-acceptance.md`** — Windows 11 / RTX 4070 Laptop + Intel Arc iGPU
+  호스트에서 D1(#62)·D2(#63)의 `#[ignore]` acceptance를 실행한 기록. `wgpu`는
+  `wgpu_matches_cpu_losses` 통과 + `XAZZ_DEVICE=dgpu:0`/`igpu:0`가 각각 RTX 4070 / Intel Arc를
+  선택함을 프로세스별 GPU 엔진 카운터로 확인. `cuda`(torch-sys C++ 셰임 g++ 컴파일 불가)와
+  `onnx`(`ort-sys`에 windows-gnu prebuilt 없음)는 **Windows에서 MSVC 툴체인 필수**로 판명 —
+  오류 원문과 재현 명령 수록. 부수 발견: windows-gnu debug 테스트 바이너리 4GB 초과(`--release`
+  필요), wgpu 어댑터 선택 로그 부재, `xazz-runner` 300s 기본 타임아웃
+- `docs/ROADMAP.md` D1/D2 항목에 실기 결과 반영
+
 ### Performance — GPU/ONNX 벤치 측정 왜곡 제거 (NEXT #74/#75/#86)
 
 - **GPU→CPU 인메모리 핸드오프 (D1/D2)** — `train_on_device`가 학습 후 CPU
