@@ -1,17 +1,17 @@
-//! Build-time guard for the Windows GPU backends (issue #103).
+//! Build-time guard for the Windows ONNX backends (issue #103, revised in #62).
 //!
-//! `torch-sys` links against MSVC-ABI LibTorch, and `ort-sys` publishes no
-//! prebuilt runtime for `x86_64-pc-windows-gnu`. Building the `cuda`/`onnx*`
-//! features with the GNU toolchain therefore cannot succeed; fail fast with an
-//! actionable message instead of a long stream of C++/download errors.
+//! `ort-sys` publishes no prebuilt runtime for `x86_64-pc-windows-gnu`. Building
+//! the `onnx*` features with the GNU toolchain therefore cannot succeed; fail
+//! fast with an actionable message instead of a long stream of download errors.
 //!
-//! See `docs/design/gpu-backend-acceptance.md` §4–§6.
+//! The CUDA backend is no longer listed here: after the D1 revision it uses
+//! `burn-cuda` (pure-Rust CubeCL, no LibTorch/MSVC-ABI dependency), so it builds
+//! on either Windows toolchain. See `docs/design/gpu-backend-acceptance.md`.
 
 use std::env;
 
 /// `(cargo feature, CARGO_FEATURE_* env var)` pairs that are MSVC-only on Windows.
 const FEATURES: &[(&str, &str)] = &[
-    ("cuda", "CARGO_FEATURE_CUDA"),
     ("onnx", "CARGO_FEATURE_ONNX"),
     ("onnx-cuda", "CARGO_FEATURE_ONNX_CUDA"),
     ("onnx-tensorrt", "CARGO_FEATURE_ONNX_TENSORRT"),
@@ -50,9 +50,9 @@ fn main() {
 
     // Emit as warnings so the guidance survives even if the panic body is elided.
     for line in [
-        format!("[xazz] GPU feature(s) `{list}` cannot be built for {target}."),
-        "CUDA/ONNX on Windows require the MSVC toolchain: LibTorch is MSVC-ABI and \
-         ONNX Runtime ships no windows-gnu prebuilt."
+        format!("[xazz] ONNX feature(s) `{list}` cannot be built for {target}."),
+        "ONNX Runtime ships no windows-gnu prebuilt, so `ort-sys` cannot link on \
+         the GNU toolchain."
             .to_string(),
         "Fix (Windows):".to_string(),
         "  rustup toolchain install stable-x86_64-pc-windows-msvc".to_string(),
@@ -60,13 +60,13 @@ fn main() {
         "  # install VS Build Tools with \"Desktop development with C++\" if missing".to_string(),
         format!("  cargo test --release -p xazz-exec --features {list} -- --ignored --nocapture"),
         "Bypass (unsupported): set XAZZ_ALLOW_WINDOWS_GNU_GPU=1".to_string(),
-        "See docs/design/gpu-backend-acceptance.md §4-§6.".to_string(),
+        "See docs/design/gpu-backend-acceptance.md §6.".to_string(),
     ] {
         println!("cargo:warning={line}");
     }
 
     panic!(
-        "xazz-exec feature(s) `{list}` require the MSVC toolchain on {target}; \
-         see the cargo warnings above (or docs/design/gpu-backend-acceptance.md §4-§6)"
+        "xazz-exec ONNX feature(s) `{list}` require the MSVC toolchain on {target}; \
+         see the cargo warnings above (or docs/design/gpu-backend-acceptance.md §6)"
     );
 }

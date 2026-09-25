@@ -12,7 +12,7 @@
 | **wgpu** acceptance | `cargo test --release -p xazz-exec --features wgpu -- --ignored` | **통과** — `wgpu_matches_cpu_losses` 1 passed (5.36s) |
 | **wgpu** `XAZZ_DEVICE=dgpu:0` | `xazz run` (학습·예측·차트) | **통과** — RTX 4070에서 실행됨을 GPU 엔진 카운터로 확인 |
 | **wgpu** `XAZZ_DEVICE=igpu:0` | `xazz run` | **통과** — Intel Arc에서 실행됨을 확인 (NVIDIA 사용률 0%) |
-| **cuda** (burn-tch) | `cargo test --release -p xazz-exec --features cuda -- --ignored` | **실패 (툴체인)** — torch-sys C++ 셰임이 GNU g++에서 컴파일 불가 |
+| **cuda** (burn-tch, historical) | `cargo test --release -p xazz-exec --features cuda -- --ignored` | **실패 (툴체인)** — 이후 burn-cuda로 교체됨(상단 개정 참고) |
 | **onnx** (ort) | `cargo test --release -p xazz-exec --features onnx -- --ignored` | **실패 (툴체인)** — `x86_64-pc-windows-gnu` 타깃용 prebuilt ONNX Runtime 없음 |
 | **onnx-coreml** (macOS M5) | — | 미실시 (별도 기기, 후속) |
 
@@ -20,6 +20,13 @@
 CUDA·ONNX는 이 호스트의 Rust 툴체인이 `x86_64-pc-windows-gnu`라서 빌드 단계에서 막혔다.
 두 provider 모두 Windows에서는 **MSVC 툴체인(`stable-x86_64-pc-windows-msvc` + VS Build Tools)이 필수**이며,
 실기 검증은 그 환경에서 다시 수행해야 한다(§6).
+
+> **2026-09-25 개정 (issue #62).** CUDA provider는 `burn-tch`(LibTorch)에서
+> `burn-cuda`(native CubeCL)로 교체되었다. 위 §4의 burn-tch 실패 기록은 **역사적
+> 기록**으로만 남긴다 — `burn-cuda`는 순수 Rust라 LibTorch/MSVC가 필요 없고,
+> NVIDIA 드라이버만 있으면 된다. 따라서 CUDA 실기 검증은 이 호스트에서도
+> **MSVC 없이** `cargo test --release -p xazz-exec --features cuda -- --ignored`로
+> 재시도할 수 있다. ONNX(`ort`)만 여전히 MSVC가 필요하다(§6).
 
 ---
 
@@ -114,7 +121,7 @@ Dense(32)→ReLU→Dense(1), 97 params, 228,383행 단일 배치, 10 epoch. 세 
 
 ---
 
-## 4. CUDA (burn-tch) — 실패, 툴체인
+## 4. CUDA (burn-tch) — 실패, 툴체인 (historical, superseded by burn-cuda)
 
 ```
 TORCH_CUDA_VERSION=cu128 cargo test --release -p xazz-exec --features cuda -- --ignored --nocapture

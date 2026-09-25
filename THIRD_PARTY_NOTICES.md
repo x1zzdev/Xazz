@@ -26,7 +26,7 @@ The allowed license set is permissive only; the single weak-copyleft dependency
 | duckdb, postgres | MIT/Apache-2.0 | DuckDB and PostgreSQL source connectors |
 | ort (ONNX Runtime bindings) | MIT/Apache-2.0 | ONNX export/inference (optional) |
 | wgpu | MIT/Apache-2.0 | WebGPU backend (optional) |
-| tch (LibTorch bindings) | MIT/Apache-2.0 | CUDA backend (optional) |
+| burn-cuda / CubeCL | MIT/Apache-2.0 | Native CUDA backend (optional) |
 | colored | MPL-2.0 | CLI colour output (MPL-2.0 exception) |
 
 ## JavaScript (Visual IDE)

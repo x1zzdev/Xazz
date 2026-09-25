@@ -169,21 +169,22 @@ datasets. This track makes Xazz handle real workloads.
 - [x] `burn-wgpu` (cross-vendor) provider behind `--features wgpu` — trains and
       predicts on the probed device with a portable checkpoint handoff; lavapipe
       software acceptance passed (2026-09-16)
-- [x] `burn-tch` (CUDA) provider behind `--features cuda` (2026-09-22) — `LibTorch`
-      device selection via `XAZZ_CUDA_DEVICE` (default 0), fails closed with a clear
-      message when the linked LibTorch has no CUDA runtime
+- [x] `burn-cuda` (native CubeCL CUDA) provider behind `--features cuda` (2026-09-25,
+      revised) — replaces the earlier `burn-tch`/LibTorch path. Pure Rust, no
+      LibTorch/system SDK/MSVC requirement; device index via `XAZZ_CUDA_DEVICE`
+      (default 0), fails closed to CPU when no CUDA driver is present. Shares the
+      CubeCL stack with `burn-wgpu` and tracks the upstream Burn 0.22 CUDA
+      direction (CubeCL CUDA, graph replay, LLVM GPU backends)
 - [x] `burn-wgpu` real-hardware acceptance — passed on Windows 11 / RTX 4070 Laptop +
       Intel Arc iGPU (2026-09-25); `XAZZ_DEVICE=dgpu:0` / `igpu:0` verified to select the
       intended adapter via per-process GPU engine counters
       (`docs/design/gpu-backend-acceptance.md`)
-- [ ] Real-hardware acceptance on a CUDA host — `cargo test -p xazz-exec --features cuda -- --ignored`
-      ⚠️ Attempted 2026-09-25 on the RTX 4070 host with the `x86_64-pc-windows-gnu` toolchain:
-      LibTorch 2.9.0+cu128 downloads, but torch-sys' C++ shim does not compile under g++
-      (MSVC-only flags/ABI). **Requires the MSVC toolchain on Windows** — retry pending.
+- [ ] Real-hardware acceptance on a CUDA host — `cargo test --release -p xazz-exec --features cuda -- --ignored`
+      The native provider compiles and falls back cleanly on a no-CUDA host; the
+      gated parity test still needs a machine with an NVIDIA driver.
 - Depends on: none (Burn API is backend-agnostic). Acceptance: same `.xzz` trains on CPU and CUDA with identical reported losses.
-  ⏳ **Provider landed 2026-09-22**: `burn-tch` wired through the trait + `train_on_device`/
-  `predict_on_device` device threading; the gated acceptance test needs a CUDA host with a
-  CUDA-built LibTorch (`TORCH_CUDA_VERSION`).
+  ⏳ **Provider revised 2026-09-25**: CUDA runs through `burn-cuda` (CubeCL) via
+  `train_on_device`/`predict_on_device`; the gated acceptance test needs a CUDA-driver host.
 
 ### D2. ONNX export/import — issue #63
 - [x] ONNX provider slot in `ComputeBackend` (`--features onnx`)
@@ -191,7 +192,12 @@ datasets. This track makes Xazz handle real workloads.
       for Dense/Conv1d/Embedding + ReLU/Sigmoid/Tanh/Softmax (2026-09-22)
 - [x] ONNX → inference without re-training — `OnnxBackend::predict` runs the exported
       graph through ONNX Runtime (`ort`, binaries auto-downloaded) (2026-09-22)
-- [ ] Real ONNX Runtime acceptance on a standard toolchain — `cargo test -p xazz-exec --features onnx -- --ignored`
+- [ ] **Migrate export to `burn-onnx`** — Burn 0.22 ships ONNX export via graph
+      capture, superseding the hand-written `ModelProto` builder (which only covers
+      the layer kinds Xazz declares). Keep `ort` for inference; delete the custom
+      exporter and its `rlx-onnx-proto`/`protobuf` dependencies when 0.22 lands.
+      Do not invest further in the homegrown exporter.
+- [ ] Real ONNX Runtime acceptance on a standard toolchain — `cargo test --release -p xazz-exec --features onnx -- --ignored`
       ⚠️ Attempted 2026-09-25 on Windows with the `x86_64-pc-windows-gnu` toolchain:
       `ort-sys` ships prebuilt binaries only for `*-windows-msvc`
       (`no prebuilt binaries available for target x86_64-pc-windows-gnu`). **Requires the MSVC
@@ -200,7 +206,7 @@ datasets. This track makes Xazz handle real workloads.
 - Depends on: D1 (device mapping). Acceptance: exported ONNX runs in onnxruntime with same prediction.
   ⏳ **Provider landed 2026-09-22**: export + `ort` runtime + parity test wired; the local
   WSL zig C++ linker cannot link ort's prebuilt C++ static library, so the gated acceptance
-  must run on a standard toolchain (Windows/CI).
+  must run on a standard toolchain (Windows/CI) — this is an ONNX-Runtime constraint, not a CUDA one.
 
 ### D3. Model graph expansion — issue #64
 - [x] **Early stopping** — `train(..., validation_split: 0.3, patience: N)` stops when validation
@@ -281,6 +287,9 @@ are exactly where "safe data in, auditable output out" becomes a real requiremen
 - [x] Prompt + response SHA-256 hashes appended to the existing append-only audit chain
       (`append_inference_call`; the response is **never stored** — only its hash)
 - [x] `POST /security/inference/check` — runtime output gate + per-call audit evidence
+- [ ] **Relocate the gate to the inference seam** — as burn-engine inference becomes
+      embedded, the output re-scan must run wherever inference executes (the F4
+      `infer` method), not only in the server endpoint. Tracked with F4.
 - Depends on: F1 (shared rule catalog). Acceptance: a demo where an LLM call emitting a masked secret
   is flagged and the prompt/response pair is verifiable in `/security/audit`.
   ✅ **Done 2026-09-07**: `curl /security/inference/check` flags a leaked API key (masked `AK******`),
@@ -301,6 +310,11 @@ are exactly where "safe data in, auditable output out" becomes a real requiremen
 - [x] Backend trait at the `MLOp` lowering boundary so Burn stays the first provider but
       burn-engine / ONNX Runtime are swappable behind the same Typed IR
       (`xazz-exec/src/backend.rs`, `XAZZ_BACKEND` selection + CPU fallback)
+- [ ] **GenAI inference/fine-tune seam** — extend `ComputeBackend` with an
+      `infer`/`fineTune` method so the F1 input gate, F2 output gate, and F3
+      sanitization report attach at the **single dispatch point where inference
+      actually runs**, rather than only at the server's `/security/inference/check`
+      endpoint. Without this, the output gate is not fail-closed for embedded runs.
 - [ ] burn-engine / remote-server provider impls (embedded vs remote, mirroring the
       `xazz-runner` + `xazz-server` split)
 - Depends on: D2 (ONNX) partially, F1–F3 (the guardrails must exist before inference calls are first-class). 

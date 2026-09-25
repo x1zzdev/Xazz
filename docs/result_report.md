@@ -67,7 +67,7 @@ Xazz는 이 세 가지 한계를 정면에서 해결하고자 한다. 첫째, Ru
 - **[모듈 시스템 & 표준 라이브러리]** `import "mod.xzz"`로 `type`/`model`/파이프라인을 파일 간 공유하고(사이클 fail-closed), 내장 stdlib(`std/common`, `std/math`, `std/models`)을 설치 없이 임포트
 - **[언어 서버 & 편집기 통합]** `xazz-lsp`가 `xazz check` 진단과 hover/go-to-def/rename(심볼 테이블)을 제공하고, VS Code 확장(`vscode-xazz/`)이 이를 구동
 - **[데이터 소스 커넥터]** 컬럼 소스(`.parquet`/`.arrow`) 확장자 자동 감지, CSV `sep:`/`header:` 옵션, DuckDB(`load("duckdb://…")`)·PostgreSQL(`load("postgres://…")`) 소스, `save()` 아티팩트 출력
-- **[추론 백엔드]** ONNX export·ONNX Runtime 추론, WebGPU(`burn-wgpu`)·LibTorch/CUDA(`burn-tch`) GPU 백엔드와 device/EP 선택, 추론 캐시(LRU)·행 단위 chunking
+- **[추론 백엔드]** ONNX export·ONNX Runtime 추론, WebGPU(`burn-wgpu`)·네이티브 CUDA(`burn-cuda`) GPU 백엔드와 device/EP 선택, 추론 캐시(LRU)·행 단위 chunking
 - **[정책 팩 & 카탈로그]** `xazz registry`로 정책 팩·stdlib 조회/설치 및 서버 테넌트 배포, `POST /catalog`로 파이프라인 카탈로그·컬럼 계보 산출
 - **[데이터 정화 & 프로비넌스]** `xazz sanitize`로 파인튜닝 데이터 PII 스캔·중복·편향 검사, `hf://` 모델 참조의 라이선스·미검증 웨이트 차단
 - **[Python 바인딩 & 배포]** Python에서 `xazz.check/run/policy` 호출, Docker 이미지(멀티아키 GHCR)와 GitHub Actions composite action·정책 게이트 워크플로
@@ -100,7 +100,7 @@ cd my-project
 - **엔터프라이즈 적용성**: 실행 전 정적 가드레일·차등 프라이버시 노이즈·SHA-256 감사 로그의 3중 안전망으로 금융·의료 등 민감 데이터 규제 산업에 즉시 적용 가능하다.
 - **보안 운영 부담 경감**: 정적 가드레일이 차단된 보안 위반 코드를 결정적 규칙(및 opt-in sLM 어댑터)으로 자동 보정하고 위반 사유 리포트를 제공하여, 데이터 유출 없이 보안 운영 오버헤드를 대폭 완화한다.
 - **생태계 확대**: 선언형 DSL로 개발 진입 장벽을 낮추고, CI/CD와 기여 가이드라인을 기반으로 대한민국 주도 데이터 엔지니어링 오픈소스 생태계 활성화에 기여한다.
-- **확장 가능성**: GPU 백엔드(burn-tch / burn-wgpu) 전환, 분산 학습, 실시간 스트리밍 파이프라인, 연산자·조인·스키마 진화 확장으로 지속 성장이 가능한 로드맵을 갖춘다.
+- **확장 가능성**: GPU 백엔드(burn-cuda / burn-wgpu) 전환, 분산 학습, 실시간 스트리밍 파이프라인, 연산자·조인·스키마 진화 확장으로 지속 성장이 가능한 로드맵을 갖춘다.
 
 ### 기타
 
@@ -121,7 +121,7 @@ cd my-project
 | Phase 4 — Typed IR & Optimizer | 단일 Typed IR·이중 파싱 제거·IR 최적화(`--opt`) | 완료 (v0.3.0) |
 | Phase 5 — Expanded Language | 연산자 확장·join 개선·스키마 진화 | 진행 중 |
 | Phase 5.5 — Data Scale | 컬럼 소스·아티팩트 출력 (`load`/`save`: Parquet, Arrow) | 완료 (#52) |
-| Phase 6 — AI Expansion | GPU 백엔드(burn-tch / burn-wgpu)·분산 학습·NQP | 계획 |
+| Phase 6 — AI Expansion | GPU 백엔드(burn-cuda / burn-wgpu)·분산 학습·NQP | 계획 |
 | Phase 7 — GenAI Governance | 프롬프트 입력 게이트·LLM 출력 재스캔·파인튜닝 데이터 정화·모델 프로비넌스 | 계획 (Track F) |
 
 별도 R&D 트랙: sLM 보안 코드 자동 보정 어댑터(현재 공개 모델 Qwen2.5-Coder-1.5B를 Ollama로 서빙하는 **유형 1**)는 QLoRA 실학습·GGUF 배포·보정 정확도 측정을 진행 중이며, 학습 완료 시 유형 2로 갱신합니다.
@@ -161,7 +161,7 @@ cd my-project
 | 21 | ort | 2.0.0-rc.13 | MIT/Apache-2.0 | https://github.com/pykeio/ort | ONNX Runtime 추론 백엔드 |
 | 22 | tower-lsp | 0.20 | MIT/Apache-2.0 | https://github.com/ebkalderon/tower-lsp | LSP 서버 (`xazz-lsp`) |
 | 23 | wgpu | 29.0 | MIT/Apache-2.0 | https://github.com/gfx-rs/wgpu | WebGPU GPU 백엔드 (`--features wgpu`, optional) |
-| 24 | tch | 0.22 | MIT/Apache-2.0 | https://github.com/LaurentMazare/tch-rs | LibTorch/CUDA 백엔드 (`--features cuda`, optional) |
+| 24 | burn-cuda / CubeCL | 0.21 | MIT/Apache-2.0 | https://github.com/tracel-ai/burn | 네이티브 CUDA 백엔드 (`--features cuda`, optional) |
 | 25 | react | 19.3.0 | MIT | https://github.com/facebook/react | 프론트엔드 UI 렌더링 |
 | 26 | react-dom | 19.3.0 | MIT | https://github.com/facebook/react | DOM 렌더링 |
 | 27 | @xyflow/react | 12.11.6 | MIT | https://github.com/xyflow/xyflow | 노드 기반 Visual IDE 플로우 |
