@@ -451,6 +451,32 @@ pub struct TrainReport {
     /// Final coefficient of determination (R²) over the validation split (if any).
     #[serde(default)]
     pub final_val_r2: Option<f64>,
+    /// Classification metrics when the target is categorical (issue #163).
+    /// `None` for regression runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classification: Option<ClassificationMetrics>,
+}
+
+/// Classification metrics for a categorical target (issue #163).
+///
+/// Precision/recall/F1 are macro-averaged over classes. The confusion matrix is
+/// row-major: entry `actual * num_classes + predicted`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ClassificationMetrics {
+    /// Number of distinct classes.
+    pub num_classes: usize,
+    /// Fraction of correctly predicted rows.
+    pub accuracy: f64,
+    /// Macro-averaged precision.
+    pub precision: f64,
+    /// Macro-averaged recall.
+    pub recall: f64,
+    /// Macro-averaged F1.
+    pub f1: f64,
+    /// One-vs-rest AUC (binary targets only; NaN for multiclass).
+    pub auc: f64,
+    /// Row-major confusion matrix, `[actual * num_classes + predicted]`.
+    pub confusion_matrix: Vec<usize>,
 }
 
 /// Trained model — also holds the standardization statistics needed for predict().
@@ -891,6 +917,53 @@ fn regression_metrics(preds: &[f32], targets: &[f32]) -> (f64, f64) {
         0.0
     };
     (mae, r2)
+}
+
+/// Returns the sorted class values when `targets` look categorical (issue #163).
+///
+/// A target is treated as classification when every finite value is an integer
+/// and the distinct count is between 2 and `max_classes`. Returns `None` for a
+/// continuous target (any non-integer value) or a degenerate one (0/1 class).
+pub fn detect_classification(targets: &[f32], max_classes: usize) -> Option<Vec<f32>> {
+    let mut classes: Vec<f32> = Vec::new();
+    for &t in targets {
+        if !t.is_finite() {
+            continue;
+        }
+        if t.fract() != 0.0 {
+            return None;
+        }
+        if !classes.contains(&t) {
+            classes.push(t);
+            if classes.len() > max_classes {
+                return None;
+            }
+        }
+    }
+    if classes.len() < 2 {
+        return None;
+    }
+    classes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    Some(classes)
+}
+
+/// Computes accuracy, macro precision/recall/F1, one-vs-rest AUC, and the
+/// confusion matrix (issue #163).
+///
+/// `preds` are predicted class labels (already argmaxed), `targets` are the
+/// ground-truth labels, and `classes` is the class list from
+/// [`detect_classification`]. AUC is only defined for binary targets.
+///
+/// TODO(#163): implement the formulas and wire this into the classification
+/// training path. The [`TrainReport::classification`] field stays `None` until
+/// the classification loss/output path lands, so this is not called yet.
+pub fn classification_metrics(
+    preds: &[f32],
+    targets: &[f32],
+    classes: &[f32],
+) -> ClassificationMetrics {
+    let _ = (preds, targets, classes);
+    todo!("issue #163: classification metrics")
 }
 
 /// Runs `dataset |> train(<model>, target: "...", ...)` on the default CPU backend.
@@ -1406,6 +1479,7 @@ where
         final_val_mae,
         final_train_r2,
         final_val_r2,
+        classification: None,
     };
 
     // Versioned sidecar manifest (D3) — written next to the Burn record so a
@@ -1748,6 +1822,40 @@ mod tests {
     }
 
     #[test]
+    fn detect_classification_accepts_integer_classes() {
+        let classes =
+            detect_classification(&[0.0, 1.0, 2.0, 1.0, 2.0], 10).expect("classification");
+        assert_eq!(classes, vec![0.0, 1.0, 2.0]);
+    }
+
+    #[test]
+    fn detect_classification_rejects_continuous_target() {
+        assert!(detect_classification(&[0.0, 0.5, 1.0], 10).is_none());
+    }
+
+    #[test]
+    fn detect_classification_rejects_single_class() {
+        assert!(detect_classification(&[1.0, 1.0, 1.0], 10).is_none());
+    }
+
+    /// Issue #163 scaffold: expected accuracy / confusion matrix for a 3-class toy
+    /// example. Un-ignore once `classification_metrics` is implemented.
+    #[test]
+    #[ignore = "issue #163 scaffold: implement classification_metrics"]
+    fn classification_metrics_confusion_matrix() {
+        let classes = [0.0f32, 1.0, 2.0];
+        let targets = [0.0f32, 0.0, 1.0, 1.0, 2.0, 2.0];
+        let preds = [0.0f32, 1.0, 1.0, 1.0, 2.0, 0.0];
+        let m = classification_metrics(&preds, &targets, &classes);
+        assert_eq!(m.num_classes, 3);
+        assert!((m.accuracy - 4.0 / 6.0).abs() < 1e-12);
+        // Row-major (actual * 3 + predicted): class0→{0:1,1:1}, class1→{1:2},
+        // class2→{2:1,0:1}.
+        assert_eq!(m.confusion_matrix, vec![1, 1, 0, 0, 2, 0, 1, 0, 1]);
+        assert!(m.precision.is_finite() && m.recall.is_finite() && m.f1.is_finite());
+    }
+
+    #[test]
     fn sweep_score_respects_selected_metric() {
         let mk = |val_loss: f64,
                   train_loss: f64,
@@ -2002,6 +2110,7 @@ mod tests {
             final_val_mae: Some(0.5),
             final_train_r2: 0.9,
             final_val_r2: Some(0.85),
+            classification: None,
         }
     }
 
