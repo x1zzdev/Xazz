@@ -88,9 +88,10 @@ device는 생성 시 1회 해석해 구조체에 보관 → `train`도 명시 de
 추가 단위 테스트: `parse_wgpu_device` 별칭/인덱스/오류, `artifact_key` 부재/변경
 무효화, CUDA device 부재 시 폴백.
 
-> 한계: WSL은 `ort` prebuilt C++ 정적 링크(zig C++)와 LibTorch ABI 문제로 CUDA/ONNX
-> **실기 실행**은 불가하다(NEXT.md 83·84). `check`/`clippy`는 전 조합 통과했고,
-> 실기 acceptance는 Windows/CUDA 호스트에서 `-- --ignored`로 실행한다.
+> 한계: WSL은 `ort` prebuilt C++ 정적 링크(zig C++) 문제로 ONNX **실기 실행**은
+> 불가하다(NEXT.md). CUDA는 2026-09-25 `burn-cuda`(네이티브 CubeCL)로 교체되어
+> LibTorch ABI 제약이 사라졌다 — `check`/`clippy`는 전 조합 통과했고,
+> 실기 acceptance는 CUDA 드라이버가 있는 호스트에서 `-- --ignored`로 실행한다.
 
 ---
 

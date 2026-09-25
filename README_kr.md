@@ -332,7 +332,7 @@ python benches/run_readme_benchmark.py --xlarge
 | Phase 4 — Typed IR & 최적화 | 단일 Typed IR, 이중 해석 제거, IR 최적화(`--opt`) | ✅ 완료 (v0.3.0) |
 | Phase 5 — 언어 확장 | 연산자 확장, join 개선, 스키마 진화 | 🚧 진행 중 |
 | Phase 5.5 — 데이터 스케일 | 컬럼 소스·아티팩트 출력 (`load`/`save`: Parquet, Arrow) | ✅ save/load (#52) |
-| Phase 6 — AI 확장 | GPU 백엔드(burn-tch / burn-wgpu), 분산 학습, NQP | 🔭 계획 |
+| Phase 6 — AI 확장 | GPU 백엔드(burn-cuda / burn-wgpu), 분산 학습, NQP | 🔭 계획 |
 | Phase 7 — GenAI 거버넌스 | 프롬프트 입력 게이트, LLM 출력 재스캔, 파인튜닝 데이터 정화 (burn-engine LoRA/QLoRA 연동), 모델 프로비넌스 | 🔭 계획 (Track F) |
 | Track G — 커뮤니티 | 다국어 문서 + Discussions, 릴리스·기여 가이드, 로컬 플레이그라운드 | 🚧 진행 중 ([#155](https://github.com/x1zzdev/Xazz/issues/155)) |
 
