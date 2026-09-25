@@ -83,8 +83,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // ── --json: print structured JSON execution result ──────────────────────
-            // Capture xazz-runner's stdout, parse the [xazz:result] / [xazz:diagnostics]
-            // markers, and reassemble into a single JSON object.
+            // Capture xazz-runner's stdout, parse the [xazz:result] / [xazz:diagnostics] /
+            // [xazz:train] / [xazz:dp] markers, and reassemble into a single JSON object.
             if json {
                 let output = cmd.output().map_err(|e| {
                     format!(
@@ -97,37 +97,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
                 let success = output.status.success();
 
-                let mut rows = serde_json::Value::Array(vec![]);
-                let mut schema = serde_json::Value::Array(vec![]);
-                let mut diagnostics: Option<serde_json::Value> = None;
-
-                for line in stdout.lines() {
-                    let trimmed = line.trim();
-                    if let Some(json_part) = trimmed.strip_prefix("[xazz:result] ")
-                        && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
-                    {
-                        if let Some(r) = parsed.get("rows") {
-                            rows = r.clone();
-                        }
-                        if let Some(s) = parsed.get("schema") {
-                            schema = s.clone();
-                        }
-                    }
-                    if let Some(json_part) = trimmed.strip_prefix("[xazz:diagnostics] ")
-                        && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
-                    {
-                        diagnostics = Some(parsed);
-                    }
-                }
+                let markers = parse_run_markers(&stdout);
 
                 let exit_code = output.status.code().unwrap_or(1);
                 let summary = serde_json::json!({
                     "success": success,
                     "exit_code": exit_code,
                     "source": source_path,
-                    "rows": rows,
-                    "schema": schema,
-                    "diagnostics": diagnostics,
+                    "rows": markers.rows,
+                    "schema": markers.schema,
+                    "diagnostics": markers.diagnostics,
+                    "training": markers.training,
+                    "dp": markers.dp,
                     "error": if success { None } else { Some(stderr.trim()) },
                     "logs": stderr.lines().map(|l| l.to_string()).collect::<Vec<_>>(),
                 });
@@ -490,4 +471,184 @@ pub(crate) fn find_runner() -> Result<std::path::PathBuf, String> {
          Set XAZZ_RUNNER_PATH to an absolute path or place xazz-runner next to the xazz binary."
             .to_string(),
     )
+}
+
+// ── `xazz run --json`: stdout marker extraction ───────────────────────────────
+//
+// The execution engine reports structured results as single-line stdout markers
+// (`[xazz:<kind>] <JSON>`). The CLI never links Polars, so it only reassembles
+// those markers; the shapes are owned by xazz-exec (see `runtime.rs`).
+
+/// Markers collected from one `xazz-runner` run.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct RunMarkers {
+    /// `[xazz:result]` → `rows` (the last one wins, as in the server).
+    pub rows: serde_json::Value,
+    /// `[xazz:result]` → `schema`.
+    pub schema: serde_json::Value,
+    /// `[xazz:diagnostics]` — type-checker diagnostics.
+    pub diagnostics: Option<serde_json::Value>,
+    /// `[xazz:train]` — Burn training report (last `train` in the script).
+    pub training: Option<serde_json::Value>,
+    /// `[xazz:dp]` — one entry per `withDp` step, in execution order (issue #117).
+    /// Each carries the DpReport plus the session budget after that step
+    /// (`budget_spent`, `budget_total`, `budget_remaining`, the `_delta` twins, `query_count`).
+    pub dp: Vec<serde_json::Value>,
+}
+
+/// Parses the `[xazz:result]`, `[xazz:diagnostics]`, `[xazz:train]` and `[xazz:dp]`
+/// markers out of the runner's stdout.
+///
+/// `[xazz:dp]` accepts both the current single-line form and the legacy form where
+/// the JSON follows on the next line. Markers emitted by an older engine without
+/// `budget_remaining*` get those fields derived from `budget_total − budget_spent`,
+/// so consumers can rely on them either way.
+pub(crate) fn parse_run_markers(stdout: &str) -> RunMarkers {
+    let mut markers = RunMarkers {
+        rows: serde_json::Value::Array(vec![]),
+        schema: serde_json::Value::Array(vec![]),
+        ..RunMarkers::default()
+    };
+
+    let lines: Vec<&str> = stdout.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let trimmed = lines[i].trim();
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:result] ")
+            && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
+        {
+            if let Some(r) = parsed.get("rows") {
+                markers.rows = r.clone();
+            }
+            if let Some(s) = parsed.get("schema") {
+                markers.schema = s.clone();
+            }
+        }
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:diagnostics] ")
+            && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
+        {
+            markers.diagnostics = Some(parsed);
+        }
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:train] ")
+            && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
+        {
+            markers.training = Some(parsed);
+        }
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:dp] ") {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part) {
+                markers.dp.push(with_dp_remaining(parsed));
+            }
+        } else if trimmed == "[xazz:dp]" {
+            // Legacy two-line form: JSON on the following line.
+            let next = lines.get(i + 1).map(|l| l.trim()).unwrap_or("");
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(next) {
+                markers.dp.push(with_dp_remaining(parsed));
+                i += 1;
+            }
+        }
+        i += 1;
+    }
+
+    markers
+}
+
+/// Backfills `budget_remaining` / `budget_remaining_delta` on a `[xazz:dp]` payload
+/// that predates those fields. Leaves payloads that already carry them untouched.
+fn with_dp_remaining(mut dp: serde_json::Value) -> serde_json::Value {
+    if let Some(obj) = dp.as_object_mut() {
+        for (remaining, total, spent) in [
+            ("budget_remaining", "budget_total", "budget_spent"),
+            (
+                "budget_remaining_delta",
+                "budget_total_delta",
+                "budget_spent_delta",
+            ),
+        ] {
+            if obj.contains_key(remaining) {
+                continue;
+            }
+            if let (Some(t), Some(s)) = (
+                obj.get(total).and_then(|v| v.as_f64()),
+                obj.get(spent).and_then(|v| v.as_f64()),
+            ) {
+                obj.insert(remaining.into(), serde_json::json!((t - s).max(0.0)));
+            }
+        }
+    }
+    dp
+}
+
+#[cfg(test)]
+mod run_marker_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn dp_markers_are_collected_in_order_with_budget() {
+        let stdout = "\
+[xazz] Pipeline #1 'station_counts' done: 25 × 2
+[xazz:dp] {\"mechanism\":\"laplace\",\"epsilon\":1.0,\"delta\":null,\"noised_columns\":[\"pm10\"],\"budget_spent\":1.0,\"budget_total\":10.0,\"budget_spent_delta\":0.0,\"budget_total_delta\":0.0001,\"query_count\":1,\"budget_remaining\":9.0,\"budget_remaining_delta\":0.0001}
+[xazz:dp] {\"mechanism\":\"gaussian\",\"epsilon\":0.5,\"delta\":1e-5,\"noised_columns\":[\"pm10\"],\"budget_spent\":1.5,\"budget_total\":10.0,\"budget_spent_delta\":1e-5,\"budget_total_delta\":0.0001,\"query_count\":2,\"budget_remaining\":8.5,\"budget_remaining_delta\":9e-5}
+[xazz:result] {\"rows\":[{\"station\":\"강남구\",\"pm10\":21.3}],\"schema\":[{\"name\":\"station\",\"type\":\"str\"}]}
+";
+        let m = parse_run_markers(stdout);
+        assert_eq!(m.dp.len(), 2);
+        assert_eq!(m.dp[0]["mechanism"], "laplace");
+        assert_eq!(m.dp[0]["budget_remaining"], 9.0);
+        assert_eq!(m.dp[1]["mechanism"], "gaussian");
+        assert_eq!(m.dp[1]["budget_spent"], 1.5);
+        assert_eq!(m.dp[1]["query_count"], 2);
+        // Engine-provided remaining values are passed through, not recomputed.
+        assert_eq!(m.dp[1]["budget_remaining"], 8.5);
+        assert_eq!(m.rows[0]["station"], "강남구");
+        assert_eq!(m.schema[0]["name"], "station");
+    }
+
+    #[test]
+    fn dp_remaining_is_derived_for_engines_without_the_field() {
+        let stdout = "[xazz:dp] {\"mechanism\":\"laplace\",\"epsilon\":2.0,\"budget_spent\":2.0,\"budget_total\":10.0,\"budget_spent_delta\":0.0,\"budget_total_delta\":0.0}\n";
+        let m = parse_run_markers(stdout);
+        assert_eq!(m.dp.len(), 1);
+        assert_eq!(m.dp[0]["budget_remaining"], 8.0);
+        assert_eq!(m.dp[0]["budget_remaining_delta"], 0.0);
+    }
+
+    #[test]
+    fn dp_remaining_floors_at_zero_when_overspent_marker_is_replayed() {
+        let stdout = "[xazz:dp] {\"budget_spent\":11.0,\"budget_total\":10.0}\n";
+        let m = parse_run_markers(stdout);
+        assert_eq!(m.dp[0]["budget_remaining"], 0.0);
+        // No δ totals in the payload → no δ remainder is invented.
+        assert!(m.dp[0].get("budget_remaining_delta").is_none());
+    }
+
+    #[test]
+    fn legacy_two_line_dp_marker_is_still_parsed() {
+        let stdout = "[xazz:dp]\n{\"mechanism\":\"laplace\",\"budget_spent\":1.0,\"budget_total\":4.0}\n[xazz:result] {\"rows\":[],\"schema\":[]}\n";
+        let m = parse_run_markers(stdout);
+        assert_eq!(m.dp.len(), 1);
+        assert_eq!(m.dp[0]["budget_remaining"], 3.0);
+        assert_eq!(m.rows, json!([]));
+    }
+
+    #[test]
+    fn training_and_diagnostics_markers_are_captured() {
+        let stdout = "\
+[xazz:diagnostics] {\"error_count\":0,\"warning_count\":1,\"errors\":[],\"warnings\":[]}
+[xazz:train] {\"model_name\":\"AirPredictor\",\"report\":{\"epochs\":10,\"final_train_loss\":1513.07},\"success\":true,\"type\":\"train_stmt\"}
+";
+        let m = parse_run_markers(stdout);
+        assert_eq!(m.diagnostics.as_ref().unwrap()["warning_count"], 1);
+        assert_eq!(m.training.as_ref().unwrap()["model_name"], "AirPredictor");
+        assert!(m.dp.is_empty());
+    }
+
+    #[test]
+    fn malformed_markers_are_ignored_without_panicking() {
+        let stdout = "[xazz:dp] {not json\n[xazz:dp]\nalso not json\n[xazz:result] nope\n";
+        let m = parse_run_markers(stdout);
+        assert!(m.dp.is_empty());
+        assert_eq!(m.rows, json!([]));
+        assert!(m.training.is_none());
+    }
 }

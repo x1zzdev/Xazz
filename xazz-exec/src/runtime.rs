@@ -1515,6 +1515,16 @@ fn execute_node(
                         "query_count".into(),
                         serde_json::json!(dp_budget.query_count()),
                     );
+                    // Remaining budget after this step, so `xazz run --json` / dashboards
+                    // (issue #117) need not re-derive it from total − spent.
+                    obj.insert(
+                        "budget_remaining".into(),
+                        serde_json::json!(dp_budget.remaining()),
+                    );
+                    obj.insert(
+                        "budget_remaining_delta".into(),
+                        serde_json::json!(dp_budget.remaining_delta()),
+                    );
                 }
                 // Single-line self-contained marker (parse-safe even if broken by newlines/emoji).
                 println!("[xazz:dp] {}", dp_json);

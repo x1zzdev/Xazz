@@ -179,7 +179,7 @@ error: build script logged errors
 
 | # | 내용 | 영향 | 제안 |
 |---|---|---|---|
-| 1 | **GNU 툴체인 debug 테스트 바이너리 4GB 초과** — `cargo test --features wgpu`(debug)가 4,045,037,500 bytes exe를 만들어 `os error 193`(올바른 Win32 응용 프로그램이 아님)으로 실행 불가. GNU 링커는 DWARF를 exe에 포함하는데 wgpu(cubecl/burn)+Polars+DuckDB 조합이 PE 한도를 넘김 (wgpu 없는 빌드는 1.75GB) | Windows-gnu에서 GPU feature 테스트는 debug로 불가 | 문서에 `--release` 안내 (또는 `[profile.test] debug = 0`) |
+| 1 | **GNU 툴체인 debug 테스트 바이너리가 Windows 로더 한도 초과** — `cargo test --features wgpu`(debug)가 4,045,037,500 bytes exe를 만들어 `os error 193`(올바른 Win32 응용 프로그램이 아님)으로 실행 불가. GNU 링커는 DWARF를 exe에 포함하는데 wgpu(cubecl/burn)+Polars+DuckDB 조합이 한도를 넘김. 한도는 4GB가 아니라 그보다 낮다: 2026-09-25 main(`ac57a44`)에서는 **기본 feature의 debug 테스트 바이너리(3.24GB)도 같은 오류**로 실행되지 않았고, 8/27의 1.75GB 빌드는 실행됐다 | Windows-gnu에서 `xazz-exec` 테스트는 debug 기본 설정으로 불가 (GPU feature 여부 무관) | `--release` 또는 `CARGO_PROFILE_DEV_DEBUG=0`(디버그 정보 제거, 전체 재빌드 ≈7분)으로 실행. 저장소 차원에서는 `[profile.test] debug = 0` 또는 `split-debuginfo` 검토 |
 | 2 | **어댑터 선택 로그 부재** — cubecl-wgpu의 `Using adapter` info 로그가 로거 미설치로 소실 | `XAZZ_DEVICE` 결과를 로그로 검증 불가 | xazz-exec에 `XAZZ_LOG`(또는 `RUST_LOG`) 기반 로거 설치, `[xazz] ML backend: wgpu (adapter: …)` 형태로 노출 |
 | 3 | **xazz-runner 기본 타임아웃 300s** — iGPU/CPU로 큰 학습 시 96 epoch에서 종료 | 장시간 학습이 조용히 잘림 | `XAZZ_EXEC_TIMEOUT_SECS` 안내 강화, 또는 `train` 존재 시 기본값 상향 검토 |
 | 4 | **Windows에서 cuda/onnx는 MSVC 전용** (§4, §5) | gnu 툴체인 사용자는 빌드 불가 | `xazz-exec/Cargo.toml` feature 주석과 README에 명시 |

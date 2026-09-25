@@ -212,6 +212,11 @@ impl PrivacyBudget {
     pub fn remaining(&self) -> f64 {
         (self.total_eps - self.spent_eps).max(0.0)
     }
+
+    /// Remaining δ budget (0 when the session is pure ε-DP or the cap is reached).
+    pub fn remaining_delta(&self) -> f64 {
+        (self.total_delta - self.spent_delta).max(0.0)
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -606,6 +611,22 @@ mod tests {
         assert!(err.contains("예산 초과"), "예산 초과 메시지 아님: {err}");
         // A rejected request does not consume budget
         assert!((budget.spent() - 1.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn remaining_delta_tracks_gaussian_spend_and_floors_at_zero() {
+        let mut budget = PrivacyBudget::new_with_delta(5.0, 1e-4);
+        assert!((budget.remaining_delta() - 1e-4).abs() < 1e-18);
+        assert!(budget.spend(DpMechanism::Gaussian, 1.0, 4e-5).is_ok());
+        assert!((budget.remaining_delta() - 6e-5).abs() < 1e-18);
+        // Laplace spends no δ, so the δ remainder is unchanged.
+        assert!(budget.spend(DpMechanism::Laplace, 1.0, 0.0).is_ok());
+        assert!((budget.remaining_delta() - 6e-5).abs() < 1e-18);
+        // A pure-ε session (no δ cap) reports 0 rather than a negative remainder.
+        assert_eq!(
+            PrivacyBudget::new_with_delta(1.0, 0.0).remaining_delta(),
+            0.0
+        );
     }
 
     #[test]
