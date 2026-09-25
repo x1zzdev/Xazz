@@ -452,6 +452,7 @@ async fn main() {
         .route("/runs/{id}", get(handle_run_by_id))
         .route("/dp/budget", get(handle_dp_budget))
         .route("/dp/budget/reset", post(handle_dp_budget_reset))
+        .route("/dp/budget/history", get(handle_dp_reset_history))
         .route(
             "/dp/budget/window",
             put(handle_dp_window_set).delete(handle_dp_window_clear),
@@ -1895,32 +1896,73 @@ async fn handle_dp_budget(
     )?))
 }
 
+/// Resolves the audit actor for a DP budget reset (issue #124).
+///
+/// A delegated admin reset is attributed to the [`Actor`] and must name a target
+/// tenant via `X-Xazz-Tenant`; a self-service reset is attributed to the tenant.
+fn dp_reset_actor(
+    tenant: &str,
+    actor: Option<&Extension<Actor>>,
+) -> Result<String, (StatusCode, String)> {
+    match actor {
+        Some(_) if tenant.is_empty() => Err((
+            StatusCode::BAD_REQUEST,
+            "admin DP reset requires X-Xazz-Tenant".to_string(),
+        )),
+        Some(Extension(a)) => Ok(a.0.clone()),
+        None => Ok(tenant.to_string()),
+    }
+}
+
 /// Resets the authenticated tenant's accumulated DP spend and window — issue C2.
 ///
-/// Tenant-scoped (self-service): only the caller's ledger is cleared. Other tenants'
-/// spends are untouched.
+/// Tenant-scoped (self-service): only the caller's ledger is cleared. An admin
+/// authenticated with `XAZZ_ADMIN_TOKEN` may instead target the namespace named
+/// by `X-Xazz-Tenant`, and the reset is recorded under `X-Xazz-Actor` (issue
+/// #124). Every reset appends to `dp_reset_history`, so it stays auditable even
+/// though `dp_budget` only keeps the current value.
 async fn handle_dp_budget_reset(
     State(state): State<AppState>,
     Extension(tenant): Extension<String>,
+    actor: Option<Extension<Actor>>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let tenant = tenant_str(tenant.as_str());
-    state
+    let actor = dp_reset_actor(tenant, actor.as_ref())?;
+    let record = state
         .store
-        .reset_dp_budget(tenant)
+        .reset_dp_budget_audited(tenant, &actor)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     let (total_eps, total_delta) = tenant_dp_envelope();
     let window = effective_dp_window(&state.store, tenant)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(dp_budget_view(
-        &state,
-        tenant,
-        total_eps,
-        total_delta,
-        window,
-        0.0,
-        0.0,
-    )?))
+    let mut view = dp_budget_view(&state, tenant, total_eps, total_delta, window, 0.0, 0.0)?;
+    if let Some(obj) = view.as_object_mut() {
+        obj.insert("reset_by".to_string(), json!(record.actor));
+        obj.insert("reset_at".to_string(), json!(record.reset_at));
+        obj.insert(
+            "spent_epsilon_before".to_string(),
+            json!(record.spent_epsilon_before),
+        );
+        obj.insert(
+            "spent_delta_before".to_string(),
+            json!(record.spent_delta_before),
+        );
+    }
+    Ok(Json(view))
+}
+
+/// Returns the tenant's append-only DP budget reset history — issue #124.
+async fn handle_dp_reset_history(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<String>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let tenant = tenant_str(tenant.as_str());
+    let resets = state
+        .store
+        .list_dp_resets(tenant, 50)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(json!({ "tenant": tenant, "resets": resets })))
 }
 
 /// Request body for `PUT /dp/budget/window`.
@@ -2632,13 +2674,14 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             .add_dp_spend(&other, 1.0, 0.0, 0)
             .expect("seed other");
 
-        let body = handle_dp_budget_reset(State(state.clone()), Extension(tenant.clone()))
+        let body = handle_dp_budget_reset(State(state.clone()), Extension(tenant.clone()), None)
             .await
             .expect("reset endpoint")
             .0;
         assert_eq!(body["tenant"], json!(tenant));
         assert_eq!(body["spent_epsilon"], json!(0.0));
         assert_eq!(body["spent_delta"], json!(0.0));
+        assert_eq!(body["reset_by"], json!(tenant));
         assert!((body["remaining_epsilon"].as_f64().unwrap() - 10.0).abs() < 1e-12);
         // The reset re-anchors the window.
         assert!(body["window_started_at"].as_i64().unwrap() > 0);
@@ -2649,6 +2692,75 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             .expect("budget endpoint")
             .0;
         assert!((other_body["spent_epsilon"].as_f64().unwrap() - 1.0).abs() < 1e-12);
+    }
+
+    /// A reset appends to an append-only history with the acting identity; an
+    /// admin-delegated reset is attributed to the actor, not the tenant (#124).
+    #[tokio::test]
+    async fn dp_budget_reset_records_actor_and_history() {
+        let state = test_state();
+        let tenant = format!("dp-audit-{}", std::process::id());
+        state
+            .store
+            .add_dp_spend(&tenant, 4.0, 2e-5, 0)
+            .expect("seed spend");
+
+        // Self-service reset is attributed to the tenant.
+        let self_body =
+            handle_dp_budget_reset(State(state.clone()), Extension(tenant.clone()), None)
+                .await
+                .expect("self reset")
+                .0;
+        assert_eq!(self_body["reset_by"], json!(tenant));
+        assert!((self_body["spent_epsilon_before"].as_f64().unwrap() - 4.0).abs() < 1e-12);
+
+        // A delegated admin reset is attributed to the actor.
+        state
+            .store
+            .add_dp_spend(&tenant, 1.0, 0.0, 0)
+            .expect("reseed spend");
+        let admin_body = handle_dp_budget_reset(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            Some(Extension(Actor("root".to_string()))),
+        )
+        .await
+        .expect("admin reset")
+        .0;
+        assert_eq!(admin_body["reset_by"], json!("root"));
+        assert!((admin_body["spent_epsilon_before"].as_f64().unwrap() - 1.0).abs() < 1e-12);
+
+        // History is newest-first and tenant-scoped.
+        let history = handle_dp_reset_history(State(state), Extension(tenant.clone()))
+            .await
+            .expect("history")
+            .0;
+        assert_eq!(history["tenant"], json!(tenant));
+        let resets = history["resets"].as_array().unwrap();
+        assert_eq!(resets.len(), 2);
+        assert_eq!(resets[0]["actor"], json!("root"));
+        assert_eq!(resets[1]["actor"], json!(tenant));
+
+        let other =
+            handle_dp_reset_history(State(test_state()), Extension("dp-audit-other".into()))
+                .await
+                .expect("other history")
+                .0;
+        assert_eq!(other["resets"].as_array().unwrap().len(), 0);
+    }
+
+    /// An admin reset without a target tenant is rejected (issue #124).
+    #[tokio::test]
+    async fn dp_budget_reset_admin_requires_target_tenant() {
+        let state = test_state();
+        let err = handle_dp_budget_reset(
+            State(state),
+            Extension(String::new()),
+            Some(Extension(Actor("root".to_string()))),
+        )
+        .await
+        .expect_err("admin reset without a target was accepted");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
     }
 
     /// A tenant can override its own DP window; the global default is the fallback.

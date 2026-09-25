@@ -144,6 +144,14 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             reserved_delta REAL NOT NULL DEFAULT 0,
             reserved_at INTEGER NOT NULL DEFAULT 0,
             expires_at INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS dp_reset_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant TEXT NOT NULL,
+            actor TEXT NOT NULL DEFAULT '',
+            spent_epsilon_before REAL NOT NULL DEFAULT 0,
+            spent_delta_before REAL NOT NULL DEFAULT 0,
+            reset_at INTEGER NOT NULL
         );",
     )
     .map_err(|e| format!("failed to create store schema: {e}"))?;
@@ -192,6 +200,24 @@ pub struct PolicyChangeRecord {
     pub changed_by: String,
     /// Unix epoch seconds
     pub changed_at: i64,
+}
+
+/// One append-only record of a DP budget reset (issue #124).
+///
+/// `actor` is who performed the reset: the tenant for a self-service reset, or
+/// the administrator identity for a delegated one. `spent_*_before` is the
+/// ledger state captured immediately before the reset, so the reset is auditable
+/// even though `dp_budget` only keeps the current value.
+#[derive(Debug, Clone, Serialize)]
+pub struct DpResetRecord {
+    pub id: i64,
+    pub tenant: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub actor: String,
+    pub spent_epsilon_before: f64,
+    pub spent_delta_before: f64,
+    /// Unix epoch seconds
+    pub reset_at: i64,
 }
 
 /// One append-only record of a per-tenant policy-history retention-window
@@ -618,6 +644,10 @@ impl Store {
     ///
     /// Tenant-scoped: other tenants' ledgers are untouched. A zeroed row is kept
     /// (rather than deleted) and re-anchored to now so a fresh window starts immediately.
+    ///
+    /// Retained as the unaudited primitive; `/dp/budget/reset` records through
+    /// [`Store::reset_dp_budget_audited`]. Tests use it to seed reset state.
+    #[allow(dead_code)]
     pub fn reset_dp_budget(&self, tenant: &str) -> Result<(), String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
@@ -634,6 +664,89 @@ impl Store {
         )
         .map_err(|e| format!("failed to reset dp budget: {e}"))?;
         Ok(())
+    }
+
+    /// Resets a tenant's DP spend and records who did it — issue #124.
+    ///
+    /// The previous spend and the actor are captured in the same transaction as
+    /// the reset, so the append-only history cannot drift from the ledger. The
+    /// returned record is the row that was written.
+    pub fn reset_dp_budget_audited(
+        &self,
+        tenant: &str,
+        actor: &str,
+    ) -> Result<DpResetRecord, String> {
+        let guard = self.open()?;
+        let conn = guard.as_ref().expect("open guarantees Some");
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| format!("failed to begin dp reset transaction: {e}"))?;
+        let now = now_epoch();
+        let (before_epsilon, before_delta) = tx
+            .query_row(
+                "SELECT spent_epsilon, spent_delta FROM dp_budget WHERE tenant = ?1",
+                params![tenant],
+                |row| Ok((row.get::<_, f64>(0)?, row.get::<_, f64>(1)?)),
+            )
+            .optional()
+            .map_err(|e| format!("failed to read dp budget: {e}"))?
+            .unwrap_or((0.0, 0.0));
+        tx.execute(
+            "INSERT INTO dp_budget (tenant, spent_epsilon, spent_delta, window_started_at, updated_at)
+             VALUES (?1, 0, 0, ?2, ?2)
+             ON CONFLICT(tenant) DO UPDATE SET
+                 spent_epsilon     = 0,
+                 spent_delta       = 0,
+                 window_started_at = ?2,
+                 updated_at        = ?2",
+            params![tenant, now],
+        )
+        .map_err(|e| format!("failed to reset dp budget: {e}"))?;
+        tx.execute(
+            "INSERT INTO dp_reset_history
+                 (tenant, actor, spent_epsilon_before, spent_delta_before, reset_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![tenant, actor, before_epsilon, before_delta, now],
+        )
+        .map_err(|e| format!("failed to record dp reset: {e}"))?;
+        let id = tx.last_insert_rowid();
+        tx.commit()
+            .map_err(|e| format!("failed to commit dp reset transaction: {e}"))?;
+        Ok(DpResetRecord {
+            id,
+            tenant: tenant.to_string(),
+            actor: actor.to_string(),
+            spent_epsilon_before: before_epsilon,
+            spent_delta_before: before_delta,
+            reset_at: now,
+        })
+    }
+
+    /// Lists a tenant's DP budget resets newest-first — issue #124.
+    pub fn list_dp_resets(&self, tenant: &str, limit: usize) -> Result<Vec<DpResetRecord>, String> {
+        let guard = self.open()?;
+        let conn = guard.as_ref().expect("open guarantees Some");
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, tenant, actor, spent_epsilon_before, spent_delta_before, reset_at
+                 FROM dp_reset_history WHERE tenant = ?1
+                 ORDER BY id DESC LIMIT ?2",
+            )
+            .map_err(|e| format!("failed to prepare dp reset history: {e}"))?;
+        let rows = stmt
+            .query_map(params![tenant, limit as i64], |row| {
+                Ok(DpResetRecord {
+                    id: row.get(0)?,
+                    tenant: row.get(1)?,
+                    actor: row.get(2)?,
+                    spent_epsilon_before: row.get(3)?,
+                    spent_delta_before: row.get(4)?,
+                    reset_at: row.get(5)?,
+                })
+            })
+            .map_err(|e| format!("failed to read dp reset history: {e}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("failed to read dp reset history: {e}"))
     }
 
     /// Returns the tenant's stored DP window override in seconds, if any — issue C2.
