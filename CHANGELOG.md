@@ -9,6 +9,28 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Changed — D1 CUDA provider를 burn-tch에서 burn-cuda(네이티브 CubeCL)로 교체 (issue #62)
+
+- **`xazz-exec`** — `--features cuda`가 `burn-tch`(LibTorch) 대신 `burn-cuda`
+  (native CubeCL)를 사용한다. 순수 Rust라 LibTorch/시스템 SDK/MSVC 툴체인이
+  필요 없고, `burn-wgpu`와 동일한 CubeCL 스택을 공유해 Burn 0.22의 CUDA 방향
+  (CubeCL CUDA · graph replay · LLVM GPU 백엔드)과 정렬된다. 런타임에는 NVIDIA
+  드라이버만 필요하며, 장치가 없으면 probe 후 CPU로 폴백한다(`CudaBackend::new`)
+- **`build.rs`** — windows-gnu MSVC 가드를 ONNX 전용으로 축소. `cuda`는 이제
+  GNU/MSVC 양쪽에서 빌드된다. `onnx*`는 여전히 `ort-sys` prebuilt 부재로 MSVC 전용
+- `burn-tch`/`tch` 의존 제거. 비활성 선택적 백엔드 항목(burn-candle/rocm/flex 등)은
+  `Cargo.lock`에 남아 있을 수 있으나 빌드 그래프에는 포함되지 않는다(`cargo tree`로 확인)
+
+### Direction — Burn 0.22 대응: ONNX export 위임 예정, emitter parity 동결
+
+- **ONNX (D2 #63)** — Burn 0.22의 `burn-onnx`(graph capture 기반 export)가
+  손으로 작성한 `dl::onnx_export`(`ModelProto` 빌더)를 대체한다. `ort` 추론은
+  유지하고, 0.22 안정화 시 exporter와 `rlx-onnx-proto`/`protobuf` 의존을 제거한다.
+  현 exporter에는 더 투자하지 않는다
+- **emitter** — `emit rust`의 Burn 코드 생성은 "reference emit" 지원 등급으로
+  두고, 런타임(`xazz-exec`)과의 기능별 parity 추가 투자를 동결한다. 드리프트
+  비용을 상한으로 묶기 위함(후속은 런타임에 집중)
+
 ### Security — 클라이언트 연결이 끊겨도 런 회계·감사·DP 정산 완료 (GHSA-wxqx-r7f6-qq3p)
 
 - **`xazz-server`** — `/execute` 핸들러가 실행과 후처리(런 기록·감사 체인 추가·DP 예약 정산)를

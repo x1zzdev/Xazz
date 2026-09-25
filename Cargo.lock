@@ -850,6 +850,7 @@ checksum = "a6c66b49136fc11f59773054358f401fbec7fa0d69615f55ef22c29cf241c9b7"
 dependencies = [
  "burn-backend",
  "burn-cubecl",
+ "burn-fusion",
  "cubecl",
 ]
 
@@ -8323,8 +8324,8 @@ name = "xazz-exec"
 version = "0.3.1"
 dependencies = [
  "burn",
+ "burn-cuda",
  "burn-ndarray",
- "burn-tch",
  "burn-wgpu",
  "duckdb",
  "encoding_rs",
@@ -8335,7 +8336,6 @@ dependencies = [
  "rlx-onnx-proto",
  "serde",
  "serde_json",
- "tch",
  "xazz-compiler",
  "xazz-core",
 ]

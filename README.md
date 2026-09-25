@@ -338,7 +338,7 @@ python benches/run_readme_benchmark.py --xlarge
 | Phase 4 — Typed IR & Optimizer | Single typed intermediate representation, double-parse removal, IR optimizer (`--opt`) | ✅ Complete (v0.3.0) |
 | Phase 5 — Expanded Language | More operators, join improvements, schema evolution | 🚧 In progress |
 | Phase 5.5 — Data Scale | Columnar sources & artifact output (`load`/`save`: Parquet, Arrow) | ✅ save/load (#52) |
-| Phase 6 — AI Expansion | GPU backends (burn-tch / burn-wgpu), distributed training, NQP | 🔭 Planned |
+| Phase 6 — AI Expansion | GPU backends (burn-cuda / burn-wgpu), distributed training, NQP | 🔭 Planned |
 | Phase 7 — GenAI Governance | Prompt input gate, LLM output re-scan, fine-tuning data sanitization (burn-engine LoRA/QLoRA pairing), model provenance | 🔭 Planned (Track F) |
 | Track G — Community | Multi-language docs + Discussions, release/contribution guides, local playground | 🚧 In progress ([#155](https://github.com/x1zzdev/Xazz/issues/155)) |
 

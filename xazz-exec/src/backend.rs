@@ -7,7 +7,7 @@
 //! Burn + burn-ndarray (pure-Rust CPU) is the first provider. The same trait is
 //! the plug-in slot for the hardware-gated work:
 //!
-//!   - CUDA (`burn-tch`) and WebGPU (`burn-wgpu`) — issue D1 (#62)
+//!   - CUDA (`burn-cuda`) and WebGPU (`burn-wgpu`) — issue D1 (#62)
 //!   - ONNX Runtime interop — issue D2 (#63)
 //!   - burn-engine / remote inference — issue F4 (#73)
 //!
@@ -265,7 +265,7 @@ impl BackendKind {
     pub fn parse(raw: &str) -> Option<Self> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "" | "cpu" | "ndarray" | "burn" | "burn-ndarray" => Some(BackendKind::Cpu),
-            "cuda" | "tch" | "torch" | "libtorch" | "burn-tch" => Some(BackendKind::Cuda),
+            "cuda" | "nvidia" | "burn-cuda" => Some(BackendKind::Cuda),
             "wgpu" | "gpu" | "webgpu" | "burn-wgpu" => Some(BackendKind::Wgpu),
             "onnx" | "onnxruntime" | "ort" => Some(BackendKind::Onnx),
             _ => None,
@@ -368,7 +368,7 @@ pub enum DeviceSpec {
     Integrated(usize),
     /// The `n`-th virtual GPU (WebGPU adapter).
     Virtual(usize),
-    /// CUDA device `n` (burn-tch device / ONNX CUDA EP).
+    /// CUDA device `n` (burn-cuda device / ONNX CUDA EP).
     Cuda(usize),
     /// TensorRT device `n` (ONNX EP).
     TensorRt(usize),
@@ -493,7 +493,7 @@ pub fn parse_ort_ep_spec(raw: &str) -> Result<OrtEpSpec, String> {
 // ─────────────────────────────────────────────────────────────────────────────
 // Feature-gated providers
 //
-// `cuda` (burn-tch), `wgpu` (burn-wgpu), and `onnx` (ONNX Runtime) are all
+// `cuda` (burn-cuda), `wgpu` (burn-wgpu), and `onnx` (ONNX Runtime) are all
 // implemented. Each provider's acceptance test beside the trait pins the
 // contract it must satisfy.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -502,18 +502,21 @@ pub fn parse_ort_ep_spec(raw: &str) -> Result<OrtEpSpec, String> {
 mod cuda {
     use super::*;
     use crate::dl::Mlp;
-    use burn_tch::{LibTorch, LibTorchDevice};
+    use burn::tensor::Tensor;
+    use burn_cuda::{Cuda, CudaDevice};
     use std::sync::Mutex;
 
-    /// CUDA provider (`burn-tch`, LibTorch). Trains and predicts on an NVIDIA GPU;
-    /// the portable checkpoint round-trips back to CPU for storage.
+    /// CUDA provider (`burn-cuda`, native CubeCL). Trains and predicts on an
+    /// NVIDIA GPU; the portable checkpoint round-trips back to CPU for storage.
     ///
-    /// The device is resolved once at construction (fail-closed when absent), and
-    /// loaded inference modules are kept in a small LRU keyed by checkpoint
-    /// identity, so repeated `predict` calls skip the JSON reload (issue D1).
+    /// Uses the same pure-Rust CubeCL stack as `burn-wgpu` (no LibTorch/system
+    /// SDK), so it tracks the upstream Burn 0.22 CUDA direction. The device is
+    /// resolved once at construction (fail-closed when absent), and loaded
+    /// inference modules are kept in a small LRU keyed by checkpoint identity,
+    /// so repeated `predict` calls skip the JSON reload (issue D1).
     pub struct CudaBackend {
-        device: LibTorchDevice,
-        cache: Mutex<crate::dl::LruCache<crate::dl::ArtifactKey, Mlp<LibTorch<f32>>>>,
+        device: CudaDevice,
+        cache: Mutex<crate::dl::LruCache<crate::dl::ArtifactKey, Mlp<Cuda<f32>>>>,
     }
 
     /// Resolves the CUDA device index.
@@ -545,38 +548,41 @@ mod cuda {
             .unwrap_or(0))
     }
 
-    /// Builds the LibTorch CUDA device, failing closed with a clear message when
-    /// the linked LibTorch has no CUDA runtime (rather than panicking inside tch).
-    fn device() -> Result<LibTorchDevice, String> {
-        if !tch::Cuda::is_available() {
-            return Err(tr(
-                "CUDA backend selected but LibTorch reports no available CUDA device. \
-                 Build LibTorch with CUDA (set TORCH_CUDA_VERSION) or unset XAZZ_BACKEND.",
-                "CUDA 백엔드를 선택했지만 LibTorch가 사용 가능한 CUDA 장치를 찾지 못했습니다. \
-                 LibTorch를 CUDA로 빌드(TORCH_CUDA_VERSION 설정)하거나 XAZZ_BACKEND를 해제하세요.",
+    /// Probes the device with a minimal op, converting CubeCL's CUDA
+    /// initialisation failure (missing driver/device, bad index) into a
+    /// fallback error instead of a later panic.
+    ///
+    /// CubeCL has no non-panicking device probe, so this catches the panic and
+    /// silences the default hook while doing so. It runs once during provider
+    /// construction (before any other CUDA work), so the temporary global hook
+    /// swap cannot race with concurrent GPU use.
+    fn probe_device(device: &CudaDevice) -> Result<(), String> {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let t = Tensor::<Cuda<f32>, 1>::zeros([1], device);
+            let _ = t.into_data();
+        }));
+        std::panic::set_hook(prev);
+        result.map_err(|_| {
+            tr(
+                "CUDA backend selected but no usable CUDA device/driver was found. \
+                 Check the NVIDIA driver and XAZZ_DEVICE/XAZZ_CUDA_DEVICE, or unset XAZZ_BACKEND.",
+                "CUDA 백엔드를 선택했지만 사용 가능한 CUDA 장치/드라이버를 찾지 못했습니다. \
+                 NVIDIA 드라이버와 XAZZ_DEVICE/XAZZ_CUDA_DEVICE를 확인하거나 XAZZ_BACKEND를 해제하세요.",
             )
-            .into());
-        }
-        let index = device_index()?;
-        let count = tch::Cuda::device_count();
-        if count > 0 && index as i64 >= count {
-            return Err(format!(
-                "{} (requested {index}, available {count})",
-                tr(
-                    "XAZZ_CUDA_DEVICE is out of range",
-                    "XAZZ_CUDA_DEVICE 인덱스가 범위를 벗어났습니다"
-                )
-            ));
-        }
-        Ok(LibTorchDevice::Cuda(index))
+            .to_string()
+        })
     }
 
     impl CudaBackend {
         /// Probes the CUDA device once, so an absent device becomes a CPU
         /// fallback at selection time instead of a per-call failure.
         pub fn new() -> Result<Self, String> {
+            let device = CudaDevice::new(device_index()?);
+            probe_device(&device)?;
             Ok(Self {
-                device: device()?,
+                device,
                 cache: Mutex::new(crate::dl::LruCache::new(crate::dl::infer_cache_slots())),
             })
         }
@@ -595,9 +601,9 @@ mod cuda {
                 .lock()
                 .map_err(|_| "CUDA inference cache poisoned".to_string())?;
             let model = guard.get_or_insert_with(key, || {
-                crate::dl::load_inference_model::<LibTorch<f32>>(trained, &self.device)
+                crate::dl::load_inference_model::<Cuda<f32>>(trained, &self.device)
             })?;
-            crate::dl::predict_with_model::<LibTorch<f32>>(trained, model, &self.device, df, as_col)
+            crate::dl::predict_with_model::<Cuda<f32>>(trained, model, &self.device, df, as_col)
         }
     }
 
@@ -613,13 +619,7 @@ mod cuda {
             layers: &[LayerKind],
             config: &TrainConfig,
         ) -> Result<TrainedModel, String> {
-            crate::dl::train_on_device::<LibTorch<f32>>(
-                df,
-                model_name,
-                layers,
-                config,
-                &self.device,
-            )
+            crate::dl::train_on_device::<Cuda<f32>>(df, model_name, layers, config, &self.device)
         }
 
         fn train_unpersisted(
@@ -629,7 +629,7 @@ mod cuda {
             layers: &[LayerKind],
             config: &TrainConfig,
         ) -> Result<TrainedModel, String> {
-            crate::dl::train_on_device_unpersisted::<LibTorch<f32>>(
+            crate::dl::train_on_device_unpersisted::<Cuda<f32>>(
                 df,
                 model_name,
                 layers,
@@ -1087,7 +1087,7 @@ mod tests {
         assert_eq!(BackendKind::parse(""), Some(BackendKind::Cpu));
         assert_eq!(BackendKind::parse(" burn-ndarray "), Some(BackendKind::Cpu));
         assert_eq!(BackendKind::parse("CUDA"), Some(BackendKind::Cuda));
-        assert_eq!(BackendKind::parse("tch"), Some(BackendKind::Cuda));
+        assert_eq!(BackendKind::parse("nvidia"), Some(BackendKind::Cuda));
         assert_eq!(BackendKind::parse("webgpu"), Some(BackendKind::Wgpu));
         assert_eq!(BackendKind::parse("ort"), Some(BackendKind::Onnx));
         assert_eq!(BackendKind::parse("quantum"), None);
@@ -1110,9 +1110,7 @@ mod tests {
     #[test]
     fn resolve_uncompiled_backend_falls_back_with_warning() {
         let (backend, warning) = resolve(Some("cuda"));
-        #[cfg(feature = "cuda")]
-        if tch::Cuda::is_available() {
-            assert_eq!(backend.id(), "cuda");
+        if backend.id() == "cuda" {
             assert!(warning.is_none());
             return;
         }
@@ -1636,17 +1634,18 @@ mod tests {
         cleanup(&trained.report.checkpoint_path);
     }
 
-    /// CUDA provider: on a host whose linked LibTorch has no CUDA runtime the
-    /// provider must fall back to CPU at selection time with a clear warning
-    /// instead of panicking inside tch. On a real CUDA host this test defers to
-    /// the `#[ignore]`d acceptance test, which exercises the actual device path.
+    /// CUDA provider: on a host without a usable CUDA device the provider must
+    /// fall back to CPU at selection time with a clear warning instead of
+    /// panicking inside CubeCL. On a real CUDA host this test defers to the
+    /// `#[ignore]`d acceptance test, which exercises the actual device path.
     #[cfg(feature = "cuda")]
     #[test]
     fn cuda_provider_falls_back_without_device() {
-        if tch::Cuda::is_available() {
+        let (backend, warning) = resolve(Some("cuda"));
+        if backend.id() == "cuda" {
+            assert!(warning.is_none());
             return;
         }
-        let (backend, warning) = resolve(Some("cuda"));
         assert_eq!(backend.id(), "cpu");
         assert!(warning.unwrap().contains("cuda"));
     }
@@ -1744,7 +1743,7 @@ mod acceptance {
 
     #[cfg(feature = "cuda")]
     #[test]
-    #[ignore = "requires a CUDA GPU + burn-tch: `cargo test -p xazz-exec --features cuda -- --ignored` (issue #62)"]
+    #[ignore = "requires a CUDA GPU + burn-cuda: `cargo test -p xazz-exec --features cuda -- --ignored` (issue #62)"]
     fn cuda_matches_cpu_losses() {
         assert_parity("cuda");
     }

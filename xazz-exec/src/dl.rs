@@ -957,9 +957,9 @@ where
 
 /// Like [`train_on`], but trains on an explicit device `B::Device`.
 ///
-/// GPU providers whose default device is the CPU (e.g. `burn-tch`'s
-/// `LibTorchDevice::default()` is `Cpu`) pass their device here so training runs
-/// on the intended accelerator. The returned artifact is the portable CPU
+/// GPU providers pass their device here so training runs on the intended
+/// accelerator (rather than the backend's default device), and so the device
+/// index is explicit. The returned artifact is the portable CPU
 /// [`TrainedModel`], transferred from the device **in memory** (issue D1/D2), so
 /// no checkpoint save→load disk round-trip is added to training time.
 pub fn train_on_device<B>(
@@ -1655,9 +1655,9 @@ where
 
 /// Like [`predict_on`], but evaluates on an explicit device `B::Device`.
 ///
-/// Providers whose default device is the CPU (e.g. `burn-tch`) pass their device
-/// so the forward pass runs on the intended accelerator. The checkpoint is loaded
-/// on each call; providers that predict repeatedly should cache via
+/// Providers pass their device so the forward pass runs on the intended
+/// accelerator. The checkpoint is loaded on each call; providers that predict
+/// repeatedly should cache via
 /// [`load_inference_model`] + [`predict_with_model`].
 pub fn predict_on_device<B>(
     trained: &TrainedModel,
