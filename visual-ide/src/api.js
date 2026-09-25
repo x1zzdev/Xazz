@@ -148,6 +148,8 @@ export const deletePolicy = () => request('/security/policy', { method: 'DELETE'
 export const getPolicyHistory = ({ limit = 20, offset = 0 } = {}) =>
   request(`/security/policy/history?limit=${limit}&offset=${offset}`)
 export const getPolicyTtl = () => request('/security/policy/history/ttl')
+export const getPolicyTtlHistory = ({ limit = 20, offset = 0 } = {}) =>
+  request(`/security/policy/history/ttl/history?limit=${limit}&offset=${offset}`)
 export const putPolicyTtl = (ttlSecs) =>
   request('/security/policy/history/ttl', { method: 'PUT', json: { ttl_secs: ttlSecs } })
 export const deletePolicyTtl = () => request('/security/policy/history/ttl', { method: 'DELETE' })

@@ -147,6 +147,53 @@ test('audit chain shows the server verdict and names a tampered record', async (
 
 // ── #109 Policy packs ───────────────────────────────────────────────────────
 
+test('TTL change history pages and refreshes after a retention change', async ({ page }) => {
+  const history = Array.from({ length: 21 }, (_, id) => ({
+    id: id + 1, action: 'set', old_ttl_secs: id, new_ttl_secs: id + 1,
+    changed_by: 'alice', changed_at: 1790000000 - id,
+  }))
+  let ttl = { tenant: '', ttl_secs: 0, ttl_source: 'global' }
+  const requests = await mockServer(page, {
+    'GET /security/policy/history/ttl': () => ttl,
+    'GET /security/policy/history/ttl/history': (request) => {
+      const query = new URL(request.url()).searchParams
+      const offset = Number(query.get('offset') ?? 0)
+      return { tenant: '', limit: 20, offset, history: history.slice(offset, offset + 20) }
+    },
+    'PUT /security/policy/history/ttl': (request) => {
+      const secs = request.postDataJSON().ttl_secs
+      history.unshift({ id: 22, action: 'set', old_ttl_secs: null, new_ttl_secs: secs,
+        changed_by: 'operator', changed_at: 1790000001 })
+      ttl = { tenant: '', ttl_secs: secs, ttl_source: 'tenant' }
+      return ttl
+    },
+    'DELETE /security/policy/history/ttl': () => {
+      history.unshift({ id: 23, action: 'clear', old_ttl_secs: ttl.ttl_secs,
+        new_ttl_secs: null, changed_by: 'operator', changed_at: 1790000002 })
+      ttl = { tenant: '', ttl_secs: 0, ttl_source: 'global' }
+      return ttl
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Policy packs' })
+  const table = panel.getByRole('table', { name: 'Retention change history' })
+  await expect(table.getByRole('row')).toHaveCount(21)
+  await panel.getByRole('button', { name: 'Next' }).click()
+  await expect(panel).toContainText('Page 2')
+  await expect(table.getByRole('row')).toHaveCount(2)
+  await panel.getByRole('button', { name: 'Previous' }).click()
+  await expect(table.getByRole('row')).toHaveCount(21)
+
+  await panel.getByLabel(/History retention/).fill('3600')
+  await panel.getByRole('button', { name: 'Save retention' }).click()
+  await expect(table).toContainText('operator')
+  await expect(table).toContainText('3600')
+  await panel.getByRole('button', { name: 'Use global default' }).click()
+  await expect(table.getByRole('row').nth(1)).toContainText('clear')
+  await expect(table.getByRole('row').nth(1)).toContainText('3600')
+  expect(requests.some((r) => r.path === '/security/policy/history/ttl/history')).toBe(true)
+})
+
 test('policy packs install, reject bad JSON, and remove only after confirmation', async ({ page }) => {
   let pack = null // the tenant pack the mock server holds
   const builtin = defaults()['GET /security/policy']

@@ -26,6 +26,7 @@ import {
   getPolicy,
   getPolicyHistory,
   getPolicyTtl,
+  getPolicyTtlHistory,
   putPolicy,
   putPolicyTtl,
   putDpWindow,
@@ -573,6 +574,10 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
   const time = useLocaleTime()
   const [policyState, reloadPolicy] = useServerData(getPolicy, revision)
   const [historyState, reloadHistory] = useServerData(loadPolicyHistory, revision)
+  const [ttlOffset, setTtlOffset] = useState(0)
+  const [ttlHistoryState, reloadTtlHistory] = useServerData(
+    () => getPolicyTtlHistory({ offset: ttlOffset }), `${revision}:${ttlOffset}`,
+  )
   const [draft, setDraft] = useState('')
   const [notice, setNotice] = useState(null)
   const [confirming, setConfirming] = useState(false)
@@ -585,6 +590,11 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
   const reloadAll = () => {
     reloadPolicy()
     reloadHistory()
+  }
+
+  const refreshTtlHistory = () => {
+    if (ttlOffset === 0) reloadTtlHistory()
+    else setTtlOffset(0)
   }
 
   const act = async (action, success) => {
@@ -755,6 +765,7 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
               return
             }
             act(() => putPolicyTtl(secs), (_, tr) => tr('gov.policy.ttlSaved'))
+              .then((ok) => ok && refreshTtlHistory())
           }}
         >
           <label className="gov-field">
@@ -781,12 +792,58 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
             className="button button--tool-secondary button--compact"
             type="button"
             disabled={busy || ttl.ttl_source !== 'tenant'}
-            onClick={() => act(deletePolicyTtl, (_, tr) => tr('gov.policy.ttlCleared'))}
+            onClick={() => act(deletePolicyTtl, (_, tr) => tr('gov.policy.ttlCleared'))
+              .then((ok) => ok && refreshTtlHistory())}
           >
             {t('gov.policy.ttlClear')}
           </button>
         </form>
       )}
+
+      <div className="gov-subsection">
+        <strong><FileClock size={13} aria-hidden="true" /> {t('gov.policy.ttlHistory')}</strong>
+        {ttlHistoryState.status !== 'ready' ? (
+          <PanelStatus state={ttlHistoryState} onRetry={reloadTtlHistory} lines={2} />
+        ) : ttlHistoryState.data?.history?.length ? (
+          <div className="gov-table-wrap">
+            <table className="gov-table">
+              <caption className="sr-only">{t('gov.policy.ttlHistory')}</caption>
+              <thead><tr>
+                <th scope="col">{t('gov.policy.ttlWhen')}</th>
+                <th scope="col">{t('gov.policy.ttlActor')}</th>
+                <th scope="col">{t('gov.policy.ttlAction')}</th>
+                <th scope="col">{t('gov.policy.ttlOld')}</th>
+                <th scope="col">{t('gov.policy.ttlNew')}</th>
+              </tr></thead>
+              <tbody>
+                {ttlHistoryState.data.history.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>{time(entry.changed_at)}</td>
+                    <td>{entry.changed_by || t('gov.defaultTenant')}</td>
+                    <td>{entry.action}</td>
+                    <td>{entry.old_ttl_secs ?? '—'}</td>
+                    <td>{entry.new_ttl_secs ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="monitor-empty">{t('gov.policy.ttlHistoryEmpty')}</p>
+        )}
+        <div className="gov-actions">
+          <button className="button button--tool-secondary button--compact" type="button"
+            disabled={ttlOffset === 0} onClick={() => setTtlOffset(Math.max(0, ttlOffset - 20))}>
+            {t('gov.policy.previous')}
+          </button>
+          <span>{t('gov.policy.ttlPage').replace('{n}', String(Math.floor(ttlOffset / 20) + 1))}</span>
+          <button className="button button--tool-secondary button--compact" type="button"
+            disabled={ttlHistoryState.status !== 'ready' || (ttlHistoryState.data?.history?.length ?? 0) < 20}
+            onClick={() => setTtlOffset(ttlOffset + 20)}>
+            {t('gov.policy.next')}
+          </button>
+        </div>
+      </div>
 
       <ConfirmDialog
         open={confirming}
