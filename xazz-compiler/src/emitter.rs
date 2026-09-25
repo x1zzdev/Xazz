@@ -1217,6 +1217,9 @@ fn emit_dl_train_call(
     let epochs = config.epochs.max(1);
     let lr = config.learning_rate;
     let batch_size = config.batch_size.unwrap_or(DEFAULT_BATCH_SIZE).max(1);
+    // TODO(#162): emit parity for `split: stratified|random` and `time_column:`.
+    // The runtime draws these splits in `xazz-exec::dl::select_split_indices`;
+    // the standalone emitter still emits the sequential tail split.
     let val_split = config
         .validation_split
         .unwrap_or(0.0)
