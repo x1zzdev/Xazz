@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: ["main", "dev"]
 
+permissions:
+  contents: read
+
 # Demonstrates the official Xazz CI action: static checks + the Policy-as-Code
 # guardrail as a required gate. See .github/actions/xazz/action.yml.
 
