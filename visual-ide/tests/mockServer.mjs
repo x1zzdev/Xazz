@@ -24,6 +24,7 @@ export const defaults = () => ({
     window_started_at: 0,
     resets_at: 0,
   },
+  'GET /dp/budget/history': { tenant: '', resets: [] },
   'GET /security/audit/log': auditFixture,
   'GET /security/audit/chain': { intact: true, records: auditFixture.records.length },
   'GET /security/policy': {
@@ -64,4 +65,3 @@ export async function mockServer(page, overrides = {}) {
   )
   return requests
 }
-

@@ -255,6 +255,31 @@ test('DP window keeps zero override distinct from clearing and survives reload',
   await expect(panel.getByRole('status')).toContainText('window_secs must be at most 315360000 seconds')
 })
 
+test('DP reset history shows the actor and spend from before reset', async ({ page }) => {
+  let spent = 2.5
+  const resets = []
+  await mockServer(page, {
+    'GET /dp/budget': () => ({ ...defaults()['GET /dp/budget'], spent_epsilon: spent }),
+    'GET /dp/budget/history': () => ({ tenant: '', resets }),
+    'POST /dp/budget/reset': () => {
+      resets.unshift({ id: 1, actor: 'alice', reset_at: 1790000000, spent_epsilon_before: spent, spent_delta_before: 0.00001 })
+      spent = 0
+      return { ...defaults()['GET /dp/budget'], spent_epsilon: 0 }
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Differential-privacy ledger' })
+  await expect(panel).toContainText('No budget reset recorded')
+  await panel.getByRole('button', { name: 'Reset budget' }).click()
+  await page.getByRole('dialog', { name: 'Reset this tenant’s privacy budget?' })
+    .getByRole('button', { name: 'Reset budget' }).click()
+  const table = panel.getByRole('table', { name: 'Budget reset history' })
+  await expect(table.getByRole('row')).toHaveCount(2)
+  await expect(table).toContainText('alice')
+  await expect(table).toContainText('2.5')
+  await expect(table).toContainText('0.00001')
+})
+
 test('DP ledger reset needs confirmation and shows the re-read value', async ({ page }) => {
   let spent = 2.5
   const requests = await mockServer(page, {

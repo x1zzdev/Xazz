@@ -154,6 +154,7 @@ export const deletePolicyTtl = () => request('/security/policy/history/ttl', { m
 
 // ── Differential-privacy ledger (#110)
 export const getDpBudget = () => request('/dp/budget')
+export const getDpResetHistory = () => request('/dp/budget/history')
 export const resetDpBudget = () => request('/dp/budget/reset', { method: 'POST' })
 export const putDpWindow = (windowSecs) =>
   request('/dp/budget/window', { method: 'PUT', json: { window_secs: windowSecs } })

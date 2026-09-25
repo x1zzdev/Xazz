@@ -22,6 +22,7 @@ import {
   getAuditLog,
   getAuditRecords,
   getDpBudget,
+  getDpResetHistory,
   getPolicy,
   getPolicyHistory,
   getPolicyTtl,
@@ -172,6 +173,7 @@ function DpLedgerPanel({ revision }) {
   const { t } = useLanguage()
   const time = useLocaleTime()
   const [state, reload, replace] = useServerData(getDpBudget, revision)
+  const [historyState, reloadResets] = useServerData(getDpResetHistory, revision)
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState(null)
@@ -195,6 +197,7 @@ function DpLedgerPanel({ revision }) {
     try {
       const after = await resetDpBudget()
       setNotice({ tone: 'ok', text: (tr) => tr('gov.dp.resetDone').replace('{spent}', num(after?.spent_epsilon)) })
+      reloadResets()
     } catch (error) {
       setNotice({ tone: 'error', text: (tr) => `${tr('gov.dp.resetFailed')}: ${error.message}` })
     } finally {
@@ -332,6 +335,38 @@ function DpLedgerPanel({ revision }) {
             >
               {t('gov.dp.reset')}
             </button>
+          </div>
+          <div className="gov-subsection">
+            <strong><FileClock size={13} aria-hidden="true" /> {t('gov.dp.history')}</strong>
+            {historyState.status !== 'ready' ? (
+              <PanelStatus state={historyState} onRetry={reloadResets} lines={2} />
+            ) : historyState.data?.resets?.length ? (
+              <div className="gov-table-wrap">
+                <table className="gov-table">
+                  <caption className="sr-only">{t('gov.dp.history')}</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('gov.dp.historyWhen')}</th>
+                      <th scope="col">{t('gov.dp.historyActor')}</th>
+                      <th scope="col">{t('gov.dp.historyBefore')} ε</th>
+                      <th scope="col">{t('gov.dp.historyBefore')} δ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyState.data.resets.map((entry) => (
+                      <tr key={entry.id}>
+                        <td>{time(entry.reset_at)}</td>
+                        <td>{entry.actor || t('gov.defaultTenant')}</td>
+                        <td>{num(entry.spent_epsilon_before)}</td>
+                        <td>{num(entry.spent_delta_before)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="monitor-empty">{t('gov.dp.historyEmpty')}</p>
+            )}
           </div>
         </>
       )}
