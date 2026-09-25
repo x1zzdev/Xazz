@@ -31,6 +31,16 @@ Versioning: [Semantic Versioning](https://semver.org/)
   두고, 런타임(`xazz-exec`)과의 기능별 parity 추가 투자를 동결한다. 드리프트
   비용을 상한으로 묶기 위함(후속은 런타임에 집중)
 
+### Tests — 다중 컬럼 DP 소비 개수 통합 회귀 테스트 (issue #119)
+
+- **`xazz-exec/tests/dp_budget.rs`** — 실제 `.xzz`를 엔진 바이너리로 실행해 `[xazz:dp]` 마커
+  (서버 원장과 `xazz run --json`이 읽는 값)로 소스→런타임→원장 경로를 고정한다:
+  2컬럼 `agg([...]) |> withDp(ε)`가 `query_count=2`·`budget_spent=2ε`로 청구되는지,
+  1컬럼 대조군, 예산 경계(`XAZZ_DP_BUDGET`가 정확히 `k·ε`면 통과·그 아래면 실행 전 거부
+  + 거부 메시지에 컬럼 배수 `× 2` 반영 + 마커 미출력), 두 `withDp` 단계의 순차 조성
+  (2.0 → 2.5, 3 mechanisms)과 누적 초과 거부. 프로세스별 env로 예산을 주므로 병렬 테스트와
+  간섭이 없다
+
 ### Security — 클라이언트 연결이 끊겨도 런 회계·감사·DP 정산 완료 (GHSA-wxqx-r7f6-qq3p)
 
 - **`xazz-server`** — `/execute` 핸들러가 실행과 후처리(런 기록·감사 체인 추가·DP 예약 정산)를
