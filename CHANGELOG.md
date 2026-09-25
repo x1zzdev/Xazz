@@ -19,6 +19,16 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - **`README.md`** "Build from source"에 GPU/ONNX feature 안내와 문서 링크,
   **`DEMO_GUIDE.md`** 빌드 단계에 GPU 선택 안내 링크 추가
 
+### Docs — DuckDB·PostgreSQL 커넥터 한계 문서화 (issue #152)
+
+- **`docs/CONNECTORS.md`** — 두 DB 소스의 URI 형식·타입 매핑과 함께, 번들 DuckDB
+  `1.10505`에서 `COPY (...) TO parquet`가 세그폴트되어 행 단위 `ValueRef` 읽기로
+  우회한다는 한계(대량 결과는 전량 메모리 적재)와 PostgreSQL 커넥터가 항상
+  `NoTls`(평문 TCP)로만 연결되어 TLS를 협상하지 못한다는 보안 주의·권장 구성
+  (SSH 터널/stunnel/프록시, 읽기 전용 최소 권한, 자격증명 평문 노출)을 명시
+- **`README.md`/`README_kr.md`** 커넥터 feature 행에 문서 링크와 한계 요약,
+  **`DEMO_GUIDE.md`** 예제 단계에 커넥터 문서 링크 추가
+
 ### Build — Windows GPU 기능 MSVC 툴체인 가드 (issue #103)
 
 - **`xazz-exec/build.rs`** — `windows-gnu` 타깃에서 `cuda`/`onnx*` feature를 켜면

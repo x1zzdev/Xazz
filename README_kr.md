@@ -300,8 +300,8 @@ python benches/render_benchmark_chart.py        # 위 차트 재생성
 | `withDp(epsilon:)` | 차등 프라이버시 노이즈 (laplace / gaussian) + 예산 추적 | Stable |
 | 내장 `chart {}` | 결과를 bar / line / pie / scatter로 렌더링 (HTML) | Stable |
 | `load()` + `save()` | 컬럼 소스(`.parquet`/`.arrow`) 확장자 자동 감지; `sep:`/`header:` CSV 옵션; CSV/Parquet/Arrow 아티팩트 저장 | Stable |
-| DuckDB 커넥터 | `load("duckdb://...?sql=...")` — 인메모리·파일 DuckDB를 파이프라인 소스로 사용 (Track A3) | Stable |
-| PostgreSQL 커넥터 | `load("postgres://...?sql=...")` — PostgreSQL 쿼리를 파이프라인 소스로 사용 (Track A3) | Stable |
+| DuckDB 커넥터 | `load("duckdb://...?sql=...")` — 인메모리·파일 DuckDB를 파이프라인 소스로 사용, 번들(시스템 설치 불필요), 한계는 [`docs/CONNECTORS.md`](docs/CONNECTORS.md) (Track A3) | Stable |
+| PostgreSQL 커넥터 | `load("postgres://...?sql=...")` — PostgreSQL 쿼리를 파이프라인 소스로 사용, 암호화되지 않는 `NoTls` TCP, [`docs/CONNECTORS.md`](docs/CONNECTORS.md) 참고 (Track A3) | Stable |
 | `Option<T>` 타입 시스템 | 널 안전 컬럼 선언 — non-nullable 컬럼에 `fillNull`은 컴파일 오류 | Stable |
 | 26 파이프라인 연산자 | `filter`, `groupBy`, `agg([...])`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
 | Visual IDE | 노드 기반 파이프라인 편집기 + 모니터, `xazz-server`가 서빙 | Stable |

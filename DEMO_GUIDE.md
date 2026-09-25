@@ -80,6 +80,10 @@ Tips:
   duplicate-column error.
 - `xazz`, `xazz-runner`, and `xazz-exec` need to live in the same directory. A
   release build puts all three in `target/release/`.
+- Database sources (`load("duckdb://...")`, `load("postgres://...")`) are
+  optional and documented — including the bundled-DuckDB Parquet limitation and
+  the unencrypted PostgreSQL `NoTls` caveat — in
+  [docs/CONNECTORS.md](docs/CONNECTORS.md).
 
 ---
 
