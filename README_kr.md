@@ -239,7 +239,9 @@ Xazz는 모듈화된 Rust 워크스페이스입니다. CLI는 2–5 MB 경량 �
 </div>
 
 - **모든 구간에서 더 빠름**: 228K 행에서 pandas 대비 1.39배(556 ms vs 770 ms), 912K 행에서 1.95배(1,054 ms vs 2,052 ms), 409만 행에서 1.39배(4,344 ms vs 6,040 ms) — 최대 구간에서 피크 RSS도 더 낮습니다(570 MB vs 656 MB).
+- 양쪽 모두 **파이프라인 실행 시간만** 측정합니다 — Python 인터프리터 부팅(~0.3–0.7초)은 pandas에서 제외하고, Xazz는 자체 `[xazz:timing]` 파이프라인 마커를 보고하므로 공정한 비교입니다. 피크 RSS는 두 엔진 모두 프로세스 트리 기준으로 측정합니다.
 - 성능의 원천은 Apache Arrow 컬럼형 메모리 + Polars LazyFrame 쿼리 최적화 + 멀티스레드 네이티브 실행입니다.
+- **Out-of-core 실행:** `load()`가 이제 lazy 스캔(`scan_csv`/`scan_parquet`/`scan_ipc`)을 반환하므로, 소스는 최종 collect 전까지 디스크에 남아 있습니다 — 앞단에서 파일 전체를 메모리에 올리지 않습니다. 매우 큰 워크로드에서는 `XAZZ_STREAMING=1`을 설정해 Polars 스트리밍 엔진으로 collect하세요(미지원 플랜은 자동으로 인메모리로 폴백). [docs/ROADMAP.md](docs/ROADMAP.md) Track A2 참고.
 - 정직한 주석: Polars의 멀티스레딩은 지연 시간을 줄이는 대신 더 높은 피크 RSS를 치른다는 트레이드오프가 있습니다. 벤치마크 데이터 자체는 커밋되어 있지 않습니다(서울시 공기질 원본에서 생성). 직접 재현해 볼 수 있습니다:
 
 ```bash
@@ -247,6 +249,10 @@ git lfs pull                                    # examples/data 가져오기 (Gi
 python benches/make_scale_data.py               # examples/data에서 스케일 데이터셋 생성
 python benches/run_readme_benchmark.py          # pandas vs xazz, 3회 중앙값
 python benches/render_benchmark_chart.py        # 위 차트 재생성
+
+# 선택: 200M행 규모 (out-of-core + streaming)
+python benches/make_scale_data.py --xlarge      # ~200M 행, 수 GB
+python benches/run_readme_benchmark.py --xlarge
 ```
 
 ### 속도의 근원
@@ -300,8 +306,8 @@ python benches/render_benchmark_chart.py        # 위 차트 재생성
 | `withDp(epsilon:)` | 차등 프라이버시 노이즈 (laplace / gaussian) + 예산 추적 | Stable |
 | 내장 `chart {}` | 결과를 bar / line / pie / scatter로 렌더링 (HTML) | Stable |
 | `load()` + `save()` | 컬럼 소스(`.parquet`/`.arrow`) 확장자 자동 감지; `sep:`/`header:` CSV 옵션; CSV/Parquet/Arrow 아티팩트 저장 | Stable |
-| DuckDB 커넥터 | `load("duckdb://...?sql=...")` — 인메모리·파일 DuckDB를 파이프라인 소스로 사용 (Track A3) | Stable |
-| PostgreSQL 커넥터 | `load("postgres://...?sql=...")` — PostgreSQL 쿼리를 파이프라인 소스로 사용 (Track A3) | Stable |
+| DuckDB 커넥터 | `load("duckdb://...?sql=...")` — 인메모리·파일 DuckDB를 파이프라인 소스로 사용, 번들(시스템 설치 불필요), 한계는 [`docs/CONNECTORS.md`](docs/CONNECTORS.md) (Track A3) | Stable |
+| PostgreSQL 커넥터 | `load("postgres://...?sql=...")` — PostgreSQL 쿼리를 파이프라인 소스로 사용, 암호화되지 않는 `NoTls` TCP, [`docs/CONNECTORS.md`](docs/CONNECTORS.md) 참고 (Track A3) | Stable |
 | `Option<T>` 타입 시스템 | 널 안전 컬럼 선언 — non-nullable 컬럼에 `fillNull`은 컴파일 오류 | Stable |
 | 26 파이프라인 연산자 | `filter`, `groupBy`, `agg([...])`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
 | Visual IDE | 노드 기반 파이프라인 편집기 + 모니터, `xazz-server`가 서빙 | Stable |

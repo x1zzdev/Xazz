@@ -1,0 +1,94 @@
+name: Docs
+
+on:
+  push:
+    branches: ["main", "dev"]
+    paths:
+      - "docs/**"
+      - "book.toml"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    branches: ["main", "dev"]
+    paths:
+      - "docs/**"
+      - "book.toml"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MDBOOK_VERSION: "0.4.52"
+  MDBOOK_LINKCHECK_VERSION: "0.7.7"
+
+jobs:
+  build:
+    name: Build & link-check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install mdBook
+        uses: peaceiris/actions-mdbook@v2
+        with:
+          mdbook-version: ${{ env.MDBOOK_VERSION }}
+
+      # mdbook-linkcheck has no maintained action; fetch its prebuilt binary.
+      # It runs automatically as the `[output.linkcheck]` backend of `mdbook build`.
+      - name: Install mdbook-linkcheck
+        run: |
+          mkdir -p "$RUNNER_TEMP/mdbook-tools"
+          curl -sSL -o "$RUNNER_TEMP/linkcheck.zip" \
+            "https://github.com/Michael-F-Bryan/mdbook-linkcheck/releases/download/v${MDBOOK_LINKCHECK_VERSION}/mdbook-linkcheck.x86_64-unknown-linux-gnu.zip"
+          python3 -c "import zipfile; zipfile.ZipFile('$RUNNER_TEMP/linkcheck.zip').extractall('$RUNNER_TEMP/mdbook-tools')"
+          chmod +x "$RUNNER_TEMP/mdbook-tools/mdbook-linkcheck"
+          echo "$RUNNER_TEMP/mdbook-tools" >> "$GITHUB_PATH"
+
+      - name: Build the book (verifies internal links)
+        run: mdbook build
+
+      - name: Upload the built book
+        uses: actions/upload-artifact@v7
+        with:
+          name: xazz-docs
+          path: book/html
+          retention-days: 7
+
+  # Optional GitHub Pages deployment. Disabled until the repository has Pages
+  # enabled (Settings → Pages → Source: GitHub Actions) and the repository
+  # variable `ENABLE_PAGES` is set to `true`. The built site is always uploaded
+  # as the `xazz-docs` artifact above, so this is purely a hosting convenience.
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.ENABLE_PAGES == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Download the built book
+        uses: actions/download-artifact@v5
+        with:
+          name: xazz-docs
+          path: book/html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: book/html
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

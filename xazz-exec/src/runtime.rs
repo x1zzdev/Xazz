@@ -739,11 +739,10 @@ fn parse_duckdb_uri(path: &str) -> Option<(String, String)> {
 
 /// Loads a DuckDB query result as a Polars DataFrame (eager).
 ///
-/// Runs the SQL against a DuckDB in-memory or file-backed database, exports the
-/// result to a temporary Parquet file (`COPY (...) TO '...parquet'`), and reads
-/// it back with Polars' own Parquet reader. This avoids cross-crate Arrow type
-/// mismatches: DuckDB speaks its own Arrow, Polars speaks polars-arrow, and
-/// Parquet is the neutral interchange format both natively support.
+/// Runs the SQL against a DuckDB in-memory or file-backed database and reads the
+/// result row-by-row through `ValueRef` (type-tagged), then builds a Polars
+/// DataFrame column by column. The `COPY (...) TO parquet` interchange path
+/// segfaults in this bundled duckdb build, so it is avoided entirely.
 fn load_duckdb_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
     let Some((db, sql)) = parse_duckdb_uri(uri) else {
         return Err(format!("invalid DuckDB URI: '{uri}'").into());
