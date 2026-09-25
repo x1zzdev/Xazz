@@ -2279,8 +2279,17 @@ mod tests {
     /// Test AppState — a permit count large enough that the execution semaphore does not
     /// impose test concurrency limits.
     fn test_state() -> AppState {
-        let tmp_db =
-            std::env::temp_dir().join(format!("xazz_server_test_{}.db", std::process::id()));
+        // Each call gets its own SQLite file. Sharing one file across the
+        // parallel test threads made concurrent writers fail with
+        // "database is locked" even with a busy timeout (deadlock on the
+        // shared→reserved lock upgrade).
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp_db = std::env::temp_dir().join(format!(
+            "xazz_server_test_{}_{}.db",
+            std::process::id(),
+            seq
+        ));
         AppState {
             exec_permits: Arc::new(Semaphore::new(64)),
             store: Arc::new(store::Store::open_at(&tmp_db)),
@@ -2709,7 +2718,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             .add_dp_spend(&tenant, 1.0, 5e-5, 0)
             .expect("seed spend");
 
-        let body = handle_dp_budget(State(state), Extension(tenant.clone()))
+        let body = handle_dp_budget(State(state.clone()), Extension(tenant.clone()))
             .await
             .expect("budget endpoint")
             .0;
@@ -2722,7 +2731,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(body["resets_at"], json!(0));
 
         // Another tenant is unaffected by this tenant's spend.
-        let other = handle_dp_budget(State(test_state()), Extension("dp-endpoint-other".into()))
+        let other = handle_dp_budget(State(state), Extension("dp-endpoint-other".into()))
             .await
             .expect("budget endpoint")
             .0;
@@ -2802,7 +2811,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert!((admin_body["spent_epsilon_before"].as_f64().unwrap() - 1.0).abs() < 1e-12);
 
         // History is newest-first and tenant-scoped.
-        let history = handle_dp_reset_history(State(state), Extension(tenant.clone()))
+        let history = handle_dp_reset_history(State(state.clone()), Extension(tenant.clone()))
             .await
             .expect("history")
             .0;
@@ -2812,11 +2821,10 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(resets[0]["actor"], json!("root"));
         assert_eq!(resets[1]["actor"], json!(tenant));
 
-        let other =
-            handle_dp_reset_history(State(test_state()), Extension("dp-audit-other".into()))
-                .await
-                .expect("other history")
-                .0;
+        let other = handle_dp_reset_history(State(state), Extension("dp-audit-other".into()))
+            .await
+            .expect("other history")
+            .0;
         assert_eq!(other["resets"].as_array().unwrap().len(), 0);
     }
 
