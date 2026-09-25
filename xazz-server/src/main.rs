@@ -288,7 +288,8 @@ fn settle_dp_reservation(
 struct DpReservationGuard<'a> {
     store: &'a store::Store,
     tenant: &'a str,
-    reservation: store::DpReservation,
+    /// `None` once the reservation has been settled or handed to a task.
+    reservation: Option<store::DpReservation>,
     window_secs: u64,
     settled: bool,
 }
@@ -303,34 +304,41 @@ impl<'a> DpReservationGuard<'a> {
         Self {
             store,
             tenant,
-            reservation,
+            reservation: Some(reservation),
             window_secs,
             settled: false,
         }
     }
 
-    /// Bills the run's actual `[xazz:dp]` spend and releases the reservation.
-    fn settle(&mut self, dp: &Option<Value>) {
-        settle_dp_reservation(
-            self.store,
-            self.tenant,
-            &self.reservation,
-            dp,
-            self.window_secs,
-        );
+    /// The held reservation (always present until settled or taken).
+    fn reservation(&self) -> &store::DpReservation {
+        self.reservation
+            .as_ref()
+            .expect("DP reservation already settled or taken")
+    }
+
+    /// Transfers reservation ownership to the caller without releasing it, so a
+    /// detached task can settle it after the runner exits (GHSA-wxqx-r7f6-qq3p).
+    /// Prevents `Drop` from releasing the reservation a second time.
+    fn take_reservation(&mut self) -> store::DpReservation {
         self.settled = true;
+        self.reservation
+            .take()
+            .expect("DP reservation already settled or taken")
     }
 }
 
 impl Drop for DpReservationGuard<'_> {
     fn drop(&mut self) {
-        if !self.settled {
+        if !self.settled
+            && let Some(reservation) = self.reservation.take()
+        {
             // An early return: release without billing (the run never produced a
             // marker, or never started).
             settle_dp_reservation(
                 self.store,
                 self.tenant,
-                &self.reservation,
+                &reservation,
                 &None,
                 self.window_secs,
             );
@@ -846,7 +854,6 @@ async fn handle_execute(
         .tempfile()
         .map_err(|e| internal_err(format!("임시파일 생성 실패: {}", e)))?;
 
-    let tmp_path = tmp.path().to_path_buf();
     {
         let mut f = tmp.as_file();
         f.write_all(payload.code.as_bytes())
@@ -860,100 +867,164 @@ async fn handle_execute(
     // The runner receives the reserved remaining budget, so cross-run composition
     // is enforced by the existing DP accounting (the runner refuses a `withDp`
     // that would exceed it).
-    let remaining_eps = dp_reservation.reservation.epsilon.max(MIN_REMAINING_BUDGET);
-    let remaining_delta = dp_reservation.reservation.delta.max(MIN_REMAINING_BUDGET);
+    let remaining_eps = dp_reservation
+        .reservation()
+        .epsilon
+        .max(MIN_REMAINING_BUDGET);
+    let remaining_delta = dp_reservation.reservation().delta.max(MIN_REMAINING_BUDGET);
 
-    // 3. Run xazz run <tmp.xzz>
-    //    Only requests that pass the gate reach this point — tests verify with the counter.
+    // 3. Run xazz run <tmp.xzz> and finish *all* bookkeeping inside the same
+    //    blocking task (GHSA-wxqx-r7f6-qq3p). If the client disconnects, axum
+    //    drops this handler future, but the blocking task keeps running to
+    //    completion — so the executed pipeline is still accounted for even when
+    //    nobody is left to receive the response. Only requests that pass the gate
+    //    reach this point — tests verify with the counter.
     guardrail::note_runner_invocation();
-    let output = match tokio::task::spawn_blocking(move || {
-        Command::new(&exe_path)
+    // Hand reservation ownership to the task; disarm the guard so its Drop does
+    // not also release it.
+    let reservation = dp_reservation.take_reservation();
+    drop(dp_reservation);
+
+    Ok(Json(
+        run_execution_job(
+            state.clone(),
+            payload.code.clone(),
+            tenant.clone(),
+            exe_path,
+            tmp,
+            reservation,
+            window.secs,
+            remaining_eps,
+            remaining_delta,
+            serde_json::to_value(&policy_report).ok(),
+        )
+        .await,
+    ))
+}
+
+/// Runs the pipeline and performs *all* post-run bookkeeping — DP settle, audit
+/// append, and run-history record — inside a single blocking task
+/// (GHSA-wxqx-r7f6-qq3p).
+///
+/// The work is deliberately self-contained: if the caller's future is dropped
+/// (client disconnect), the blocking task still runs to completion and the run
+/// remains accounted for. Returns the wire response.
+#[allow(clippy::too_many_arguments)]
+async fn run_execution_job(
+    state: AppState,
+    code: String,
+    tenant: String,
+    exe_path: PathBuf,
+    tmp: tempfile::NamedTempFile,
+    reservation: store::DpReservation,
+    window_secs: u64,
+    remaining_eps: f64,
+    remaining_delta: f64,
+    policy_value: Option<Value>,
+) -> ExecuteResponse {
+    let policy_for_err = policy_value.clone();
+    tokio::task::spawn_blocking(move || {
+        let tmp_path = tmp.path().to_path_buf();
+        let output = Command::new(&exe_path)
             .arg("run")
             .arg(&tmp_path)
             .env("XAZZ_DP_BUDGET", remaining_eps.to_string())
             .env("XAZZ_DP_DELTA_BUDGET", remaining_delta.to_string())
-            .output()
+            .output();
+
+        let (success, stdout, stderr) = match output {
+            Ok(output) => (
+                output.status.success(),
+                String::from_utf8_lossy(&output.stdout).to_string(),
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            ),
+            Err(e) => (false, String::new(), format!("xazz.exe 실행 실패: {}", e)),
+        };
+
+        // 4. Parse stdout: extract [xazz:result], [xazz:chart], [xazz:train], [xazz:dp] markers
+        let (rows, schema, logs, training, dp, diagnostics) =
+            parse_stdout_markers(&stdout, &stderr);
+
+        // 4b. Release the reservation, billing only this run's actual DP consumption
+        //     (issue C2). No withDp → nothing billed but the reservation is freed.
+        settle_dp_reservation(&state.store, &tenant, &reservation, &dp, window_secs);
+
+        // 5. Auto-audit the execution history (trust infrastructure — persist all
+        //    operation history). Even on failure, log only the audit-record failure
+        //    as a warning.
+        match audit_log::append_with_outcome(
+            &code,
+            Some(if success { "success" } else { "failed" }),
+        ) {
+            Ok(rec) => eprintln!(
+                "[xazz] 감사 기록 #{} 저장: outcome={}, hash={}",
+                rec.index,
+                rec.outcome.as_deref().unwrap_or("unknown"),
+                &rec.hash[..rec.hash.len().min(12)]
+            ),
+            Err(e) => eprintln!("[xazz] ⚠️ 감사 로그 저장 실패: {}", e),
+        }
+
+        // 5b. Persist the run to history (issue C1) — survives restart.
+        let rows_count = rows.as_array().map(|a| a.len() as i64).unwrap_or(0);
+        let err_msg_opt = if success {
+            None
+        } else {
+            Some(stderr.lines().last().unwrap_or("실행 실패").to_string())
+        };
+        let run_id = record_run_in_store(
+            &state,
+            &code,
+            if success { "success" } else { "failed" },
+            rows_count,
+            err_msg_opt.as_deref(),
+            &tenant,
+        );
+
+        if success {
+            ExecuteResponse {
+                success: true,
+                rows,
+                schema,
+                logs,
+                stdout,
+                training,
+                dp,
+                diagnostics,
+                policy: policy_value,
+                error: None,
+                run_id: Some(run_id),
+            }
+        } else {
+            ExecuteResponse {
+                success: false,
+                rows: json!([]),
+                schema: json!([]),
+                logs,
+                stdout,
+                training,
+                dp,
+                diagnostics,
+                policy: policy_value,
+                error: err_msg_opt,
+                run_id: Some(run_id),
+            }
+        }
     })
     .await
-    {
-        Ok(Ok(output)) => output,
-        // The guard's Drop releases the reservation on these early returns.
-        Ok(Err(e)) => return Err(internal_err(format!("xazz.exe 실행 실패: {}", e))),
-        Err(e) => return Err(internal_err(format!("spawn_blocking 실패: {}", e))),
-    };
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    let success = output.status.success();
-
-    // 4. Parse stdout: extract [xazz:result], [xazz:chart], [xazz:train], [xazz:dp] markers
-    let (rows, schema, logs, training, dp, diagnostics) = parse_stdout_markers(&stdout, &stderr);
-
-    // 4b. Release the reservation, billing only this run's actual DP consumption
-    //     (issue C2). No withDp → nothing billed but the reservation is freed.
-    dp_reservation.settle(&dp);
-
-    // 5. Auto-audit the execution history (trust infrastructure — persist all operation history)
-    //    Even on failure, return the execution, logging only the audit-record failure as a warning.
-    match audit_log::append_with_outcome(
-        &payload.code,
-        Some(if success { "success" } else { "failed" }),
-    ) {
-        Ok(rec) => eprintln!(
-            "[xazz] 감사 기록 #{} 저장: outcome={}, hash={}",
-            rec.index,
-            rec.outcome.as_deref().unwrap_or("unknown"),
-            &rec.hash[..rec.hash.len().min(12)]
-        ),
-        Err(e) => eprintln!("[xazz] ⚠️ 감사 로그 저장 실패: {}", e),
-    }
-
-    // 5b. Persist the run to history (issue C1) — survives restart.
-    let rows_count = rows.as_array().map(|a| a.len() as i64).unwrap_or(0);
-    let err_msg_opt = if success {
-        None
-    } else {
-        Some(stderr.lines().last().unwrap_or("실행 실패").to_string())
-    };
-    let run_id = record_run_in_store(
-        &state,
-        &payload.code,
-        if success { "success" } else { "failed" },
-        rows_count,
-        err_msg_opt.as_deref(),
-        tenant_str(tenant.as_str()),
-    );
-
-    if success {
-        Ok(Json(ExecuteResponse {
-            success: true,
-            rows,
-            schema,
-            logs,
-            stdout,
-            training,
-            dp,
-            diagnostics,
-            policy: serde_json::to_value(&policy_report).ok(),
-            error: None,
-            run_id: Some(run_id),
-        }))
-    } else {
-        Ok(Json(ExecuteResponse {
-            success: false,
-            rows: json!([]),
-            schema: json!([]),
-            logs,
-            stdout,
-            training,
-            dp,
-            diagnostics,
-            policy: serde_json::to_value(&policy_report).ok(),
-            error: err_msg_opt,
-            run_id: Some(run_id),
-        }))
-    }
+    .unwrap_or_else(|e| ExecuteResponse {
+        success: false,
+        rows: json!([]),
+        schema: json!([]),
+        logs: vec![],
+        stdout: String::new(),
+        training: None,
+        dp: None,
+        diagnostics: None,
+        policy: policy_for_err,
+        error: Some(format!("spawn_blocking 실패: {}", e)),
+        run_id: None,
+    })
 }
 
 /// Parses the [xazz:result], [xazz:chart], [xazz:train], [xazz:diagnostics], [xazz:dp] markers from stdout.
@@ -3458,5 +3529,120 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         let (status, _) = result.err().expect("tenant policy was not applied");
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(guardrail::runner_invocations(), before);
+    }
+
+    /// A client disconnect (axum dropping the caller's future) must not lose the
+    /// run's bookkeeping: the detached blocking task still settles DP, appends the
+    /// audit record, and persists the run (GHSA-wxqx-r7f6-qq3p).
+    ///
+    /// This drives `run_execution_job` directly rather than `handle_execute` so the
+    /// global runner-invocation counter stays untouched for the gate tests.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn disconnected_execute_still_audits_and_records() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        // Fake runner: writes a start marker, then sleeps so the job is still in
+        // flight when we disconnect.
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let script = std::env::temp_dir().join(format!(
+            "xazz_fake_runner_{}_{}.sh",
+            std::process::id(),
+            nonce
+        ));
+        let started = std::env::temp_dir().join(format!(
+            "xazz_fake_runner_{}_{}.started",
+            std::process::id(),
+            nonce
+        ));
+        {
+            let mut f = std::fs::File::create(&script).expect("create fake runner");
+            writeln!(f, "#!/bin/sh").unwrap();
+            writeln!(f, "touch '{}'", started.display()).unwrap();
+            writeln!(f, "sleep 0.3").unwrap();
+            writeln!(f, "echo '[xazz:result] {{\"rows\":[1],\"schema\":[]}}'").unwrap();
+            f.flush().unwrap();
+        }
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod fake runner");
+
+        let state = unique_state("disconnect");
+        let tenant = String::new();
+        let code = format!(
+            "// disconnect-nonce {nonce}\n\
+             type P = {{ a: string }}; v x = load(\"data/a.csv\") :: P;"
+        );
+
+        // A temp .xzz file and a real DP reservation, exactly as handle_execute sets up.
+        let tmp = tempfile::Builder::new()
+            .suffix(".xzz")
+            .tempfile()
+            .expect("temp file");
+        {
+            let mut f = tmp.as_file();
+            f.write_all(code.as_bytes()).expect("write code");
+            f.flush().ok();
+        }
+        let reservation = state
+            .store
+            .reserve_dp_budget(&tenant, 10.0, 1e-4, 0, 3600)
+            .expect("reserve")
+            .expect("granted");
+
+        let before = state.store.list_runs(50, &tenant).expect("list runs").len();
+
+        let task = tokio::spawn(run_execution_job(
+            state.clone(),
+            code.clone(),
+            tenant.clone(),
+            script.clone(),
+            tmp,
+            reservation,
+            0,
+            10.0,
+            1e-4,
+            None,
+        ));
+
+        // Wait until the runner has actually started, then drop the future — exactly
+        // what axum does when the client disconnects. Waiting on the marker makes the
+        // race deterministic: the job is provably suspended at the blocking `.await`.
+        for _ in 0..50 {
+            if started.exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(started.exists(), "fake runner never started");
+        task.abort();
+        let _ = task.await;
+
+        // The detached blocking task must finish its bookkeeping on its own.
+        let mut recorded = before;
+        for _ in 0..50 {
+            recorded = state.store.list_runs(50, &tenant).expect("list runs").len();
+            if recorded > before {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        let _ = std::fs::remove_file(&script);
+        let _ = std::fs::remove_file(&started);
+
+        assert!(
+            recorded > before,
+            "disconnected run was not persisted to history"
+        );
+        let audited =
+            audit_log::lookup_by_hash(&audit_log::hash_code(&code)).expect("audit lookup");
+        assert!(
+            !audited.is_empty(),
+            "disconnected run was not appended to the audit chain"
+        );
     }
 }
