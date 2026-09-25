@@ -15,6 +15,7 @@ import { useServerData } from '../useServerData'
 import { findFirstBreak } from '../auditChain'
 import {
   ApiError,
+  checkInference,
   deleteDpWindow,
   deletePolicy,
   deletePolicyTtl,
@@ -556,6 +557,96 @@ function AuditChainPanel({ revision }) {
   )
 }
 
+// ── Runtime inference output gate (#244) ────────────────────────────────────
+
+function InferenceCheckPanel({ onChecked }) {
+  const { t } = useLanguage()
+  const [draft, setDraft] = useState({ code: '', prompt: '', response: '', model_fingerprint: '' })
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState(null)
+  const field = (name, rows = 2) => (
+    <label className="gov-field gov-field--wide">
+      <span>{t(`gov.inference.${name}`)}</span>
+      {rows ? (
+        <textarea rows={rows} value={draft[name]} autoComplete="off" spellCheck={false}
+          onChange={(event) => setDraft({ ...draft, [name]: event.target.value })} />
+      ) : (
+        <input value={draft[name]} autoComplete="off" spellCheck={false}
+          onChange={(event) => setDraft({ ...draft, [name]: event.target.value })} />
+      )}
+    </label>
+  )
+  const submit = async (event) => {
+    event.preventDefault()
+    setBusy(true)
+    setError(null)
+    setResult(null)
+    try {
+      const checked = await checkInference(draft)
+      setResult(checked)
+      onChecked()
+    } catch (problem) {
+      setError(problem)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <MonitorPanel contract="implemented" icon={ShieldHalf} title={t('gov.inference.title')}
+      unit="POST /security/inference/check" maturity="Beta" scope={t('gov.inference.scope')}>
+      <p className="monitor-caveat">{t('gov.inference.privacyNote')}</p>
+      <form className="gov-pack-form" onSubmit={submit}>
+        {field('code')}
+        {field('prompt')}
+        {field('response', 4)}
+        {field('model_fingerprint', 0)}
+        <div className="gov-actions">
+          <button className="button button--tool-primary button--compact" type="submit"
+            disabled={busy || !draft.code.trim() || !draft.prompt.trim() || !draft.response.trim()}>
+            {busy ? t('server.loading') : t('gov.inference.check')}
+          </button>
+          <button className="button button--tool-secondary button--compact" type="button"
+            disabled={busy}
+            onClick={() => { setDraft({ code: '', prompt: '', response: '', model_fingerprint: '' }); setResult(null); setError(null) }}>
+            {t('gov.inference.clear')}
+          </button>
+        </div>
+      </form>
+      {error && <p className="gov-notice gov-notice--error" role="alert">{error.message}</p>}
+      {result && (
+        <div className="gov-subsection" role="status">
+          <strong>
+            <StatusBadge axis="Control" tone={result.safe_to_emit ? 'success' : 'danger'}>
+              {result.safe_to_emit ? t('gov.inference.allowed') : t('gov.inference.blocked')}
+            </StatusBadge>
+          </strong>
+          <dl className="monitor-facts">
+            <div><dt>{t('gov.inference.auditIndex')}</dt><dd>{result.audit_index}</dd></div>
+            <div><dt>{t('gov.inference.chain')}</dt><dd>{result.chain_valid ? t('gov.inference.valid') : t('gov.inference.invalid')}</dd></div>
+            <div><dt>{t('gov.inference.promptHash')}</dt><dd className="gov-hash">{result.prompt_hash}</dd></div>
+            <div><dt>{t('gov.inference.responseHash')}</dt><dd className="gov-hash">{result.response_hash}</dd></div>
+          </dl>
+          <div className="gov-subsection">
+            <strong>{t('gov.inference.findings')}</strong>
+            {result.findings?.length ? (
+              <ul className="gov-timeline">
+                {result.findings.map((finding, index) => (
+                  <li key={`${finding.kind}-${finding.line}-${finding.col}-${index}`}>
+                    <code>{finding.kind}</code>
+                    <span>{finding.line}:{finding.col} · {finding.redacted}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="monitor-empty">{t('gov.inference.noFindings')}</p>}
+          </div>
+        </div>
+      )}
+    </MonitorPanel>
+  )
+}
+
 // ── Policy packs (#109) ─────────────────────────────────────────────────────
 
 const loadPolicyHistory = () =>
@@ -871,6 +962,7 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
  */
 export function GovernanceSection({ revision, onAccessChange, onPolicyChange }) {
   const { t } = useLanguage()
+  const [auditRevision, setAuditRevision] = useState(0)
   return (
     <section className="gov-section" aria-labelledby="gov-heading">
       <header className="gov-section__head">
@@ -879,7 +971,8 @@ export function GovernanceSection({ revision, onAccessChange, onPolicyChange }) 
       </header>
       <AccessPanel onApply={onAccessChange} />
       <DpLedgerPanel revision={revision} />
-      <AuditChainPanel revision={revision} />
+      <AuditChainPanel revision={`${revision}:${auditRevision}`} />
+      <InferenceCheckPanel onChecked={() => setAuditRevision((value) => value + 1)} />
       <PolicyPackPanel revision={revision} onPolicyChange={onPolicyChange} />
     </section>
   )

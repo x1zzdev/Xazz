@@ -120,6 +120,12 @@ export function checkPolicy(code) {
   return request('/security/policy/check', { method: 'POST', json: { code } })
 }
 
+export const checkInference = ({ code, prompt, response, model_fingerprint }) =>
+  request('/security/inference/check', {
+    method: 'POST',
+    json: { code, prompt, response, ...(model_fingerprint ? { model_fingerprint } : {}) },
+  })
+
 /**
  * POST /security/remediate — 차단된 코드의 안전한 대체 코드와 위반 리포트를 받는다 (issue #2).
  *

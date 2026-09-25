@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.3",
+  "workflow": {
+    "mode": "PATCH",
+    "reason": "Four existing Governance touchpoints gain controls or server history without changing navigation or the accepted visual direction.",
+    "affected_task": "A tenant operator manages and inspects DP and policy state, then checks a model response.",
+    "intended_outcome": "Each action shows the server answer and its audit evidence in the current Monitor view.",
+    "current_contract": "docs/design-system/xazz/MASTER.md and pages/monitor.md; existing MonitorPanel, PanelStatus, ConfirmDialog and dark tokens.",
+    "invariants": ["Tenant state comes from xazz-server", "A blocked response never looks safe", "Sensitive text is not written to browser storage", "Keyboard native controls and en/ko labels remain"],
+    "affected_gates": ["server error and empty states", "keyboard names and focus order", "laptop overflow", "privacy and result truth"],
+    "rendered_evidence": {
+      "kind": "browser_assertion",
+      "artifact": "visual-ide/tests/governance.spec.mjs",
+      "result": "Playwright Governance suite: 29 passed, including window persistence, reset actor history, TTL paging and inference block plus audit refresh."
+    },
+    "omitted_deep_gates_reason": "No new route, primary journey, service handoff, token, or visual direction is introduced."
+  },
+  "risk": {
+    "profile": "LOW",
+    "rationale": "This receipt concerns the bounded visual patch. New code behavior is separately verified as STANDARD in docs/design/issue-104-followup.md.",
+    "profile_change": null,
+    "waivers": []
+  },
+  "brief": {
+    "actor": "Tenant operator or demo reviewer",
+    "context": "The Monitor/Governance view already reads live server evidence.",
+    "job_or_motivation": "Change a DP window, inspect reset and retention history, and decide whether a model response may be emitted.",
+    "observed_problem": "Issues #241-#244 identify four existing server contracts with no IDE surface.",
+    "desired_user_outcome": "See changed values, provenance and a blocked or allowed verdict immediately after acting.",
+    "desired_service_outcome": "Show server governance capabilities without inventing data or storing sensitive text.",
+    "success_criteria": ["The focused browser paths pass", "en and ko keys match", "Server errors remain visible"],
+    "constraints": ["Keep the accepted Xazz dark workspace", "Use native labelled inputs and controls", "Do not persist raw inference inputs"]
+  },
+  "problem": {
+    "statement": "Operators cannot complete four governance tasks from the IDE despite available server contracts.",
+    "journey_scope": "touchpoint_only",
+    "omission_reason": "The existing Monitor page and server routes are reused."
+  },
+  "evidence": [
+    {
+      "id": "E-104-1",
+      "type": "observation",
+      "source_id": "GitHub issues #241-#244",
+      "summary": "The four live server endpoints have no corresponding IDE controls or history views."
+    },
+    {
+      "id": "E-104-2",
+      "type": "observation",
+      "source_id": "visual-ide/tests/governance.spec.mjs",
+      "summary": "The rendered Governance view completes all four new browser paths."
+    }
+  ],
+  "user_test": {
+    "status": "not_run",
+    "reason": "No representative operator was available; browser contract paths are recorded separately."
+  },
+  "artifacts": {
+    "design_system": "docs/design-system/xazz/MASTER.md and pages/monitor.md (inherited)",
+    "prototype_or_figma": "visual-ide/src/components/Governance.jsx",
+    "screenshots": [],
+    "interaction_evidence": ["visual-ide/tests/governance.spec.mjs"],
+    "commit": "feat/issue-104"
+  },
+  "verdict": {
+    "decision": "continue",
+    "rationale": "Focused browser interactions show the bounded controls and server-sourced results; no visual direction change is needed.",
+    "next_step": "Review the final code candidate and merge after CI."
+  }
+}

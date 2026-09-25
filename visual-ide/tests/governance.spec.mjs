@@ -3,6 +3,7 @@
 // The audit fixture is a verbatim response from a locally built xazz-server.
 import { expect, test } from '@playwright/test'
 import { auditFixture, defaults, HASH, mockServer } from './mockServer.mjs'
+import { recordHash } from '../src/auditChain.js'
 
 async function openMonitor(page) {
   await page.goto('/?screen=workspace')
@@ -121,6 +122,53 @@ test('a run from this session restores its rows from History', async ({ page }) 
 })
 
 // ── #108 Audit chain ────────────────────────────────────────────────────────
+
+test('inference gate blocks a leaked key and refreshes its audit record', async ({ page }) => {
+  const records = structuredClone(auditFixture.records)
+  const promptHash = 'a'.repeat(64)
+  const responseHash = 'b'.repeat(64)
+  const requests = await mockServer(page, {
+    'GET /security/audit/log': () => ({ records }),
+    'GET /security/audit/chain': () => ({ intact: true, records: records.length }),
+    'POST /security/inference/check': async (request) => {
+      const body = request.postDataJSON()
+      const record = {
+        index: records.length, timestamp: '2026-09-25T00:00:00Z', hash: HASH,
+        code_length: body.code.length, outcome: 'blocked', prompt_hash: promptHash,
+        response_hash: responseHash, prev_hash: records.at(-1).record_hash,
+      }
+      record.record_hash = await recordHash(record)
+      records.push(record)
+      return {
+        safe_to_emit: false,
+        findings: [{ kind: 'api_key', line: 1, col: 9, redacted: '••••' }],
+        audit_index: record.index, chain_valid: true,
+        prompt_hash: promptHash, response_hash: responseHash,
+      }
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Inference output gate' })
+  const audit = page.getByRole('region', { name: 'Audit hash chain' })
+  await panel.getByLabel('.xzz source code').fill('v x = load("d.csv") :: S;')
+  await panel.getByLabel('Prompt', { exact: true }).fill('summarize the incident')
+  await panel.getByLabel('Model response').fill('The key AKIAIOSFODNN7EXAMPLE was exposed.')
+  await panel.getByRole('button', { name: 'Check response' }).click()
+  await expect(panel.getByLabel('Control: Blocked')).toBeVisible()
+  await expect(panel).toContainText('api_key')
+  await expect(panel).toContainText('1:9')
+  await expect(panel).toContainText(promptHash)
+  await expect(panel).toContainText(responseHash)
+  await expect(audit.locator('tbody tr')).toHaveCount(auditFixture.records.length + 1)
+  await expect(audit.getByText('inference', { exact: true })).toHaveCount(2)
+  const posted = requests.find((r) => r.path === '/security/inference/check')
+  expect(JSON.parse(posted.body).response).toContain('AKIAIOSFODNN7EXAMPLE')
+  const stored = await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))
+  expect(stored).not.toContain('AKIAIOSFODNN7EXAMPLE')
+  await panel.getByRole('button', { name: 'Clear inputs and result' }).click()
+  await expect(panel.getByLabel('Model response')).toHaveValue('')
+  await expect(panel.getByLabel('Control: Blocked')).toHaveCount(0)
+})
 
 test('audit chain shows the server verdict and names a tampered record', async ({ page }) => {
   await mockServer(page)
