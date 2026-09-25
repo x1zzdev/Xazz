@@ -41,6 +41,23 @@ Versioning: [Semantic Versioning](https://semver.org/)
   (2.0 → 2.5, 3 mechanisms)과 누적 초과 거부. 프로세스별 env로 예산을 주므로 병렬 테스트와
   간섭이 없다
 
+### Added — `xazz run --json`에 DP 소비량·잔량 노출 (issue #117)
+
+- **`dp` 배열** — `--json` 요약에 `withDp` 단계마다 한 항목씩 `[xazz:dp]` 마커를 실행
+  순서대로 담는다. 각 항목은 DpReport(`mechanism`, `epsilon`, `delta`, `sensitivity`,
+  `noise_param`, `noised_columns`, `seed`)에 세션 예산 `budget_spent`/`budget_total`/
+  `budget_remaining`(+ `_delta` 3종)과 `query_count`를 더한 값이다. 대시보드·CI가 stderr
+  텍스트를 긁지 않고 ε/δ 소비량을 읽을 수 있다
+- **`training` 필드** — 같은 경로에서 버려지던 `[xazz:train]` 마커(TrainReport/SweepReport)를
+  `--json`에 그대로 싣는다. DP는 `withDp` 파이프라인 단계의 속성이라 TrainReport 자체에는
+  DP 필드를 넣지 않는다(학습 리포트와 DP 감사 정보는 별 항목으로 병렬 제공)
+- **엔진 마커 확장** — `[xazz:dp]`에 `budget_remaining`·`budget_remaining_delta`를 추가
+  (`PrivacyBudget::remaining_delta` 신설). 기존 필드와 stderr 텍스트는 그대로다. 옛 엔진의
+  마커에는 CLI가 `total − spent`로 잔량을 채워 넣어 소비자 입장에서 항상 존재한다
+- 서버 `parse_stdout_markers`와 동일한 형태(단일 행 + 레거시 2행)를 CLI도 받아들인다
+- 검증: CLI 마커 파서 단위 테스트 6종(순서·잔량 보정·0 하한·레거시·train/diagnostics·
+  깨진 마커), `PrivacyBudget::remaining_delta` 단위 테스트
+
 ### Security — 클라이언트 연결이 끊겨도 런 회계·감사·DP 정산 완료 (GHSA-wxqx-r7f6-qq3p)
 
 - **`xazz-server`** — `/execute` 핸들러가 실행과 후처리(런 기록·감사 체인 추가·DP 예약 정산)를
