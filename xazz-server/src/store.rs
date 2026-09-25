@@ -408,6 +408,37 @@ impl Store {
         .map_err(|e| format!("failed to read dp window: {e}"))
     }
 
+    /// Returns the tenant's live (non-expired) DP reservation, if any — issue #123.
+    ///
+    /// A reservation holds the tenant's remaining envelope while a run is in
+    /// flight. The budget view subtracts it so `remaining_*` reflects what a new
+    /// run could actually claim right now. Expired reservations are ignored; they
+    /// are reclaimable and no longer hold the budget.
+    pub fn live_dp_reservation(
+        &self,
+        tenant: &str,
+    ) -> Result<Option<(DpReservation, i64)>, String> {
+        let guard = self.open()?;
+        let conn = guard.as_ref().expect("open guarantees Some");
+        conn.query_row(
+            "SELECT reservation_id, reserved_epsilon, reserved_delta, expires_at
+             FROM dp_reservation WHERE tenant = ?1 AND expires_at > ?2",
+            params![tenant, now_epoch()],
+            |row| {
+                Ok((
+                    DpReservation {
+                        id: row.get(0)?,
+                        epsilon: row.get(1)?,
+                        delta: row.get(2)?,
+                    },
+                    row.get(3)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|e| format!("failed to read dp reservation: {e}"))
+    }
+
     /// Adds a run's DP spend to the tenant's cumulative ledger — issue C2.
     ///
     /// The increment is a single atomic UPSERT, so two concurrent runs of the same
