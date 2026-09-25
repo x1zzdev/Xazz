@@ -1,0 +1,24 @@
+[book]
+title = "Xazz Documentation"
+authors = ["Xazz contributors"]
+description = "Xazz — typed pipeline language, Polars execution engine, deep-learning runtime, policy guardrail, and Visual IDE."
+language = "en"
+src = "docs"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/x1zzdev/Xazz"
+edit-url-template = "https://github.com/x1zzdev/Xazz/edit/main/docs/{path}"
+site-url = "/Xazz/"
+
+# Link checking. Repository-relative links (`../README.md`, `../xazz-*/src/...`)
+# are valid in a checkout but live outside the book source, so they are excluded
+# from the site check; every internal book link is still verified.
+[output.linkcheck]
+follow-web-links = false
+exclude = ["^\\.\\./", "^src/$"]

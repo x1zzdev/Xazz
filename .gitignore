@@ -1,5 +1,8 @@
 target/
 
+# mdBook build output (see book.toml)
+book/
+
 # IDE
 .idea/
 
