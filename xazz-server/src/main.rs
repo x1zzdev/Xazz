@@ -41,7 +41,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedMutexGuard, OwnedSemaphorePermit, Semaphore};
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::ServeDir;
 
@@ -118,6 +118,19 @@ impl AppState {
         map.insert(tenant.to_string(), Arc::downgrade(&lock));
         lock
     }
+}
+
+/// Owned execution-capacity guards for one run (issue C2 follow-up).
+///
+/// The global concurrency permit and the per-tenant serialization lock are
+/// *owned* so they can be moved into the detached blocking task that runs the
+/// pipeline. If the HTTP client disconnects, axum drops the handler future but
+/// the blocking task keeps running (GHSA-wxqx-r7f6-qq3p); owning the guards means
+/// the tenant stays serialized and the permit stays charged until the runner
+/// actually exits, instead of being released early.
+struct ExecutionSlot {
+    _permit: OwnedSemaphorePermit,
+    _tenant_guard: OwnedMutexGuard<()>,
 }
 
 /// Records a run in the store, returning the new id (0 on store failure).
@@ -739,10 +752,11 @@ async fn handle_execute(
     //     remaining DP budget and can jointly exceed the envelope. Each tenant has
     //     its own lock, so cross-tenant throughput is unaffected.
     let tenant_mutex = state.tenant_lock(tenant_str(tenant.as_str()));
-    let _tenant_guard = tenant_mutex.lock().await;
+    // Owned so the guard can outlive this handler future (client disconnect).
+    let tenant_guard = tenant_mutex.lock_owned().await;
 
     // 0b. Concurrency semaphore — if no permit, deny execution (fail-closed, no queue).
-    let _permit = match state.exec_permits.try_acquire() {
+    let permit = match Arc::clone(&state.exec_permits).try_acquire_owned() {
         Ok(p) => p,
         Err(_) => {
             return Err((
@@ -884,6 +898,12 @@ async fn handle_execute(
     // not also release it.
     let reservation = dp_reservation.take_reservation();
     drop(dp_reservation);
+    // Move the tenant lock and concurrency permit into the detached task too, so
+    // they are held until the runner exits even if the client disconnects.
+    let slot = ExecutionSlot {
+        _permit: permit,
+        _tenant_guard: tenant_guard,
+    };
 
     Ok(Json(
         run_execution_job(
@@ -893,6 +913,7 @@ async fn handle_execute(
             exe_path,
             tmp,
             reservation,
+            slot,
             window.secs,
             remaining_eps,
             remaining_delta,
@@ -917,6 +938,7 @@ async fn run_execution_job(
     exe_path: PathBuf,
     tmp: tempfile::NamedTempFile,
     reservation: store::DpReservation,
+    slot: ExecutionSlot,
     window_secs: u64,
     remaining_eps: f64,
     remaining_delta: f64,
@@ -924,6 +946,9 @@ async fn run_execution_job(
 ) -> ExecuteResponse {
     let policy_for_err = policy_value.clone();
     tokio::task::spawn_blocking(move || {
+        // Hold the tenant lock + concurrency permit for the *whole* run, not just
+        // while the (possibly-dropped) handler future is alive.
+        let _slot = slot;
         let tmp_path = tmp.path().to_path_buf();
         let output = Command::new(&exe_path)
             .arg("run")
@@ -3603,6 +3628,15 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
 
         let before = state.store.list_runs(50, &tenant).expect("list runs").len();
 
+        let permit = Arc::clone(&state.exec_permits)
+            .try_acquire_owned()
+            .expect("execution permit");
+        let tenant_guard = state.tenant_lock(&tenant).lock_owned().await;
+        let slot = ExecutionSlot {
+            _permit: permit,
+            _tenant_guard: tenant_guard,
+        };
+
         let task = tokio::spawn(run_execution_job(
             state.clone(),
             code.clone(),
@@ -3610,6 +3644,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             script.clone(),
             tmp,
             reservation,
+            slot,
             0,
             10.0,
             1e-4,
@@ -3651,6 +3686,129 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert!(
             !audited.is_empty(),
             "disconnected run was not appended to the audit chain"
+        );
+    }
+
+    /// A disconnected run must keep holding its tenant lock and concurrency permit
+    /// until the runner actually exits (issue C2 follow-up). Otherwise a second
+    /// same-tenant request could start a concurrent run, and the global capacity
+    /// cap would under-count in-flight executions.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn disconnected_execute_holds_slot_until_runner_exits() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let script = std::env::temp_dir().join(format!(
+            "xazz_slot_runner_{}_{}.sh",
+            std::process::id(),
+            nonce
+        ));
+        let started = std::env::temp_dir().join(format!(
+            "xazz_slot_runner_{}_{}.started",
+            std::process::id(),
+            nonce
+        ));
+        {
+            let mut f = std::fs::File::create(&script).expect("create fake runner");
+            writeln!(f, "#!/bin/sh").unwrap();
+            writeln!(f, "touch '{}'", started.display()).unwrap();
+            writeln!(f, "sleep 0.6").unwrap();
+            writeln!(f, "echo '[xazz:result] {{\"rows\":[1],\"schema\":[]}}'").unwrap();
+            f.flush().unwrap();
+        }
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod fake runner");
+
+        let state = unique_state("slot-hold");
+        let tenant = "slot-tenant".to_string();
+        let code = "type P = { a: string }; v x = load(\"data/a.csv\") :: P;".to_string();
+
+        let tmp = tempfile::Builder::new()
+            .suffix(".xzz")
+            .tempfile()
+            .expect("temp file");
+        {
+            let mut f = tmp.as_file();
+            f.write_all(code.as_bytes()).expect("write code");
+            f.flush().ok();
+        }
+        let reservation = state
+            .store
+            .reserve_dp_budget(&tenant, 10.0, 1e-4, 0, 3600)
+            .expect("reserve")
+            .expect("granted");
+
+        // Mirrors handle_execute: acquire the owned slot before handing it to the job.
+        let permit = Arc::clone(&state.exec_permits)
+            .try_acquire_owned()
+            .expect("execution permit");
+        let tenant_mutex = state.tenant_lock(&tenant);
+        let tenant_guard = Arc::clone(&tenant_mutex).lock_owned().await;
+        let slot = ExecutionSlot {
+            _permit: permit,
+            _tenant_guard: tenant_guard,
+        };
+
+        let task = tokio::spawn(run_execution_job(
+            state.clone(),
+            code,
+            tenant.clone(),
+            script.clone(),
+            tmp,
+            reservation,
+            slot,
+            0,
+            10.0,
+            1e-4,
+            None,
+        ));
+
+        for _ in 0..50 {
+            if started.exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(started.exists(), "fake runner never started");
+        task.abort();
+        let _ = task.await;
+
+        // The handler future is gone, but the run is still in flight: the slot must
+        // still be held.
+        assert!(
+            tenant_mutex.try_lock().is_err(),
+            "tenant lock was released while the run was still in flight"
+        );
+        assert_eq!(
+            state.exec_permits.available_permits(),
+            63,
+            "concurrency permit was released while the run was still in flight"
+        );
+
+        // Once the detached runner exits, both guards are released.
+        for _ in 0..50 {
+            if state.exec_permits.available_permits() == 64 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        let _ = std::fs::remove_file(&script);
+        let _ = std::fs::remove_file(&started);
+
+        assert_eq!(
+            state.exec_permits.available_permits(),
+            64,
+            "permit was not returned after the run exited"
+        );
+        assert!(
+            tenant_mutex.try_lock().is_ok(),
+            "tenant lock was not released after the run exited"
         );
     }
 }

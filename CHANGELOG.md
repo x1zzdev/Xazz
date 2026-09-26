@@ -67,6 +67,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
   런·감사 레코드가 기록되는지 검증
 - 테스트 격리 — `test_state()`가 호출마다 별도 SQLite 파일을 사용해 병렬 실행 시
   `database is locked`로 실패하던 플레이크를 제거
+- 후속 — 연결이 끊긴 동안에도 테넌트 실행 락과 동시성 permit을 러너 종료까지 보유하도록
+  `ExecutionSlot`(`OwnedSemaphorePermit` + `OwnedMutexGuard`)을 blocking 태스크로 이동.
+  핸들러 future가 드롭돼도 같은 테넌트 동시 실행이 차단되고 용량 상한이 유지된다.
+  회귀 테스트 `disconnected_execute_holds_slot_until_runner_exits` 추가
 
 ### Docs — GPU/ONNX 백엔드 빌드·실행 가이드 (issue #151)
 
