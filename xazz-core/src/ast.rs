@@ -571,6 +571,57 @@ impl SweepSort {
     }
 }
 
+/// How the `validation_split` train/validation partition is drawn (issue #162).
+///
+/// The default keeps the historical behaviour: the last `validation_split`
+/// fraction of rows becomes the validation set in natural row order, and the
+/// training rows are shuffled per epoch. When rows are ordered by time this is
+/// already leak-free, so [`SplitStrategy::Sequential`] doubles as the
+/// time-series split; `time_column:` sorts the rows first when the frame is not
+/// pre-sorted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SplitStrategy {
+    /// Tail split in natural (or `time_column`-sorted) row order — the default.
+    #[default]
+    Sequential,
+    /// Preserve the target-class ratio across the split (classification targets).
+    Stratified,
+    /// Shuffle rows with a fixed seed before taking the tail as validation.
+    Random,
+}
+
+impl SplitStrategy {
+    /// Canonical id (also the `split:` train() value).
+    pub fn id(self) -> &'static str {
+        match self {
+            SplitStrategy::Sequential => "sequential",
+            SplitStrategy::Stratified => "stratified",
+            SplitStrategy::Random => "random",
+        }
+    }
+
+    /// Parses a `split:` value, accepting common aliases.
+    /// Returns `None` for an unrecognised value.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "" | "sequential" | "time" | "timeseries" | "temporal" | "chrono" => {
+                Some(SplitStrategy::Sequential)
+            }
+            "stratified" | "stratify" | "class" | "class_balanced" => {
+                Some(SplitStrategy::Stratified)
+            }
+            "random" | "shuffle" => Some(SplitStrategy::Random),
+            _ => None,
+        }
+    }
+
+    /// Whether this strategy needs the target values to build the split.
+    pub fn needs_targets(self) -> bool {
+        matches!(self, SplitStrategy::Stratified)
+    }
+}
+
 /// Hyperparameter sweep grid (D3) — list-valued `train()` arguments.
 ///
 /// Each non-empty vector is one axis of a full cartesian-product grid search;
@@ -638,6 +689,13 @@ pub struct TrainConfig {
     pub sweep_tiebreak: Vec<SweepSort>,
     /// When set, report only this many best-by-metric combinations (D3).
     pub sweep_top: Option<usize>,
+    /// How the validation split is drawn (issue #162). Defaults to the
+    /// historical tail split ([`SplitStrategy::Sequential`]).
+    pub split_strategy: SplitStrategy,
+    /// Column whose ascending order defines the time axis for the split (issue
+    /// #162). When set, rows are sorted by it before the tail split so the
+    /// validation window never precedes the training window.
+    pub time_column: Option<String>,
 }
 
 impl Default for TrainConfig {
@@ -656,6 +714,8 @@ impl Default for TrainConfig {
             sweep_sort_explicit: false,
             sweep_tiebreak: Vec::new(),
             sweep_top: None,
+            split_strategy: SplitStrategy::default(),
+            time_column: None,
         }
     }
 }
@@ -706,6 +766,8 @@ impl TrainConfig {
                         sweep_sort_explicit: false,
                         sweep_tiebreak: Vec::new(),
                         sweep_top: None,
+                        split_strategy: self.split_strategy,
+                        time_column: self.time_column.clone(),
                     });
                 }
             }
