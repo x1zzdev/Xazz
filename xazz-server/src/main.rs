@@ -3564,53 +3564,76 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(guardrail::runner_invocations(), before);
     }
 
-    /// A client disconnect (axum dropping the caller's future) must not lose the
-    /// run's bookkeeping: the detached blocking task still settles DP, appends the
-    /// audit record, and persists the run (GHSA-wxqx-r7f6-qq3p).
-    ///
-    /// This drives `run_execution_job` directly rather than `handle_execute` so the
-    /// global runner-invocation counter stays untouched for the gate tests.
+    /// A fake `xazz-runner` shell script for the disconnect tests: it touches a
+    /// start marker, sleeps, then prints one result row. The script and marker are
+    /// removed when the value is dropped.
     #[cfg(unix)]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn disconnected_execute_still_audits_and_records() {
-        use std::io::Write;
-        use std::os::unix::fs::PermissionsExt;
+    struct FakeRunner {
+        script: std::path::PathBuf,
+        started: std::path::PathBuf,
+    }
 
-        // Fake runner: writes a start marker, then sleeps so the job is still in
-        // flight when we disconnect.
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let script = std::env::temp_dir().join(format!(
-            "xazz_fake_runner_{}_{}.sh",
-            std::process::id(),
-            nonce
-        ));
-        let started = std::env::temp_dir().join(format!(
-            "xazz_fake_runner_{}_{}.started",
-            std::process::id(),
-            nonce
-        ));
-        {
-            let mut f = std::fs::File::create(&script).expect("create fake runner");
-            writeln!(f, "#!/bin/sh").unwrap();
-            writeln!(f, "touch '{}'", started.display()).unwrap();
-            writeln!(f, "sleep 0.3").unwrap();
-            writeln!(f, "echo '[xazz:result] {{\"rows\":[1],\"schema\":[]}}'").unwrap();
-            f.flush().unwrap();
+    #[cfg(unix)]
+    impl FakeRunner {
+        fn new(prefix: &str, sleep_secs: f64) -> Self {
+            use std::io::Write;
+            use std::os::unix::fs::PermissionsExt;
+
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos();
+            let script =
+                std::env::temp_dir().join(format!("{prefix}_{}_{nonce}.sh", std::process::id()));
+            let started = std::env::temp_dir()
+                .join(format!("{prefix}_{}_{nonce}.started", std::process::id()));
+            {
+                let mut f = std::fs::File::create(&script).expect("create fake runner");
+                writeln!(f, "#!/bin/sh").unwrap();
+                writeln!(f, "touch '{}'", started.display()).unwrap();
+                writeln!(f, "sleep {sleep_secs}").unwrap();
+                writeln!(f, "echo '[xazz:result] {{\"rows\":[1],\"schema\":[]}}'").unwrap();
+                f.flush().unwrap();
+            }
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod fake runner");
+            Self { script, started }
         }
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
-            .expect("chmod fake runner");
 
-        let state = unique_state("disconnect");
-        let tenant = String::new();
-        let code = format!(
-            "// disconnect-nonce {nonce}\n\
-             type P = {{ a: string }}; v x = load(\"data/a.csv\") :: P;"
-        );
+        /// Waits (up to ~5s) until the fake runner has signalled it started.
+        async fn wait_started(&self) {
+            for _ in 0..50 {
+                if self.started.exists() {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            panic!("fake runner never started");
+        }
+    }
 
-        // A temp .xzz file and a real DP reservation, exactly as handle_execute sets up.
+    #[cfg(unix)]
+    impl Drop for FakeRunner {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.script);
+            let _ = std::fs::remove_file(&self.started);
+        }
+    }
+
+    /// Sets up a run exactly as `handle_execute` does — a temp `.xzz`, a granted DP
+    /// reservation, and an owned execution slot — then spawns `run_execution_job`,
+    /// waits for the fake runner to start, and aborts the caller future (what axum
+    /// does when the client disconnects). Returns the state's tenant lock so callers
+    /// can assert it stays held until the runner exits.
+    #[cfg(unix)]
+    async fn spawn_disconnected_run(
+        state: &AppState,
+        code: &str,
+        tenant: &str,
+        runner: &FakeRunner,
+    ) -> Arc<tokio::sync::Mutex<()>> {
+        use std::io::Write;
+
         let tmp = tempfile::Builder::new()
             .suffix(".xzz")
             .tempfile()
@@ -3622,16 +3645,15 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         }
         let reservation = state
             .store
-            .reserve_dp_budget(&tenant, 10.0, 1e-4, 0, 3600)
+            .reserve_dp_budget(tenant, 10.0, 1e-4, 0, 3600)
             .expect("reserve")
             .expect("granted");
-
-        let before = state.store.list_runs(50, &tenant).expect("list runs").len();
 
         let permit = Arc::clone(&state.exec_permits)
             .try_acquire_owned()
             .expect("execution permit");
-        let tenant_guard = state.tenant_lock(&tenant).lock_owned().await;
+        let tenant_mutex = state.tenant_lock(tenant);
+        let tenant_guard = Arc::clone(&tenant_mutex).lock_owned().await;
         let slot = ExecutionSlot {
             _permit: permit,
             _tenant_guard: tenant_guard,
@@ -3639,9 +3661,9 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
 
         let task = tokio::spawn(run_execution_job(
             state.clone(),
-            code.clone(),
-            tenant.clone(),
-            script.clone(),
+            code.to_string(),
+            tenant.to_string(),
+            runner.script.clone(),
             tmp,
             reservation,
             slot,
@@ -3651,18 +3673,38 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             None,
         ));
 
-        // Wait until the runner has actually started, then drop the future — exactly
-        // what axum does when the client disconnects. Waiting on the marker makes the
-        // race deterministic: the job is provably suspended at the blocking `.await`.
-        for _ in 0..50 {
-            if started.exists() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-        assert!(started.exists(), "fake runner never started");
+        runner.wait_started().await;
         task.abort();
         let _ = task.await;
+
+        tenant_mutex
+    }
+
+    /// A client disconnect (axum dropping the caller's future) must not lose the
+    /// run's bookkeeping: the detached blocking task still settles DP, appends the
+    /// audit record, and persists the run (GHSA-wxqx-r7f6-qq3p).
+    ///
+    /// This drives `run_execution_job` directly rather than `handle_execute` so the
+    /// global runner-invocation counter stays untouched for the gate tests.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn disconnected_execute_still_audits_and_records() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let runner = FakeRunner::new("xazz_fake_runner", 0.3);
+        let state = unique_state("disconnect");
+        let tenant = String::new();
+        let code = format!(
+            "// disconnect-nonce {nonce}\n\
+             type P = {{ a: string }}; v x = load(\"data/a.csv\") :: P;"
+        );
+
+        let before = state.store.list_runs(50, &tenant).expect("list runs").len();
+
+        // Drop the handler future mid-run — exactly what axum does on client disconnect.
+        let _tenant_mutex = spawn_disconnected_run(&state, &code, &tenant, &runner).await;
 
         // The detached blocking task must finish its bookkeeping on its own.
         let mut recorded = before;
@@ -3673,9 +3715,6 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
-
-        let _ = std::fs::remove_file(&script);
-        let _ = std::fs::remove_file(&started);
 
         assert!(
             recorded > before,
@@ -3696,87 +3735,12 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
     #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn disconnected_execute_holds_slot_until_runner_exits() {
-        use std::io::Write;
-        use std::os::unix::fs::PermissionsExt;
-
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let script = std::env::temp_dir().join(format!(
-            "xazz_slot_runner_{}_{}.sh",
-            std::process::id(),
-            nonce
-        ));
-        let started = std::env::temp_dir().join(format!(
-            "xazz_slot_runner_{}_{}.started",
-            std::process::id(),
-            nonce
-        ));
-        {
-            let mut f = std::fs::File::create(&script).expect("create fake runner");
-            writeln!(f, "#!/bin/sh").unwrap();
-            writeln!(f, "touch '{}'", started.display()).unwrap();
-            writeln!(f, "sleep 0.6").unwrap();
-            writeln!(f, "echo '[xazz:result] {{\"rows\":[1],\"schema\":[]}}'").unwrap();
-            f.flush().unwrap();
-        }
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
-            .expect("chmod fake runner");
-
+        let runner = FakeRunner::new("xazz_slot_runner", 0.6);
         let state = unique_state("slot-hold");
         let tenant = "slot-tenant".to_string();
-        let code = "type P = { a: string }; v x = load(\"data/a.csv\") :: P;".to_string();
+        let code = "type P = { a: string }; v x = load(\"data/a.csv\") :: P;";
 
-        let tmp = tempfile::Builder::new()
-            .suffix(".xzz")
-            .tempfile()
-            .expect("temp file");
-        {
-            let mut f = tmp.as_file();
-            f.write_all(code.as_bytes()).expect("write code");
-            f.flush().ok();
-        }
-        let reservation = state
-            .store
-            .reserve_dp_budget(&tenant, 10.0, 1e-4, 0, 3600)
-            .expect("reserve")
-            .expect("granted");
-
-        // Mirrors handle_execute: acquire the owned slot before handing it to the job.
-        let permit = Arc::clone(&state.exec_permits)
-            .try_acquire_owned()
-            .expect("execution permit");
-        let tenant_mutex = state.tenant_lock(&tenant);
-        let tenant_guard = Arc::clone(&tenant_mutex).lock_owned().await;
-        let slot = ExecutionSlot {
-            _permit: permit,
-            _tenant_guard: tenant_guard,
-        };
-
-        let task = tokio::spawn(run_execution_job(
-            state.clone(),
-            code,
-            tenant.clone(),
-            script.clone(),
-            tmp,
-            reservation,
-            slot,
-            0,
-            10.0,
-            1e-4,
-            None,
-        ));
-
-        for _ in 0..50 {
-            if started.exists() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-        assert!(started.exists(), "fake runner never started");
-        task.abort();
-        let _ = task.await;
+        let tenant_mutex = spawn_disconnected_run(&state, code, &tenant, &runner).await;
 
         // The handler future is gone, but the run is still in flight: the slot must
         // still be held.
@@ -3797,9 +3761,6 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
-
-        let _ = std::fs::remove_file(&script);
-        let _ = std::fs::remove_file(&started);
 
         assert_eq!(
             state.exec_permits.available_permits(),
