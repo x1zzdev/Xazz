@@ -632,6 +632,8 @@ mod tests {
             sweep_sort_explicit: false,
             sweep_tiebreak: Vec::new(),
             sweep_top: None,
+            split_strategy: Default::default(),
+            time_column: None,
         };
         crate::dl::train(&df, "onnx_unit", layers, &config).expect("train")
     }

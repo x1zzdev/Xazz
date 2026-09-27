@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast::{
     AggFn, AggSpec, BinOpKind, ChartConfig, DpArgs, Expr, FillNullValue, JoinHow, LayerKind,
-    PipelineOp, PipelineSource, Program, Stmt, StructField, TrainConfig,
+    PipelineOp, PipelineSource, Program, SplitStrategy, Stmt, StructField, TrainConfig,
 };
 use crate::error::{CompileError, ErrorKind};
 use crate::ir;
@@ -474,6 +474,24 @@ impl Analyzer {
     /// warns instead of failing. Fully non-sweep configs with no such options are
     /// a no-op.
     fn validate_train_sweep(&mut self, model_name: &str, config: &TrainConfig) {
+        // Issue #162: split strategy / time column only take effect with a
+        // validation split; warn instead of silently ignoring them.
+        if config.validation_split.is_none()
+            && (config.split_strategy != SplitStrategy::Sequential || config.time_column.is_some())
+        {
+            self.warning(
+                Some(model_name),
+                if is_korean() {
+                    format!(
+                        "train({model_name}): validation_split 이 없어 split/time_column 옵션이 무시됩니다."
+                    )
+                } else {
+                    format!(
+                        "train({model_name}): split/time_column is ignored without validation_split."
+                    )
+                },
+            );
+        }
         if !config.is_sweep() {
             let mut ignored: Vec<&str> = Vec::new();
             if config.sweep_metric_explicit {

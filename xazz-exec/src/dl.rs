@@ -29,7 +29,7 @@ use burn::{
 };
 use burn_ndarray::NdArray;
 use polars::prelude::{Column, DataFrame};
-use xazz_compiler::ast::{LayerKind, SweepMetric, SweepSort, TrainConfig};
+use xazz_compiler::ast::{LayerKind, SplitStrategy, SweepMetric, SweepSort, TrainConfig};
 use xazz_core::i18n::{is_korean, tr};
 
 use crate::tensor_bridge::{extract_data, series_to_f32};
@@ -1070,6 +1070,111 @@ fn materialize_cpu_model<B: Backend>(
 /// manifest are written to disk. The sweep grid passes `false` for every
 /// combination and materialises only the winner, so a GPU provider does not pay
 /// a checkpoint save per combination (issue D1/D3).
+/// Deterministic LCG step used for reproducible row shuffles (issue #162).
+fn lcg_next(seed: &mut u64) -> u64 {
+    *seed = seed
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+    *seed
+}
+
+/// Row indices sorted ascending by a numeric `time_column:` (issue #162).
+///
+/// Null or non-numeric values sort last, keeping their relative order. Returns
+/// an error when the column is missing or cannot be read as f64.
+fn time_order_by_column(df: &DataFrame, column: &str) -> Result<Vec<usize>, String> {
+    let series = df
+        .column(column)
+        .map_err(|_| format!("time_column '{column}' not found in the training frame"))?;
+    let values: Vec<Option<f64>> = series
+        .cast(&polars::prelude::DataType::Float64)
+        .map_err(|e| format!("time_column '{column}' is not numeric: {e}"))?
+        .f64()
+        .map_err(|e| format!("time_column '{column}' read failed: {e}"))?
+        .into_iter()
+        .collect();
+    let mut order: Vec<usize> = (0..values.len()).collect();
+    order.sort_by(|&a, &b| match (values[a], values[b]) {
+        (Some(x), Some(y)) => x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
+    Ok(order)
+}
+
+/// Builds the train/validation index partition for a configured split (issue #162).
+///
+/// `targets` are the NaN-imputed target values indexed by row; `time_order` is
+/// the row order sorted ascending by `time_column:` when one was given. The
+/// validation set is always drawn after the training rows in the chosen order,
+/// so a time-ordered frame never leaks future rows into training.
+///
+/// [`SplitStrategy::Sequential`] is the historical tail split, [`Random`]
+/// shuffles with a fixed seed before the tail split, and [`Stratified`] draws
+/// the validation fraction from each target class so the class ratio holds.
+pub fn select_split_indices(
+    n: usize,
+    val_split: f64,
+    strategy: SplitStrategy,
+    targets: &[f32],
+    time_order: Option<&[usize]>,
+) -> (Vec<usize>, Vec<usize>) {
+    let val_split = val_split.clamp(0.0, MAX_VALIDATION_SPLIT);
+    let val_n = (n as f64 * val_split) as usize;
+    if n == 0 || val_n == 0 || val_n >= n {
+        return ((0..n).collect(), Vec::new());
+    }
+
+    // Base row order: explicit time order when provided, else natural order.
+    let base: Vec<usize> = match time_order {
+        Some(order) if order.len() == n => order.to_vec(),
+        _ => (0..n).collect(),
+    };
+
+    match strategy {
+        SplitStrategy::Sequential => {
+            let (train, val) = base.split_at(n - val_n);
+            (train.to_vec(), val.to_vec())
+        }
+        SplitStrategy::Random => {
+            let mut order = base;
+            let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+            for i in (1..order.len()).rev() {
+                let j = (lcg_next(&mut seed) >> 33) as usize % (i + 1);
+                order.swap(i, j);
+            }
+            let (train, val) = order.split_at(n - val_n);
+            (train.to_vec(), val.to_vec())
+        }
+        SplitStrategy::Stratified => {
+            // Group rows by target value, preserving base order within a class.
+            let mut groups: Vec<(f32, Vec<usize>)> = Vec::new();
+            for &row in &base {
+                let t = targets.get(row).copied().unwrap_or(f32::NAN);
+                match groups.iter_mut().find(|(k, _)| *k == t) {
+                    Some((_, rows)) => rows.push(row),
+                    None => groups.push((t, vec![row])),
+                }
+            }
+            let mut train = Vec::with_capacity(n - val_n);
+            let mut val = Vec::with_capacity(val_n);
+            for (_, rows) in &groups {
+                let take = ((rows.len() as f64 * val_split).round() as usize).min(rows.len());
+                let (tr, va) = rows.split_at(rows.len() - take);
+                train.extend_from_slice(tr);
+                val.extend_from_slice(va);
+            }
+            // Restore base order inside each partition for reproducible output.
+            let pos: std::collections::HashMap<usize, usize> =
+                base.iter().enumerate().map(|(p, &r)| (r, p)).collect();
+            train.sort_by_key(|r| pos.get(r).copied().unwrap_or(usize::MAX));
+            val.sort_by_key(|r| pos.get(r).copied().unwrap_or(usize::MAX));
+            (train, val)
+        }
+    }
+}
+
 fn train_impl<B>(
     df: &DataFrame,
     model_name: &str,
@@ -1166,14 +1271,23 @@ where
         .map(|&t| if t.is_finite() { t } else { tmean as f32 })
         .collect();
 
-    // ── train / validation split ────────────────────────────────────────────
+    // ── train / validation split (issue #162) ───────────────────────────────
     let val_split = config
         .validation_split
         .unwrap_or(0.0)
         .clamp(0.0, MAX_VALIDATION_SPLIT);
-    let val_n = (n as f64 * val_split) as usize;
-    let train_n = n - val_n;
-    let val_idx: Vec<usize> = (train_n..n).collect();
+    let time_order = match config.time_column.as_deref() {
+        Some(col) => Some(time_order_by_column(df, col)?),
+        None => None,
+    };
+    let (train_idx, val_idx) = select_split_indices(
+        n,
+        val_split,
+        config.split_strategy,
+        &ys,
+        time_order.as_deref(),
+    );
+    let train_n = train_idx.len();
 
     let device_autodiff: Device<Autodiff<B>> = device.clone();
     let mut model = build_mlp::<Autodiff<B>>(layers, input_dim, &device_autodiff)?;
@@ -1232,7 +1346,7 @@ where
 
     for epoch in 0..config.epochs {
         // Deterministic shuffle (epoch seed)
-        let mut order: Vec<usize> = (0..train_n).collect();
+        let mut order: Vec<usize> = train_idx.clone();
         let mut seed = epoch as u64 + 1;
         for i in (1..order.len()).rev() {
             seed = seed
@@ -1343,7 +1457,9 @@ where
     let all_preds = valid_model.forward(xall_t).into_data().to_vec::<f32>();
     let (final_train_mae, final_train_r2, final_val_mae, final_val_r2) = match all_preds {
         Ok(all_preds) if all_preds.len() == n => {
-            let (train_mae, train_r2) = regression_metrics(&all_preds[..train_n], &ys[..train_n]);
+            let tp: Vec<f32> = train_idx.iter().map(|&i| all_preds[i]).collect();
+            let tt: Vec<f32> = train_idx.iter().map(|&i| ys[i]).collect();
+            let (train_mae, train_r2) = regression_metrics(&tp, &tt);
             if val_idx.is_empty() {
                 (train_mae, train_r2, None, None)
             } else {
@@ -1723,6 +1839,51 @@ mod tests {
         assert_eq!(*cache.get_or_insert_with(1, || Ok(10)).unwrap(), 10);
         assert_eq!(*cache.get_or_insert_with(2, || Ok(20)).unwrap(), 20);
         assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn split_sequential_takes_tail() {
+        let (train, val) = select_split_indices(10, 0.2, SplitStrategy::Sequential, &[], None);
+        assert_eq!(train, (0..8).collect::<Vec<_>>());
+        assert_eq!(val, vec![8, 9]);
+    }
+
+    #[test]
+    fn split_random_is_deterministic_and_disjoint() {
+        let first = select_split_indices(20, 0.25, SplitStrategy::Random, &[], None);
+        let second = select_split_indices(20, 0.25, SplitStrategy::Random, &[], None);
+        assert_eq!(first, second, "고정 시드라 같은 결과여야 함");
+        let (train, val) = first;
+        assert_eq!(train.len(), 15);
+        assert_eq!(val.len(), 5);
+        let mut all: Vec<usize> = train.iter().chain(val.iter()).copied().collect();
+        all.sort_unstable();
+        assert_eq!(
+            all,
+            (0..20).collect::<Vec<_>>(),
+            "두 집합은 전체를 중복 없이 덮어야 함"
+        );
+    }
+
+    #[test]
+    fn split_stratified_preserves_class_ratio() {
+        let targets = [0.0f32, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
+        let (train, val) = select_split_indices(8, 0.5, SplitStrategy::Stratified, &targets, None);
+        assert_eq!(train.len(), 4);
+        assert_eq!(val.len(), 4);
+        let zeros = val.iter().filter(|&&i| targets[i] == 0.0).count();
+        let ones = val.iter().filter(|&&i| targets[i] == 1.0).count();
+        assert_eq!((zeros, ones), (2, 2), "클래스 비율이 유지되어야 함");
+    }
+
+    #[test]
+    fn split_sequential_respects_time_order() {
+        // Rows sorted ascending by time: row 4 is earliest, row 0 latest.
+        let order = [4usize, 3, 2, 1, 0];
+        let (train, val) =
+            select_split_indices(5, 0.4, SplitStrategy::Sequential, &[], Some(&order));
+        assert_eq!(train, vec![4, 3, 2]);
+        assert_eq!(val, vec![1, 0], "검증 구간은 시간상 뒤쪽이어야 함");
     }
 
     #[test]

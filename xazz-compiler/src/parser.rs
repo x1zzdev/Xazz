@@ -46,7 +46,7 @@
 use crate::ast::{
     AggFn, AggSpec, BinOpKind, ChartConfig, ChartType, DpArgs, DpMechanism, EmbeddingVocab, Expr,
     FillNullValue, JoinHow, LayerKind, LoadOptions, PipelineOp, PipelineSource, Program,
-    SaveFormat, Stmt, StructField, SweepMetric, SweepSort, TrainConfig,
+    SaveFormat, SplitStrategy, Stmt, StructField, SweepMetric, SweepSort, TrainConfig,
 };
 use crate::error::{CompileError, CompileResult, ErrorKind};
 use crate::token::{Span, Token, TokenKind};
@@ -585,12 +585,41 @@ impl Parser {
                 "tiebreak" => {
                     config.sweep_tiebreak = self.parse_tiebreak_axes()?;
                 }
+                "split" => {
+                    let raw = self.parse_string_or_ident("split")?;
+                    config.split_strategy = SplitStrategy::parse(&raw).ok_or_else(|| {
+                        CompileError::new(
+                            ErrorKind::UnexpectedToken(raw.clone()),
+                            self.current_span(),
+                            format!(
+                                "알 수 없는 분할 방식: '{}'. 지원: sequential(time), stratified, random",
+                                raw
+                            ),
+                        )
+                    })?;
+                }
+                "time_column" => {
+                    config.time_column = Some(match self.current_kind() {
+                        TokenKind::StringLit(s) => {
+                            let s = s.clone();
+                            self.advance();
+                            s
+                        }
+                        other => {
+                            return Err(CompileError::new(
+                                ErrorKind::ExpectedToken("StringLit".into()),
+                                self.current_span(),
+                                format!("time_column은 문자열이어야 합니다. 실제: {:?}", other),
+                            ));
+                        }
+                    });
+                }
                 other => {
                     return Err(CompileError::new(
                         ErrorKind::UnexpectedToken(other.into()),
                         self.current_span(),
                         format!(
-                            "알 수 없는 train() 인수: '{}'. 지원: target, epochs, lr, batch_size, validation_split, patience, metric, sort, tiebreak, top",
+                            "알 수 없는 train() 인수: '{}'. 지원: target, epochs, lr, batch_size, validation_split, patience, metric, sort, tiebreak, top, split, time_column",
                             other
                         ),
                     ));
@@ -2390,6 +2419,46 @@ type AirQuality = {
             }
             other => panic!("TrainStmt 예상, 실제: {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_train_split_and_time_column_parse() {
+        let src = r#"
+            model M { Dense(1) }
+            v data = load("x.csv") :: S;
+            run data |> train(M, target: "y", epochs: [1, 2], validation_split: 0.2, split: "stratified", time_column: "ts");
+            run data |> train(M, target: "y", epochs: [1, 2], validation_split: 0.2, split: time);
+        "#;
+        let program = parse_src(src).expect("파싱 실패");
+        match &program.stmts[2] {
+            Stmt::TrainStmt { config, .. } => {
+                assert_eq!(config.split_strategy, SplitStrategy::Stratified);
+                assert_eq!(config.time_column.as_deref(), Some("ts"));
+            }
+            other => panic!("TrainStmt 예상, 실제: {:?}", other),
+        }
+        match &program.stmts[3] {
+            Stmt::TrainStmt { config, .. } => {
+                assert_eq!(config.split_strategy, SplitStrategy::Sequential);
+                assert_eq!(config.time_column, None);
+            }
+            other => panic!("TrainStmt 예상, 실제: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_train_unknown_split_is_error() {
+        let src = r#"
+            model M { Dense(1) }
+            v data = load("x.csv") :: S;
+            run data |> train(M, target: "y", epochs: [1, 2], validation_split: 0.2, split: "quantum");
+        "#;
+        let err = parse_src(src).expect_err("알 수 없는 split은 에러여야 함");
+        assert!(
+            err.message.contains("분할") || err.message.contains("split"),
+            "오류 안내가 없음: {}",
+            err.message
+        );
     }
 
     #[test]
