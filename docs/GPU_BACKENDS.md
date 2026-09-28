@@ -146,6 +146,25 @@ XAZZ_BACKEND=onnx XAZZ_ORT_EP=cuda,cpu xazz run model.xzz
 | `XAZZ_INFER_CACHE_SLOTS` | `4` | LRU slots for loaded models/ONNX sessions |
 | `XAZZ_INFER_CHUNK` | `4096` | Rows per inference upload (`0` disables chunking) |
 
+### Diagnostics
+
+Backend dependencies (Burn/cubecl/Polars) report diagnostics through the `log`
+facade — including which WebGPU adapter cubecl selected (`Using adapter …`).
+Nothing is printed unless you opt in with an `env_logger`-style filter in
+`XAZZ_LOG` (preferred) or `RUST_LOG`:
+
+```bash
+# show the selected adapter and other info-level diagnostics
+XAZZ_LOG=info XAZZ_BACKEND=wgpu XAZZ_DEVICE=dgpu:0 xazz run model.xzz
+
+# quiet globally, verbose for cubecl only
+XAZZ_LOG=warn,cubecl_wgpu=debug xazz run model.xzz
+```
+
+A bare level applies globally; `target=level` directives override it for
+matching module paths (longest prefix wins). This is the supported way to
+confirm `XAZZ_DEVICE` pinned the intended adapter (issue #103, §6.1).
+
 ## 4. Verify an acceptance test
 
 The GPU/ONNX acceptance tests are `#[ignore]`d behind their feature. Run them on

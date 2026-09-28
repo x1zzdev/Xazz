@@ -194,6 +194,11 @@ error: build script logged errors
 > 위 제안 1·4는 반영됐다: `xazz-exec/build.rs`가 `windows-gnu` + `cuda`/`onnx*` 조합을
 > 빌드 초입에서 MSVC 설치 안내와 함께 차단하고(`XAZZ_ALLOW_WINDOWS_GNU_GPU=1`로 우회),
 > `CONTRIBUTING.md` "Optional GPU backends"에 `--release`·MSVC 요건을 문서화했다.
+>
+> 제안 2도 반영됐다: `xazz-exec/src/logging.rs`가 `XAZZ_LOG`(또는 `RUST_LOG`)가 설정된
+> 경우에만 stderr 로거를 설치해 cubecl-wgpu의 `Using adapter {..}`를 포함한 의존성 진단을
+> 노출한다(`docs/GPU_BACKENDS.md` §3 "Diagnostics"). 형식은 cubecl 자체 로그 라인을 그대로
+> 통과시키며, 어댑터가 포함된 `[xazz] ML backend` 한 줄로 재포맷하지는 않는다.
 
 ### 6.2 남은 검증
 

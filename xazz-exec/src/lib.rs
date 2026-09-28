@@ -12,6 +12,7 @@ pub mod backend;
 pub mod chart;
 pub mod dl;
 pub mod dp;
+pub mod logging;
 pub mod lower;
 pub mod runtime;
 pub mod sanitize;

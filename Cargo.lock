@@ -8329,6 +8329,7 @@ dependencies = [
  "burn-wgpu",
  "duckdb",
  "encoding_rs",
+ "log",
  "ort",
  "polars",
  "postgres",
