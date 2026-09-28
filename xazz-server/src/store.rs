@@ -31,6 +31,16 @@ pub const DB_FILE: &str = "xazz.db";
 const DEFAULT_POLICY_HISTORY_MAX: usize = 1000;
 /// Environment override for the per-tenant policy-history retention cap.
 const POLICY_HISTORY_MAX_ENV: &str = "XAZZ_TENANT_POLICY_HISTORY_MAX";
+
+/// Default cap on retained DP budget window override change rows per tenant
+/// (issue C2).
+///
+/// Kept separate from [`DEFAULT_POLICY_HISTORY_MAX`] so operators can tune the
+/// two audit trails independently. Overridable with
+/// `XAZZ_TENANT_DP_WINDOW_HISTORY_MAX`.
+const DEFAULT_DP_WINDOW_HISTORY_MAX: usize = 1000;
+/// Environment override for the per-tenant DP window override change history cap.
+const DP_WINDOW_HISTORY_MAX_ENV: &str = "XAZZ_TENANT_DP_WINDOW_HISTORY_MAX";
 /// Environment override for the per-tenant policy-history retention window
 /// (seconds). Unset or `0` disables time-based expiry, leaving only the count cap.
 const POLICY_HISTORY_TTL_ENV: &str = "XAZZ_TENANT_POLICY_HISTORY_TTL_SECS";
@@ -48,6 +58,17 @@ pub fn resolve_policy_history_max(raw: Option<&str>) -> usize {
     raw.and_then(|v| v.parse::<usize>().ok())
         .filter(|v| *v > 0)
         .unwrap_or(DEFAULT_POLICY_HISTORY_MAX)
+}
+
+/// Parses the per-tenant DP window override change history cap (issue C2).
+///
+/// Independent from [`resolve_policy_history_max`]; invalid or `0` values fall
+/// back to [`DEFAULT_DP_WINDOW_HISTORY_MAX`] so the cap cannot be disabled
+/// accidentally.
+pub fn resolve_dp_window_history_max(raw: Option<&str>) -> usize {
+    raw.and_then(|v| v.parse::<usize>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(DEFAULT_DP_WINDOW_HISTORY_MAX)
 }
 
 /// Parses the per-tenant policy-history retention window in seconds (issue C2).
@@ -313,6 +334,8 @@ pub struct Store {
     conn: Mutex<Option<Connection>>,
     /// Max policy-history rows retained per tenant (issue C2).
     history_max: usize,
+    /// Max DP window override change rows retained per tenant (issue C2).
+    dp_window_history_max: usize,
     /// Global policy-history retention window in seconds (`0` = no time-based
     /// expiry). A stored per-tenant override (`tenant_policy_history_config`)
     /// takes precedence over this default.
@@ -325,9 +348,12 @@ impl Store {
             resolve_policy_history_max(std::env::var(POLICY_HISTORY_MAX_ENV).ok().as_deref());
         let history_ttl_secs =
             resolve_policy_history_ttl(std::env::var(POLICY_HISTORY_TTL_ENV).ok().as_deref());
+        let dp_window_history_max =
+            resolve_dp_window_history_max(std::env::var(DP_WINDOW_HISTORY_MAX_ENV).ok().as_deref());
         Store {
             conn: Mutex::new(None),
             history_max,
+            dp_window_history_max,
             history_ttl_secs,
         }
     }
@@ -351,11 +377,27 @@ impl Store {
         history_max: usize,
         history_ttl_secs: u64,
     ) -> Self {
+        Self::open_at_with_retention(
+            path,
+            history_max,
+            history_ttl_secs,
+            DEFAULT_DP_WINDOW_HISTORY_MAX,
+        )
+    }
+
+    /// Opens a store with every retention setting made explicit (tests).
+    fn open_at_with_retention(
+        path: &std::path::Path,
+        history_max: usize,
+        history_ttl_secs: u64,
+        dp_window_history_max: usize,
+    ) -> Self {
         let conn = Connection::open(path).expect("open store db");
         ensure_schema(&conn).expect("create store schema");
         Store {
             conn: Mutex::new(Some(conn)),
             history_max,
+            dp_window_history_max,
             history_ttl_secs,
         }
     }
@@ -895,7 +937,7 @@ impl Store {
             changed_by,
             now,
         )?;
-        prune_dp_window_history(&tx, tenant, self.history_max)?;
+        prune_dp_window_history(&tx, tenant, self.dp_window_history_max)?;
         tx.commit()
             .map_err(|e| format!("failed to commit dp window transaction: {e}"))?;
         Ok(())
@@ -924,7 +966,7 @@ impl Store {
             .map_err(|e| format!("failed to clear tenant dp window: {e}"))?;
         if deleted > 0 {
             insert_dp_window_change(&tx, tenant, "clear", previous, None, changed_by, now)?;
-            prune_dp_window_history(&tx, tenant, self.history_max)?;
+            prune_dp_window_history(&tx, tenant, self.dp_window_history_max)?;
         }
         tx.commit()
             .map_err(|e| format!("failed to commit dp window transaction: {e}"))?;
@@ -1299,10 +1341,11 @@ impl Store {
     /// so an explicit `0` override is never expired) and trims both the policy
     /// history and the retention-window override change history to the count cap
     /// ([`resolve_policy_history_max`]), and trims the DP-window override change
-    /// history to the same cap. The override change histories only ever get the
-    /// count cap — their own windows must not expire the audit trail of who set
-    /// them. Tenants are discovered from all three tables so an override-only
-    /// tenant is still trimmed. Returns the number of rows removed.
+    /// history to its own cap ([`resolve_dp_window_history_max`]). The override
+    /// change histories only ever get the count cap — their own windows must not
+    /// expire the audit trail of who set them. Tenants are discovered from all
+    /// three tables so an override-only tenant is still trimmed. Returns the
+    /// number of rows removed.
     pub fn sweep_expired_policy_history(&self) -> Result<usize, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
@@ -1334,7 +1377,7 @@ impl Store {
             let ttl = effective_history_ttl(&tx, &tenant, self.history_ttl_secs)?;
             removed += prune_policy_history(&tx, &tenant, self.history_max, ttl, now)?;
             removed += prune_policy_history_ttl_history(&tx, &tenant, self.history_max)?;
-            removed += prune_dp_window_history(&tx, &tenant, self.history_max)?;
+            removed += prune_dp_window_history(&tx, &tenant, self.dp_window_history_max)?;
         }
         tx.commit()
             .map_err(|e| format!("failed to commit policy sweep: {e}"))?;
@@ -1986,6 +2029,52 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The DP window override change history is capped independently from the
+    /// policy-history cap (issue C2).
+    #[test]
+    fn dp_window_history_is_pruned_to_its_own_cap() {
+        let db = unique_db("dpwin_hist_cap");
+        // Policy cap of 1, DP window cap of 3: the two trails must not share a cap.
+        let store = Store::open_at_with_retention(&db, 1, 0, 3);
+
+        for i in 1..=5 {
+            store.set_dp_window("a", i * 60, "a").expect("set a");
+        }
+        store.set_dp_window("b", 60, "b").expect("set b");
+
+        let hist_a = store
+            .list_dp_window_history("a", 100, 0, None)
+            .expect("dp history a");
+        assert_eq!(hist_a.len(), 3, "own cap keeps the newest 3");
+        assert_eq!(hist_a[0].new_window_secs, Some(300));
+
+        // The policy history is bounded by the separate policy cap.
+        for i in 1..=3 {
+            store
+                .set_tenant_policy("a", &format!(r#"{{"id":"a-{i}"}}"#), "a")
+                .expect("set policy a");
+        }
+        assert_eq!(
+            store
+                .list_policy_history("a", 100, 0, None)
+                .expect("policy history a")
+                .len(),
+            1,
+            "policy cap is independent of the DP window cap"
+        );
+
+        assert_eq!(
+            store
+                .list_dp_window_history("b", 100, 0, None)
+                .expect("dp history b")
+                .len(),
+            1,
+            "pruning is tenant-scoped"
+        );
+
+        let _ = std::fs::remove_dir_all(db.parent().unwrap());
+    }
+
     /// Tenant policy packs are stored and isolated per tenant (issue C2).
     #[test]
     fn tenant_policies_are_namespaced_per_tenant() {
@@ -2075,6 +2164,25 @@ mod tests {
         assert_eq!(
             resolve_policy_history_max(Some("not-a-number")),
             DEFAULT_POLICY_HISTORY_MAX
+        );
+    }
+
+    /// The DP window history cap parser rejects disabled/invalid values and
+    /// defaults independently from the policy-history cap (issue C2).
+    #[test]
+    fn dp_window_history_max_resolver_falls_back_to_default() {
+        assert_eq!(
+            resolve_dp_window_history_max(None),
+            DEFAULT_DP_WINDOW_HISTORY_MAX
+        );
+        assert_eq!(resolve_dp_window_history_max(Some("5")), 5);
+        assert_eq!(
+            resolve_dp_window_history_max(Some("0")),
+            DEFAULT_DP_WINDOW_HISTORY_MAX
+        );
+        assert_eq!(
+            resolve_dp_window_history_max(Some("not-a-number")),
+            DEFAULT_DP_WINDOW_HISTORY_MAX
         );
     }
 

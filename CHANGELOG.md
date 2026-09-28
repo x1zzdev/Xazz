@@ -9,13 +9,20 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Changed — DP window 감사 이력 전용 보존 상한 (issue C2)
+
+- **`XAZZ_TENANT_DP_WINDOW_HISTORY_MAX`** — `tenant_dp_config_history`의 개수 상한을
+  정책 이력과 공유하던 `XAZZ_TENANT_POLICY_HISTORY_MAX`에서 분리했다. 미설정/무효/`0`은
+  기본 1000으로 폴백한다. 정기 정책 이력 스윕도 DP window 이력에 이 전용 상한을 적용한다
+- 검증: resolver 단위 테스트 1종 + cap 독립성 store 테스트 1종(정책 cap 1·DP cap 3)
+
 ### Added — DP window override 변경 감사 + 관리자 대리 actor (issue C2)
 
 - **`tenant_dp_config_history`** — `PUT`/`DELETE /dp/budget/window`가 이제 이전/새
   `window_secs`와 `changed_by`(자기 테넌트 또는 관리자 actor)를 append-only로 기록한다.
-  셋/클리어와 같은 트랜잭션으로 커밋되고, 개수 상한
-  (`XAZZ_TENANT_POLICY_HISTORY_MAX`)으로 prune되며, 정기 정책 이력 스윕도 이 테이블을
-  포함한다
+  셋/클리어와 같은 트랜잭션으로 커밋되고, 전용 개수 상한
+  (`XAZZ_TENANT_DP_WINDOW_HISTORY_MAX`, 기본 1000)으로 prune되며, 정기 정책 이력 스윕도
+  이 테이블을 포함한다
 - **`GET /dp/budget/window/history?limit=&offset=&cursor=`** — 테넌트 스코프 변경 이력
   (최신순, 응답의 `next_cursor`로 커서 페이지네이션)
 - **관리자 대리** — `XAZZ_ADMIN_TOKEN` + `X-Xazz-Actor`(기본 `admin`)로 다른 테넌트
