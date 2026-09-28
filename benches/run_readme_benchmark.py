@@ -11,10 +11,10 @@ Python Pandas(eager)와 Xazz(Rust + Polars LazyFrame)로 실행해 측정한다.
       * xazz:   런타임의 [xazz:timing] 마커의 pipeline_ms (프로세스 부팅 제외)
   - 피크 RSS: **동일 기준** — 양쪽 모두 프로세스 트리(xazz는 xazz-runner 포함)를
     3ms 주기 폴링
-  - 결과는 benches/benchmark_results.json 으로 저장
+  - 결과는 benches/benchmark_results.json 으로 저장 (`--out PATH`로 변경 가능)
 
 사용법:
-    python benches/run_readme_benchmark.py [--quick]
+    python benches/run_readme_benchmark.py [--quick] [--out PATH]
 """
 from __future__ import annotations
 
@@ -38,6 +38,15 @@ RESULTS_PATH = ROOT / "benches" / "benchmark_results.json"
 SCALES = ["small", "medium", "large"]
 RUNS = 3
 POLL_MS = 3
+
+
+def arg_value(flag: str, default: str) -> str:
+    """`--flag VALUE` 형태의 값을 읽는다 (없으면 default)."""
+    if flag in sys.argv:
+        i = sys.argv.index(flag)
+        if i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return default
 
 
 def measure_tree(
@@ -156,6 +165,7 @@ def summarize(runs: list[dict]) -> dict:
 
 def main() -> None:
     quick = "--quick" in sys.argv
+    out_path = arg_value("--out", str(RESULTS_PATH))
     scales = ["small"] if quick else SCALES
     # 200M 행 스케일은 선택 — make_scale_data.py --xlarge 로 데이터 생성 후 --xlarge 로 측정
     if "--xlarge" in sys.argv and DATA.joinpath("scale_xlarge.csv").exists():
@@ -177,8 +187,8 @@ def main() -> None:
         print(f"  [xazz] median latency = {x['latency_ms']:>10,.1f} ms | peak RSS = {x['peak_mb']:,.1f} MB", flush=True)
         results[scale]["rows"] = rows
 
-    RESULTS_PATH.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"\n결과 저장 → {RESULTS_PATH}")
+    Path(out_path).write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"\n결과 저장 → {out_path}")
     lg = results[scales[-1]]
     print(f"Speedup (last scale): {lg['pandas']['latency_ms'] / lg['xazz']['latency_ms']:.2f}x")
 

@@ -18,6 +18,18 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - 마커 출력(서버 릴레이)과 JSON 필드가 같은 `resources_json` 빌더를 공유
 - 검증: `resources_json` 단위 테스트 2종(카운터 있음/없음)
 
+### Added — 벤치마크 회귀 CI (issue #147)
+
+- **`.github/workflows/bench.yml`** — 릴리스 바이너리를 빌드해 **합성 데이터**(LFS 원본
+  불필요)로 README 벤치마크를 `--quick` 실행하고, pandas 대비 xazz speedup 비율을
+  커밋된 기준선과 비교한다. workflow_dispatch·주간 스케줄·`ci/bench-regression` 브랜치에서
+  동작하며 결과 JSON을 아티팩트로 업로드한다
+- **`benches/bench_regression.py`** — 절대 지연(머신 의존) 대신 같은 실행의
+  pandas/xazz speedup 비율을 비교해 `--tol`(기본 35%) 넘게 하락하면 실패한다
+- **`benches/bench_regression_baseline.json`** — 합성 데이터 기준 speedup 1.58x
+- **`benches/make_scale_data.py --synthetic`** — 고정 시드 합성 데이터 생성(CI용)
+- **`benches/run_readme_benchmark.py --out PATH`** — 결과 출력 경로 지정
+
 ### Changed — D1 CUDA provider를 burn-tch에서 burn-cuda(네이티브 CubeCL)로 교체 (issue #62)
 
 - **`xazz-exec`** — `--features cuda`가 `burn-tch`(LibTorch) 대신 `burn-cuda`
