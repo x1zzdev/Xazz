@@ -9,6 +9,15 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 임베딩 입력 진단의 구조화 노출 (`TrainReport`/`--json`) (issue D3)
+
+- **`TrainReport`**에 `embedding_out_of_range`·`embedding_non_integer` 필드 추가.
+  기존 stderr 경고 전용이던 범위 밖(클램프)·비정수(절단) 임베딩 입력 카운트를
+  `[xazz:train]` JSON 리포트에도 기계 판독 가능하게 노출한다(`#[serde(default)]`,
+  하위호환). 기존 경고와 동일한 값을 공유한다
+- 검증: `check_embedding_indices` 반환 진단 단위 테스트 + 임베딩 E2E에서 리포트/
+  직렬화 값 검증 (xazz-exec)
+
 ### Added — DP 예산 리셋 이력 커서 페이지네이션 (`GET /dp/budget/history`) (issue C2)
 
 - **`GET /dp/budget/history`**가 `?limit=&offset=`와 `?cursor=<id>`(이전 페이지의

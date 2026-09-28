@@ -1386,6 +1386,65 @@ mod tests {
         cleanup(&trained.report.checkpoint_path);
     }
 
+    /// D3 Embedding: the report surfaces structured embedding diagnostics, and
+    /// they serialize into the `[xazz:train]` payload (issue D3 follow-up).
+    #[test]
+    fn cpu_backend_embedding_diagnostics_in_report() {
+        use polars::prelude::*;
+
+        let df = df!(
+            "cat1" => [0i64, 1, 5, 0, 1, 2],
+            "cat2" => [0.0f64, 1.5, 0.0, 1.0, 2.0, 0.5],
+            "y"    => [0.0f64, 1.0, 2.0, 0.0, 1.0, 2.0],
+        )
+        .expect("embedding diagnostics dataset");
+
+        let layers = vec![
+            LayerKind::Embedding {
+                vocab: EmbeddingVocab::PerColumn(vec![3, 3]),
+                embed_dim: 2,
+            },
+            LayerKind::ReLU,
+            LayerKind::Dense(1),
+        ];
+        let config = TrainConfig {
+            target: "y".to_string(),
+            epochs: 2,
+            learning_rate: 0.05,
+            batch_size: Some(3),
+            validation_split: None,
+            early_stopping_patience: None,
+            sweep: Default::default(),
+            sweep_metric: Default::default(),
+            sweep_metric_explicit: false,
+            sweep_sort: Default::default(),
+            sweep_sort_explicit: false,
+            sweep_tiebreak: Vec::new(),
+            sweep_top: None,
+        };
+
+        let (backend, warning) = resolve(None);
+        assert!(warning.is_none());
+
+        let trained = backend
+            .train(&df, "backend_unit_embedding_diag", &layers, &config)
+            .expect("cpu embedding train");
+        assert_eq!(
+            trained.report.embedding_out_of_range, 1,
+            "cat1=5 is above vocab-1 (3-1=2)"
+        );
+        assert_eq!(
+            trained.report.embedding_non_integer, 2,
+            "cat2 values 1.5 and 0.5 are fractional"
+        );
+
+        let json = serde_json::to_value(&trained.report).expect("report serializes");
+        assert_eq!(json["embedding_out_of_range"], 1);
+        assert_eq!(json["embedding_non_integer"], 2);
+
+        cleanup(&trained.report.checkpoint_path);
+    }
+
     /// D3 Embedding: each input column can use its own vocabulary.
     #[test]
     fn cpu_backend_trains_per_column_embedding_model() {

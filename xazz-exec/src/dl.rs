@@ -396,17 +396,39 @@ fn warn_embedding_non_integer(count: usize) {
     eprintln!("[xazz] {msg}");
 }
 
-/// Runs the out-of-range embedding diagnostic when the model consumes raw indices.
-fn check_embedding_indices(layers: &[LayerKind], values: &[f32], feature_count: usize) {
-    if let Some(vocabs) = leading_embedding_vocabs(layers, feature_count) {
-        let count = count_out_of_range_per_column(values, feature_count, &vocabs);
-        if count > 0 {
-            warn_embedding_out_of_range(count, &vocabs);
-        }
-        let non_integer = count_non_integer_indices(values);
-        if non_integer > 0 {
-            warn_embedding_non_integer(non_integer);
-        }
+/// Structured mirror of the embedding-input warnings. The forward pass clamps
+/// out-of-range indices and truncates fractional ones silently, so these counts
+/// are surfaced in [`TrainReport`] (and thus `--json`) for machine-readable
+/// consumption in addition to the stderr diagnostics (issue D3).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct EmbeddingDiagnostics {
+    /// Finite inputs below 0 or above `vocab_size - 1` (clamped in the forward pass).
+    out_of_range: usize,
+    /// Finite inputs with a fractional part (truncated to an index in the forward pass).
+    non_integer: usize,
+}
+
+/// Runs the out-of-range embedding diagnostic when the model consumes raw indices,
+/// emitting the stderr warnings and returning the counts for [`TrainReport`].
+fn check_embedding_indices(
+    layers: &[LayerKind],
+    values: &[f32],
+    feature_count: usize,
+) -> EmbeddingDiagnostics {
+    let Some(vocabs) = leading_embedding_vocabs(layers, feature_count) else {
+        return EmbeddingDiagnostics::default();
+    };
+    let out_of_range = count_out_of_range_per_column(values, feature_count, &vocabs);
+    if out_of_range > 0 {
+        warn_embedding_out_of_range(out_of_range, &vocabs);
+    }
+    let non_integer = count_non_integer_indices(values);
+    if non_integer > 0 {
+        warn_embedding_non_integer(non_integer);
+    }
+    EmbeddingDiagnostics {
+        out_of_range,
+        non_integer,
     }
 }
 
@@ -451,6 +473,14 @@ pub struct TrainReport {
     /// Final coefficient of determination (R²) over the validation split (if any).
     #[serde(default)]
     pub final_val_r2: Option<f64>,
+    /// Raw embedding inputs outside `[0, vocab_size - 1]` (clamped silently in the
+    /// forward pass) — structured mirror of the stderr warning (issue D3).
+    #[serde(default)]
+    pub embedding_out_of_range: usize,
+    /// Finite raw embedding inputs with a fractional part (truncated to an index
+    /// in the forward pass) — structured mirror of the stderr warning (issue D3).
+    #[serde(default)]
+    pub embedding_non_integer: usize,
 }
 
 /// Trained model — also holds the standardization statistics needed for predict().
@@ -1147,9 +1177,11 @@ where
             }
         }
     }
-    if raw_input {
-        check_embedding_indices(layers, &xs, input_dim);
-    }
+    let embedding_diagnostics = if raw_input {
+        check_embedding_indices(layers, &xs, input_dim)
+    } else {
+        EmbeddingDiagnostics::default()
+    };
 
     let tmean: f64 = {
         let (mut s, mut c) = (0f64, 0usize);
@@ -1406,6 +1438,8 @@ where
         final_val_mae,
         final_train_r2,
         final_val_r2,
+        embedding_out_of_range: embedding_diagnostics.out_of_range,
+        embedding_non_integer: embedding_diagnostics.non_integer,
     };
 
     // Versioned sidecar manifest (D3) — written next to the Burn record so a
@@ -1471,7 +1505,7 @@ fn prepare_inference_input(
         }
     }
     if trained.model.raw_input {
-        check_embedding_indices(&trained.layers, &xs, feature_count);
+        let _ = check_embedding_indices(&trained.layers, &xs, feature_count);
     }
     Ok((xs, n, feature_count))
 }
@@ -1967,6 +2001,31 @@ mod tests {
         assert_eq!(count_non_integer_indices(&[f32::NAN, f32::INFINITY]), 0);
     }
 
+    #[test]
+    fn check_embedding_indices_reports_structured_counts() {
+        // 2 columns sharing vocab 3; row-major. One out-of-range per column and
+        // one fractional value. Non-finite values must not be counted.
+        let values = [0.0, 1.0, 3.0, 0.5, f32::NAN, 9.0];
+        let diag =
+            check_embedding_indices(&[embedding_layer(EmbeddingVocab::Shared(3))], &values, 2);
+        assert_eq!(diag.out_of_range, 2, "3.0 and 9.0 are above vocab-1");
+        assert_eq!(diag.non_integer, 1, "0.5 is finite with a fractional part");
+
+        // A clean raw-index input yields zeros.
+        let clean = check_embedding_indices(
+            &[embedding_layer(EmbeddingVocab::Shared(3))],
+            &[0.0, 1.0, 2.0, 0.0],
+            2,
+        );
+        assert_eq!(clean, EmbeddingDiagnostics::default());
+
+        // Without a leading embedding layer there is nothing to diagnose.
+        assert_eq!(
+            check_embedding_indices(&[LayerKind::Dense(2)], &[9.0], 1),
+            EmbeddingDiagnostics::default()
+        );
+    }
+
     // ── Checkpoint versioning (D3) ──────────────────────────────────────────
 
     static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -2002,6 +2061,8 @@ mod tests {
             final_val_mae: Some(0.5),
             final_train_r2: 0.9,
             final_val_r2: Some(0.85),
+            embedding_out_of_range: 0,
+            embedding_non_integer: 0,
         }
     }
 
