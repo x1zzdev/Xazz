@@ -203,17 +203,23 @@ pub enum RegistryAction {
         force: bool,
     },
 
-    /// Deploy an embedded policy pack to a tenant through a running server
+    /// Deploy a policy pack to a tenant through a running server
     ///
-    /// Policy packs only. Writes the pack to `PUT /security/policy` in the target
-    /// tenant namespace (issue C2).
+    /// Deploy an embedded registry pack by name, or a local policy JSON file with
+    /// `--file`. Writes the pack to `PUT /security/policy` in the target tenant
+    /// namespace (issue C2). Stdlib modules cannot be deployed.
     ///
     /// Example: xazz registry deploy healthcare --tenant acme --token $TOKEN
+    /// Example: xazz registry deploy --file xazz.policy.json --tenant acme --token $TOKEN
     /// Example: xazz registry deploy finance --server http://127.0.0.1:8005 \
     ///          --tenant acme --token $ADMIN --actor ops
     Deploy {
-        /// Registry policy-pack name (e.g. healthcare, finance)
-        name: String,
+        /// Registry policy-pack name (e.g. healthcare, finance); omit when using --file
+        name: Option<String>,
+
+        /// Deploy a local policy JSON file instead of an embedded pack
+        #[arg(long, value_name = "PATH")]
+        file: Option<PathBuf>,
 
         /// Xazz server base URL
         #[arg(long, default_value = "http://127.0.0.1:8005")]

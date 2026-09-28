@@ -418,11 +418,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 cli::RegistryAction::Deploy {
                     name,
+                    file,
                     server,
                     tenant,
                     token,
                     actor,
-                } => registry::deploy(&name, &server, &tenant, token.as_deref(), actor.as_deref()),
+                } => registry::deploy(
+                    name.as_deref(),
+                    file.as_deref(),
+                    &server,
+                    &tenant,
+                    token.as_deref(),
+                    actor.as_deref(),
+                ),
             };
             if code != 0 {
                 std::process::exit(code);
