@@ -9,6 +9,18 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — `xazz policy-ttl` 테넌트 정책 이력 보존 윈도 설정/해제 CLI (issue C2)
+
+- **`xazz policy-ttl set --ttl-secs N --tenant T`** — 실행 중인 서버의
+  `PUT /security/policy/history/ttl`로 테넌트의 정책 이력 보존 윈도 override를
+  저장한다(`--ttl-secs 0`은 "영구 보존"). **`xazz policy-ttl clear --tenant T`**는
+  `DELETE /security/policy/history/ttl`로 override를 제거해 전역 기본값으로
+  폴백한다. 두 명령 모두 tenant 스코프(`X-Xazz-Tenant`)이며
+  `--server`/`--token`(미지정 시 `XAZZ_ADMIN_TOKEN`→`XAZZ_SERVER_TOKEN`)·
+  `--actor`(관리자 대리 변경 감사) 지원. 응답의 유효 윈도(`ttl_secs`/`ttl_source`) 출력
+- **`src/policy_query.rs`** — 읽기 전용 `ttl_endpoint`를 `policy-ttl`과 공유
+- 검증: `set`/`clear` 단위 테스트 6종(PUT JSON 본문·DELETE·헤더 E2E, 비2xx, 로컬 검증, actor 공백)
+
 ### Added — `xazz registry undeploy` 테넌트 정책 팩 삭제 CLI (issue C2)
 
 - **`xazz registry undeploy --tenant T`** — 실행 중인 서버의

@@ -209,11 +209,78 @@ pub enum Commands {
         json: bool,
     },
 
+    /// Set or clear a tenant's policy-history retention window on a running
+    /// server (issue C2)
+    ///
+    /// `set` stores a per-tenant override with `PUT /security/policy/history/ttl`
+    /// (`--ttl-secs 0` means "keep forever"); `clear` removes the override with
+    /// `DELETE /security/policy/history/ttl` so the tenant falls back to the
+    /// global default. Both are tenant-scoped (sent as X-Xazz-Tenant) and accept
+    /// an admin `--actor` for a delegated change.
+    ///
+    /// Example: xazz policy-ttl set --ttl-secs 86400 --tenant acme --token $TOKEN
+    ///
+    /// Example: xazz policy-ttl clear --tenant acme --token $TOKEN
+    PolicyTtl {
+        #[command(subcommand)]
+        action: PolicyTtlAction,
+    },
+
     /// Analyze the xazz user profile and confirm the identity
     ///
     /// Example: xazz whoami
     #[command(hide = true)]
     Whoami,
+}
+
+/// Mutating policy-history retention-window actions for `xazz policy-ttl` (issue C2).
+#[derive(Subcommand, Debug)]
+pub enum PolicyTtlAction {
+    /// Store a per-tenant retention-window override (`--ttl-secs 0` = keep forever)
+    ///
+    /// Example: xazz policy-ttl set --ttl-secs 86400 --tenant acme --token $TOKEN
+    Set {
+        /// Xazz server base URL
+        #[arg(long, default_value = "http://127.0.0.1:8005")]
+        server: String,
+
+        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        #[arg(long)]
+        tenant: String,
+
+        /// Retention window in seconds; 0 disables time-based expiry for the tenant
+        #[arg(long, value_name = "SECS")]
+        ttl_secs: u64,
+
+        /// Bearer token — defaults to XAZZ_ADMIN_TOKEN, then XAZZ_SERVER_TOKEN
+        #[arg(long)]
+        token: Option<String>,
+
+        /// Audit actor for an admin-delegated change (sent as X-Xazz-Actor)
+        #[arg(long)]
+        actor: Option<String>,
+    },
+
+    /// Remove the tenant's override so it falls back to the global default
+    ///
+    /// Example: xazz policy-ttl clear --tenant acme --token $TOKEN
+    Clear {
+        /// Xazz server base URL
+        #[arg(long, default_value = "http://127.0.0.1:8005")]
+        server: String,
+
+        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        #[arg(long)]
+        tenant: String,
+
+        /// Bearer token — defaults to XAZZ_ADMIN_TOKEN, then XAZZ_SERVER_TOKEN
+        #[arg(long)]
+        token: Option<String>,
+
+        /// Audit actor for an admin-delegated change (sent as X-Xazz-Actor)
+        #[arg(long)]
+        actor: Option<String>,
+    },
 }
 
 /// Read-only policy views for `xazz policy-status` (issue C2).

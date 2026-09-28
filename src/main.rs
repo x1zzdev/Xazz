@@ -5,6 +5,7 @@ mod cli;
 mod http;
 mod policy_cli;
 mod policy_query;
+mod policy_ttl;
 mod project;
 mod registry;
 mod schema;
@@ -473,6 +474,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 limit,
                 json,
             );
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        // ── policy-ttl: mutate a tenant's retention window (issue C2) ─────────────
+        Commands::PolicyTtl { action } => {
+            let code = match action {
+                cli::PolicyTtlAction::Set {
+                    server,
+                    tenant,
+                    ttl_secs,
+                    token,
+                    actor,
+                } => policy_ttl::set(
+                    &server,
+                    &tenant,
+                    ttl_secs,
+                    token.as_deref(),
+                    actor.as_deref(),
+                ),
+                cli::PolicyTtlAction::Clear {
+                    server,
+                    tenant,
+                    token,
+                    actor,
+                } => policy_ttl::clear(&server, &tenant, token.as_deref(), actor.as_deref()),
+            };
             if code != 0 {
                 std::process::exit(code);
             }
