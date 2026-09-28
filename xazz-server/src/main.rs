@@ -24,6 +24,7 @@
 //!   GET  /runs/:id/resources                  → persisted run resource telemetry (issue #128)
 //!   GET  /dp/budget                           → per-tenant DP spend/remaining + window
 //!   POST /dp/budget/reset                     → reset the tenant's DP spend/window (C2)
+//!   GET  /dp/budget/window/history?limit=&offset= → tenant's DP-window override change audit (C2)
 //!
 //! Port: 8005 (frontend/.env: VITE_API_BASE_URL=http://127.0.0.1:8005)
 
@@ -499,6 +500,7 @@ async fn main() {
             "/dp/budget/window",
             put(handle_dp_window_set).delete(handle_dp_window_clear),
         )
+        .route("/dp/budget/window/history", get(handle_dp_window_history))
         .route("/catalog", post(handle_catalog))
         .with_state(AppState {
             exec_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_EXECUTIONS)),
@@ -2213,18 +2215,42 @@ struct DpWindowRequest {
     window_secs: u64,
 }
 
+/// Resolves the audit actor for a DP budget window override change (issue C2).
+///
+/// Mirrors [`policy_history_ttl_actor`]: a delegated admin change is attributed
+/// to the [`Actor`] and must name a target tenant via `X-Xazz-Tenant`; a
+/// self-service change is attributed to the tenant itself.
+fn dp_window_actor(
+    tenant: &str,
+    actor: Option<&Extension<Actor>>,
+) -> Result<String, (StatusCode, String)> {
+    match actor {
+        Some(_) if tenant.is_empty() => Err((
+            StatusCode::BAD_REQUEST,
+            "admin DP window change requires X-Xazz-Tenant".to_string(),
+        )),
+        Some(Extension(a)) => Ok(a.0.clone()),
+        None => Ok(tenant.to_string()),
+    }
+}
+
 /// Sets the authenticated tenant's DP budget window override — issue C2.
 ///
 /// Self-service and tenant-scoped: only the caller's override is written; the
 /// global `XAZZ_TENANT_DP_WINDOW_SECS` remains the fallback for tenants without
 /// one. `window_secs: 0` stores an explicit "cumulative" override, which differs
-/// from deleting the override (which restores the global default).
+/// from deleting the override (which restores the global default). An
+/// administrator authenticated with `XAZZ_ADMIN_TOKEN` may target the namespace
+/// named by `X-Xazz-Tenant`, and the change is recorded under `X-Xazz-Actor` in
+/// `tenant_dp_config_history` (issue C2).
 async fn handle_dp_window_set(
     State(state): State<AppState>,
     Extension(tenant): Extension<String>,
+    actor: Option<Extension<Actor>>,
     Json(payload): Json<DpWindowRequest>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let tenant = tenant_str(tenant.as_str());
+    let changed_by = dp_window_actor(tenant, actor.as_ref())?;
     if payload.window_secs > MAX_DP_WINDOW_SECS {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -2233,7 +2259,7 @@ async fn handle_dp_window_set(
     }
     state
         .store
-        .set_dp_window(tenant, payload.window_secs)
+        .set_dp_window(tenant, payload.window_secs, &changed_by)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     let (total_eps, total_delta) = tenant_dp_envelope();
@@ -2258,15 +2284,20 @@ async fn handle_dp_window_set(
 /// Removes the authenticated tenant's DP budget window override — issue C2.
 ///
 /// After removal the tenant falls back to the global `XAZZ_TENANT_DP_WINDOW_SECS`
-/// default. Tenant-scoped: other tenants' overrides are untouched.
+/// default. Tenant-scoped: other tenants' overrides are untouched. An
+/// administrator authenticated with `XAZZ_ADMIN_TOKEN` may target the namespace
+/// named by `X-Xazz-Tenant`, and the clear is recorded under `X-Xazz-Actor` in
+/// `tenant_dp_config_history` (issue C2).
 async fn handle_dp_window_clear(
     State(state): State<AppState>,
     Extension(tenant): Extension<String>,
+    actor: Option<Extension<Actor>>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let tenant = tenant_str(tenant.as_str());
+    let changed_by = dp_window_actor(tenant, actor.as_ref())?;
     state
         .store
-        .clear_dp_window(tenant)
+        .clear_dp_window(tenant, &changed_by)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     let (total_eps, total_delta) = tenant_dp_envelope();
@@ -2285,6 +2316,57 @@ async fn handle_dp_window_clear(
         spent_eps,
         spent_delta,
     )?))
+}
+
+/// Returns the authenticated tenant's append-only DP budget window override
+/// change history — issue C2.
+///
+/// Each entry records the action (`set`/`clear`), the previous and new override
+/// (in seconds), who changed it, and when — so a change to the tenant's DP budget
+/// window is auditable even though `tenant_dp_config` only keeps the latest
+/// state. `?limit=&offset=` page the newest-first list; `?cursor=<id>` selects the
+/// page by id instead (`next_cursor` in the response feeds the next call).
+async fn handle_dp_window_history(
+    Extension(tenant): Extension<String>,
+    State(state): State<AppState>,
+    Query(page): Query<PolicyHistoryQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant = tenant_str(tenant.as_str());
+    let limit = page.limit();
+    let cursor = page.cursor();
+    let offset = if cursor.is_some() { 0 } else { page.offset() };
+    let records = state
+        .store
+        .list_dp_window_history(tenant, limit, offset, cursor)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e })),
+            )
+        })?;
+    let next_cursor = records.last().map(|r| r.id);
+    let history: Vec<Value> = records
+        .into_iter()
+        .map(|r| {
+            json!({
+                "id": r.id,
+                "tenant": r.tenant,
+                "action": r.action,
+                "old_window_secs": r.old_window_secs,
+                "new_window_secs": r.new_window_secs,
+                "changed_by": r.changed_by,
+                "changed_at": r.changed_at,
+            })
+        })
+        .collect();
+    Ok(Json(json!({
+        "tenant": tenant,
+        "limit": limit,
+        "offset": offset,
+        "cursor": cursor,
+        "next_cursor": next_cursor,
+        "history": history,
+    })))
 }
 
 /// Builds the `GET /dp/budget` response body from the tenant's ledger state.
@@ -3103,6 +3185,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         let body = handle_dp_window_set(
             State(state.clone()),
             Extension(tenant.clone()),
+            None,
             Json(DpWindowRequest { window_secs: 7200 }),
         )
         .await
@@ -3129,7 +3212,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(got["window_source"], json!("tenant"));
 
         // DELETE clears it and restores the global default.
-        let cleared = handle_dp_window_clear(State(state.clone()), Extension(tenant.clone()))
+        let cleared = handle_dp_window_clear(State(state.clone()), Extension(tenant.clone()), None)
             .await
             .expect("clear window")
             .0;
@@ -3152,6 +3235,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         let err = handle_dp_window_set(
             State(state.clone()),
             Extension(tenant.clone()),
+            None,
             Json(DpWindowRequest {
                 window_secs: MAX_DP_WINDOW_SECS + 1,
             }),
@@ -3163,6 +3247,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         let body = handle_dp_window_set(
             State(state.clone()),
             Extension(tenant.clone()),
+            None,
             Json(DpWindowRequest {
                 window_secs: MAX_DP_WINDOW_SECS,
             }),
@@ -3172,6 +3257,116 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         .0;
         assert_eq!(body["window_secs"], json!(MAX_DP_WINDOW_SECS));
         assert!(body["resets_at"].as_i64().unwrap() > 0);
+    }
+
+    /// `GET /dp/budget/window/history` exposes the tenant's window-override
+    /// change audit, newest-first (issue C2).
+    #[tokio::test]
+    async fn dp_window_change_history_endpoint_lists_changes() {
+        let state = test_state();
+        let tenant = format!("dp-win-hist-{}", std::process::id());
+
+        let empty = handle_dp_window_history(
+            Extension(tenant.clone()),
+            State(state.clone()),
+            Query(PolicyHistoryQuery {
+                limit: None,
+                offset: None,
+                cursor: None,
+            }),
+        )
+        .await
+        .expect("history")
+        .0;
+        assert_eq!(empty["tenant"], json!(tenant));
+        assert_eq!(empty["history"], json!([]));
+
+        let _ = handle_dp_window_set(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            None,
+            Json(DpWindowRequest { window_secs: 3600 }),
+        )
+        .await
+        .expect("set window");
+
+        let listed = handle_dp_window_history(
+            Extension(tenant.clone()),
+            State(state.clone()),
+            Query(PolicyHistoryQuery {
+                limit: None,
+                offset: None,
+                cursor: None,
+            }),
+        )
+        .await
+        .expect("history")
+        .0;
+        let history = listed["history"].as_array().expect("history array");
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0]["action"], json!("set"));
+        assert_eq!(history[0]["old_window_secs"], Value::Null);
+        assert_eq!(history[0]["new_window_secs"], json!(3600));
+        assert_eq!(history[0]["changed_by"], json!(tenant));
+    }
+
+    /// An administrator may change another tenant's DP window override; the audit
+    /// attributes the change to the actor, and an admin request must name the
+    /// target (issue C2).
+    #[tokio::test]
+    async fn admin_delegated_dp_window_change_records_actor() {
+        let state = test_state();
+        let tenant = format!("dp-win-admin-{}", std::process::id());
+
+        let set = handle_dp_window_set(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            Some(Extension(Actor("root".to_string()))),
+            Json(DpWindowRequest { window_secs: 1800 }),
+        )
+        .await
+        .expect("admin set")
+        .0;
+        assert_eq!(set["window_secs"], json!(1800));
+        assert_eq!(set["window_source"], json!("tenant"));
+
+        let _ = handle_dp_window_clear(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            Some(Extension(Actor("root".to_string()))),
+        )
+        .await
+        .expect("admin clear");
+
+        let listed = handle_dp_window_history(
+            Extension(tenant.clone()),
+            State(state.clone()),
+            Query(PolicyHistoryQuery {
+                limit: None,
+                offset: None,
+                cursor: None,
+            }),
+        )
+        .await
+        .expect("history")
+        .0;
+        let history = listed["history"].as_array().expect("history array");
+        assert_eq!(history.len(), 2, "{listed}");
+        assert_eq!(history[0]["action"], json!("clear"));
+        assert_eq!(history[0]["changed_by"], json!("root"));
+        assert_eq!(history[1]["action"], json!("set"));
+        assert_eq!(history[1]["changed_by"], json!("root"));
+
+        // An admin change without a target tenant is rejected.
+        let err = handle_dp_window_set(
+            State(state.clone()),
+            Extension(String::new()),
+            Some(Extension(Actor("root".to_string()))),
+            Json(DpWindowRequest { window_secs: 60 }),
+        )
+        .await
+        .expect_err("admin set without a target was accepted");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
     }
 
     /// Env/stored windows above the cap are clamped so `resets_at` cannot overflow.

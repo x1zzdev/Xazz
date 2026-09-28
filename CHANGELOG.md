@@ -9,6 +9,20 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — DP window override 변경 감사 + 관리자 대리 actor (issue C2)
+
+- **`tenant_dp_config_history`** — `PUT`/`DELETE /dp/budget/window`가 이제 이전/새
+  `window_secs`와 `changed_by`(자기 테넌트 또는 관리자 actor)를 append-only로 기록한다.
+  셋/클리어와 같은 트랜잭션으로 커밋되고, 개수 상한
+  (`XAZZ_TENANT_POLICY_HISTORY_MAX`)으로 prune되며, 정기 정책 이력 스윕도 이 테이블을
+  포함한다
+- **`GET /dp/budget/window/history?limit=&offset=&cursor=`** — 테넌트 스코프 변경 이력
+  (최신순, 응답의 `next_cursor`로 커서 페이지네이션)
+- **관리자 대리** — `XAZZ_ADMIN_TOKEN` + `X-Xazz-Actor`(기본 `admin`)로 다른 테넌트
+  override를 변경하면 `changed_by`에 actor가 기록된다. 대상 테넌트 미지정 시 400
+- 검증: store 회귀 테스트 1종(테넌트 격리·old/new·커서), 엔드포인트/actor 테스트 2종
+  (xazz-server 101 tests)
+
 ### Added — `xazz policy-ttl` 테넌트 정책 이력 보존 윈도 설정/해제 CLI (issue C2)
 
 - **`xazz policy-ttl set --ttl-secs N --tenant T`** — 실행 중인 서버의

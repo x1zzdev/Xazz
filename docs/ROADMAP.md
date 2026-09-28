@@ -124,6 +124,9 @@ datasets. This track makes Xazz handle real workloads.
 - [x] Per-tenant DP window length — a stored override (`tenant_dp_config`) takes precedence
       over the global `XAZZ_TENANT_DP_WINDOW_SECS`; `PUT`/`DELETE /dp/budget/window` manage
       it self-service and `GET /dp/budget` reports `window_source` (`tenant`/`global`).
+      Override changes are appended to a tenant-scoped audit history
+      (`tenant_dp_config_history`, `GET /dp/budget/window/history`) attributed to the
+      actor for delegated admin changes.
 - [x] Same-tenant DP precheck is atomic — per-tenant execution lock serializes a tenant's
       precheck → run → accrue; concurrent runs can no longer read the same `remaining` and
       jointly exceed the envelope. Different tenants run in parallel.
