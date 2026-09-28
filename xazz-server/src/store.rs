@@ -2477,6 +2477,51 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The retention-window change history pages by id cursor
+    /// (`id < before`) instead of `OFFSET`, newest-first (issue C2).
+    #[test]
+    fn policy_history_ttl_change_history_paginates_by_id_cursor() {
+        let dir = std::env::temp_dir().join(format!(
+            "xazz_store_hist_ttl_cursor_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db = dir.join("xazz.db");
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open_at(&db);
+
+        for i in 1..=5 {
+            store.set_policy_history_ttl("a", i, "a").expect("set a");
+        }
+
+        let page = |limit: usize, before: Option<i64>| {
+            store
+                .list_policy_history_ttl_history("a", limit, 0, before)
+                .expect("history page")
+        };
+        let ttls = |rows: &[PolicyHistoryTtlChangeRecord]| -> Vec<u64> {
+            rows.iter().filter_map(|r| r.new_ttl_secs).collect()
+        };
+
+        let first = page(2, None);
+        assert_eq!(ttls(&first), vec![5, 4]);
+        let cursor = first.last().expect("first page non-empty").id;
+
+        let second = page(2, Some(cursor));
+        assert_eq!(ttls(&second), vec![3, 2]);
+        let cursor = second.last().expect("second page non-empty").id;
+
+        assert_eq!(ttls(&page(2, Some(cursor))), vec![1]);
+
+        // A cursor at or below the oldest id yields an empty page.
+        assert!(page(2, Some(0)).is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A per-tenant retention window expires only that tenant's rows: reads hide
     /// them and the next change prunes them from disk, while another tenant with
     /// no override keeps its aged rows (issue C2).

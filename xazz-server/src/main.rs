@@ -3565,6 +3565,72 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(history[0]["changed_by"], json!(tenant));
     }
 
+    /// `?cursor=` pages the retention-override change audit by id and echoes
+    /// `next_cursor` for the following call, instead of relying on `OFFSET`
+    /// (issue C2).
+    #[tokio::test]
+    async fn policy_history_ttl_change_history_supports_cursor_pagination() {
+        let state = unique_state("hist_ttl_cursor");
+        let tenant = format!("hist-ttl-cursor-{}", std::process::id());
+        for ttl in [1, 2, 3] {
+            let _ = handle_policy_history_ttl_set(
+                State(state.clone()),
+                Extension(tenant.clone()),
+                None,
+                Json(PolicyHistoryTtlRequest { ttl_secs: ttl }),
+            )
+            .await
+            .expect("set ttl");
+        }
+
+        let page = |cursor: Option<i64>| {
+            let state = state.clone();
+            let tenant = tenant.clone();
+            async move {
+                handle_policy_history_ttl_history(
+                    Extension(tenant),
+                    State(state),
+                    Query(PolicyHistoryQuery {
+                        limit: Some(2),
+                        offset: None,
+                        cursor,
+                    }),
+                )
+                .await
+                .expect("history")
+                .0
+            }
+        };
+        let ttls = |body: &Value| -> Vec<u64> {
+            body["history"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|h| h["new_ttl_secs"].as_u64().unwrap())
+                .collect()
+        };
+
+        let first = page(None).await;
+        assert_eq!(ttls(&first), vec![3, 2]);
+        assert_eq!(first["cursor"], Value::Null);
+        let next = first["next_cursor"].as_i64().expect("next_cursor");
+        assert!(next > 0);
+
+        let second = page(Some(next)).await;
+        assert_eq!(ttls(&second), vec![1]);
+        assert_eq!(second["cursor"], json!(next));
+        let last = second["next_cursor"].as_i64().expect("last next_cursor");
+        assert!(
+            page(Some(last)).await["history"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+
+        // A non-positive cursor is treated as absent (no cursor paging).
+        assert_eq!(page(Some(0)).await["cursor"], Value::Null);
+    }
+
     /// An administrator may change another tenant's retention override; the audit
     /// attributes the change to the actor while the namespace stays the target
     /// tenant, and an admin request must name the target (issue C2).
