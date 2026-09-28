@@ -9,6 +9,18 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — DP 예산 리셋 이력 커서 페이지네이션 (`GET /dp/budget/history`) (issue C2)
+
+- **`GET /dp/budget/history`**가 `?limit=&offset=`와 `?cursor=<id>`(이전 페이지의
+  `next_cursor`)를 지원하고 응답에 `limit`/`offset`/`cursor`/`next_cursor`를 노출한다.
+  기존 고정 50건 제한 대신 정책/DP window 이력과 동일한 `PolicyHistoryQuery` 기본값
+  (limit 100, 최대 500)을 사용하며, 커서 지정 시 `OFFSET`을 건너뛰고 `id < cursor`로
+  안정적으로 페이징한다
+- **`xazz dp reset-history`**에 `--cursor`/`--limit` 추가(서버 쿼리로 전달), 요약에
+  `limit/offset`·`next_cursor` 표시
+- 검증: 서버 커서 페이지네이션 테스트 1종(xazz-server 108 tests), CLI 페이지 쿼리
+  전송 E2E 1종(xazz 62 tests)
+
 ### Added — `xazz dp reset` / `xazz dp reset-history` 테넌트 DP 예산 리셋 CLI (issue C2)
 
 - **`xazz dp reset --tenant T`** — 실행 중인 서버의 `POST /dp/budget/reset`으로 테넌트의

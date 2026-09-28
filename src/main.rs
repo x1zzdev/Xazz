@@ -559,8 +559,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     server,
                     tenant,
                     token,
+                    cursor,
+                    limit,
                     json,
-                } => dp_window::reset_history(&server, &tenant, token.as_deref(), json),
+                } => dp_window::reset_history(
+                    &server,
+                    &tenant,
+                    token.as_deref(),
+                    cursor,
+                    limit,
+                    json,
+                ),
             };
             if code != 0 {
                 std::process::exit(code);

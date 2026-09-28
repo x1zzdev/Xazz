@@ -2196,16 +2196,31 @@ async fn handle_dp_budget_reset(
 }
 
 /// Returns the tenant's append-only DP budget reset history — issue #124.
+///
+/// `?limit=&offset=` page the newest-first list; `?cursor=<id>` selects the page
+/// by id instead (`next_cursor` in the response feeds the next call).
 async fn handle_dp_reset_history(
     State(state): State<AppState>,
     Extension(tenant): Extension<String>,
+    Query(page): Query<PolicyHistoryQuery>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let tenant = tenant_str(tenant.as_str());
+    let limit = page.limit();
+    let cursor = page.cursor();
+    let offset = if cursor.is_some() { 0 } else { page.offset() };
     let resets = state
         .store
-        .list_dp_resets(tenant, 50)
+        .list_dp_resets(tenant, limit, offset, cursor)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(json!({ "tenant": tenant, "resets": resets })))
+    let next_cursor = resets.last().map(|r| r.id);
+    Ok(Json(json!({
+        "tenant": tenant,
+        "limit": limit,
+        "offset": offset,
+        "cursor": cursor,
+        "next_cursor": next_cursor,
+        "resets": resets,
+    })))
 }
 
 /// Request body for `PUT /dp/budget/window`.
@@ -3132,21 +3147,82 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert!((admin_body["spent_epsilon_before"].as_f64().unwrap() - 1.0).abs() < 1e-12);
 
         // History is newest-first and tenant-scoped.
-        let history = handle_dp_reset_history(State(state.clone()), Extension(tenant.clone()))
-            .await
-            .expect("history")
-            .0;
+        let history = handle_dp_reset_history(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            Query(PolicyHistoryQuery {
+                limit: None,
+                offset: None,
+                cursor: None,
+            }),
+        )
+        .await
+        .expect("history")
+        .0;
         assert_eq!(history["tenant"], json!(tenant));
         let resets = history["resets"].as_array().unwrap();
         assert_eq!(resets.len(), 2);
         assert_eq!(resets[0]["actor"], json!("root"));
         assert_eq!(resets[1]["actor"], json!(tenant));
 
-        let other = handle_dp_reset_history(State(state), Extension("dp-audit-other".into()))
-            .await
-            .expect("other history")
-            .0;
+        let other = handle_dp_reset_history(
+            State(state),
+            Extension("dp-audit-other".into()),
+            Query(PolicyHistoryQuery {
+                limit: None,
+                offset: None,
+                cursor: None,
+            }),
+        )
+        .await
+        .expect("other history")
+        .0;
         assert_eq!(other["resets"].as_array().unwrap().len(), 0);
+    }
+
+    /// `?cursor=` pages the DP reset audit by id and echoes `next_cursor` for the
+    /// following call instead of relying on the fixed 50-row window (issue C2).
+    #[tokio::test]
+    async fn dp_reset_history_supports_cursor_pagination() {
+        let state = test_state();
+        let tenant = format!("dp-reset-page-{}", std::process::id());
+        for _ in 0..3 {
+            let _ = handle_dp_budget_reset(State(state.clone()), Extension(tenant.clone()), None)
+                .await
+                .expect("reset");
+        }
+
+        let first = handle_dp_reset_history(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            Query(PolicyHistoryQuery {
+                limit: Some(2),
+                offset: None,
+                cursor: None,
+            }),
+        )
+        .await
+        .expect("first page")
+        .0;
+        let rows = first["resets"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        let next = first["next_cursor"].as_i64().expect("next cursor");
+
+        let second = handle_dp_reset_history(
+            State(state),
+            Extension(tenant),
+            Query(PolicyHistoryQuery {
+                limit: Some(2),
+                offset: None,
+                cursor: Some(next),
+            }),
+        )
+        .await
+        .expect("second page")
+        .0;
+        let rows = second["resets"].as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0]["id"].as_i64().unwrap() < next);
     }
 
     /// An admin reset without a target tenant is rejected (issue #124).

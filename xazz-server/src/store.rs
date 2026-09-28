@@ -885,27 +885,40 @@ impl Store {
     }
 
     /// Lists a tenant's DP budget resets newest-first — issue #124.
-    pub fn list_dp_resets(&self, tenant: &str, limit: usize) -> Result<Vec<DpResetRecord>, String> {
+    ///
+    /// `limit`/`offset` page the newest-first list; when `before` is set the page
+    /// is selected by id cursor (`id < before`) instead, which avoids the
+    /// deep-`OFFSET` scan and stays stable if rows are pruned between pages.
+    pub fn list_dp_resets(
+        &self,
+        tenant: &str,
+        limit: usize,
+        offset: usize,
+        before: Option<i64>,
+    ) -> Result<Vec<DpResetRecord>, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
         let mut stmt = conn
             .prepare(
                 "SELECT id, tenant, actor, spent_epsilon_before, spent_delta_before, reset_at
-                 FROM dp_reset_history WHERE tenant = ?1
-                 ORDER BY id DESC LIMIT ?2",
+                 FROM dp_reset_history WHERE tenant = ?1 AND (?4 IS NULL OR id < ?4)
+                 ORDER BY id DESC LIMIT ?2 OFFSET ?3",
             )
             .map_err(|e| format!("failed to prepare dp reset history: {e}"))?;
         let rows = stmt
-            .query_map(params![tenant, limit as i64], |row| {
-                Ok(DpResetRecord {
-                    id: row.get(0)?,
-                    tenant: row.get(1)?,
-                    actor: row.get(2)?,
-                    spent_epsilon_before: row.get(3)?,
-                    spent_delta_before: row.get(4)?,
-                    reset_at: row.get(5)?,
-                })
-            })
+            .query_map(
+                params![tenant, limit as i64, offset as i64, before],
+                |row| {
+                    Ok(DpResetRecord {
+                        id: row.get(0)?,
+                        tenant: row.get(1)?,
+                        actor: row.get(2)?,
+                        spent_epsilon_before: row.get(3)?,
+                        spent_delta_before: row.get(4)?,
+                        reset_at: row.get(5)?,
+                    })
+                },
+            )
             .map_err(|e| format!("failed to read dp reset history: {e}"))?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("failed to read dp reset history: {e}"))

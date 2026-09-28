@@ -231,17 +231,25 @@ pub fn reset(
     }
 }
 
-/// `xazz dp reset-history --tenant T [--server URL] [--token TOK] [--json]`
+/// `xazz dp reset-history --tenant T [--server URL] [--token TOK] [--cursor ID] [--limit N] [--json]`
 ///
 /// Reads the tenant's append-only DP budget reset log through the server's
-/// `GET /dp/budget/history` endpoint (issue #124). With `--json` the server body
-/// is echoed verbatim; otherwise a short human summary is printed.
-pub fn reset_history(server: &str, tenant: &str, token: Option<&str>, json: bool) -> i32 {
+/// `GET /dp/budget/history` endpoint (issue #124). `--cursor`/`--limit` page the
+/// newest-first log by id cursor. With `--json` the server body is echoed
+/// verbatim; otherwise a short human summary is printed.
+pub fn reset_history(
+    server: &str,
+    tenant: &str,
+    token: Option<&str>,
+    cursor: Option<i64>,
+    limit: Option<usize>,
+    json: bool,
+) -> i32 {
     let (tenant, token) = match prepare(server, tenant, token, "dp reset-history") {
         Ok(parts) => parts,
         Err(code) => return code,
     };
-    let endpoint = reset_history_endpoint(server);
+    let endpoint = with_paging(reset_history_endpoint(server), cursor, limit);
     let headers = auth_headers(&token, tenant, None);
 
     match http::get_json(&endpoint, &headers) {
@@ -429,7 +437,9 @@ fn print_reset_history(body: &str) {
     };
 
     let field = |key: &str| value.get(key).cloned().unwrap_or(Value::Null);
-    println!("tenant : {}", field("tenant"));
+    println!("tenant      : {}", field("tenant"));
+    println!("limit/offset: {} / {}", field("limit"), field("offset"));
+    println!("next_cursor : {}", field("next_cursor"));
     println!("─────────────────────────────────────────────");
     for record in value
         .get("resets")
@@ -686,7 +696,7 @@ mod tests {
             "HTTP/1.1 200 OK",
             r#"{"tenant":"acme","resets":[{"id":2,"tenant":"acme","actor":"root","spent_epsilon_before":1.0,"spent_delta_before":0.0,"reset_at":43}]}"#,
         );
-        let code = reset_history(&server, "acme", Some("secret"), false);
+        let code = reset_history(&server, "acme", Some("secret"), None, None, false);
         assert_eq!(code, 0);
 
         let request = rx.recv().expect("captured request");
@@ -702,6 +712,19 @@ mod tests {
         assert!(
             !request.contains("X-Xazz-Actor"),
             "reset-history is read-only and must not send an actor: {request}"
+        );
+    }
+
+    #[test]
+    fn reset_history_sends_cursor_and_limit() {
+        let (server, rx) = spawn_server("HTTP/1.1 200 OK", r#"{"tenant":"acme","resets":[]}"#);
+        let code = reset_history(&server, "acme", Some("secret"), Some(42), Some(10), false);
+        assert_eq!(code, 0);
+
+        let request = rx.recv().expect("captured request");
+        assert!(
+            request.starts_with("GET /dp/budget/history?cursor=42&limit=10 HTTP/1.1\r\n"),
+            "{request}"
         );
     }
 
@@ -727,7 +750,10 @@ mod tests {
 
         let (server, _rx) =
             spawn_server("HTTP/1.1 500 Internal Server Error", r#"{"error":"boom"}"#);
-        assert_eq!(reset_history(&server, "acme", Some("secret"), true), 1);
+        assert_eq!(
+            reset_history(&server, "acme", Some("secret"), None, None, true),
+            1
+        );
     }
 
     #[test]
@@ -758,7 +784,7 @@ mod tests {
             "empty server must fail locally"
         );
         assert_eq!(
-            reset_history("  ", "acme", Some("secret"), false),
+            reset_history("  ", "acme", Some("secret"), None, None, false),
             1,
             "empty server must fail locally"
         );
@@ -792,7 +818,7 @@ mod tests {
             "missing token must fail locally"
         );
         assert_eq!(
-            reset_history("http://127.0.0.1:1", "acme", None, false),
+            reset_history("http://127.0.0.1:1", "acme", None, None, None, false),
             1,
             "missing token must fail locally"
         );

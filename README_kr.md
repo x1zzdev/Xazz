@@ -318,7 +318,7 @@ python benches/run_readme_benchmark.py --xlarge
 | `xazz sde` | 합성 데이터 생성 엔진 | Stable |
 | `xazz registry` | 정책 팩(`xazz.policy.json`)·stdlib 모듈(`std/`) 조회/설치 — 오프라인; `registry deploy`/`registry undeploy`가 서버로 테넌트 팩 배포/제거 (Track E4/C2) | Stable |
 | `xazz policy-status` / `xazz policy-ttl` | 실행 중인 서버에서 테넌트 정책 상태 조회(`history`/`ttl`/`ttl-history`)와 정책 이력 보존 윈도 override 설정/해제 (`--json`/`--cursor`/`--actor`) (Track C2) | Stable |
-| `xazz dp window` / `xazz dp budget` / `xazz dp reset` | 실행 중인 서버에서 테넌트 DP 예산 윈도 override 조회/변경 — `window set`/`clear`/`history` (`--window-secs`/`--json`/`--cursor`/`--actor`), 현재 소비/잔량 조회 (`dp budget`), 원장 초기화·actor 감사 (`dp reset`/`dp reset-history`) (Track C2) | Stable |
+| `xazz dp window` / `xazz dp budget` / `xazz dp reset` | 실행 중인 서버에서 테넌트 DP 예산 윈도 override 조회/변경 — `window set`/`clear`/`history` (`--window-secs`/`--json`/`--cursor`/`--limit`/`--actor`), 현재 소비/잔량 조회 (`dp budget`), 원장 초기화·actor 감사 (`dp reset`/`dp reset-history`, 둘 다 커서 페이지네이션) (Track C2) | Stable |
 | `xazz sanitize` | 파인튜닝 데이터 정화 — PII 스캔, 중복·편향 검사 (Track F3) | Stable |
 | 모델 프로비넌스 | 정책 레지스트리 게이트 — `hf://` 모델 참조, 라이선스·미검증 웨이트 차단 (Track F5) | Stable |
 

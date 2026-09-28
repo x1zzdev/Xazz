@@ -372,6 +372,7 @@ pub enum DpAction {
     /// Read the tenant's append-only DP budget reset history
     ///
     /// Example: xazz dp reset-history --tenant acme --json
+    /// Example: xazz dp reset-history --tenant acme --cursor 42 --limit 10 --json
     ResetHistory {
         /// Xazz server base URL
         #[arg(long, default_value = "http://127.0.0.1:8005")]
@@ -384,6 +385,14 @@ pub enum DpAction {
         /// Bearer token — defaults to XAZZ_ADMIN_TOKEN, then XAZZ_SERVER_TOKEN
         #[arg(long)]
         token: Option<String>,
+
+        /// Return rows strictly older than this id (from a previous next_cursor)
+        #[arg(long)]
+        cursor: Option<i64>,
+
+        /// Maximum number of reset records to return (server-clamped)
+        #[arg(long)]
+        limit: Option<usize>,
 
         /// Print the server's JSON body verbatim instead of a human summary
         #[arg(long)]
