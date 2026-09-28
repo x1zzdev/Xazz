@@ -525,6 +525,14 @@ pub struct SweepCombo {
     /// Final validation-split R², when a split is configured.
     #[serde(default)]
     pub val_r2: Option<f64>,
+    /// Raw embedding inputs outside `[0, vocab_size - 1]` (clamped silently in
+    /// the forward pass) — per-combination mirror of [`TrainReport`] (issue D3).
+    #[serde(default)]
+    pub embedding_out_of_range: usize,
+    /// Finite raw embedding inputs with a fractional part (truncated to an index
+    /// in the forward pass) — per-combination mirror of [`TrainReport`] (D3).
+    #[serde(default)]
+    pub embedding_non_integer: usize,
     /// Whether this combination was selected as the sweep winner.
     pub selected: bool,
 }
@@ -1800,6 +1808,8 @@ mod tests {
             val_mae,
             train_r2,
             val_r2,
+            embedding_out_of_range: 0,
+            embedding_non_integer: 0,
             selected: false,
         };
 
@@ -1845,6 +1855,8 @@ mod tests {
             val_mae: Some(val_loss),
             train_r2: 0.0,
             val_r2: Some(0.0),
+            embedding_out_of_range: 0,
+            embedding_non_integer: 0,
             selected: false,
         };
         let a = mk(3, 8, 0.05, 0.10);
@@ -1891,6 +1903,8 @@ mod tests {
             val_mae: Some(val_loss),
             train_r2: 0.0,
             val_r2: Some(0.0),
+            embedding_out_of_range: 0,
+            embedding_non_integer: 0,
             selected: false,
         };
         // Same metric (tie) but different axis values.

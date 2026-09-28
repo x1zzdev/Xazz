@@ -113,6 +113,8 @@ pub trait ComputeBackend: Send + Sync {
                 val_mae: report.final_val_mae,
                 train_r2: report.final_train_r2,
                 val_r2: report.final_val_r2,
+                embedding_out_of_range: report.embedding_out_of_range,
+                embedding_non_integer: report.embedding_non_integer,
                 selected: false,
             };
             let is_better = match &best {
@@ -1441,6 +1443,67 @@ mod tests {
         let json = serde_json::to_value(&trained.report).expect("report serializes");
         assert_eq!(json["embedding_out_of_range"], 1);
         assert_eq!(json["embedding_non_integer"], 2);
+
+        cleanup(&trained.report.checkpoint_path);
+    }
+
+    /// D3 Embedding: sweep combos carry the structured embedding diagnostics so
+    /// the per-combination report/JSON mirrors the winner's `TrainReport`.
+    #[test]
+    fn cpu_backend_sweep_carries_embedding_diagnostics() {
+        use polars::prelude::*;
+
+        let df = df!(
+            "cat1" => [0i64, 1, 5, 0, 1, 2],
+            "cat2" => [0.0f64, 1.5, 0.0, 1.0, 2.0, 0.5],
+            "y"    => [0.0f64, 1.0, 2.0, 0.0, 1.0, 2.0],
+        )
+        .expect("embedding diagnostics dataset");
+
+        let layers = vec![
+            LayerKind::Embedding {
+                vocab: EmbeddingVocab::PerColumn(vec![3, 3]),
+                embed_dim: 2,
+            },
+            LayerKind::ReLU,
+            LayerKind::Dense(1),
+        ];
+        let mut config = TrainConfig {
+            target: "y".to_string(),
+            epochs: 2,
+            learning_rate: 0.05,
+            batch_size: Some(3),
+            validation_split: None,
+            early_stopping_patience: None,
+            sweep: Default::default(),
+            sweep_metric: Default::default(),
+            sweep_metric_explicit: false,
+            sweep_sort: Default::default(),
+            sweep_sort_explicit: false,
+            sweep_tiebreak: Vec::new(),
+            sweep_top: None,
+        };
+        config.sweep.learning_rate = vec![0.05, 0.01];
+        assert!(config.is_sweep());
+
+        let (backend, warning) = resolve(None);
+        assert!(warning.is_none());
+
+        let (trained, report) = backend
+            .sweep(&df, "backend_unit_sweep_embedding_diag", &layers, &config)
+            .expect("cpu embedding sweep");
+        assert!(!report.combos.is_empty());
+        for combo in &report.combos {
+            assert_eq!(combo.embedding_out_of_range, 1, "cat1=5 is above vocab-1");
+            assert_eq!(
+                combo.embedding_non_integer, 2,
+                "cat2 values 1.5 and 0.5 are fractional"
+            );
+        }
+
+        let json = serde_json::to_value(&report).expect("sweep report serializes");
+        assert_eq!(json["combos"][0]["embedding_out_of_range"], 1);
+        assert_eq!(json["combos"][0]["embedding_non_integer"], 2);
 
         cleanup(&trained.report.checkpoint_path);
     }

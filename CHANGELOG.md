@@ -15,8 +15,12 @@ Versioning: [Semantic Versioning](https://semver.org/)
   기존 stderr 경고 전용이던 범위 밖(클램프)·비정수(절단) 임베딩 입력 카운트를
   `[xazz:train]` JSON 리포트에도 기계 판독 가능하게 노출한다(`#[serde(default)]`,
   하위호환). 기존 경고와 동일한 값을 공유한다
+- **`SweepCombo`**에도 동일한 `embedding_out_of_range`·`embedding_non_integer`를
+  추가해 조합별 리포트/JSON이 우승 리포트와 같은 진단을 담는다. 사람용 학습 표
+  (`print_train_report`)와 스윕 표(`print_sweep_report`)는 값이 0이 아니면 임베딩
+  진단 줄을 표시한다
 - 검증: `check_embedding_indices` 반환 진단 단위 테스트 + 임베딩 E2E에서 리포트/
-  직렬화 값 검증 (xazz-exec)
+  직렬화 값 검증, 스윕 조합 전달 E2E 테스트 1종 (xazz-exec)
 
 ### Added — DP 예산 리셋 이력 커서 페이지네이션 (`GET /dp/budget/history`) (issue C2)
 

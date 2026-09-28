@@ -1689,6 +1689,19 @@ fn print_sweep_report(report: &crate::dl::SweepReport) {
             best.batch_size,
             best.learning_rate
         );
+        // Every combination trains on the same inputs, so the winner's counts
+        // represent the whole grid (issue D3 follow-up).
+        if best.embedding_out_of_range > 0 || best.embedding_non_integer > 0 {
+            println!(
+                "  {} : {} / {}",
+                tr(
+                    "embedding diagnostics (out-of-range / non-integer)",
+                    "임베딩 진단(범위 밖/비정수)"
+                ),
+                best.embedding_out_of_range,
+                best.embedding_non_integer
+            );
+        }
     }
     println!();
 }
@@ -1736,6 +1749,20 @@ fn print_train_report(trained: &crate::dl::TrainedModel) {
     );
     if let Some(v) = report.final_val_r2 {
         println!("  {} : {:.6}", tr("R² (val)", "R²(검증)"), v);
+    }
+    if report.embedding_out_of_range > 0 {
+        println!(
+            "  {} : {}",
+            tr("embedding out-of-range indices", "임베딩 범위 밖 인덱스"),
+            report.embedding_out_of_range
+        );
+    }
+    if report.embedding_non_integer > 0 {
+        println!(
+            "  {} : {}",
+            tr("embedding non-integer inputs", "임베딩 비정수 입력"),
+            report.embedding_non_integer
+        );
     }
     println!(
         "  {}  : {:?}",
