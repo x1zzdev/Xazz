@@ -314,6 +314,68 @@ pub fn deploy(
     }
 }
 
+/// `xazz registry undeploy --tenant T [--server URL] [--token TOKEN] [--actor A]`
+///
+/// Removes the policy pack stored under a tenant namespace through the server's
+/// `DELETE /security/policy` endpoint (issue C2). After removal the tenant falls
+/// back to the global/builtin policy. Validation mirrors [`deploy`], so an empty
+/// tenant/server or a missing token fails locally before any network call.
+pub fn undeploy(server: &str, tenant: &str, token: Option<&str>, actor: Option<&str>) -> i32 {
+    let tenant = tenant.trim();
+    if tenant.is_empty() {
+        eprintln!("[xazz] registry: --tenant must not be empty");
+        return 1;
+    }
+    if server.trim().is_empty() {
+        eprintln!("[xazz] registry: --server must not be empty");
+        return 1;
+    }
+
+    let token = token
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(env_token);
+    let Some(token) = token else {
+        eprintln!(
+            "[xazz] registry: no token — pass --token or set XAZZ_ADMIN_TOKEN / XAZZ_SERVER_TOKEN"
+        );
+        return 1;
+    };
+
+    let endpoint = policy_endpoint(server);
+    let mut headers: Vec<(&str, String)> = vec![
+        ("Authorization", format!("Bearer {token}")),
+        ("X-Xazz-Tenant", tenant.to_string()),
+    ];
+    if let Some(actor) = actor.map(str::trim).filter(|value| !value.is_empty()) {
+        headers.push(("X-Xazz-Actor", actor.to_string()));
+    }
+
+    match http::delete_json(&endpoint, &headers) {
+        Ok(resp) if (200..300).contains(&resp.status) => {
+            println!("✔ undeployed policy-pack from tenant '{tenant}'");
+            println!("  server: {endpoint}");
+            0
+        }
+        Ok(resp) => {
+            eprintln!(
+                "[xazz] registry: server returned HTTP {} for tenant '{}'",
+                resp.status, tenant
+            );
+            let body = resp.body.trim();
+            if !body.is_empty() {
+                eprintln!("        {body}");
+            }
+            1
+        }
+        Err(e) => {
+            eprintln!("[xazz] registry: undeploy failed — {e}");
+            1
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -569,5 +631,50 @@ mod tests {
             None,
         );
         assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn undeploy_deletes_tenant_endpoint() {
+        let (server, rx) =
+            spawn_policy_server("HTTP/1.1 200 OK", r#"{"tenant":"acme","deleted":true}"#);
+        let code = undeploy(&server, "acme", Some("secret"), Some("admin"));
+        assert_eq!(code, 0);
+
+        let request = rx.recv().expect("captured request");
+        assert!(
+            request.starts_with("DELETE /security/policy HTTP/1.1\r\n"),
+            "{request}"
+        );
+        assert!(request.contains("X-Xazz-Tenant: acme\r\n"), "{request}");
+        assert!(
+            request.contains("Authorization: Bearer secret\r\n"),
+            "{request}"
+        );
+        assert!(request.contains("X-Xazz-Actor: admin\r\n"), "{request}");
+    }
+
+    #[test]
+    fn undeploy_reports_server_error_status() {
+        let (server, _rx) = spawn_policy_server("HTTP/1.1 404 Not Found", r#"{"error":"missing"}"#);
+        let code = undeploy(&server, "acme", Some("secret"), None);
+        assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn undeploy_requires_tenant_and_token() {
+        assert_eq!(
+            undeploy("http://127.0.0.1:1", "  ", Some("secret"), None),
+            1,
+            "empty tenant must fail locally"
+        );
+        unsafe {
+            std::env::remove_var("XAZZ_ADMIN_TOKEN");
+            std::env::remove_var("XAZZ_SERVER_TOKEN");
+        }
+        assert_eq!(
+            undeploy("http://127.0.0.1:1", "acme", None, None),
+            1,
+            "missing token must fail locally"
+        );
     }
 }

@@ -2,8 +2,8 @@
 //
 // The `xazz` CLI deliberately stays free of Tokio/Polars (see CONTRIBUTING), and
 // the server it talks to (`xazz-server`) is a loopback service by default. So a
-// tiny std-only client is enough for `xazz registry deploy`, which issues a single
-// `PUT /security/policy` with a JSON body.
+// tiny std-only client is enough for `xazz registry deploy`/`undeploy`, which
+// issue a single `PUT`/`DELETE /security/policy` request.
 //
 // Scope: `http://` only. TLS termination belongs in the reverse proxy that fronts
 // a remote server, so an `https://` URL is rejected with a clear message rather
@@ -91,8 +91,16 @@ pub fn put_json(url: &str, headers: &[(&str, String)], body: &str) -> Result<Res
     request("PUT", url, headers, Some(body))
 }
 
-/// Sends a single HTTP/1.1 request (`GET` without a body, `PUT` with one) and
-/// parses the response. TLS is out of scope — see the module docs.
+/// Sends `DELETE <url>` with the given extra headers, returning the response.
+///
+/// Used by `xazz registry undeploy` to remove a tenant's policy pack
+/// (`DELETE /security/policy`, issue C2).
+pub fn delete_json(url: &str, headers: &[(&str, String)]) -> Result<Response, String> {
+    request("DELETE", url, headers, None)
+}
+
+/// Sends a single HTTP/1.1 request (`GET`/`DELETE` without a body, `PUT` with
+/// one) and parses the response. TLS is out of scope — see the module docs.
 fn request(
     method: &str,
     url: &str,

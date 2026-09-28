@@ -290,4 +290,32 @@ pub enum RegistryAction {
         #[arg(long)]
         actor: Option<String>,
     },
+
+    /// Remove a tenant's deployed policy pack through a running server
+    ///
+    /// Deletes the pack stored under the target tenant namespace via
+    /// `DELETE /security/policy` (issue C2); the tenant then falls back to the
+    /// global/builtin policy. Tenant-scoped, and an admin actor can be recorded
+    /// with `--actor`.
+    ///
+    /// Example: xazz registry undeploy --tenant acme --token $TOKEN
+    /// Example: xazz registry undeploy --server http://127.0.0.1:8005 \
+    ///          --tenant acme --token $ADMIN --actor ops
+    Undeploy {
+        /// Xazz server base URL
+        #[arg(long, default_value = "http://127.0.0.1:8005")]
+        server: String,
+
+        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        #[arg(long)]
+        tenant: String,
+
+        /// Bearer token — defaults to XAZZ_ADMIN_TOKEN, then XAZZ_SERVER_TOKEN
+        #[arg(long)]
+        token: Option<String>,
+
+        /// Audit actor for an admin-delegated change (sent as X-Xazz-Actor)
+        #[arg(long)]
+        actor: Option<String>,
+    },
 }

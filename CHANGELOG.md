@@ -9,6 +9,17 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — `xazz registry undeploy` 테넌트 정책 팩 삭제 CLI (issue C2)
+
+- **`xazz registry undeploy --tenant T`** — 실행 중인 서버의
+  `DELETE /security/policy`로 대상 테넌트 네임스페이스에 저장된 정책 팩을
+  제거한다. 이후 그 테넌트는 전역/내장 정책으로 폴백한다.
+  `--server`/`--tenant`/`--token`(미지정 시 `XAZZ_ADMIN_TOKEN`→`XAZZ_SERVER_TOKEN`)·
+  `--actor`(관리자 대리 변경 감사) 지원
+- **`src/http.rs`** — `delete_json` 추가(기존 `request` 재사용)
+- 검증: `undeploy` 단위 테스트 3종(테넌트/토큰 로컬 검증, DELETE 엔드포인트·헤더
+  E2E, 비2xx 오류)
+
 ### Added — `xazz run --json`에 리소스 텔레메트리(`resources`) 노출 (#128 후속)
 
 - **`resources` 필드** — `xazz run --json` 요약에 러너 프로세스 트리 리소스 사용량을

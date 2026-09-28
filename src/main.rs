@@ -442,6 +442,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     token.as_deref(),
                     actor.as_deref(),
                 ),
+                cli::RegistryAction::Undeploy {
+                    server,
+                    tenant,
+                    token,
+                    actor,
+                } => registry::undeploy(&server, &tenant, token.as_deref(), actor.as_deref()),
             };
             if code != 0 {
                 std::process::exit(code);
