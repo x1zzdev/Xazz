@@ -167,11 +167,64 @@ pub enum Commands {
         action: RegistryAction,
     },
 
+    /// Read a tenant's policy-pack change history / retention window from a
+    /// running server (issue C2)
+    ///
+    /// `history` defaults to the policy-pack change history; `ttl` reports the
+    /// effective history retention window and `ttl-history` its change log. All
+    /// three are read-only and tenant-scoped (sent as X-Xazz-Tenant).
+    ///
+    /// Example: xazz policy-status history --tenant acme --token $TOKEN
+    ///
+    /// Example: xazz policy-status ttl --tenant acme
+    ///
+    /// Example: xazz policy-status history --cursor 42 --limit 10 --json
+    PolicyStatus {
+        /// Which read-only view to fetch
+        #[arg(value_enum, default_value = "history")]
+        view: PolicyView,
+
+        /// Xazz server base URL
+        #[arg(long, default_value = "http://127.0.0.1:8005")]
+        server: String,
+
+        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        #[arg(long)]
+        tenant: String,
+
+        /// Bearer token — defaults to XAZZ_ADMIN_TOKEN, then XAZZ_SERVER_TOKEN
+        #[arg(long)]
+        token: Option<String>,
+
+        /// Id cursor from a previous page (`next_cursor`); history views only
+        #[arg(long)]
+        cursor: Option<i64>,
+
+        /// Page size for the history views
+        #[arg(long)]
+        limit: Option<usize>,
+
+        /// Print the server's JSON body verbatim instead of a human summary
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Analyze the xazz user profile and confirm the identity
     ///
     /// Example: xazz whoami
     #[command(hide = true)]
     Whoami,
+}
+
+/// Read-only policy views for `xazz policy-status` (issue C2).
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PolicyView {
+    /// Policy-pack change history (`GET /security/policy/history`)
+    History,
+    /// Effective policy-history retention window (`GET /security/policy/history/ttl`)
+    Ttl,
+    /// Retention-window change history (`GET /security/policy/history/ttl/history`)
+    TtlHistory,
 }
 
 /// Registry subcommands (issue #68, E4).

@@ -4,6 +4,7 @@
 mod cli;
 mod http;
 mod policy_cli;
+mod policy_query;
 mod project;
 mod registry;
 mod schema;
@@ -442,6 +443,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     actor.as_deref(),
                 ),
             };
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        // ── policy-status: read-only tenant policy views (issue C2) ───────────────
+        Commands::PolicyStatus {
+            view,
+            server,
+            tenant,
+            token,
+            cursor,
+            limit,
+            json,
+        } => {
+            let code = policy_query::run(
+                view,
+                &server,
+                &tenant,
+                token.as_deref(),
+                cursor,
+                limit,
+                json,
+            );
             if code != 0 {
                 std::process::exit(code);
             }

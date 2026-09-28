@@ -191,7 +191,7 @@ pub fn policy_endpoint(server: &str) -> String {
 
 /// Token fallback for `xazz registry deploy` — the admin token wins over the
 /// single-server token, matching the server's authentication precedence.
-fn env_token() -> Option<String> {
+pub(crate) fn env_token() -> Option<String> {
     ["XAZZ_ADMIN_TOKEN", "XAZZ_SERVER_TOKEN"]
         .iter()
         .find_map(|key| std::env::var(key).ok())

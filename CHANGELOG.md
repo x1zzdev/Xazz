@@ -30,6 +30,17 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - **`benches/make_scale_data.py --synthetic`** — 고정 시드 합성 데이터 생성(CI용)
 - **`benches/run_readme_benchmark.py --out PATH`** — 결과 출력 경로 지정
 
+### Added — `xazz policy-status` 테넌트 정책 조회 CLI (issue C2)
+
+- **`xazz policy-status <history|ttl|ttl-history>`** — 실행 중인 서버에서 테넌트의
+  읽기 전용 정책 상태를 조회한다: 정책 팩 변경 이력(`GET /security/policy/history`),
+  유효 정책 이력 보존 윈도(`.../history/ttl`), 보존 윈도 변경 이력
+  (`.../history/ttl/history`). `--server`/`--tenant`/`--token`(미지정 시
+  `XAZZ_ADMIN_TOKEN`→`XAZZ_SERVER_TOKEN`)·`--cursor`/`--limit`·`--json` 지원.
+  기본은 사람용 요약, `--json`은 서버 JSON 본문을 그대로 출력
+- **`src/http.rs`** — `get_json` 추가(기존 `put_json`과 공용 `request`로 리팩터)
+- 검증: 엔드포인트 조인/페이징 단위 테스트 + 가짜 서버 E2E(GET 경로·헤더·페이징·비2xx·검증)
+
 ### Changed — D1 CUDA provider를 burn-tch에서 burn-cuda(네이티브 CubeCL)로 교체 (issue #62)
 
 - **`xazz-exec`** — `--features cuda`가 `burn-tch`(LibTorch) 대신 `burn-cuda`

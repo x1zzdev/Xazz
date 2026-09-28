@@ -78,9 +78,27 @@ impl Target {
     }
 }
 
+/// Sends `GET <url>` with the given extra headers, returning the response.
+///
+/// Used by the read-only policy queries (`xazz policy-status`, issue C2).
+pub fn get_json(url: &str, headers: &[(&str, String)]) -> Result<Response, String> {
+    request("GET", url, headers, None)
+}
+
 /// Sends `PUT <url>` with `body` and the given extra headers, returning the
 /// response. The connection uses `Connection: close`, so the body is read to EOF.
 pub fn put_json(url: &str, headers: &[(&str, String)], body: &str) -> Result<Response, String> {
+    request("PUT", url, headers, Some(body))
+}
+
+/// Sends a single HTTP/1.1 request (`GET` without a body, `PUT` with one) and
+/// parses the response. TLS is out of scope — see the module docs.
+fn request(
+    method: &str,
+    url: &str,
+    headers: &[(&str, String)],
+    body: Option<&str>,
+) -> Result<Response, String> {
     let target = Target::parse(url)?;
     for (name, value) in headers {
         if value.contains('\r') || value.contains('\n') {
@@ -96,17 +114,22 @@ pub fn put_json(url: &str, headers: &[(&str, String)], body: &str) -> Result<Res
     let _ = stream.set_read_timeout(timeout);
     let _ = stream.set_write_timeout(timeout);
 
-    let mut request = String::with_capacity(body.len() + 256);
-    request.push_str(&format!("PUT {} HTTP/1.1\r\n", target.path));
+    let mut request = String::with_capacity(body.map_or(0, str::len) + 256);
+    request.push_str(&format!("{method} {} HTTP/1.1\r\n", target.path));
     request.push_str(&format!("Host: {}\r\n", target.host_header));
-    request.push_str("Content-Type: application/json\r\n");
     request.push_str("Accept: application/json\r\n");
     request.push_str("Connection: close\r\n");
     for (name, value) in headers {
         request.push_str(&format!("{name}: {value}\r\n"));
     }
-    request.push_str(&format!("Content-Length: {}\r\n\r\n", body.len()));
-    request.push_str(body);
+    match body {
+        Some(body) => {
+            request.push_str("Content-Type: application/json\r\n");
+            request.push_str(&format!("Content-Length: {}\r\n\r\n", body.len()));
+            request.push_str(body);
+        }
+        None => request.push_str("\r\n"),
+    }
 
     stream
         .write_all(request.as_bytes())
