@@ -241,10 +241,10 @@ Deep details live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/WORK
 Same 4-stage pipeline (drop nulls → dual filter → group-by aggregates → fill + count), executed by pandas 3.0.5 and Xazz on real Seoul air-quality data (8 source files, 2008–2026). Median of 3 runs after warmup, wall-clock timing.
 
 <div align="center">
-<img src="docs/assets/benchmark_chart.png" alt="Benchmark: latency scaling across 228K/912K/4.09M rows and speedup bars — 1.39x, 1.95x, 1.39x vs pandas" width="94%">
+<img src="docs/assets/benchmark_chart.png" alt="Benchmark: latency scaling across 228K/912K/4.09M rows and speedup bars — 0.76x, 1.44x, 1.30x vs pandas" width="94%">
 </div>
 
-- **Faster at every scale**: 1.39× vs pandas at 228K rows (556 ms vs 770 ms), 1.95× at 912K rows (1,054 ms vs 2,052 ms), and 1.39× at 4.09M rows (4,344 ms vs 6,040 ms) — with lower peak RSS at the largest scale (570 MB vs 656 MB).
+- **Faster past the small file**: 1.44× vs pandas at 912K rows (467 ms vs 671 ms) and 1.30× at 4.09M rows (3,070 ms vs 3,981 ms) — with lower peak RSS at the largest scale (567 MB vs 656 MB). At 228K rows the two engines are roughly break-even (0.76×): the fixed load/filter overhead dominates a file pandas already reads in ~0.2 s.
 - Both sides are measured as **pipeline execution only** — the Python interpreter boot (~0.3–0.7 s) is excluded from pandas, and Xazz reports its own `[xazz:timing]` pipeline marker, so the comparison is apples-to-apples. Peak RSS uses the process tree for both engines.
 - Source comes from Apache Arrow columnar memory + Polars LazyFrame query optimization + multithreaded native execution.
 - **Out-of-core execution:** `load()` now returns a lazy scan (`scan_csv`/`scan_parquet`/`scan_ipc`), so sources stay on disk until the terminal collect — no full-file materialization upfront. For very large workloads set `XAZZ_STREAMING=1` to collect through Polars' streaming engine (unsupported plans fall back to in-memory automatically). See [docs/ROADMAP.md](docs/ROADMAP.md) Track A2.
