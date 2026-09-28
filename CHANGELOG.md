@@ -9,6 +9,15 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — `xazz run --json`에 리소스 텔레메트리(`resources`) 노출 (#128 후속)
+
+- **`resources` 필드** — `xazz run --json` 요약에 러너 프로세스 트리 리소스 사용량을
+  담는다: `duration_ms`, `cpu_user_ms`, `cpu_sys_ms`, `max_rss_kb`, `source`
+  (`runner-process-tree`, 카운터 부재 시 `wall-clock-only`). 서버가 `[xazz:resources]`
+  마커로 받는 것과 동일한 객체를 CLI 로컬 JSON에도 싣는다
+- 마커 출력(서버 릴레이)과 JSON 필드가 같은 `resources_json` 빌더를 공유
+- 검증: `resources_json` 단위 테스트 2종(카운터 있음/없음)
+
 ### Changed — D1 CUDA provider를 burn-tch에서 burn-cuda(네이티브 CubeCL)로 교체 (issue #62)
 
 - **`xazz-exec`** — `--features cuda`가 `burn-tch`(LibTorch) 대신 `burn-cuda`

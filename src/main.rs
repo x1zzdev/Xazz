@@ -86,6 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Capture xazz-runner's stdout, parse the [xazz:result] / [xazz:diagnostics] /
             // [xazz:train] / [xazz:dp] markers, and reassemble into a single JSON object.
             if json {
+                let started = std::time::Instant::now();
                 let output = cmd.output().map_err(|e| {
                     format!(
                         "failed to run xazz-runner: {}\n\
@@ -98,6 +99,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let success = output.status.success();
 
                 let markers = parse_run_markers(&stdout);
+                // Issue #128 follow-up: expose the same resource telemetry the
+                // server consumes via the `[xazz:resources]` marker.
+                let resources = resources_json(started, child_resource_usage());
 
                 let exit_code = output.status.code().unwrap_or(1);
                 let summary = serde_json::json!({
@@ -109,6 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "diagnostics": markers.diagnostics,
                     "training": markers.training,
                     "dp": markers.dp,
+                    "resources": resources,
                     "error": if success { None } else { Some(stderr.trim()) },
                     "logs": stderr.lines().map(|l| l.to_string()).collect::<Vec<_>>(),
                 });
@@ -499,26 +504,35 @@ fn emit_resource_telemetry(started: std::time::Instant) {
     if std::env::var("XAZZ_RESOURCE_TELEMETRY").ok().as_deref() != Some("1") {
         return;
     }
+    let value = resources_json(started, child_resource_usage());
+    println!("[xazz:resources]{value}");
+}
+
+/// Builds the `[xazz:resources]`-shaped JSON object (issue #128).
+///
+/// Shared by the stdout marker (server relay) and the `xazz run --json`
+/// `resources` field (#128 follow-up). When per-process counters are unavailable
+/// (non-Unix) the object still carries `duration_ms` and
+/// `"source":"wall-clock-only"`.
+fn resources_json(started: std::time::Instant, usage: Option<ResourceUsage>) -> serde_json::Value {
     let duration_ms = started.elapsed().as_millis() as u64;
-    let mut fields = vec![format!("\"duration_ms\":{duration_ms}")];
-    #[cfg(unix)]
-    let source = if let Some(usage) = child_resource_usage() {
-        fields.push(format!("\"cpu_user_ms\":{}", usage.cpu_user_ms));
-        fields.push(format!("\"cpu_sys_ms\":{}", usage.cpu_sys_ms));
-        fields.push(format!("\"max_rss_kb\":{}", usage.max_rss_kb));
-        "runner-process-tree"
-    } else {
-        "wall-clock-only"
-    };
-    #[cfg(not(unix))]
-    let source = "wall-clock-only";
-    fields.push(format!("\"source\":\"{source}\""));
-    println!("[xazz:resources]{{{}}}", fields.join(","));
+    match usage {
+        Some(u) => serde_json::json!({
+            "duration_ms": duration_ms,
+            "cpu_user_ms": u.cpu_user_ms,
+            "cpu_sys_ms": u.cpu_sys_ms,
+            "max_rss_kb": u.max_rss_kb,
+            "source": "runner-process-tree",
+        }),
+        None => serde_json::json!({
+            "duration_ms": duration_ms,
+            "source": "wall-clock-only",
+        }),
+    }
 }
 
 /// Aggregate resource usage of the runner subprocess tree.
-#[cfg(unix)]
-struct ChildResourceUsage {
+struct ResourceUsage {
     cpu_user_ms: u64,
     cpu_sys_ms: u64,
     max_rss_kb: u64,
@@ -526,7 +540,7 @@ struct ChildResourceUsage {
 
 /// Reads `getrusage(RUSAGE_CHILDREN)` for the just-exited runner tree.
 #[cfg(unix)]
-fn child_resource_usage() -> Option<ChildResourceUsage> {
+fn child_resource_usage() -> Option<ResourceUsage> {
     // SAFETY: `getrusage` fills the zeroed `rusage` and its return code is checked.
     let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
     // RUSAGE_CHILDREN aggregates the runner *and* its waited descendants (xazz-exec).
@@ -539,11 +553,17 @@ fn child_resource_usage() -> Option<ChildResourceUsage> {
     let max_rss_kb = ru.ru_maxrss.max(0) as u64 / 1024;
     #[cfg(not(target_os = "macos"))]
     let max_rss_kb = ru.ru_maxrss.max(0) as u64;
-    Some(ChildResourceUsage {
+    Some(ResourceUsage {
         cpu_user_ms: ms(ru.ru_utime),
         cpu_sys_ms: ms(ru.ru_stime),
         max_rss_kb,
     })
+}
+
+/// Non-Unix platforms cannot read per-process counters; wall-clock only.
+#[cfg(not(unix))]
+fn child_resource_usage() -> Option<ResourceUsage> {
+    None
 }
 
 // ── `xazz run --json`: stdout marker extraction ───────────────────────────────
@@ -723,5 +743,30 @@ mod run_marker_tests {
         assert!(m.dp.is_empty());
         assert_eq!(m.rows, json!([]));
         assert!(m.training.is_none());
+    }
+
+    #[test]
+    fn resources_json_falls_back_to_wall_clock_only() {
+        let v = resources_json(std::time::Instant::now(), None);
+        assert_eq!(v["source"], "wall-clock-only");
+        assert!(v["duration_ms"].is_u64());
+        assert!(v.get("cpu_user_ms").is_none());
+    }
+
+    #[test]
+    fn resources_json_includes_counters_when_available() {
+        let v = resources_json(
+            std::time::Instant::now(),
+            Some(ResourceUsage {
+                cpu_user_ms: 3,
+                cpu_sys_ms: 1,
+                max_rss_kb: 2048,
+            }),
+        );
+        assert_eq!(v["cpu_user_ms"], 3);
+        assert_eq!(v["cpu_sys_ms"], 1);
+        assert_eq!(v["max_rss_kb"], 2048);
+        assert_eq!(v["source"], "runner-process-tree");
+        assert!(v["duration_ms"].is_u64());
     }
 }
