@@ -398,14 +398,17 @@ fn warn_embedding_non_integer(count: usize) {
 
 /// Structured mirror of the embedding-input warnings. The forward pass clamps
 /// out-of-range indices and truncates fractional ones silently, so these counts
-/// are surfaced in [`TrainReport`] (and thus `--json`) for machine-readable
-/// consumption in addition to the stderr diagnostics (issue D3).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct EmbeddingDiagnostics {
+/// are surfaced in [`TrainReport`] and the `predict` diagnostics (and thus
+/// `--json`) for machine-readable consumption in addition to the stderr
+/// diagnostics (issue D3).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+pub struct EmbeddingDiagnostics {
     /// Finite inputs below 0 or above `vocab_size - 1` (clamped in the forward pass).
-    out_of_range: usize,
+    #[serde(rename = "embedding_out_of_range")]
+    pub out_of_range: usize,
     /// Finite inputs with a fractional part (truncated to an index in the forward pass).
-    non_integer: usize,
+    #[serde(rename = "embedding_non_integer")]
+    pub non_integer: usize,
 }
 
 /// Runs the out-of-range embedding diagnostic when the model consumes raw indices,
@@ -1470,11 +1473,12 @@ where
 
 /// Shared inference preprocessing: validates the frame, reads the feature columns
 /// in training order, and applies the same standardization used during training.
-/// Returns `(xs, rows, feature_count)`.
+/// Returns `(xs, rows, feature_count, embedding_diagnostics)`; the diagnostics
+/// are the structured mirror of the stderr warnings (issue D3 predict follow-up).
 fn prepare_inference_input(
     trained: &TrainedModel,
     df: &DataFrame,
-) -> Result<(Vec<f32>, usize, usize), String> {
+) -> Result<(Vec<f32>, usize, usize, EmbeddingDiagnostics), String> {
     let feature_count = trained.feature_names.len();
     let n = df.height();
     if feature_count == 0 {
@@ -1512,10 +1516,12 @@ fn prepare_inference_input(
             }
         }
     }
-    if trained.model.raw_input {
-        let _ = check_embedding_indices(&trained.layers, &xs, feature_count);
-    }
-    Ok((xs, n, feature_count))
+    let diag = if trained.model.raw_input {
+        check_embedding_indices(&trained.layers, &xs, feature_count)
+    } else {
+        EmbeddingDiagnostics::default()
+    };
+    Ok((xs, n, feature_count, diag))
 }
 
 /// Appends the prediction column to a clone of `df`.
@@ -1610,14 +1616,21 @@ pub fn predict(
     df: &DataFrame,
     as_col: Option<&str>,
 ) -> Result<DataFrame, String> {
-    let (xs, n, feature_count) = prepare_inference_input(trained, df)?;
+    predict_with_diagnostics(trained, df, as_col).map(|(out, _)| out)
+}
 
+/// Like [`predict`], but also returns the structured embedding-input diagnostics
+/// so the runtime can surface them in `--json` (issue D3 predict follow-up). The
+/// stderr warnings are emitted by [`prepare_inference_input`] either way.
+pub fn predict_with_diagnostics(
+    trained: &TrainedModel,
+    df: &DataFrame,
+    as_col: Option<&str>,
+) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
     let device: Device<Plain> = Default::default();
     let mut infer_model = trained.model.clone();
     infer_model.training = false;
-    let preds = forward_predictions(&infer_model, &xs, n, feature_count, &device);
-
-    attach_prediction(trained, df, &preds, as_col)
+    predict_with_model::<Plain>(trained, &infer_model, &device, df, as_col)
 }
 
 /// `predict` on an arbitrary Burn backend `B`.
@@ -1630,7 +1643,7 @@ pub fn predict_on<B>(
     trained: &TrainedModel,
     df: &DataFrame,
     as_col: Option<&str>,
-) -> Result<DataFrame, String>
+) -> Result<(DataFrame, EmbeddingDiagnostics), String>
 where
     B: Backend,
 {
@@ -1677,22 +1690,22 @@ where
 ///
 /// `device` must be the device `model` lives on. Preprocessing (feature order,
 /// standardization) is identical to [`predict`], so a cached module produces the
-/// same predictions.
+/// same predictions. Returns the frame plus embedding-input diagnostics.
 pub fn predict_with_model<B>(
     trained: &TrainedModel,
     model: &Mlp<B>,
     device: &Device<B>,
     df: &DataFrame,
     as_col: Option<&str>,
-) -> Result<DataFrame, String>
+) -> Result<(DataFrame, EmbeddingDiagnostics), String>
 where
     B: Backend,
 {
-    let (xs, n, feature_count) = prepare_inference_input(trained, df)?;
+    let (xs, n, feature_count, diag) = prepare_inference_input(trained, df)?;
 
     let preds = forward_predictions(model, &xs, n, feature_count, device);
 
-    attach_prediction(trained, df, &preds, as_col)
+    Ok((attach_prediction(trained, df, &preds, as_col)?, diag))
 }
 
 /// Like [`predict_on`], but evaluates on an explicit device `B::Device`.
@@ -1706,7 +1719,7 @@ pub fn predict_on_device<B>(
     df: &DataFrame,
     as_col: Option<&str>,
     device: &Device<B>,
-) -> Result<DataFrame, String>
+) -> Result<(DataFrame, EmbeddingDiagnostics), String>
 where
     B: Backend,
 {

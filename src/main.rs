@@ -115,6 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "schema": markers.schema,
                     "diagnostics": markers.diagnostics,
                     "training": markers.training,
+                    "prediction": markers.prediction,
                     "dp": markers.dp,
                     "resources": resources,
                     "error": if success { None } else { Some(stderr.trim()) },
@@ -712,6 +713,8 @@ pub(crate) struct RunMarkers {
     pub diagnostics: Option<serde_json::Value>,
     /// `[xazz:train]` — Burn training report (last `train` in the script).
     pub training: Option<serde_json::Value>,
+    /// `[xazz:predict]` — embedding-input diagnostics of the last `predict` (D3).
+    pub prediction: Option<serde_json::Value>,
     /// `[xazz:dp]` — one entry per `withDp` step, in execution order (issue #117).
     /// Each carries the DpReport plus the session budget after that step
     /// (`budget_spent`, `budget_total`, `budget_remaining`, the `_delta` twins, `query_count`).
@@ -755,6 +758,11 @@ pub(crate) fn parse_run_markers(stdout: &str) -> RunMarkers {
             && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
         {
             markers.training = Some(parsed);
+        }
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:predict] ")
+            && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
+        {
+            markers.prediction = Some(parsed);
         }
         if let Some(json_part) = trimmed.strip_prefix("[xazz:dp] ") {
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part) {
@@ -863,6 +871,20 @@ mod run_marker_tests {
         assert_eq!(m.diagnostics.as_ref().unwrap()["warning_count"], 1);
         assert_eq!(m.training.as_ref().unwrap()["model_name"], "AirPredictor");
         assert!(m.dp.is_empty());
+    }
+
+    #[test]
+    fn predict_marker_carries_embedding_diagnostics() {
+        let stdout = "\
+[xazz:predict] {\"type\":\"predict_stmt\",\"success\":true,\"model_name\":\"AirPredictor\",\"report\":{\"embedding_out_of_range\":3,\"embedding_non_integer\":1}}
+[xazz:result] {\"rows\":[],\"schema\":[]}
+";
+        let m = parse_run_markers(stdout);
+        let prediction = m.prediction.as_ref().expect("predict marker");
+        assert_eq!(prediction["model_name"], "AirPredictor");
+        assert_eq!(prediction["report"]["embedding_out_of_range"], 3);
+        assert_eq!(prediction["report"]["embedding_non_integer"], 1);
+        assert!(m.training.is_none());
     }
 
     #[test]

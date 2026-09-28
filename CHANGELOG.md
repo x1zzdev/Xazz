@@ -9,6 +9,17 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — predict 경로 임베딩 입력 진단의 구조화 노출 (`[xazz:predict]`/`--json`) (issue D3)
+
+- `prepare_inference_input`이 버려지던 임베딩 진단을 반환하고, `predict`/
+  `predict_with_model`/`predict_on`(및 ONNX `predict_with_session`)이 프레임과 함께
+  반환한다. 러너는 `[xazz:predict]` 단일 라인 JSON(`predict_stmt` +
+  `embedding_out_of_range`/`embedding_non_integer`)을 출력하고, CLI `xazz run --json`은
+  이를 `"prediction"` 필드로 재조립한다. 기존 `predict`(프레임 전용) 시그니처는
+  유지(`predict_with_diagnostics` 추가)
+- 검증: 임베딩 E2E에서 `predict_with_diagnostics` 반환/직렬화 값 검증(xazz-exec 94
+  tests), CLI 마커 파싱 테스트 1종(xazz 63 tests)
+
 ### Added — 임베딩 입력 진단의 구조화 노출 (`TrainReport`/`--json`) (issue D3)
 
 - **`TrainReport`**에 `embedding_out_of_range`·`embedding_non_integer` 필드 추가.

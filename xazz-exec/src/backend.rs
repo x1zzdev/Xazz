@@ -34,7 +34,7 @@ use polars::prelude::DataFrame;
 use xazz_compiler::ast::{LayerKind, SweepMetric, TrainConfig};
 use xazz_core::i18n::{is_korean, tr};
 
-use crate::dl::{CheckpointManifest, SweepCombo, SweepReport, TrainedModel};
+use crate::dl::{CheckpointManifest, EmbeddingDiagnostics, SweepCombo, SweepReport, TrainedModel};
 
 /// A pluggable ML engine behind the Typed IR's `MLOp` boundary.
 ///
@@ -55,13 +55,28 @@ pub trait ComputeBackend: Send + Sync {
         config: &TrainConfig,
     ) -> Result<TrainedModel, String>;
 
-    /// `dataset |> predict(model_var, as: "col")`.
+    /// `dataset |> predict(model_var, as: "col")` — frame only.
+    ///
+    /// Convenience wrapper over [`Self::predict_with_diagnostics`] for callers
+    /// that do not need the embedding diagnostics.
     fn predict(
         &self,
         trained: &TrainedModel,
         df: &DataFrame,
         as_col: Option<&str>,
-    ) -> Result<DataFrame, String>;
+    ) -> Result<DataFrame, String> {
+        self.predict_with_diagnostics(trained, df, as_col)
+            .map(|(out, _)| out)
+    }
+
+    /// `dataset |> predict(model_var, as: "col")`, plus the structured
+    /// embedding-input diagnostics the runtime surfaces in `--json` (D3).
+    fn predict_with_diagnostics(
+        &self,
+        trained: &TrainedModel,
+        df: &DataFrame,
+        as_col: Option<&str>,
+    ) -> Result<(DataFrame, EmbeddingDiagnostics), String>;
 
     /// Like [`Self::train`], but does not persist the checkpoint.
     ///
@@ -214,13 +229,13 @@ impl ComputeBackend for CpuBackend {
         crate::dl::train(df, model_name, layers, config)
     }
 
-    fn predict(
+    fn predict_with_diagnostics(
         &self,
         trained: &TrainedModel,
         df: &DataFrame,
         as_col: Option<&str>,
-    ) -> Result<DataFrame, String> {
-        crate::dl::predict(trained, df, as_col)
+    ) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
+        crate::dl::predict_with_diagnostics(trained, df, as_col)
     }
 
     fn train_unpersisted(
@@ -596,7 +611,7 @@ mod cuda {
             trained: &TrainedModel,
             df: &DataFrame,
             as_col: Option<&str>,
-        ) -> Result<DataFrame, String> {
+        ) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
             let key = crate::dl::artifact_key(&trained.report.checkpoint_path);
             let mut guard = self
                 .cache
@@ -640,12 +655,12 @@ mod cuda {
             )
         }
 
-        fn predict(
+        fn predict_with_diagnostics(
             &self,
             trained: &TrainedModel,
             df: &DataFrame,
             as_col: Option<&str>,
-        ) -> Result<DataFrame, String> {
+        ) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
             self.predict_cached(trained, df, as_col)
         }
     }
@@ -764,7 +779,7 @@ mod wgpu {
             trained: &TrainedModel,
             df: &DataFrame,
             as_col: Option<&str>,
-        ) -> Result<DataFrame, String> {
+        ) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
             let key = crate::dl::artifact_key(&trained.report.checkpoint_path);
             let mut guard = self
                 .cache
@@ -808,12 +823,12 @@ mod wgpu {
             )
         }
 
-        fn predict(
+        fn predict_with_diagnostics(
             &self,
             trained: &TrainedModel,
             df: &DataFrame,
             as_col: Option<&str>,
-        ) -> Result<DataFrame, String> {
+        ) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
             self.predict_cached(trained, df, as_col)
         }
     }
@@ -857,7 +872,7 @@ mod onnx {
             trained: &TrainedModel,
             df: &DataFrame,
             as_col: Option<&str>,
-        ) -> Result<DataFrame, String> {
+        ) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
             let path = artifact_path(&trained.report.checkpoint_path);
             crate::dl::onnx_export::ensure_export(trained, &path)?;
             let key = crate::dl::artifact_key(&path);
@@ -906,12 +921,12 @@ mod onnx {
             crate::dl::train_unpersisted(df, model_name, layers, config)
         }
 
-        fn predict(
+        fn predict_with_diagnostics(
             &self,
             trained: &TrainedModel,
             df: &DataFrame,
             as_col: Option<&str>,
-        ) -> Result<DataFrame, String> {
+        ) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
             self.predict_cached(trained, df, as_col)
         }
     }
@@ -1443,6 +1458,75 @@ mod tests {
         let json = serde_json::to_value(&trained.report).expect("report serializes");
         assert_eq!(json["embedding_out_of_range"], 1);
         assert_eq!(json["embedding_non_integer"], 2);
+
+        cleanup(&trained.report.checkpoint_path);
+    }
+
+    /// D3 Embedding: `predict` returns the structured embedding diagnostics for
+    /// the prediction input, so `--json` can surface them (predict follow-up).
+    #[test]
+    fn cpu_backend_predict_carries_embedding_diagnostics() {
+        use polars::prelude::*;
+
+        let train_df = df!(
+            "cat1" => [0i64, 1, 2, 0, 1, 2],
+            "cat2" => [0i64, 1, 2, 0, 1, 2],
+            "y"    => [0.0f64, 1.0, 2.0, 0.0, 1.0, 2.0],
+        )
+        .expect("predict diag training dataset");
+
+        let layers = vec![
+            LayerKind::Embedding {
+                vocab: EmbeddingVocab::PerColumn(vec![3, 3]),
+                embed_dim: 2,
+            },
+            LayerKind::ReLU,
+            LayerKind::Dense(1),
+        ];
+        let config = TrainConfig {
+            target: "y".to_string(),
+            epochs: 2,
+            learning_rate: 0.05,
+            batch_size: Some(3),
+            validation_split: None,
+            early_stopping_patience: None,
+            sweep: Default::default(),
+            sweep_metric: Default::default(),
+            sweep_metric_explicit: false,
+            sweep_sort: Default::default(),
+            sweep_sort_explicit: false,
+            sweep_tiebreak: Vec::new(),
+            sweep_top: None,
+        };
+
+        let (backend, warning) = resolve(None);
+        assert!(warning.is_none());
+
+        let trained = backend
+            .train(
+                &train_df,
+                "backend_unit_embedding_predict_diag",
+                &layers,
+                &config,
+            )
+            .expect("cpu embedding train");
+
+        let predict_df = df!(
+            "cat1" => [0i64, 5, 1],
+            "cat2" => [0.0f64, 1.5, 2.0],
+        )
+        .expect("predict diag input");
+
+        let (out, diag) = backend
+            .predict_with_diagnostics(&trained, &predict_df, Some("pred"))
+            .expect("cpu embedding predict");
+        assert_eq!(out.height(), 3);
+        assert_eq!(diag.out_of_range, 1, "cat1=5 is above vocab-1 (3-1=2)");
+        assert_eq!(diag.non_integer, 1, "cat2=1.5 is fractional");
+
+        let json = serde_json::to_value(diag).expect("diagnostics serialize");
+        assert_eq!(json["embedding_out_of_range"], 1);
+        assert_eq!(json["embedding_non_integer"], 1);
 
         cleanup(&trained.report.checkpoint_path);
     }

@@ -1412,8 +1412,8 @@ fn execute_node(
                     }
                 })?;
                 let snapshot = lf.clone().collect()?;
-                let out = crate::backend::active()
-                    .predict(trained, &snapshot, as_col.as_deref())
+                let (out, embedding) = crate::backend::active()
+                    .predict_with_diagnostics(trained, &snapshot, as_col.as_deref())
                     .map_err(|e| format!("{}: {e}", tr("prediction failed", "예측 실패")))?;
                 eprintln!(
                     "[xazz] Predict '{}' {}: {} ({} {})",
@@ -1422,6 +1422,18 @@ fn execute_node(
                     tr("prediction column added", "예측 컬럼 추가"),
                     out.height(),
                     tr("rows", "행")
+                );
+                // Structured embedding-input diagnostics for `--json` (D3 predict
+                // follow-up); mirrors the `[xazz:train]` report shape.
+                let predict_json = serde_json::json!({
+                    "type": "predict_stmt",
+                    "success": true,
+                    "model_name": model,
+                    "report": serde_json::to_value(embedding).unwrap_or_default(),
+                });
+                println!(
+                    "[xazz:predict] {}",
+                    serde_json::to_string(&predict_json).unwrap_or_default()
                 );
                 lf = out.lazy();
             }
