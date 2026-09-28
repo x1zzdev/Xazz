@@ -8298,6 +8298,7 @@ dependencies = [
  "csv",
  "encoding_rs",
  "indicatif",
+ "libc",
  "serde",
  "serde_json",
  "xazz-compiler",

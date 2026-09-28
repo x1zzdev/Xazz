@@ -21,6 +21,7 @@
 //!   POST /security/remediate    { "code": "<xzz DSL>" }    → safe code auto-remediation (deterministic + sLM)
 //!   GET  /runs                                → run history (SQLite, issue C1)
 //!   GET  /runs/:id                            → a single run record
+//!   GET  /runs/:id/resources                  → persisted run resource telemetry (issue #128)
 //!   GET  /dp/budget                           → per-tenant DP spend/remaining + window
 //!   POST /dp/budget/reset                     → reset the tenant's DP spend/window (C2)
 //!
@@ -157,9 +158,18 @@ fn record_run_in_store(
     rows: i64,
     error: Option<&str>,
     tenant: &str,
+    resources: Option<&Value>,
 ) -> i64 {
     let hash = audit_log::hash_code(code);
-    match state.store.record_run(&hash, status, rows, error, tenant) {
+    let resources_json = resources.map(|v| v.to_string());
+    match state.store.record_run(
+        &hash,
+        status,
+        rows,
+        error,
+        tenant,
+        resources_json.as_deref(),
+    ) {
         Ok(id) => id,
         Err(e) => {
             eprintln!("[xazz] ⚠️ run history 저장 실패: {e}");
@@ -481,6 +491,7 @@ async fn main() {
         .route("/security/inference/check", post(handle_inference_check))
         .route("/runs", get(handle_runs_list))
         .route("/runs/{id}", get(handle_run_by_id))
+        .route("/runs/{id}/resources", get(handle_run_resources))
         .route("/dp/budget", get(handle_dp_budget))
         .route("/dp/budget/reset", post(handle_dp_budget_reset))
         .route("/dp/budget/history", get(handle_dp_reset_history))
@@ -965,6 +976,9 @@ async fn run_execution_job(
             .arg(&tmp_path)
             .env("XAZZ_DP_BUDGET", remaining_eps.to_string())
             .env("XAZZ_DP_DELTA_BUDGET", remaining_delta.to_string())
+            // Ask the CLI to relay resource telemetry as a `[xazz:resources]` marker
+            // (issue #128). Gated by env so normal CLI output is unchanged.
+            .env("XAZZ_RESOURCE_TELEMETRY", "1")
             .output();
 
         let (success, stdout, stderr) = match output {
@@ -979,6 +993,9 @@ async fn run_execution_job(
         // 4. Parse stdout: extract [xazz:result], [xazz:chart], [xazz:train], [xazz:dp] markers
         let (rows, schema, logs, training, dp, diagnostics) =
             parse_stdout_markers(&stdout, &stderr);
+        // Resource telemetry relayed by the CLI (issue #128); absent when the
+        // platform could not measure it or the run predates the feature.
+        let resources = parse_resources_marker(&stdout);
 
         // 4b. Release the reservation, billing only this run's actual DP consumption
         //     (issue C2). No withDp → nothing billed but the reservation is freed.
@@ -1014,6 +1031,7 @@ async fn run_execution_job(
             rows_count,
             err_msg_opt.as_deref(),
             &tenant,
+            resources.as_ref(),
         );
 
         if success {
@@ -1133,6 +1151,37 @@ fn parse_stdout_markers(
     }
 
     (rows, schema, logs, training, dp, diagnostics)
+}
+
+/// Extracts the CLI's `[xazz:resources]` telemetry marker (issue #128), if present.
+///
+/// Only the known non-negative integer counters are kept, so a malformed or
+/// hostile marker cannot persist arbitrary data. Returns `None` when the marker is
+/// absent (older CLI, non-Unix platform) or has no usable fields.
+fn parse_resources_marker(stdout: &str) -> Option<Value> {
+    let payload = stdout
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("[xazz:resources]"))?;
+    let parsed: Value = serde_json::from_str(payload.trim()).ok()?;
+    let obj = parsed.as_object()?;
+    let mut out = serde_json::Map::new();
+    for key in ["duration_ms", "cpu_user_ms", "cpu_sys_ms", "max_rss_kb"] {
+        if let Some(n) = obj.get(key).and_then(Value::as_u64) {
+            out.insert(key.to_string(), json!(n));
+        }
+    }
+    if out.is_empty() {
+        return None;
+    }
+    out.insert(
+        "source".to_string(),
+        json!(
+            obj.get("source")
+                .and_then(Value::as_str)
+                .unwrap_or("runner")
+        ),
+    );
+    Some(Value::Object(out))
 }
 
 // ── POST /schema ──────────────────────────────────────────────────────────────
@@ -2013,6 +2062,51 @@ async fn handle_run_by_id(
     }
 }
 
+/// Returns the persisted resource telemetry for one run — issue #128.
+///
+/// The figures are measured by the CLI around the runner subprocess (wall-clock
+/// duration and, on Unix, the aggregate CPU time / peak RSS of the runner process
+/// tree) and relayed via the `[xazz:resources]` marker. Runs recorded before the
+/// feature, or on platforms without `rusage`, report `available: false` instead of
+/// fabricated numbers.
+async fn handle_run_resources(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+    Extension(tenant): Extension<String>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let tenant = tenant_str(tenant.as_str());
+    let record = state
+        .store
+        .get_run_resources(id, tenant)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    match record {
+        None => Err((
+            StatusCode::NOT_FOUND,
+            format!("run {id} not found (or not in tenant '{tenant}')"),
+        )),
+        Some(rec) => {
+            let resources = rec
+                .resources_json
+                .as_deref()
+                .and_then(|s| serde_json::from_str::<Value>(s).ok());
+            Ok(Json(match resources {
+                Some(r) => json!({
+                    "run_id": id,
+                    "tenant": tenant,
+                    "available": true,
+                    "resources": r,
+                }),
+                None => json!({
+                    "run_id": id,
+                    "tenant": tenant,
+                    "available": false,
+                    "reason": "no resource telemetry was recorded for this run",
+                }),
+            }))
+        }
+    }
+}
+
 // ── Per-tenant DP budget (issue C2) ──────────────────────────────────────────
 
 /// Reports the authenticated tenant's cumulative DP spend and remaining envelope.
@@ -2376,6 +2470,75 @@ mod tests {
     const UNSAFE_CODE: &str =
         "type Patient = { patient_id: string, name: string, age_band: string };
 v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);";
+
+    /// The `[xazz:resources]` marker is parsed and stripped to known counters.
+    #[test]
+    fn resources_marker_is_parsed_and_sanitized() {
+        let stdout = "noise\n[xazz:resources]{\"duration_ms\":12,\"cpu_user_ms\":3,\"cpu_sys_ms\":1,\"max_rss_kb\":2048,\"source\":\"runner-process-tree\",\"evil\":\"x\"}\n";
+        let got = parse_resources_marker(stdout).expect("marker parsed");
+        assert_eq!(got["duration_ms"], json!(12));
+        assert_eq!(got["cpu_user_ms"], json!(3));
+        assert_eq!(got["cpu_sys_ms"], json!(1));
+        assert_eq!(got["max_rss_kb"], json!(2048));
+        assert_eq!(got["source"], json!("runner-process-tree"));
+        assert!(got.get("evil").is_none(), "unknown fields must be dropped");
+
+        // Missing or malformed markers yield nothing rather than fabricated data.
+        assert!(parse_resources_marker("no marker here").is_none());
+        assert!(parse_resources_marker("[xazz:resources] not-json").is_none());
+        assert!(parse_resources_marker("[xazz:resources]{\"evil\":1}").is_none());
+    }
+
+    /// The resources endpoint returns persisted telemetry, an honest empty state for
+    /// legacy runs, and 404s across tenants (issue #128).
+    #[tokio::test]
+    async fn run_resources_endpoint_reports_telemetry_and_empty_state() {
+        let state = test_state();
+        let json = r#"{"duration_ms":12,"cpu_user_ms":3,"source":"runner-process-tree"}"#;
+        let recorded = state
+            .store
+            .record_run("h1", "success", 1, None, "acme", Some(json))
+            .expect("insert with resources");
+        let legacy = state
+            .store
+            .record_run("h2", "success", 1, None, "acme", None)
+            .expect("insert without resources");
+
+        let body = handle_run_resources(
+            Path(recorded),
+            State(state.clone()),
+            Extension("acme".to_string()),
+        )
+        .await
+        .expect("resources available")
+        .0;
+        assert_eq!(body["available"], json!(true));
+        assert_eq!(body["resources"]["duration_ms"], json!(12));
+
+        let empty = handle_run_resources(
+            Path(legacy),
+            State(state.clone()),
+            Extension("acme".to_string()),
+        )
+        .await
+        .expect("legacy run resolves")
+        .0;
+        assert_eq!(empty["available"], json!(false));
+
+        // A run belonging to another tenant is not visible.
+        let denied = handle_run_resources(
+            Path(recorded),
+            State(state.clone()),
+            Extension("other".to_string()),
+        )
+        .await;
+        assert!(denied.is_err());
+
+        // Unknown id → 404.
+        let missing =
+            handle_run_resources(Path(999_999), State(state), Extension("acme".to_string())).await;
+        assert!(missing.is_err());
+    }
 
     /// Violating code is rejected with 422 and the report is in the body.
     #[tokio::test]
@@ -3961,5 +4124,94 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             tenant_mutex.try_lock().is_ok(),
             "tenant lock was not released after the run exited"
         );
+    }
+
+    /// `run_execution_job` must persist the CLI's `[xazz:resources]` marker so
+    /// `GET /runs/:id/resources` can serve it (issue #128).
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn run_job_persists_resource_telemetry() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let script = std::env::temp_dir().join(format!(
+            "xazz_res_runner_{}_{}.sh",
+            std::process::id(),
+            nonce
+        ));
+        {
+            let mut f = std::fs::File::create(&script).expect("create fake runner");
+            writeln!(f, "#!/bin/sh").unwrap();
+            writeln!(
+                f,
+                "echo '[xazz:resources]{{\"duration_ms\":7,\"cpu_user_ms\":2,\"max_rss_kb\":1024,\"source\":\"runner-process-tree\"}}'"
+            )
+            .unwrap();
+            writeln!(f, "echo '[xazz:result] {{\"rows\":[],\"schema\":[]}}'").unwrap();
+            f.flush().unwrap();
+        }
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod fake runner");
+
+        let state = unique_state("resources-persist");
+        let tenant = "res-tenant".to_string();
+        let code = format!(
+            "// resources-nonce {nonce}\n\
+             type P = {{ a: string }}; v x = load(\"data/a.csv\") :: P;"
+        );
+        let tmp = tempfile::Builder::new()
+            .suffix(".xzz")
+            .tempfile()
+            .expect("temp file");
+        {
+            let mut f = tmp.as_file();
+            f.write_all(code.as_bytes()).expect("write code");
+            f.flush().ok();
+        }
+        let reservation = state
+            .store
+            .reserve_dp_budget(&tenant, 10.0, 1e-4, 0, 3600)
+            .expect("reserve")
+            .expect("granted");
+        let permit = Arc::clone(&state.exec_permits)
+            .try_acquire_owned()
+            .expect("execution permit");
+        let tenant_mutex = state.tenant_lock(&tenant);
+        let tenant_guard = Arc::clone(&tenant_mutex).lock_owned().await;
+        let slot = ExecutionSlot {
+            _permit: permit,
+            _tenant_guard: tenant_guard,
+        };
+
+        let response = run_execution_job(
+            state.clone(),
+            code.clone(),
+            tenant.clone(),
+            script.clone(),
+            tmp,
+            reservation,
+            slot,
+            0,
+            10.0,
+            1e-4,
+            None,
+        )
+        .await;
+        let run_id = response.run_id.expect("run recorded");
+
+        let recorded = state
+            .store
+            .get_run_resources(run_id, &tenant)
+            .expect("get resources")
+            .expect("run exists");
+        let json = recorded.resources_json.expect("resources persisted");
+        assert!(json.contains("\"duration_ms\":7"), "{json}");
+        assert!(json.contains("\"max_rss_kb\":1024"), "{json}");
+
+        let _ = std::fs::remove_file(&script);
     }
 }

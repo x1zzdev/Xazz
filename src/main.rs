@@ -122,6 +122,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
 
+            // Measure the runner process tree while it executes. The marker is
+            // emitted only when the server asks for it, so normal CLI output is
+            // unchanged (issue #128).
+            let started = std::time::Instant::now();
             let status = cmd.status().map_err(|e| {
                 format!(
                     "failed to run xazz-runner: {}\n\
@@ -129,6 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     e
                 )
             })?;
+            emit_resource_telemetry(started);
 
             if !status.success() {
                 std::process::exit(status.code().unwrap_or(1));
@@ -479,6 +484,66 @@ pub(crate) fn find_runner() -> Result<std::path::PathBuf, String> {
          Set XAZZ_RUNNER_PATH to an absolute path or place xazz-runner next to the xazz binary."
             .to_string(),
     )
+}
+
+// ── runner resource telemetry (issue #128) ────────────────────────────────────
+//
+// When the server requests it (`XAZZ_RESOURCE_TELEMETRY=1`) the CLI emits one
+// machine-readable `[xazz:resources]` stdout marker after the runner exits. The
+// numbers come from `getrusage(RUSAGE_CHILDREN)`, which aggregates the runner and
+// its waited descendants (xazz-exec) — i.e. the actual execution cost. On non-Unix
+// platforms only the wall-clock duration is available.
+
+/// Emits the `[xazz:resources]` marker when `XAZZ_RESOURCE_TELEMETRY=1`.
+fn emit_resource_telemetry(started: std::time::Instant) {
+    if std::env::var("XAZZ_RESOURCE_TELEMETRY").ok().as_deref() != Some("1") {
+        return;
+    }
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let mut fields = vec![format!("\"duration_ms\":{duration_ms}")];
+    #[cfg(unix)]
+    let source = if let Some(usage) = child_resource_usage() {
+        fields.push(format!("\"cpu_user_ms\":{}", usage.cpu_user_ms));
+        fields.push(format!("\"cpu_sys_ms\":{}", usage.cpu_sys_ms));
+        fields.push(format!("\"max_rss_kb\":{}", usage.max_rss_kb));
+        "runner-process-tree"
+    } else {
+        "wall-clock-only"
+    };
+    #[cfg(not(unix))]
+    let source = "wall-clock-only";
+    fields.push(format!("\"source\":\"{source}\""));
+    println!("[xazz:resources]{{{}}}", fields.join(","));
+}
+
+/// Aggregate resource usage of the runner subprocess tree.
+#[cfg(unix)]
+struct ChildResourceUsage {
+    cpu_user_ms: u64,
+    cpu_sys_ms: u64,
+    max_rss_kb: u64,
+}
+
+/// Reads `getrusage(RUSAGE_CHILDREN)` for the just-exited runner tree.
+#[cfg(unix)]
+fn child_resource_usage() -> Option<ChildResourceUsage> {
+    // SAFETY: `getrusage` fills the zeroed `rusage` and its return code is checked.
+    let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+    // RUSAGE_CHILDREN aggregates the runner *and* its waited descendants (xazz-exec).
+    if unsafe { libc::getrusage(libc::RUSAGE_CHILDREN, &mut ru) } != 0 {
+        return None;
+    }
+    let ms = |tv: libc::timeval| tv.tv_sec.max(0) as u64 * 1000 + tv.tv_usec.max(0) as u64 / 1000;
+    // Linux reports ru_maxrss in KiB; macOS reports it in bytes.
+    #[cfg(target_os = "macos")]
+    let max_rss_kb = ru.ru_maxrss.max(0) as u64 / 1024;
+    #[cfg(not(target_os = "macos"))]
+    let max_rss_kb = ru.ru_maxrss.max(0) as u64;
+    Some(ChildResourceUsage {
+        cpu_user_ms: ms(ru.ru_utime),
+        cpu_sys_ms: ms(ru.ru_stime),
+        max_rss_kb,
+    })
 }
 
 // ── `xazz run --json`: stdout marker extraction ───────────────────────────────

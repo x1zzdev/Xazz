@@ -95,7 +95,8 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             rows INTEGER NOT NULL DEFAULT 0,
             error TEXT,
             created_at INTEGER NOT NULL,
-            tenant TEXT NOT NULL DEFAULT ''
+            tenant TEXT NOT NULL DEFAULT '',
+            resources TEXT
         );
         CREATE TABLE IF NOT EXISTS dp_budget (
             tenant TEXT PRIMARY KEY,
@@ -162,6 +163,9 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     let _ = conn.execute_batch(
         "ALTER TABLE dp_budget ADD COLUMN window_started_at INTEGER NOT NULL DEFAULT 0",
     );
+    // Migration for DBs created before run resource telemetry (issue #128):
+    // adding an already-present column is a no-op error we swallow.
+    let _ = conn.execute_batch("ALTER TABLE runs ADD COLUMN resources TEXT");
     Ok(())
 }
 
@@ -179,6 +183,19 @@ pub struct RunRecord {
     pub tenant: String,
     /// Unix epoch seconds
     pub created_at: i64,
+}
+
+/// A run's persisted resource telemetry (issue #128).
+///
+/// `resources_json` is the compact `[xazz:resources]` object captured around the
+/// runner subprocess; `None` means the run predates the feature or the platform
+/// could not measure it.
+#[derive(Debug, Clone, Serialize)]
+pub struct RunResourceRecord {
+    pub run_id: i64,
+    pub tenant: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resources_json: Option<String>,
 }
 
 /// One append-only policy-pack change record (issue C2).
@@ -326,6 +343,9 @@ impl Store {
     }
 
     /// Records a run and returns its id.
+    ///
+    /// `resources_json` is the run's resource telemetry (issue #128) as a compact
+    /// JSON object string, or `None` when the platform/run produced none.
     pub fn record_run(
         &self,
         code_hash: &str,
@@ -333,13 +353,14 @@ impl Store {
         rows: i64,
         error: Option<&str>,
         tenant: &str,
+        resources_json: Option<&str>,
     ) -> Result<i64, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
         let created = now_epoch();
         conn.execute(
-            "INSERT INTO runs (code_hash, status, rows, error, created_at, tenant) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![code_hash, status, rows, error, created, tenant],
+            "INSERT INTO runs (code_hash, status, rows, error, created_at, tenant, resources) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![code_hash, status, rows, error, created, tenant, resources_json],
         )
         .map_err(|e| format!("failed to insert run: {e}"))?;
         Ok(conn.last_insert_rowid())
@@ -394,6 +415,39 @@ impl Store {
             .map_err(|e| format!("failed to query run: {e}"))?;
         match rows.next() {
             Some(r) => r.map_err(|e| format!("failed to read run: {e}")).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// Fetches a run's persisted resource telemetry (issue #128), scoped to a tenant.
+    ///
+    /// Returns `Ok(None)` when the run does not exist for the tenant,
+    /// `Ok(Some(RunResourceRecord { resources_json: None, .. }))` when the run exists
+    /// but no telemetry was recorded (legacy or platform without rusage), and
+    /// `Ok(Some(.. resources_json: Some(json)))` when it was.
+    pub fn get_run_resources(
+        &self,
+        id: i64,
+        tenant: &str,
+    ) -> Result<Option<RunResourceRecord>, String> {
+        let guard = self.open()?;
+        let conn = guard.as_ref().expect("open guarantees Some");
+        let mut stmt = conn
+            .prepare("SELECT id, tenant, resources FROM runs WHERE id = ?1 AND tenant = ?2")
+            .map_err(|e| format!("failed to prepare run resources: {e}"))?;
+        let mut rows = stmt
+            .query_map(params![id, tenant], |row| {
+                Ok(RunResourceRecord {
+                    run_id: row.get(0)?,
+                    tenant: row.get(1)?,
+                    resources_json: row.get(2)?,
+                })
+            })
+            .map_err(|e| format!("failed to query run resources: {e}"))?;
+        match rows.next() {
+            Some(r) => r
+                .map_err(|e| format!("failed to read run resources: {e}"))
+                .map(Some),
             None => Ok(None),
         }
     }
@@ -1395,14 +1449,14 @@ mod tests {
         let store = Store::open_at(&db);
 
         let id = store
-            .record_run("hash1", "success", 42, None, "tenant-a")
+            .record_run("hash1", "success", 42, None, "tenant-a", None)
             .expect("insert");
         let id2 = store
-            .record_run("hash2", "failed", 0, Some("boom"), "tenant-a")
+            .record_run("hash2", "failed", 0, Some("boom"), "tenant-a", None)
             .expect("insert");
         // A different tenant's run must not be visible to tenant-a.
         let id_other = store
-            .record_run("hash3", "success", 1, None, "tenant-b")
+            .record_run("hash3", "success", 1, None, "tenant-b", None)
             .expect("insert");
 
         let list = store.list_runs(10, "tenant-a").expect("list");
@@ -1453,6 +1507,60 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open_at(&db);
         assert!(store.get_run(999_999, "").expect("no err").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Resource telemetry is stored per run and scoped to its tenant (issue #128).
+    #[test]
+    fn run_resources_are_persisted_and_tenant_scoped() {
+        let dir = std::env::temp_dir().join(format!(
+            "xazz_store_res_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db = dir.join("xazz.db");
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open_at(&db);
+
+        let json = r#"{"duration_ms":12,"cpu_user_ms":3,"source":"runner-process-tree"}"#;
+        let id = store
+            .record_run("hash", "success", 1, None, "tenant-a", Some(json))
+            .expect("insert");
+        let legacy = store
+            .record_run("hash2", "success", 1, None, "tenant-a", None)
+            .expect("insert");
+
+        let rec = store
+            .get_run_resources(id, "tenant-a")
+            .expect("no err")
+            .expect("exists");
+        assert_eq!(rec.run_id, id);
+        assert_eq!(rec.resources_json.as_deref(), Some(json));
+
+        // A run without telemetry still resolves, but with no payload.
+        let none = store
+            .get_run_resources(legacy, "tenant-a")
+            .expect("no err")
+            .expect("exists");
+        assert!(none.resources_json.is_none());
+
+        // Cross-tenant access and unknown ids are not found.
+        assert!(
+            store
+                .get_run_resources(id, "tenant-b")
+                .expect("no err")
+                .is_none()
+        );
+        assert!(
+            store
+                .get_run_resources(999_999, "tenant-a")
+                .expect("no err")
+                .is_none()
+        );
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 
