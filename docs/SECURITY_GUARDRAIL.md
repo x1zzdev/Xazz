@@ -398,7 +398,11 @@ xazz run <file.xzz>                       # run — auto-blocked on violation
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/security/policy` | Active policy + sLM config |
+| `PUT` / `DELETE` | `/security/policy` | Install / remove the authenticated tenant's policy pack |
 | `POST` | `/security/policy/check` | Inspect only, no execution (200 even on violation) |
+| `GET` | `/security/policy/history` | Tenant policy-pack change history (`?cursor=` / `?limit=`) |
+| `GET` / `PUT` / `DELETE` | `/security/policy/history/ttl` | Effective policy-history retention window (`PUT` sets a tenant override, `DELETE` clears it) |
+| `GET` | `/security/policy/history/ttl/history` | Retention-window override change history |
 | `POST` | `/security/remediate` | Remediated code + violation report |
 | `POST` | `/execute` | Execute — **422** + report on violation |
 

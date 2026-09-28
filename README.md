@@ -322,7 +322,8 @@ python benches/run_readme_benchmark.py --xlarge
 | Pipeline catalog | `POST /catalog` — pipeline catalog + column lineage from the Typed IR (Track C3) | Stable |
 | Python bindings | `xazz.check/run/policy` from Python — same diagnostics as the CLI (Track C4) | Stable |
 | `xazz sde` | Synthetic data generation engine | Stable |
-| `xazz registry` | Browse/install policy packs (`xazz.policy.json`) and stdlib modules (`std/`) — offline; `registry deploy` pushes a pack to a tenant via the server (Track E4/C2) | Stable |
+| `xazz registry` | Browse/install policy packs (`xazz.policy.json`) and stdlib modules (`std/`) — offline; `registry deploy` / `registry undeploy` push/remove a tenant's pack via the server (Track E4/C2) | Stable |
+| `xazz policy-status` / `xazz policy-ttl` | Read a tenant's policy state from a running server (`history`/`ttl`/`ttl-history`) and set/clear its policy-history retention window override (`--json`/`--cursor`/`--actor`) (Track C2) | Stable |
 | `xazz sanitize` | Fine-tuning data sanitization — PII scan, duplicate & bias checks (Track F3) | Stable |
 | Model provenance | Policy registry gate — `hf://` model references, license/unknown-weights blocking (Track F5) | Stable |
 
