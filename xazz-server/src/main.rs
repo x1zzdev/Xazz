@@ -1663,21 +1663,45 @@ struct PolicyHistoryTtlRequest {
     ttl_secs: u64,
 }
 
+/// Resolves the audit actor for a policy-history retention-override change (issue C2).
+///
+/// Mirrors [`policy_change_actor`]/[`dp_reset_actor`]: a delegated admin change is
+/// attributed to the [`Actor`] and must name a target tenant via `X-Xazz-Tenant`;
+/// a self-service change is attributed to the tenant itself.
+fn policy_history_ttl_actor(
+    tenant: &str,
+    actor: Option<&Extension<Actor>>,
+) -> Result<String, (StatusCode, String)> {
+    match actor {
+        Some(_) if tenant.is_empty() => Err((
+            StatusCode::BAD_REQUEST,
+            "admin policy-history TTL change requires X-Xazz-Tenant".to_string(),
+        )),
+        Some(Extension(a)) => Ok(a.0.clone()),
+        None => Ok(tenant.to_string()),
+    }
+}
+
 /// Sets the authenticated tenant's policy-history retention-window override — issue C2.
 ///
-/// Self-service and tenant-scoped: only the caller's override is written; the
-/// global `XAZZ_TENANT_POLICY_HISTORY_TTL_SECS` remains the fallback for tenants
-/// without one. `ttl_secs: 0` stores an explicit "no time-based expiry" override,
-/// which differs from deleting the override (which restores the global default).
+/// Self-service and tenant-scoped by default: only the caller's override is
+/// written; the global `XAZZ_TENANT_POLICY_HISTORY_TTL_SECS` remains the fallback
+/// for tenants without one. An administrator authenticated with `XAZZ_ADMIN_TOKEN`
+/// may target the namespace named by `X-Xazz-Tenant`, and the change is recorded
+/// under `X-Xazz-Actor` (issue C2). `ttl_secs: 0` stores an explicit "no
+/// time-based expiry" override, which differs from deleting the override (which
+/// restores the global default).
 async fn handle_policy_history_ttl_set(
     State(state): State<AppState>,
     Extension(tenant): Extension<String>,
+    actor: Option<Extension<Actor>>,
     Json(payload): Json<PolicyHistoryTtlRequest>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let tenant = tenant_str(tenant.as_str());
+    let changed_by = policy_history_ttl_actor(tenant, actor.as_ref())?;
     state
         .store
-        .set_policy_history_ttl(tenant, payload.ttl_secs, tenant)
+        .set_policy_history_ttl(tenant, payload.ttl_secs, &changed_by)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(json!({
         "tenant": tenant,
@@ -1690,15 +1714,19 @@ async fn handle_policy_history_ttl_set(
 ///
 /// After removal the tenant falls back to the global
 /// `XAZZ_TENANT_POLICY_HISTORY_TTL_SECS` default. Tenant-scoped: other tenants'
-/// overrides are untouched.
+/// overrides are untouched. An administrator authenticated with `XAZZ_ADMIN_TOKEN`
+/// may target the namespace named by `X-Xazz-Tenant`, and the clear is recorded
+/// under `X-Xazz-Actor` (issue C2).
 async fn handle_policy_history_ttl_clear(
     State(state): State<AppState>,
     Extension(tenant): Extension<String>,
+    actor: Option<Extension<Actor>>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let tenant = tenant_str(tenant.as_str());
+    let changed_by = policy_history_ttl_actor(tenant, actor.as_ref())?;
     state
         .store
-        .clear_policy_history_ttl(tenant, tenant)
+        .clear_policy_history_ttl(tenant, &changed_by)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     let ttl = effective_policy_history_ttl(&state.store, tenant)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -3034,6 +3062,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         let body = handle_policy_history_ttl_set(
             State(state.clone()),
             Extension(tenant.clone()),
+            None,
             Json(PolicyHistoryTtlRequest { ttl_secs: 7200 }),
         )
         .await
@@ -3053,7 +3082,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
 
         // DELETE clears it and restores the global default.
         let cleared =
-            handle_policy_history_ttl_clear(State(state.clone()), Extension(tenant.clone()))
+            handle_policy_history_ttl_clear(State(state.clone()), Extension(tenant.clone()), None)
                 .await
                 .expect("clear ttl")
                 .0;
@@ -3128,6 +3157,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         let _ = handle_policy_history_ttl_set(
             State(state.clone()),
             Extension(tenant.clone()),
+            None,
             Json(PolicyHistoryTtlRequest { ttl_secs: 3600 }),
         )
         .await
@@ -3150,6 +3180,67 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(history[0]["old_ttl_secs"], Value::Null);
         assert_eq!(history[0]["new_ttl_secs"], json!(3600));
         assert_eq!(history[0]["changed_by"], json!(tenant));
+    }
+
+    /// An administrator may change another tenant's retention override; the audit
+    /// attributes the change to the actor while the namespace stays the target
+    /// tenant, and an admin request must name the target (issue C2).
+    #[tokio::test]
+    async fn admin_delegated_policy_history_ttl_change_records_actor() {
+        let state = unique_state("admin_hist_ttl");
+        let tenant = format!("hist-ttl-admin-{}", std::process::id());
+
+        // Set as a delegated admin: recorded under the actor, not the tenant.
+        let set = handle_policy_history_ttl_set(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            Some(Extension(Actor("root".to_string()))),
+            Json(PolicyHistoryTtlRequest { ttl_secs: 1800 }),
+        )
+        .await
+        .expect("admin set")
+        .0;
+        assert_eq!(set["tenant"], json!(tenant));
+        assert_eq!(set["ttl_secs"], json!(1800));
+        assert_eq!(set["ttl_source"], json!("tenant"));
+
+        // Clear as a delegated admin: also recorded under the actor.
+        let _ = handle_policy_history_ttl_clear(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            Some(Extension(Actor("root".to_string()))),
+        )
+        .await
+        .expect("admin clear");
+
+        let listed = handle_policy_history_ttl_history(
+            Extension(tenant.clone()),
+            State(state.clone()),
+            Query(PolicyHistoryQuery {
+                limit: None,
+                offset: None,
+            }),
+        )
+        .await
+        .expect("history")
+        .0;
+        let history = listed["history"].as_array().expect("history array");
+        assert_eq!(history.len(), 2, "{listed}");
+        assert_eq!(history[0]["action"], json!("clear"));
+        assert_eq!(history[0]["changed_by"], json!("root"));
+        assert_eq!(history[1]["action"], json!("set"));
+        assert_eq!(history[1]["changed_by"], json!("root"));
+
+        // An admin request must name the target tenant.
+        let no_target = handle_policy_history_ttl_set(
+            State(state.clone()),
+            Extension(String::new()),
+            Some(Extension(Actor("admin".to_string()))),
+            Json(PolicyHistoryTtlRequest { ttl_secs: 60 }),
+        )
+        .await;
+        let (status, _) = no_target.expect_err("admin set without target was accepted");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     /// `GET /security/policy/history` exposes the tenant's effective retention
