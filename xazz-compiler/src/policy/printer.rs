@@ -11,7 +11,7 @@
 
 use crate::ast::{
     BinOpKind, ChartConfig, DpArgs, Expr, FillNullValue, JoinHow, LayerKind, PipelineOp,
-    PipelineSource, Program, Stmt, StructField, SweepSort, TrainConfig,
+    PipelineSource, Program, Stmt, StructField, TrainConfig,
 };
 
 /// Turns a whole `Program` back into a `.xzz` source string.
@@ -363,7 +363,7 @@ fn print_train_args(model_name: &str, config: &TrainConfig) -> String {
     if config.sweep_metric_explicit {
         parts.push(format!("metric: \"{}\"", config.sweep_metric.id()));
     }
-    if config.sweep_sort != SweepSort::default() {
+    if config.sweep_sort_explicit {
         parts.push(format!("sort: \"{}\"", config.sweep_sort.id()));
     }
     if !config.sweep_tiebreak.is_empty() {
@@ -546,6 +546,26 @@ mod tests {
         assert!(
             printed.contains("metric: \"r2\""),
             "metric 누락\n{}",
+            printed
+        );
+    }
+
+    /// Explicitly writing the default `sort: "metric"` survives the round-trip.
+    #[test]
+    fn round_trip_sweep_sort_default_value() {
+        let src = "type AQ = { pm10: Option<float>, pm25: Option<float> };
+             v ds = load(\"data/air.csv\") :: AQ
+               |> cast(\"pm10\", \"float\");
+             model P {
+                 Dense(64) -> ReLU() -> Dense(1)
+             }
+             run ds
+               |> train(P, target: \"pm10\", epochs: [10, 20], lr: [0.01, 0.1], sort: \"metric\");";
+        assert_round_trip(src);
+        let printed = print_program(&parse(src));
+        assert!(
+            printed.contains("sort: \"metric\""),
+            "sort 누락\n{}",
             printed
         );
     }
