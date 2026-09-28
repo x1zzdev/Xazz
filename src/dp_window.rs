@@ -31,6 +31,16 @@ pub fn budget_endpoint(server: &str) -> String {
     format!("{}/dp/budget", base(server))
 }
 
+/// `POST /dp/budget/reset` on `server`.
+pub fn reset_endpoint(server: &str) -> String {
+    format!("{}/dp/budget/reset", base(server))
+}
+
+/// `GET /dp/budget/history` on `server`.
+pub fn reset_history_endpoint(server: &str) -> String {
+    format!("{}/dp/budget/history", base(server))
+}
+
 /// Trims `server` and strips any trailing slash so endpoint joins are stable.
 fn base(server: &str) -> &str {
     server.trim().trim_end_matches('/')
@@ -182,6 +192,75 @@ pub fn budget(server: &str, tenant: &str, token: Option<&str>, json: bool) -> i3
     }
 }
 
+/// `xazz dp reset --tenant T [--server URL] [--token TOK] [--actor A]`
+///
+/// Clears the tenant's accumulated DP spend and re-anchors its budget window
+/// through the server's `POST /dp/budget/reset` endpoint (issue C2). Tenant-scoped
+/// for a self-service reset; an admin actor (`--actor`) may target the namespace
+/// named by `--tenant` and is recorded in the reset audit log (issue #124). The
+/// response carries the post-reset budget view plus `reset_by`/`reset_at` and the
+/// spend captured before the reset; with `--json` the body is echoed verbatim.
+pub fn reset(
+    server: &str,
+    tenant: &str,
+    token: Option<&str>,
+    actor: Option<&str>,
+    json: bool,
+) -> i32 {
+    let (tenant, token) = match prepare(server, tenant, token, "dp reset") {
+        Ok(parts) => parts,
+        Err(code) => return code,
+    };
+    let endpoint = reset_endpoint(server);
+    let headers = auth_headers(&token, tenant, actor);
+
+    match http::post_json(&endpoint, &headers) {
+        Ok(resp) if (200..300).contains(&resp.status) => {
+            if json {
+                println!("{}", resp.body.trim());
+            } else {
+                print_reset(tenant, &endpoint, &resp.body);
+            }
+            0
+        }
+        Ok(resp) => report_status_error("dp reset", resp.status, tenant, &resp.body),
+        Err(e) => {
+            eprintln!("[xazz] dp reset: failed — {e}");
+            1
+        }
+    }
+}
+
+/// `xazz dp reset-history --tenant T [--server URL] [--token TOK] [--json]`
+///
+/// Reads the tenant's append-only DP budget reset log through the server's
+/// `GET /dp/budget/history` endpoint (issue #124). With `--json` the server body
+/// is echoed verbatim; otherwise a short human summary is printed.
+pub fn reset_history(server: &str, tenant: &str, token: Option<&str>, json: bool) -> i32 {
+    let (tenant, token) = match prepare(server, tenant, token, "dp reset-history") {
+        Ok(parts) => parts,
+        Err(code) => return code,
+    };
+    let endpoint = reset_history_endpoint(server);
+    let headers = auth_headers(&token, tenant, None);
+
+    match http::get_json(&endpoint, &headers) {
+        Ok(resp) if (200..300).contains(&resp.status) => {
+            if json {
+                println!("{}", resp.body.trim());
+            } else {
+                print_reset_history(&resp.body);
+            }
+            0
+        }
+        Ok(resp) => report_status_error("dp reset-history", resp.status, tenant, &resp.body),
+        Err(e) => {
+            eprintln!("[xazz] dp reset-history: failed — {e}");
+            1
+        }
+    }
+}
+
 /// Validates the shared arguments and returns the trimmed `(tenant, token)`.
 ///
 /// `label` names the command in error output (e.g. `dp window set`, `dp budget`).
@@ -311,6 +390,64 @@ fn print_budget(body: &str) {
     }
 }
 
+/// Prints a short human summary of a `POST /dp/budget/reset` response body.
+fn print_reset(tenant: &str, endpoint: &str, body: &str) {
+    println!("✔ reset DP budget for tenant '{tenant}'");
+    println!("  server: {endpoint}");
+    let Ok(value) = serde_json::from_str::<Value>(body) else {
+        // A non-JSON body is unexpected, but echo it rather than swallow it.
+        println!("{}", body.trim());
+        return;
+    };
+
+    let field = |key: &str| value.get(key).cloned().unwrap_or(Value::Null);
+    println!("  reset_by     : {}", field("reset_by"));
+    println!("  reset_at     : {}", field("reset_at"));
+    println!(
+        "  spent_before : epsilon {} / delta {}",
+        field("spent_epsilon_before"),
+        field("spent_delta_before"),
+    );
+    println!(
+        "  remaining    : epsilon {} / delta {}",
+        field("remaining_epsilon"),
+        field("remaining_delta"),
+    );
+    println!(
+        "  window       : {} secs ({})",
+        field("window_secs"),
+        field("window_source"),
+    );
+}
+
+/// Prints a short human summary of a `GET /dp/budget/history` response body.
+fn print_reset_history(body: &str) {
+    let Ok(value) = serde_json::from_str::<Value>(body) else {
+        // A non-JSON body is unexpected, but echo it rather than swallow it.
+        println!("{}", body.trim());
+        return;
+    };
+
+    let field = |key: &str| value.get(key).cloned().unwrap_or(Value::Null);
+    println!("tenant : {}", field("tenant"));
+    println!("─────────────────────────────────────────────");
+    for record in value
+        .get("resets")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        println!(
+            "#{} by {} — ε {} / δ {} at {}",
+            record.get("id").unwrap_or(&Value::Null),
+            record.get("actor").unwrap_or(&Value::Null),
+            record.get("spent_epsilon_before").unwrap_or(&Value::Null),
+            record.get("spent_delta_before").unwrap_or(&Value::Null),
+            record.get("reset_at").unwrap_or(&Value::Null),
+        );
+    }
+}
+
 /// Reports a non-2xx response, echoing the server body when present.
 fn report_status_error(label: &str, status: u16, tenant: &str, body: &str) -> i32 {
     eprintln!("[xazz] {label}: server returned HTTP {status} for tenant '{tenant}'");
@@ -340,6 +477,14 @@ mod tests {
             "http://host/dp/budget/window/history"
         );
         assert_eq!(budget_endpoint("http://host/"), "http://host/dp/budget");
+        assert_eq!(
+            reset_endpoint("http://host/"),
+            "http://host/dp/budget/reset"
+        );
+        assert_eq!(
+            reset_history_endpoint("http://host/"),
+            "http://host/dp/budget/history"
+        );
     }
 
     #[test]
@@ -514,6 +659,53 @@ mod tests {
     }
 
     #[test]
+    fn reset_posts_tenant_endpoint_with_actor() {
+        let (server, rx) = spawn_server(
+            "HTTP/1.1 200 OK",
+            r#"{"tenant":"acme","spent_epsilon":0.0,"remaining_epsilon":10.0,"window_secs":3600,"window_source":"tenant","reset_by":"admin","reset_at":42,"spent_epsilon_before":3.0,"spent_delta_before":1e-5}"#,
+        );
+        let code = reset(&server, "acme", Some("secret"), Some("admin"), false);
+        assert_eq!(code, 0);
+
+        let request = rx.recv().expect("captured request");
+        assert!(
+            request.starts_with("POST /dp/budget/reset HTTP/1.1\r\n"),
+            "{request}"
+        );
+        assert!(request.contains("X-Xazz-Tenant: acme\r\n"), "{request}");
+        assert!(
+            request.contains("Authorization: Bearer secret\r\n"),
+            "{request}"
+        );
+        assert!(request.contains("X-Xazz-Actor: admin\r\n"), "{request}");
+    }
+
+    #[test]
+    fn reset_history_gets_tenant_endpoint_without_actor() {
+        let (server, rx) = spawn_server(
+            "HTTP/1.1 200 OK",
+            r#"{"tenant":"acme","resets":[{"id":2,"tenant":"acme","actor":"root","spent_epsilon_before":1.0,"spent_delta_before":0.0,"reset_at":43}]}"#,
+        );
+        let code = reset_history(&server, "acme", Some("secret"), false);
+        assert_eq!(code, 0);
+
+        let request = rx.recv().expect("captured request");
+        assert!(
+            request.starts_with("GET /dp/budget/history HTTP/1.1\r\n"),
+            "{request}"
+        );
+        assert!(request.contains("X-Xazz-Tenant: acme\r\n"), "{request}");
+        assert!(
+            request.contains("Authorization: Bearer secret\r\n"),
+            "{request}"
+        );
+        assert!(
+            !request.contains("X-Xazz-Actor"),
+            "reset-history is read-only and must not send an actor: {request}"
+        );
+    }
+
+    #[test]
     fn reports_server_error_status() {
         let (server, _rx) = spawn_server("HTTP/1.1 400 Bad Request", r#"{"error":"bad"}"#);
         assert_eq!(set(&server, "acme", 1, Some("secret"), None), 1);
@@ -529,6 +721,13 @@ mod tests {
 
         let (server, _rx) = spawn_server("HTTP/1.1 403 Forbidden", r#"{"error":"denied"}"#);
         assert_eq!(budget(&server, "acme", Some("secret"), true), 1);
+
+        let (server, _rx) = spawn_server("HTTP/1.1 400 Bad Request", r#"{"error":"bad"}"#);
+        assert_eq!(reset(&server, "acme", Some("secret"), None, true), 1);
+
+        let (server, _rx) =
+            spawn_server("HTTP/1.1 500 Internal Server Error", r#"{"error":"boom"}"#);
+        assert_eq!(reset_history(&server, "acme", Some("secret"), true), 1);
     }
 
     #[test]
@@ -550,6 +749,16 @@ mod tests {
         );
         assert_eq!(
             budget("  ", "acme", Some("secret"), false),
+            1,
+            "empty server must fail locally"
+        );
+        assert_eq!(
+            reset("  ", "acme", Some("secret"), None, false),
+            1,
+            "empty server must fail locally"
+        );
+        assert_eq!(
+            reset_history("  ", "acme", Some("secret"), false),
             1,
             "empty server must fail locally"
         );
@@ -577,6 +786,16 @@ mod tests {
             1,
             "missing token must fail locally"
         );
+        assert_eq!(
+            reset("http://127.0.0.1:1", "acme", None, None, false),
+            1,
+            "missing token must fail locally"
+        );
+        assert_eq!(
+            reset_history("http://127.0.0.1:1", "acme", None, false),
+            1,
+            "missing token must fail locally"
+        );
     }
 
     #[test]
@@ -595,5 +814,11 @@ mod tests {
     #[test]
     fn budget_summary_falls_back_to_raw_body_when_not_json() {
         print_budget("not-json");
+    }
+
+    #[test]
+    fn reset_and_history_summaries_fall_back_to_raw_body_when_not_json() {
+        print_reset("acme", "http://h/dp/budget/reset", "not-json");
+        print_reset_history("not-json");
     }
 }

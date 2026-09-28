@@ -9,6 +9,20 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — `xazz dp reset` / `xazz dp reset-history` 테넌트 DP 예산 리셋 CLI (issue C2)
+
+- **`xazz dp reset --tenant T`** — 실행 중인 서버의 `POST /dp/budget/reset`으로 테넌트의
+  누적 DP 소비(`spent_*`)를 초기화하고 예산 윈도를 재기준한다. 관리자 대리 `--actor`는
+  리셋 감사 로그에 기록되고(issue #124), 응답의 `reset_by`/`reset_at`·리셋 전 소비량을
+  요약으로 보여준다. `--json`은 서버 본문을 그대로 출력한다
+- **`xazz dp reset-history --tenant T`** — `GET /dp/budget/history`의 append-only 리셋
+  이력을 조회한다(`--json`은 본문 그대로). 테넌트 스코프(`X-Xazz-Tenant`)이며 읽기
+  전용이라 `--actor`를 보내지 않는다. 토큰은 `--token` → `XAZZ_ADMIN_TOKEN` →
+  `XAZZ_SERVER_TOKEN` 순으로 해석한다
+- **`src/http.rs`** — body 없는 `POST`용 `post_json` 추가
+- 검증: 가짜 서버 E2E(reset POST 경로·actor, reset-history GET 경로·actor 미전송), 오류
+  상태, 로컬 검증, endpoint/비JSON 폴백 단위 테스트 (xazz 61 tests)
+
 ### Added — `xazz dp budget` 테넌트 DP 예산 상태 조회 CLI (issue C2)
 
 - **`xazz dp budget --tenant T`** — 실행 중인 서버의 `GET /dp/budget`으로 테넌트의

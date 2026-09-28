@@ -99,8 +99,17 @@ pub fn delete_json(url: &str, headers: &[(&str, String)]) -> Result<Response, St
     request("DELETE", url, headers, None)
 }
 
-/// Sends a single HTTP/1.1 request (`GET`/`DELETE` without a body, `PUT` with
-/// one) and parses the response. TLS is out of scope — see the module docs.
+/// Sends `POST <url>` with no body and the given extra headers, returning the
+/// response.
+///
+/// Used by `xazz dp reset` to clear a tenant's DP ledger
+/// (`POST /dp/budget/reset`, issue C2).
+pub fn post_json(url: &str, headers: &[(&str, String)]) -> Result<Response, String> {
+    request("POST", url, headers, None)
+}
+
+/// Sends a single HTTP/1.1 request (`GET`/`DELETE`/`POST` without a body, `PUT`
+/// with one) and parses the response. TLS is out of scope — see the module docs.
 fn request(
     method: &str,
     url: &str,

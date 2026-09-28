@@ -233,9 +233,11 @@ pub enum Commands {
     /// `clear` removes it (`DELETE /dp/budget/window`) so the tenant falls back to
     /// the global `XAZZ_TENANT_DP_WINDOW_SECS` default; `history` reads the
     /// append-only change log (`GET /dp/budget/window/history`). `xazz dp budget`
-    /// reads the tenant's current spend/remaining envelope (`GET /dp/budget`). All
-    /// are tenant-scoped (sent as X-Xazz-Tenant); the mutating window commands
-    /// accept an admin `--actor` for a delegated change.
+    /// reads the tenant's current spend/remaining envelope (`GET /dp/budget`).
+    /// `xazz dp reset` clears the tenant's ledger (`POST /dp/budget/reset`, admin
+    /// `--actor` for a delegated reset) and `xazz dp reset-history` reads the
+    /// append-only reset log (`GET /dp/budget/history`). All are tenant-scoped
+    /// (sent as X-Xazz-Tenant).
     ///
     /// Example: xazz dp window set --window-secs 86400 --tenant acme --token $TOKEN
     ///
@@ -244,6 +246,10 @@ pub enum Commands {
     /// Example: xazz dp window history --tenant acme --cursor 42 --limit 10 --json
     ///
     /// Example: xazz dp budget --tenant acme --token $TOKEN
+    ///
+    /// Example: xazz dp reset --tenant acme --token $TOKEN
+    ///
+    /// Example: xazz dp reset-history --tenant acme --json
     Dp {
         #[command(subcommand)]
         action: DpAction,
@@ -320,6 +326,53 @@ pub enum DpAction {
     /// Example: xazz dp budget --tenant acme --token $TOKEN
     /// Example: xazz dp budget --tenant acme --json
     Budget {
+        /// Xazz server base URL
+        #[arg(long, default_value = "http://127.0.0.1:8005")]
+        server: String,
+
+        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        #[arg(long)]
+        tenant: String,
+
+        /// Bearer token — defaults to XAZZ_ADMIN_TOKEN, then XAZZ_SERVER_TOKEN
+        #[arg(long)]
+        token: Option<String>,
+
+        /// Print the server's JSON body verbatim instead of a human summary
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Clear the tenant's accumulated DP spend and re-anchor its budget window
+    ///
+    /// Example: xazz dp reset --tenant acme --token $TOKEN
+    /// Example: xazz dp reset --tenant acme --actor admin --token $TOKEN
+    Reset {
+        /// Xazz server base URL
+        #[arg(long, default_value = "http://127.0.0.1:8005")]
+        server: String,
+
+        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        #[arg(long)]
+        tenant: String,
+
+        /// Bearer token — defaults to XAZZ_ADMIN_TOKEN, then XAZZ_SERVER_TOKEN
+        #[arg(long)]
+        token: Option<String>,
+
+        /// Audit actor for an admin-delegated reset (sent as X-Xazz-Actor)
+        #[arg(long)]
+        actor: Option<String>,
+
+        /// Print the server's JSON body verbatim instead of a human summary
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Read the tenant's append-only DP budget reset history
+    ///
+    /// Example: xazz dp reset-history --tenant acme --json
+    ResetHistory {
         /// Xazz server base URL
         #[arg(long, default_value = "http://127.0.0.1:8005")]
         server: String,

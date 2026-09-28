@@ -548,6 +548,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     token,
                     json,
                 } => dp_window::budget(&server, &tenant, token.as_deref(), json),
+                cli::DpAction::Reset {
+                    server,
+                    tenant,
+                    token,
+                    actor,
+                    json,
+                } => dp_window::reset(&server, &tenant, token.as_deref(), actor.as_deref(), json),
+                cli::DpAction::ResetHistory {
+                    server,
+                    tenant,
+                    token,
+                    json,
+                } => dp_window::reset_history(&server, &tenant, token.as_deref(), json),
             };
             if code != 0 {
                 std::process::exit(code);

@@ -324,7 +324,7 @@ python benches/run_readme_benchmark.py --xlarge
 | `xazz sde` | Synthetic data generation engine | Stable |
 | `xazz registry` | Browse/install policy packs (`xazz.policy.json`) and stdlib modules (`std/`) — offline; `registry deploy` / `registry undeploy` push/remove a tenant's pack via the server (Track E4/C2) | Stable |
 | `xazz policy-status` / `xazz policy-ttl` | Read a tenant's policy state from a running server (`history`/`ttl`/`ttl-history`) and set/clear its policy-history retention window override (`--json`/`--cursor`/`--actor`) (Track C2) | Stable |
-| `xazz dp window` / `xazz dp budget` | Read or change a tenant's DP budget window override on a running server — `window set`/`clear`/`history` (`--window-secs`/`--json`/`--cursor`/`--actor`) and read the current spend/remaining envelope (`dp budget`) (Track C2) | Stable |
+| `xazz dp window` / `xazz dp budget` / `xazz dp reset` | Read or change a tenant's DP budget on a running server — `window set`/`clear`/`history` (`--window-secs`/`--json`/`--cursor`/`--actor`), read the current spend/remaining envelope (`dp budget`), and clear the ledger + audit the actor (`dp reset`/`dp reset-history`) (Track C2) | Stable |
 | `xazz sanitize` | Fine-tuning data sanitization — PII scan, duplicate & bias checks (Track F3) | Stable |
 | Model provenance | Policy registry gate — `hf://` model references, license/unknown-weights blocking (Track F5) | Stable |
 
