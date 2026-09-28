@@ -918,12 +918,16 @@ impl Store {
     /// History is tenant-scoped like the overrides themselves, so one tenant's
     /// change trail is never visible to another. The rows are append-only up to
     /// the retention cap (see [`resolve_policy_history_max`]) and survive
-    /// override replacement/removal. `limit`/`offset` page the newest-first list.
+    /// override replacement/removal. `limit`/`offset` page the newest-first list;
+    /// when `before` is set the page is selected by id cursor (`id < before`)
+    /// instead, which avoids the deep-`OFFSET` scan and stays stable if rows are
+    /// pruned between pages.
     pub fn list_policy_history_ttl_history(
         &self,
         tenant: &str,
         limit: usize,
         offset: usize,
+        before: Option<i64>,
     ) -> Result<Vec<PolicyHistoryTtlChangeRecord>, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
@@ -931,22 +935,25 @@ impl Store {
             .prepare(
                 "SELECT id, tenant, action, old_ttl_secs, new_ttl_secs, changed_by, changed_at
                  FROM tenant_policy_history_config_history
-                 WHERE tenant = ?1
+                 WHERE tenant = ?1 AND (?4 IS NULL OR id < ?4)
                  ORDER BY id DESC LIMIT ?2 OFFSET ?3",
             )
             .map_err(|e| format!("failed to prepare policy history ttl history: {e}"))?;
         let rows = stmt
-            .query_map(params![tenant, limit as i64, offset as i64], |row| {
-                Ok(PolicyHistoryTtlChangeRecord {
-                    id: row.get(0)?,
-                    tenant: row.get(1)?,
-                    action: row.get(2)?,
-                    old_ttl_secs: row.get::<_, Option<i64>>(3)?.map(|v| v.max(0) as u64),
-                    new_ttl_secs: row.get::<_, Option<i64>>(4)?.map(|v| v.max(0) as u64),
-                    changed_by: row.get(5)?,
-                    changed_at: row.get(6)?,
-                })
-            })
+            .query_map(
+                params![tenant, limit as i64, offset as i64, before],
+                |row| {
+                    Ok(PolicyHistoryTtlChangeRecord {
+                        id: row.get(0)?,
+                        tenant: row.get(1)?,
+                        action: row.get(2)?,
+                        old_ttl_secs: row.get::<_, Option<i64>>(3)?.map(|v| v.max(0) as u64),
+                        new_ttl_secs: row.get::<_, Option<i64>>(4)?.map(|v| v.max(0) as u64),
+                        changed_by: row.get(5)?,
+                        changed_at: row.get(6)?,
+                    })
+                },
+            )
             .map_err(|e| format!("failed to query policy history ttl history: {e}"))?;
         let mut out = Vec::new();
         for r in rows {
@@ -1072,12 +1079,15 @@ impl Store {
     /// (see [`resolve_policy_history_ttl`]) — and survive pack
     /// replacement/deletion. `limit`/`offset` page the newest-first list; rows
     /// older than the retention window are filtered out even if a write has not
-    /// pruned them yet.
+    /// pruned them yet. When `before` is set the page is selected by id cursor
+    /// (`id < before`) instead, which avoids the deep-`OFFSET` scan and stays
+    /// stable when pruning removes older rows between pages.
     pub fn list_policy_history(
         &self,
         tenant: &str,
         limit: usize,
         offset: usize,
+        before: Option<i64>,
     ) -> Result<Vec<PolicyChangeRecord>, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
@@ -1087,13 +1097,13 @@ impl Store {
             .prepare(
                 "SELECT id, tenant, action, old_policy_json, new_policy_json, changed_by, changed_at
                  FROM tenant_policy_history
-                 WHERE tenant = ?1 AND changed_at >= ?2
+                 WHERE tenant = ?1 AND changed_at >= ?2 AND (?5 IS NULL OR id < ?5)
                  ORDER BY id DESC LIMIT ?3 OFFSET ?4",
             )
             .map_err(|e| format!("failed to prepare policy history: {e}"))?;
         let rows = stmt
             .query_map(
-                params![tenant, cutoff, limit as i64, offset as i64],
+                params![tenant, cutoff, limit as i64, offset as i64, before],
                 |row| {
                     Ok(PolicyChangeRecord {
                         id: row.get(0)?,
@@ -1676,7 +1686,9 @@ mod tests {
         assert!(!store.delete_tenant_policy("a", "a").expect("delete again"));
 
         // The change history is append-only and tenant-scoped: set, replace, delete.
-        let hist_a = store.list_policy_history("a", 10, 0).expect("history a");
+        let hist_a = store
+            .list_policy_history("a", 10, 0, None)
+            .expect("history a");
         let actions: Vec<&str> = hist_a.iter().map(|h| h.action.as_str()).collect();
         assert_eq!(actions, vec!["delete", "set", "set"], "{hist_a:?}");
         assert_eq!(hist_a[0].changed_by, "a");
@@ -1687,7 +1699,9 @@ mod tests {
         assert!(hist_a[0].new_policy_json.is_none());
         assert!(hist_a[1].old_policy_json.is_some());
         // tenant-b's history is separate and untouched by a's deletes.
-        let hist_b = store.list_policy_history("b", 10, 0).expect("history b");
+        let hist_b = store
+            .list_policy_history("b", 10, 0, None)
+            .expect("history b");
         assert_eq!(hist_b.len(), 1);
         assert_eq!(hist_b[0].action, "set");
 
@@ -1834,14 +1848,14 @@ mod tests {
 
         assert_eq!(
             store
-                .list_policy_history("a", 100, 0)
+                .list_policy_history("a", 100, 0, None)
                 .expect("history a")
                 .len(),
             2
         );
         assert_eq!(
             store
-                .list_policy_history_ttl_history("b", 100, 0)
+                .list_policy_history_ttl_history("b", 100, 0, None)
                 .expect("history b")
                 .len(),
             2,
@@ -1882,7 +1896,9 @@ mod tests {
             .set_tenant_policy("b", r#"{"id":"b-1"}"#, "b")
             .expect("set b");
 
-        let hist_a = store.list_policy_history("a", 100, 0).expect("history a");
+        let hist_a = store
+            .list_policy_history("a", 100, 0, None)
+            .expect("history a");
         assert_eq!(hist_a.len(), 3, "cap keeps the newest 3");
         // Newest-first: a-5, a-4, a-3 (a-1/a-2 pruned).
         assert_eq!(
@@ -1894,7 +1910,9 @@ mod tests {
             Some(r#"{"id":"a-3"}"#)
         );
 
-        let hist_b = store.list_policy_history("b", 100, 0).expect("history b");
+        let hist_b = store
+            .list_policy_history("b", 100, 0, None)
+            .expect("history b");
         assert_eq!(hist_b.len(), 1, "pruning is tenant-scoped");
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -1928,7 +1946,9 @@ mod tests {
         }
 
         // Expired rows are hidden even before a write prunes them.
-        let hist_a = store.list_policy_history("a", 100, 0).expect("history a");
+        let hist_a = store
+            .list_policy_history("a", 100, 0, None)
+            .expect("history a");
         assert_eq!(hist_a.len(), 1, "only the fresh change is served");
         assert_eq!(
             hist_a[0].new_policy_json.as_deref(),
@@ -1953,7 +1973,7 @@ mod tests {
         // b's older-than-window risk does not apply; its single row is fresh.
         assert_eq!(
             store
-                .list_policy_history("b", 100, 0)
+                .list_policy_history("b", 100, 0, None)
                 .expect("history b")
                 .len(),
             1
@@ -2004,7 +2024,7 @@ mod tests {
 
         assert!(
             store
-                .list_policy_history_ttl_history("a", 100, 0)
+                .list_policy_history_ttl_history("a", 100, 0, None)
                 .expect("empty")
                 .is_empty()
         );
@@ -2016,7 +2036,7 @@ mod tests {
         store.set_policy_history_ttl("b", 60, "b").expect("set b");
 
         let hist = store
-            .list_policy_history_ttl_history("a", 100, 0)
+            .list_policy_history_ttl_history("a", 100, 0, None)
             .expect("history a");
         assert_eq!(hist.len(), 2, "newest-first set records");
         assert_eq!(hist[0].action, "set");
@@ -2033,7 +2053,7 @@ mod tests {
 
         assert!(store.clear_policy_history_ttl("a", "a").expect("clear a"));
         let hist = store
-            .list_policy_history_ttl_history("a", 100, 0)
+            .list_policy_history_ttl_history("a", 100, 0, None)
             .expect("history a after clear");
         assert_eq!(hist.len(), 3);
         assert_eq!(hist[0].action, "clear");
@@ -2048,7 +2068,7 @@ mod tests {
         );
         assert_eq!(
             store
-                .list_policy_history_ttl_history("a", 100, 0)
+                .list_policy_history_ttl_history("a", 100, 0, None)
                 .expect("history a after no-op")
                 .len(),
             3
@@ -2057,7 +2077,7 @@ mod tests {
         // History is tenant-scoped.
         assert_eq!(
             store
-                .list_policy_history_ttl_history("b", 100, 0)
+                .list_policy_history_ttl_history("b", 100, 0, None)
                 .expect("history b")
                 .len(),
             1
@@ -2087,14 +2107,14 @@ mod tests {
         }
 
         let hist = store
-            .list_policy_history_ttl_history("a", 100, 0)
+            .list_policy_history_ttl_history("a", 100, 0, None)
             .expect("history a");
         assert_eq!(hist.len(), 2, "cap keeps the newest 2");
         assert_eq!(hist[0].new_ttl_secs, Some(4));
         assert_eq!(hist[1].new_ttl_secs, Some(3));
 
         let page = store
-            .list_policy_history_ttl_history("a", 1, 1)
+            .list_policy_history_ttl_history("a", 1, 1, None)
             .expect("page");
         assert_eq!(page.len(), 1);
         assert_eq!(page[0].new_ttl_secs, Some(3));
@@ -2135,7 +2155,9 @@ mod tests {
         }
 
         // a's override hides the aged rows; b's disabled global window keeps them.
-        let hist_a = store.list_policy_history("a", 100, 0).expect("history a");
+        let hist_a = store
+            .list_policy_history("a", 100, 0, None)
+            .expect("history a");
         assert_eq!(hist_a.len(), 1, "a's override expires aged rows");
         assert_eq!(
             hist_a[0].new_policy_json.as_deref(),
@@ -2143,7 +2165,7 @@ mod tests {
         );
         assert_eq!(
             store
-                .list_policy_history("b", 100, 0)
+                .list_policy_history("b", 100, 0, None)
                 .expect("history b")
                 .len(),
             1,
@@ -2192,7 +2214,7 @@ mod tests {
 
         let page = |offset| {
             store
-                .list_policy_history("a", 2, offset)
+                .list_policy_history("a", 2, offset, None)
                 .expect("history page")
         };
         let ids = |rows: &[PolicyChangeRecord]| -> Vec<String> {
@@ -2205,6 +2227,55 @@ mod tests {
         assert_eq!(ids(&page(2)), vec![r#"{"id":"a-3"}"#, r#"{"id":"a-2"}"#]);
         assert_eq!(ids(&page(4)), vec![r#"{"id":"a-1"}"#]);
         assert!(page(6).is_empty(), "offset past the end is empty");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// History can be paged by id cursor (`id < before`) instead of `OFFSET`,
+    /// so pages stay correct when older rows are pruned between calls (issue C2).
+    #[test]
+    fn policy_history_paginates_by_id_cursor() {
+        let dir = std::env::temp_dir().join(format!(
+            "xazz_store_hist_cursor_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db = dir.join("xazz.db");
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open_at(&db);
+
+        for i in 1..=5 {
+            store
+                .set_tenant_policy("a", &format!(r#"{{"id":"a-{i}"}}"#), "a")
+                .expect("set a");
+        }
+
+        let page = |limit: usize, before: Option<i64>| {
+            store
+                .list_policy_history("a", limit, 0, before)
+                .expect("history page")
+        };
+        let ids = |rows: &[PolicyChangeRecord]| -> Vec<String> {
+            rows.iter()
+                .map(|r| r.new_policy_json.clone().unwrap_or_default())
+                .collect()
+        };
+
+        let first = page(2, None);
+        assert_eq!(ids(&first), vec![r#"{"id":"a-5"}"#, r#"{"id":"a-4"}"#]);
+        let cursor = first.last().expect("first page non-empty").id;
+
+        let second = page(2, Some(cursor));
+        assert_eq!(ids(&second), vec![r#"{"id":"a-3"}"#, r#"{"id":"a-2"}"#]);
+        let cursor = second.last().expect("second page non-empty").id;
+
+        assert_eq!(ids(&page(2, Some(cursor))), vec![r#"{"id":"a-1"}"#]);
+
+        // A cursor at or below the oldest id yields an empty page.
+        assert!(page(2, Some(0)).is_empty());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

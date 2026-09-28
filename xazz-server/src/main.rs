@@ -69,8 +69,12 @@ const POLICY_HISTORY_MAX_LIMIT: usize = 500;
 struct PolicyHistoryQuery {
     /// Page size; defaults to [`POLICY_HISTORY_LIMIT`], clamped to `1..=POLICY_HISTORY_MAX_LIMIT`.
     limit: Option<usize>,
-    /// Rows to skip in the newest-first list; defaults to 0.
+    /// Rows to skip in the newest-first list; defaults to 0. Ignored when
+    /// `cursor` is set.
     offset: Option<usize>,
+    /// Id cursor from a previous page (`next_cursor`); returns rows strictly
+    /// older (`id < cursor`). Preferred over `offset` for large histories.
+    cursor: Option<i64>,
 }
 
 impl PolicyHistoryQuery {
@@ -82,6 +86,12 @@ impl PolicyHistoryQuery {
 
     fn offset(&self) -> usize {
         self.offset.unwrap_or(0)
+    }
+
+    /// The id cursor, if a positive one was supplied. Non-positive ids are
+    /// treated as absent so a stray `cursor=0` cannot page past every row.
+    fn cursor(&self) -> Option<i64> {
+        self.cursor.filter(|c| *c > 0)
     }
 }
 
@@ -1546,7 +1556,9 @@ async fn handle_policy_delete(
 /// though `tenant_policies` only keeps the latest state (issue C2). Stored packs
 /// are returned as embedded JSON (falling back to a string if a legacy row is not
 /// parseable) rather than escaped text. `?limit=&offset=` page the newest-first
-/// list; the response echoes the effective page plus the tenant's effective
+/// list; `?cursor=<id>` selects the page by id instead (`next_cursor` in the
+/// response feeds the next call), which avoids a deep `OFFSET` scan on large
+/// histories. The response echoes the effective page plus the tenant's effective
 /// retention window (`ttl_secs`/`ttl_source`) so a caller can tell how much of
 /// the history has already expired (issue C2).
 async fn handle_policy_history(
@@ -1556,7 +1568,10 @@ async fn handle_policy_history(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant = tenant_str(tenant.as_str());
     let limit = page.limit();
-    let offset = page.offset();
+    let cursor = page.cursor();
+    // A cursor supersedes offset: the two are not combined so a cursor always
+    // starts a fresh window at the requested id.
+    let offset = if cursor.is_some() { 0 } else { page.offset() };
     let ttl = effective_policy_history_ttl(&state.store, tenant).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1565,13 +1580,14 @@ async fn handle_policy_history(
     })?;
     let records = state
         .store
-        .list_policy_history(tenant, limit, offset)
+        .list_policy_history(tenant, limit, offset, cursor)
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": e })),
             )
         })?;
+    let next_cursor = records.last().map(|r| r.id);
     let history: Vec<Value> = records
         .into_iter()
         .map(|r| {
@@ -1590,6 +1606,8 @@ async fn handle_policy_history(
         "tenant": tenant,
         "limit": limit,
         "offset": offset,
+        "cursor": cursor,
+        "next_cursor": next_cursor,
         "ttl_secs": ttl.secs,
         "ttl_source": ttl.source,
         "history": history,
@@ -1744,7 +1762,8 @@ async fn handle_policy_history_ttl_clear(
 /// (in seconds), who changed it, and when — so a change to the tenant's
 /// policy-history retention window is auditable even though
 /// `tenant_policy_history_config` only keeps the latest state. `?limit=&offset=`
-/// page the newest-first list.
+/// page the newest-first list; `?cursor=<id>` selects the page by id instead
+/// (`next_cursor` feeds the next call).
 async fn handle_policy_history_ttl_history(
     Extension(tenant): Extension<String>,
     State(state): State<AppState>,
@@ -1752,16 +1771,18 @@ async fn handle_policy_history_ttl_history(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant = tenant_str(tenant.as_str());
     let limit = page.limit();
-    let offset = page.offset();
+    let cursor = page.cursor();
+    let offset = if cursor.is_some() { 0 } else { page.offset() };
     let records = state
         .store
-        .list_policy_history_ttl_history(tenant, limit, offset)
+        .list_policy_history_ttl_history(tenant, limit, offset, cursor)
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": e })),
             )
         })?;
+    let next_cursor = records.last().map(|r| r.id);
     let history: Vec<Value> = records
         .into_iter()
         .map(|r| {
@@ -1780,6 +1801,8 @@ async fn handle_policy_history_ttl_history(
         "tenant": tenant,
         "limit": limit,
         "offset": offset,
+        "cursor": cursor,
+        "next_cursor": next_cursor,
         "history": history,
     })))
 }
@@ -3146,6 +3169,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             Query(PolicyHistoryQuery {
                 limit: None,
                 offset: None,
+                cursor: None,
             }),
         )
         .await
@@ -3169,6 +3193,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             Query(PolicyHistoryQuery {
                 limit: None,
                 offset: None,
+                cursor: None,
             }),
         )
         .await
@@ -3219,6 +3244,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             Query(PolicyHistoryQuery {
                 limit: None,
                 offset: None,
+                cursor: None,
             }),
         )
         .await
@@ -3258,6 +3284,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             Query(PolicyHistoryQuery {
                 limit: None,
                 offset: None,
+                cursor: None,
             }),
         )
         .await
@@ -3280,6 +3307,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             Query(PolicyHistoryQuery {
                 limit: None,
                 offset: None,
+                cursor: None,
             }),
         )
         .await
@@ -3431,6 +3459,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             Query(PolicyHistoryQuery {
                 limit: None,
                 offset: None,
+                cursor: None,
             }),
         )
         .await
@@ -3518,6 +3547,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             Query(PolicyHistoryQuery {
                 limit: None,
                 offset: None,
+                cursor: None,
             }),
         )
         .await
@@ -3545,6 +3575,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             Query(PolicyHistoryQuery {
                 limit: None,
                 offset: None,
+                cursor: None,
             }),
         )
         .await
@@ -3579,6 +3610,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
                     Query(PolicyHistoryQuery {
                         limit: Some(limit),
                         offset: Some(offset),
+                        cursor: None,
                     }),
                 )
                 .await
@@ -3608,6 +3640,72 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(second_ids, vec!["v1"]);
     }
 
+    /// `?cursor=` pages the newest-first history by id and echoes `next_cursor`
+    /// for the following call, instead of relying on `OFFSET` (issue C2).
+    #[tokio::test]
+    async fn policy_history_supports_cursor_pagination() {
+        let state = unique_state("hist_cursor");
+        for i in 1..=3 {
+            let mut pack = xazz_compiler::Policy::builtin();
+            pack.id = format!("v{i}");
+            let _ = handle_policy_set(
+                Extension("tenant-a".to_string()),
+                None,
+                State(state.clone()),
+                Json(serde_json::to_value(&pack).unwrap()),
+            )
+            .await
+            .expect("set");
+        }
+
+        let page = |cursor: Option<i64>| {
+            let state = state.clone();
+            async move {
+                handle_policy_history(
+                    Extension("tenant-a".to_string()),
+                    State(state),
+                    Query(PolicyHistoryQuery {
+                        limit: Some(2),
+                        offset: None,
+                        cursor,
+                    }),
+                )
+                .await
+                .expect("history")
+                .0
+            }
+        };
+        let ids = |body: &Value| -> Vec<String> {
+            body["history"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|h| h["new_policy_json"]["id"].as_str().unwrap().to_string())
+                .collect()
+        };
+
+        let first = page(None).await;
+        assert_eq!(ids(&first), vec!["v3", "v2"]);
+        assert_eq!(first["cursor"], Value::Null);
+        let next = first["next_cursor"].as_i64().expect("next_cursor");
+        assert!(next > 0);
+
+        // Using the echoed cursor returns the remainder and no further cursor.
+        let second = page(Some(next)).await;
+        assert_eq!(ids(&second), vec!["v1"]);
+        assert_eq!(second["cursor"], json!(next));
+        let last = second["next_cursor"].as_i64().expect("last next_cursor");
+        assert!(
+            page(Some(last)).await["history"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+
+        // A non-positive cursor is treated as absent (no cursor paging).
+        assert_eq!(page(Some(0)).await["cursor"], Value::Null);
+    }
+
     /// `?limit=` is clamped to a sane page range (issue C2).
     #[test]
     fn policy_history_limit_is_clamped() {
@@ -3615,6 +3713,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             PolicyHistoryQuery {
                 limit,
                 offset: None,
+                cursor: None,
             }
             .limit()
         };
