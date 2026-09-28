@@ -9,6 +9,14 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Changed — 정책 이력 TTL 변경 이력 전용 보존 상한 (issue C2)
+
+- **`XAZZ_TENANT_POLICY_TTL_HISTORY_MAX`** — `tenant_policy_history_config_history`의
+  개수 상한을 정책 이력과 공유하던 `XAZZ_TENANT_POLICY_HISTORY_MAX`에서 분리했다.
+  미설정/무효/`0`은 기본 1000으로 폴백한다. 셋/클리어 prune과 정기 정책 이력 스윕 모두
+  이 전용 상한을 적용한다
+- 검증: resolver 단위 테스트 1종 + cap 독립성 store 테스트 1종(정책 cap 1·TTL 변경 이력 cap 3)
+
 ### Changed — DP window 감사 이력 전용 보존 상한 (issue C2)
 
 - **`XAZZ_TENANT_DP_WINDOW_HISTORY_MAX`** — `tenant_dp_config_history`의 개수 상한을
