@@ -9,6 +9,20 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — `xazz dp window` 테넌트 DP 예산 윈도 CLI (issue C2)
+
+- **`xazz dp window set --window-secs N --tenant T`** — 실행 중인 서버의
+  `PUT /dp/budget/window`로 테넌트별 DP 예산 슬라이딩 윈도 override를 저장한다
+  (`--window-secs 0`은 "누적, 윈도 없음" 명시). **`xazz dp window clear --tenant T`**는
+  `DELETE /dp/budget/window`로 override를 제거해 전역 `XAZZ_TENANT_DP_WINDOW_SECS`로
+  폴백한다. **`xazz dp window history`**는 `GET /dp/budget/window/history`의 append-only
+  변경 이력을 `--cursor`/`--limit`/`--json`으로 조회한다
+- 모든 하위 명령은 테넌트 스코프(`X-Xazz-Tenant`)이며 관리자 대리 `--actor`를 지원한다.
+  토큰은 `--token` → `XAZZ_ADMIN_TOKEN` → `XAZZ_SERVER_TOKEN` 순으로 해석한다
+- **`src/dp_window.rs`** 신규 — std-only `http` 클라이언트로 기존 `policy-ttl` 패턴을 따른다
+- 검증: 가짜 서버 E2E(PUT/DELETE/history 경로·헤더·본문), 오류 상태, 로컬 검증,
+  endpoint/paging 단위 테스트 (xazz 56 tests)
+
 ### Changed — 정책 이력 TTL 변경 이력 전용 보존 상한 (issue C2)
 
 - **`XAZZ_TENANT_POLICY_TTL_HISTORY_MAX`** — `tenant_policy_history_config_history`의

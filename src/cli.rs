@@ -226,6 +226,26 @@ pub enum Commands {
         action: PolicyTtlAction,
     },
 
+    /// Inspect or change a tenant's DP budget window on a running server (issue C2)
+    ///
+    /// `xazz dp window set` stores a per-tenant window override
+    /// (`PUT /dp/budget/window`, `--window-secs 0` means "cumulative, no window");
+    /// `clear` removes it (`DELETE /dp/budget/window`) so the tenant falls back to
+    /// the global `XAZZ_TENANT_DP_WINDOW_SECS` default; `history` reads the
+    /// append-only change log (`GET /dp/budget/window/history`). All are
+    /// tenant-scoped (sent as X-Xazz-Tenant) and accept an admin `--actor` for a
+    /// delegated change.
+    ///
+    /// Example: xazz dp window set --window-secs 86400 --tenant acme --token $TOKEN
+    ///
+    /// Example: xazz dp window clear --tenant acme --token $TOKEN
+    ///
+    /// Example: xazz dp window history --tenant acme --cursor 42 --limit 10 --json
+    Dp {
+        #[command(subcommand)]
+        action: DpAction,
+    },
+
     /// Analyze the xazz user profile and confirm the identity
     ///
     /// Example: xazz whoami
@@ -280,6 +300,95 @@ pub enum PolicyTtlAction {
         /// Audit actor for an admin-delegated change (sent as X-Xazz-Actor)
         #[arg(long)]
         actor: Option<String>,
+    },
+}
+
+/// Subcommands for `xazz dp` (issue C2).
+#[derive(Subcommand, Debug)]
+pub enum DpAction {
+    /// Manage the tenant's DP budget window override
+    Window {
+        #[command(subcommand)]
+        action: DpWindowAction,
+    },
+}
+
+/// DP budget window actions for `xazz dp window` (issue C2).
+#[derive(Subcommand, Debug)]
+pub enum DpWindowAction {
+    /// Store a per-tenant window override (`--window-secs 0` = cumulative)
+    ///
+    /// Example: xazz dp window set --window-secs 86400 --tenant acme --token $TOKEN
+    Set {
+        /// Xazz server base URL
+        #[arg(long, default_value = "http://127.0.0.1:8005")]
+        server: String,
+
+        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        #[arg(long)]
+        tenant: String,
+
+        /// Sliding window in seconds; 0 disables the window (cumulative budget)
+        #[arg(long, value_name = "SECS")]
+        window_secs: u64,
+
+        /// Bearer token — defaults to XAZZ_ADMIN_TOKEN, then XAZZ_SERVER_TOKEN
+        #[arg(long)]
+        token: Option<String>,
+
+        /// Audit actor for an admin-delegated change (sent as X-Xazz-Actor)
+        #[arg(long)]
+        actor: Option<String>,
+    },
+
+    /// Remove the tenant's override so it falls back to the global default
+    ///
+    /// Example: xazz dp window clear --tenant acme --token $TOKEN
+    Clear {
+        /// Xazz server base URL
+        #[arg(long, default_value = "http://127.0.0.1:8005")]
+        server: String,
+
+        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        #[arg(long)]
+        tenant: String,
+
+        /// Bearer token — defaults to XAZZ_ADMIN_TOKEN, then XAZZ_SERVER_TOKEN
+        #[arg(long)]
+        token: Option<String>,
+
+        /// Audit actor for an admin-delegated change (sent as X-Xazz-Actor)
+        #[arg(long)]
+        actor: Option<String>,
+    },
+
+    /// Read the tenant's append-only window override change history
+    ///
+    /// Example: xazz dp window history --tenant acme --cursor 42 --limit 10 --json
+    History {
+        /// Xazz server base URL
+        #[arg(long, default_value = "http://127.0.0.1:8005")]
+        server: String,
+
+        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        #[arg(long)]
+        tenant: String,
+
+        /// Bearer token — defaults to XAZZ_ADMIN_TOKEN, then XAZZ_SERVER_TOKEN
+        #[arg(long)]
+        token: Option<String>,
+
+        /// Id cursor from a previous page (`next_cursor`)
+        #[arg(long)]
+        cursor: Option<i64>,
+
+        /// Page size
+        #[arg(long)]
+        limit: Option<usize>,
+
+        /// Print the server's JSON body verbatim instead of a human summary
+        #[arg(long)]
+        json: bool,
     },
 }
 

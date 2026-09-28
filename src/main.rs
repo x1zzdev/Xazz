@@ -2,6 +2,7 @@
 #![allow(clippy::result_large_err)]
 
 mod cli;
+mod dp_window;
 mod http;
 mod policy_cli;
 mod policy_query;
@@ -501,6 +502,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     token,
                     actor,
                 } => policy_ttl::clear(&server, &tenant, token.as_deref(), actor.as_deref()),
+            };
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        // ── dp window: tenant DP budget window override (issue C2) ───────────────
+        Commands::Dp { action } => {
+            let code = match action {
+                cli::DpAction::Window { action } => match action {
+                    cli::DpWindowAction::Set {
+                        server,
+                        tenant,
+                        window_secs,
+                        token,
+                        actor,
+                    } => dp_window::set(
+                        &server,
+                        &tenant,
+                        window_secs,
+                        token.as_deref(),
+                        actor.as_deref(),
+                    ),
+                    cli::DpWindowAction::Clear {
+                        server,
+                        tenant,
+                        token,
+                        actor,
+                    } => dp_window::clear(&server, &tenant, token.as_deref(), actor.as_deref()),
+                    cli::DpWindowAction::History {
+                        server,
+                        tenant,
+                        token,
+                        cursor,
+                        limit,
+                        json,
+                    } => {
+                        dp_window::history(&server, &tenant, token.as_deref(), cursor, limit, json)
+                    }
+                },
             };
             if code != 0 {
                 std::process::exit(code);
