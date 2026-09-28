@@ -508,7 +508,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // ── dp window: tenant DP budget window override (issue C2) ───────────────
+        // ── dp: tenant DP budget window override + budget status (issue C2) ───────
         Commands::Dp { action } => {
             let code = match action {
                 cli::DpAction::Window { action } => match action {
@@ -542,6 +542,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         dp_window::history(&server, &tenant, token.as_deref(), cursor, limit, json)
                     }
                 },
+                cli::DpAction::Budget {
+                    server,
+                    tenant,
+                    token,
+                    json,
+                } => dp_window::budget(&server, &tenant, token.as_deref(), json),
             };
             if code != 0 {
                 std::process::exit(code);

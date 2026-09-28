@@ -9,6 +9,17 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — `xazz dp budget` 테넌트 DP 예산 상태 조회 CLI (issue C2)
+
+- **`xazz dp budget --tenant T`** — 실행 중인 서버의 `GET /dp/budget`으로 테넌트의
+  현재 DP 소비(`spent_epsilon`/`spent_delta`), 진행 중 예약분(`reserved_*`/`in_flight`),
+  잔여 엔벨로프(`remaining_*`), 유효 윈도(`window_secs`/`window_source`/`resets_at`)를
+  조회한다. `--json`은 서버 본문을 그대로 출력하고(기본은 요약), 테넌트 스코프
+  (`X-Xazz-Tenant`)이며 읽기 전용이라 `--actor`를 보내지 않는다. 토큰은 `--token` →
+  `XAZZ_ADMIN_TOKEN` → `XAZZ_SERVER_TOKEN` 순으로 해석한다
+- 검증: 가짜 서버 E2E(GET 경로·헤더·actor 미전송), 오류 상태, 로컬 검증,
+  endpoint/비JSON 폴백 단위 테스트 (xazz 58 tests)
+
 ### Added — `xazz dp window` 테넌트 DP 예산 윈도 CLI (issue C2)
 
 - **`xazz dp window set --window-secs N --tenant T`** — 실행 중인 서버의

@@ -226,21 +226,24 @@ pub enum Commands {
         action: PolicyTtlAction,
     },
 
-    /// Inspect or change a tenant's DP budget window on a running server (issue C2)
+    /// Inspect or change a tenant's DP budget on a running server (issue C2)
     ///
     /// `xazz dp window set` stores a per-tenant window override
     /// (`PUT /dp/budget/window`, `--window-secs 0` means "cumulative, no window");
     /// `clear` removes it (`DELETE /dp/budget/window`) so the tenant falls back to
     /// the global `XAZZ_TENANT_DP_WINDOW_SECS` default; `history` reads the
-    /// append-only change log (`GET /dp/budget/window/history`). All are
-    /// tenant-scoped (sent as X-Xazz-Tenant) and accept an admin `--actor` for a
-    /// delegated change.
+    /// append-only change log (`GET /dp/budget/window/history`). `xazz dp budget`
+    /// reads the tenant's current spend/remaining envelope (`GET /dp/budget`). All
+    /// are tenant-scoped (sent as X-Xazz-Tenant); the mutating window commands
+    /// accept an admin `--actor` for a delegated change.
     ///
     /// Example: xazz dp window set --window-secs 86400 --tenant acme --token $TOKEN
     ///
     /// Example: xazz dp window clear --tenant acme --token $TOKEN
     ///
     /// Example: xazz dp window history --tenant acme --cursor 42 --limit 10 --json
+    ///
+    /// Example: xazz dp budget --tenant acme --token $TOKEN
     Dp {
         #[command(subcommand)]
         action: DpAction,
@@ -310,6 +313,28 @@ pub enum DpAction {
     Window {
         #[command(subcommand)]
         action: DpWindowAction,
+    },
+
+    /// Read the tenant's current DP budget spend, remaining envelope, and window
+    ///
+    /// Example: xazz dp budget --tenant acme --token $TOKEN
+    /// Example: xazz dp budget --tenant acme --json
+    Budget {
+        /// Xazz server base URL
+        #[arg(long, default_value = "http://127.0.0.1:8005")]
+        server: String,
+
+        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        #[arg(long)]
+        tenant: String,
+
+        /// Bearer token — defaults to XAZZ_ADMIN_TOKEN, then XAZZ_SERVER_TOKEN
+        #[arg(long)]
+        token: Option<String>,
+
+        /// Print the server's JSON body verbatim instead of a human summary
+        #[arg(long)]
+        json: bool,
     },
 }
 

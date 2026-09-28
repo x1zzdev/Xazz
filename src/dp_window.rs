@@ -26,6 +26,11 @@ pub fn window_history_endpoint(server: &str) -> String {
     format!("{}/dp/budget/window/history", base(server))
 }
 
+/// `GET /dp/budget` on `server`.
+pub fn budget_endpoint(server: &str) -> String {
+    format!("{}/dp/budget", base(server))
+}
+
 /// Trims `server` and strips any trailing slash so endpoint joins are stable.
 fn base(server: &str) -> &str {
     server.trim().trim_end_matches('/')
@@ -61,7 +66,7 @@ pub fn set(
     token: Option<&str>,
     actor: Option<&str>,
 ) -> i32 {
-    let (tenant, token) = match prepare(server, tenant, token, "set") {
+    let (tenant, token) = match prepare(server, tenant, token, "dp window set") {
         Ok(parts) => parts,
         Err(code) => return code,
     };
@@ -74,7 +79,7 @@ pub fn set(
             print_effective("set", tenant, &endpoint, &resp.body);
             0
         }
-        Ok(resp) => report_status_error(resp.status, tenant, &resp.body),
+        Ok(resp) => report_status_error("dp window set", resp.status, tenant, &resp.body),
         Err(e) => {
             eprintln!("[xazz] dp window: set failed — {e}");
             1
@@ -88,7 +93,7 @@ pub fn set(
 /// `DELETE /dp/budget/window` endpoint (issue C2); the tenant then falls back to
 /// the global `XAZZ_TENANT_DP_WINDOW_SECS` default. Validation mirrors [`set`].
 pub fn clear(server: &str, tenant: &str, token: Option<&str>, actor: Option<&str>) -> i32 {
-    let (tenant, token) = match prepare(server, tenant, token, "clear") {
+    let (tenant, token) = match prepare(server, tenant, token, "dp window clear") {
         Ok(parts) => parts,
         Err(code) => return code,
     };
@@ -100,7 +105,7 @@ pub fn clear(server: &str, tenant: &str, token: Option<&str>, actor: Option<&str
             print_effective("clear", tenant, &endpoint, &resp.body);
             0
         }
-        Ok(resp) => report_status_error(resp.status, tenant, &resp.body),
+        Ok(resp) => report_status_error("dp window clear", resp.status, tenant, &resp.body),
         Err(e) => {
             eprintln!("[xazz] dp window: clear failed — {e}");
             1
@@ -121,7 +126,7 @@ pub fn history(
     limit: Option<usize>,
     json: bool,
 ) -> i32 {
-    let (tenant, token) = match prepare(server, tenant, token, "history") {
+    let (tenant, token) = match prepare(server, tenant, token, "dp window history") {
         Ok(parts) => parts,
         Err(code) => return code,
     };
@@ -137,7 +142,7 @@ pub fn history(
             }
             0
         }
-        Ok(resp) => report_status_error(resp.status, tenant, &resp.body),
+        Ok(resp) => report_status_error("dp window history", resp.status, tenant, &resp.body),
         Err(e) => {
             eprintln!("[xazz] dp window: history failed — {e}");
             1
@@ -145,22 +150,54 @@ pub fn history(
     }
 }
 
+/// `xazz dp budget --tenant T [--server URL] [--token TOK] [--json]`
+///
+/// Reports the tenant's current DP budget state — spend, in-flight reservation,
+/// remaining envelope, and the effective window — through the server's
+/// `GET /dp/budget` endpoint (issue C2). This is the read-only companion to
+/// `xazz dp window`. With `--json` the server body is echoed verbatim; otherwise a
+/// short human summary is printed.
+pub fn budget(server: &str, tenant: &str, token: Option<&str>, json: bool) -> i32 {
+    let (tenant, token) = match prepare(server, tenant, token, "dp budget") {
+        Ok(parts) => parts,
+        Err(code) => return code,
+    };
+    let endpoint = budget_endpoint(server);
+    let headers = auth_headers(&token, tenant, None);
+
+    match http::get_json(&endpoint, &headers) {
+        Ok(resp) if (200..300).contains(&resp.status) => {
+            if json {
+                println!("{}", resp.body.trim());
+            } else {
+                print_budget(&resp.body);
+            }
+            0
+        }
+        Ok(resp) => report_status_error("dp budget", resp.status, tenant, &resp.body),
+        Err(e) => {
+            eprintln!("[xazz] dp budget: failed — {e}");
+            1
+        }
+    }
+}
+
 /// Validates the shared arguments and returns the trimmed `(tenant, token)`.
 ///
-/// `verb` only labels the error output (`set`/`clear`/`history`).
+/// `label` names the command in error output (e.g. `dp window set`, `dp budget`).
 fn prepare<'a>(
     server: &str,
     tenant: &'a str,
     token: Option<&str>,
-    verb: &str,
+    label: &str,
 ) -> Result<(&'a str, String), i32> {
     let tenant = tenant.trim();
     if tenant.is_empty() {
-        eprintln!("[xazz] dp window {verb}: --tenant must not be empty");
+        eprintln!("[xazz] {label}: --tenant must not be empty");
         return Err(1);
     }
     if server.trim().is_empty() {
-        eprintln!("[xazz] dp window {verb}: --server must not be empty");
+        eprintln!("[xazz] {label}: --server must not be empty");
         return Err(1);
     }
 
@@ -171,7 +208,7 @@ fn prepare<'a>(
         .or_else(env_token);
     let Some(token) = token else {
         eprintln!(
-            "[xazz] dp window {verb}: no token — pass --token or set XAZZ_ADMIN_TOKEN / XAZZ_SERVER_TOKEN"
+            "[xazz] {label}: no token — pass --token or set XAZZ_ADMIN_TOKEN / XAZZ_SERVER_TOKEN"
         );
         return Err(1);
     };
@@ -233,9 +270,50 @@ fn print_history(body: &str) {
     }
 }
 
+/// Prints a short human summary of a `GET /dp/budget` response body.
+fn print_budget(body: &str) {
+    let Ok(value) = serde_json::from_str::<Value>(body) else {
+        // A non-JSON body is unexpected, but echo it rather than swallow it.
+        println!("{}", body.trim());
+        return;
+    };
+
+    let field = |key: &str| value.get(key).cloned().unwrap_or(Value::Null);
+    println!("tenant        : {}", field("tenant"));
+    println!(
+        "epsilon       : spent {} / total {} (remaining {}, reserved {})",
+        field("spent_epsilon"),
+        field("total_epsilon"),
+        field("remaining_epsilon"),
+        field("reserved_epsilon"),
+    );
+    println!(
+        "delta         : spent {} / total {} (remaining {}, reserved {})",
+        field("spent_delta"),
+        field("total_delta"),
+        field("remaining_delta"),
+        field("reserved_delta"),
+    );
+    println!(
+        "window        : {} secs ({})",
+        field("window_secs"),
+        field("window_source"),
+    );
+    println!("window_started: {}", field("window_started_at"));
+    println!("resets_at     : {}", field("resets_at"));
+    println!("in_flight     : {}", field("in_flight"));
+    let in_flight = value.get("in_flight").and_then(Value::as_bool) == Some(true);
+    if in_flight {
+        println!(
+            "reservation   : expires_at {}",
+            field("reservation_expires_at")
+        );
+    }
+}
+
 /// Reports a non-2xx response, echoing the server body when present.
-fn report_status_error(status: u16, tenant: &str, body: &str) -> i32 {
-    eprintln!("[xazz] dp window: server returned HTTP {status} for tenant '{tenant}'");
+fn report_status_error(label: &str, status: u16, tenant: &str, body: &str) -> i32 {
+    eprintln!("[xazz] {label}: server returned HTTP {status} for tenant '{tenant}'");
     let body = body.trim();
     if !body.is_empty() {
         eprintln!("        {body}");
@@ -261,6 +339,7 @@ mod tests {
             window_history_endpoint("http://host"),
             "http://host/dp/budget/window/history"
         );
+        assert_eq!(budget_endpoint("http://host/"), "http://host/dp/budget");
     }
 
     #[test]
@@ -410,6 +489,31 @@ mod tests {
     }
 
     #[test]
+    fn budget_gets_tenant_endpoint() {
+        let (server, rx) = spawn_server(
+            "HTTP/1.1 200 OK",
+            r#"{"tenant":"acme","spent_epsilon":1.0,"total_epsilon":10.0,"remaining_epsilon":9.0,"window_secs":3600,"window_source":"tenant","in_flight":false}"#,
+        );
+        let code = budget(&server, "acme", Some("secret"), false);
+        assert_eq!(code, 0);
+
+        let request = rx.recv().expect("captured request");
+        assert!(
+            request.starts_with("GET /dp/budget HTTP/1.1\r\n"),
+            "{request}"
+        );
+        assert!(request.contains("X-Xazz-Tenant: acme\r\n"), "{request}");
+        assert!(
+            request.contains("Authorization: Bearer secret\r\n"),
+            "{request}"
+        );
+        assert!(
+            !request.contains("X-Xazz-Actor"),
+            "budget is read-only and must not send an actor: {request}"
+        );
+    }
+
+    #[test]
     fn reports_server_error_status() {
         let (server, _rx) = spawn_server("HTTP/1.1 400 Bad Request", r#"{"error":"bad"}"#);
         assert_eq!(set(&server, "acme", 1, Some("secret"), None), 1);
@@ -422,6 +526,9 @@ mod tests {
             history(&server, "acme", Some("secret"), None, None, true),
             1
         );
+
+        let (server, _rx) = spawn_server("HTTP/1.1 403 Forbidden", r#"{"error":"denied"}"#);
+        assert_eq!(budget(&server, "acme", Some("secret"), true), 1);
     }
 
     #[test]
@@ -438,6 +545,11 @@ mod tests {
         );
         assert_eq!(
             history("  ", "acme", Some("secret"), None, None, false),
+            1,
+            "empty server must fail locally"
+        );
+        assert_eq!(
+            budget("  ", "acme", Some("secret"), false),
             1,
             "empty server must fail locally"
         );
@@ -460,6 +572,11 @@ mod tests {
             1,
             "missing token must fail locally"
         );
+        assert_eq!(
+            budget("http://127.0.0.1:1", "acme", None, false),
+            1,
+            "missing token must fail locally"
+        );
     }
 
     #[test]
@@ -473,5 +590,10 @@ mod tests {
     #[test]
     fn history_summary_falls_back_to_raw_body_when_not_json() {
         print_history("not-json");
+    }
+
+    #[test]
+    fn budget_summary_falls_back_to_raw_body_when_not_json() {
+        print_budget("not-json");
     }
 }
