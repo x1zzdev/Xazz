@@ -4149,6 +4149,89 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(admin_actor_for(&actors, ""), None);
     }
 
+    /// Drives the real `optional_bearer_auth` middleware through an axum router
+    /// (`oneshot`) rather than calling the helper directly: a bound
+    /// `XAZZ_ADMIN_ACTORS` credential must ignore `X-Xazz-Actor`, while the legacy
+    /// `XAZZ_ADMIN_TOKEN` keeps honoring it (issue C2 follow-up).
+    #[tokio::test]
+    async fn admin_actor_binding_is_enforced_through_middleware() {
+        use axum::body::{Body, to_bytes};
+        use axum::http::Request;
+        use tower::util::ServiceExt;
+
+        async fn actor_probe(actor: Option<Extension<Actor>>) -> String {
+            actor.map(|Extension(a)| a.0).unwrap_or_default()
+        }
+        async fn tenant_probe(tenant: Option<Extension<String>>) -> String {
+            tenant.map(|Extension(t)| t).unwrap_or_default()
+        }
+
+        // Isolate from any ambient auth configuration.
+        unsafe {
+            std::env::remove_var("XAZZ_SERVER_TOKEN");
+            std::env::remove_var("XAZZ_TENANT_TOKENS");
+            std::env::set_var(ADMIN_TOKEN_ENV, "legacy");
+            std::env::set_var(ADMIN_ACTORS_ENV, "bound:root");
+        }
+
+        let app = Router::new()
+            .route("/actor", get(actor_probe))
+            .route("/tenant", get(tenant_probe))
+            .layer(middleware::from_fn(optional_bearer_auth));
+
+        async fn call(
+            app: &Router,
+            uri: &str,
+            token: &str,
+            actor: Option<&str>,
+            tenant: Option<&str>,
+        ) -> (StatusCode, String) {
+            let mut req = Request::builder()
+                .uri(uri)
+                .header(AUTHORIZATION, format!("Bearer {token}"));
+            if let Some(actor) = actor {
+                req = req.header(ACTOR_HEADER, actor);
+            }
+            if let Some(tenant) = tenant {
+                req = req.header(TENANT_HEADER, tenant);
+            }
+            let resp = app
+                .clone()
+                .oneshot(req.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            let status = resp.status();
+            let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+            (status, String::from_utf8(bytes.to_vec()).unwrap())
+        }
+
+        // A bound credential authenticates but its actor is pinned: the header is ignored.
+        let (status, actor) = call(&app, "/actor", "bound", Some("mallory"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(actor, "root");
+
+        // The legacy unbound token still honors the header, defaulting to `admin`.
+        let (status, actor) = call(&app, "/actor", "legacy", Some("honest"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(actor, "honest");
+        let (_, actor) = call(&app, "/actor", "legacy", None, None).await;
+        assert_eq!(actor, "admin");
+
+        // Admin mode passes the tenant namespace through to handlers.
+        let (status, tenant) = call(&app, "/tenant", "bound", None, Some("acme")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(tenant, "acme");
+
+        // An unknown credential is rejected before any handler runs.
+        let (status, _) = call(&app, "/actor", "stale", Some("mallory"), None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        unsafe {
+            std::env::remove_var(ADMIN_TOKEN_ENV);
+            std::env::remove_var(ADMIN_ACTORS_ENV);
+        }
+    }
+
     /// Policy-pack changes are recorded append-only with who/when/previous (issue C2).
     #[tokio::test]
     async fn policy_history_records_who_when_and_previous_pack() {

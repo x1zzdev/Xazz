@@ -8382,6 +8382,7 @@ dependencies = [
  "sha2 0.11.0",
  "tempfile",
  "tokio",
+ "tower 0.5.3",
  "tower-http 0.7.1",
  "uuid",
  "xazz-compiler",
