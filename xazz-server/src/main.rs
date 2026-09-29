@@ -4149,6 +4149,22 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(admin_actor_for(&actors, ""), None);
     }
 
+    /// Serializes the auth-middleware tests: `optional_bearer_auth` reads
+    /// process-global env vars, so two tests that set them must not interleave
+    /// (issue C2 follow-up).
+    static AUTH_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// Clears every auth-related env var so an env-mutating test starts from a
+    /// known, auth-free state regardless of the ambient environment.
+    fn clear_auth_env() {
+        unsafe {
+            std::env::remove_var("XAZZ_SERVER_TOKEN");
+            std::env::remove_var("XAZZ_TENANT_TOKENS");
+            std::env::remove_var(ADMIN_TOKEN_ENV);
+            std::env::remove_var(ADMIN_ACTORS_ENV);
+        }
+    }
+
     /// Drives the real `optional_bearer_auth` middleware through an axum router
     /// (`oneshot`) rather than calling the helper directly: a bound
     /// `XAZZ_ADMIN_ACTORS` credential must ignore `X-Xazz-Actor`, while the legacy
@@ -4159,6 +4175,8 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         use axum::http::Request;
         use tower::util::ServiceExt;
 
+        let _guard = AUTH_ENV_LOCK.lock().await;
+
         async fn actor_probe(actor: Option<Extension<Actor>>) -> String {
             actor.map(|Extension(a)| a.0).unwrap_or_default()
         }
@@ -4167,9 +4185,8 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         }
 
         // Isolate from any ambient auth configuration.
+        clear_auth_env();
         unsafe {
-            std::env::remove_var("XAZZ_SERVER_TOKEN");
-            std::env::remove_var("XAZZ_TENANT_TOKENS");
             std::env::set_var(ADMIN_TOKEN_ENV, "legacy");
             std::env::set_var(ADMIN_ACTORS_ENV, "bound:root");
         }
@@ -4226,10 +4243,98 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         let (status, _) = call(&app, "/actor", "stale", Some("mallory"), None).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
 
-        unsafe {
-            std::env::remove_var(ADMIN_TOKEN_ENV);
-            std::env::remove_var(ADMIN_ACTORS_ENV);
+        clear_auth_env();
+    }
+
+    /// Drives the real `optional_bearer_auth` middleware for the remaining modes
+    /// through an axum router (`oneshot`): the no-auth fallback, single-token
+    /// (`XAZZ_SERVER_TOKEN`), and per-tenant tokens (`XAZZ_TENANT_TOKENS`). The
+    /// admin modes are covered by `admin_actor_binding_is_enforced_through_middleware`
+    /// (issue C2 follow-up).
+    #[tokio::test]
+    async fn auth_modes_are_enforced_through_middleware() {
+        use axum::body::{Body, to_bytes};
+        use axum::http::Request;
+        use tower::util::ServiceExt;
+
+        let _guard = AUTH_ENV_LOCK.lock().await;
+
+        async fn actor_probe(actor: Option<Extension<Actor>>) -> String {
+            actor.map(|Extension(a)| a.0).unwrap_or_default()
         }
+        async fn tenant_probe(tenant: Option<Extension<String>>) -> String {
+            tenant.map(|Extension(t)| t).unwrap_or_default()
+        }
+
+        async fn call(
+            app: &Router,
+            uri: &str,
+            token: &str,
+            tenant: Option<&str>,
+        ) -> (StatusCode, String) {
+            let mut req = Request::builder()
+                .uri(uri)
+                .header(AUTHORIZATION, format!("Bearer {token}"));
+            if let Some(tenant) = tenant {
+                req = req.header(TENANT_HEADER, tenant);
+            }
+            let resp = app
+                .clone()
+                .oneshot(req.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            let status = resp.status();
+            let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+            (status, String::from_utf8(bytes.to_vec()).unwrap())
+        }
+
+        clear_auth_env();
+        let app = Router::new()
+            .route("/actor", get(actor_probe))
+            .route("/tenant", get(tenant_probe))
+            .layer(middleware::from_fn(optional_bearer_auth));
+
+        // No auth mode configured → every request passes; the middleware applies
+        // its default empty tenant and no actor.
+        let (status, tenant) = call(&app, "/tenant", "", Some("acme")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(tenant, "");
+        let (status, actor) = call(&app, "/actor", "", Some("mallory")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(actor, "");
+
+        // Single-token mode: only the configured bearer passes; the tenant header
+        // is not trusted (empty tenant, no actor), wrong/missing tokens are 401.
+        unsafe {
+            std::env::set_var("XAZZ_SERVER_TOKEN", "s3cret");
+        }
+        let (status, tenant) = call(&app, "/tenant", "s3cret", Some("acme")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(tenant, "");
+        let (status, _) = call(&app, "/tenant", "wrong", Some("acme")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, _) = call(&app, "/tenant", "", Some("acme")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        unsafe {
+            std::env::remove_var("XAZZ_SERVER_TOKEN");
+        }
+
+        // Per-tenant mode: the request must carry a tenant header and that
+        // tenant's token; a missing/mismatched tenant or token is 401.
+        unsafe {
+            std::env::set_var("XAZZ_TENANT_TOKENS", "acme=tok-a,globex=tok-b");
+        }
+        let (status, tenant) = call(&app, "/tenant", "tok-a", Some("acme")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(tenant, "acme");
+        let (status, _) = call(&app, "/tenant", "tok-a", None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, _) = call(&app, "/tenant", "tok-b", Some("acme")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, _) = call(&app, "/tenant", "tok-a", Some("initech")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        clear_auth_env();
     }
 
     /// Policy-pack changes are recorded append-only with who/when/previous (issue C2).
