@@ -605,6 +605,13 @@ const ACTOR_HEADER: &str = "x-xazz-actor";
 /// actor identity.
 const ADMIN_TOKEN_ENV: &str = "XAZZ_ADMIN_TOKEN";
 
+/// Optional admin credential→actor bindings — a comma-separated list of
+/// `token:actor` entries. A token listed here authenticates as an administrator
+/// whose audit actor is pinned: `X-Xazz-Actor` is ignored for that credential, so
+/// an administrator cannot impersonate another identity. Tokens are matched on
+/// the last `:` so a credential may itself contain colons.
+const ADMIN_ACTORS_ENV: &str = "XAZZ_ADMIN_ACTORS";
+
 /// Default actor identity when an admin request omits `X-Xazz-Actor`.
 const DEFAULT_ACTOR: &str = "admin";
 
@@ -623,7 +630,10 @@ struct Actor(String);
 /// When `XAZZ_ADMIN_TOKEN` is set, a request bearing one of those tokens (a
 /// comma-separated list enables rotation) is an administrator: it may target any
 /// `X-Xazz-Tenant` namespace and is recorded under `X-Xazz-Actor`
-/// (default `admin`) as the policy-change actor.
+/// (default `admin`) as the policy-change actor. When `XAZZ_ADMIN_ACTORS` is set
+/// (format `token:actor,token:actor`), a request bearing one of those tokens is
+/// also an administrator, but its audit actor is pinned to the bound identity and
+/// `X-Xazz-Actor` is ignored — a credential cannot impersonate another actor.
 /// When none is set, all requests pass (default local-only behavior).
 async fn optional_bearer_auth(
     mut req: axum::extract::Request,
@@ -632,9 +642,14 @@ async fn optional_bearer_auth(
     let single_token = std::env::var("XAZZ_SERVER_TOKEN").unwrap_or_default();
     let tenant_map = parse_tenant_tokens(&std::env::var("XAZZ_TENANT_TOKENS").unwrap_or_default());
     let admin_tokens = parse_admin_tokens(&std::env::var(ADMIN_TOKEN_ENV).unwrap_or_default());
+    let admin_actors = parse_admin_actors(&std::env::var(ADMIN_ACTORS_ENV).unwrap_or_default());
 
     // No auth mode configured → allow all (local loopback tool).
-    if single_token.is_empty() && tenant_map.is_empty() && admin_tokens.is_empty() {
+    if single_token.is_empty()
+        && tenant_map.is_empty()
+        && admin_tokens.is_empty()
+        && admin_actors.is_empty()
+    {
         req.extensions_mut().insert(String::new());
         return Ok(next.run(req).await);
     }
@@ -647,11 +662,14 @@ async fn optional_bearer_auth(
         .to_string();
 
     // Admin mode: cross-tenant, recorded under the actor identity.
-    if admin_bearer_authorized(&admin_tokens, &auth) {
+    if admin_bearer_authorized(&admin_tokens, &admin_actors, &auth) {
         let tenant = header_str(&req, TENANT_HEADER);
-        let actor = header_str(&req, ACTOR_HEADER);
+        let actor = match admin_actor_for(&admin_actors, &auth) {
+            Some(bound) => bound,
+            None => resolve_actor(&header_str(&req, ACTOR_HEADER)),
+        };
         req.extensions_mut().insert(tenant);
-        req.extensions_mut().insert(Actor(resolve_actor(&actor)));
+        req.extensions_mut().insert(Actor(actor));
         return Ok(next.run(req).await);
     }
 
@@ -732,10 +750,51 @@ fn parse_admin_tokens(raw: &str) -> Vec<String> {
         .collect()
 }
 
+/// Parses `XAZZ_ADMIN_ACTORS` (`token:actor,token:actor`) into a token→actor map.
+/// A bound credential pins the audit actor, so `X-Xazz-Actor` is ignored for it.
+/// Tokens are matched on the last `:` so a credential may itself contain colons;
+/// entries with an empty token/actor are dropped.
+fn parse_admin_actors(raw: &str) -> std::collections::HashMap<String, String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .filter_map(|entry| {
+            let (token, actor) = entry.rsplit_once(':')?;
+            let (token, actor) = (token.trim(), actor.trim());
+            if token.is_empty() || actor.is_empty() {
+                return None;
+            }
+            Some((token.to_string(), actor.to_string()))
+        })
+        .collect()
+}
+
+/// Extracts the credential from an `Authorization: Bearer <token>` value.
+fn bearer_token(auth: &str) -> Option<&str> {
+    auth.strip_prefix("Bearer ")
+}
+
 /// True when `auth` is exactly `Bearer <one of tokens>`. An empty token list never
 /// authorizes, so admin mode stays off unless a credential is configured.
-fn admin_bearer_authorized(tokens: &[String], auth: &str) -> bool {
-    tokens.iter().any(|token| auth == format!("Bearer {token}"))
+fn admin_bearer_authorized(
+    tokens: &[String],
+    actors: &std::collections::HashMap<String, String>,
+    auth: &str,
+) -> bool {
+    let Some(token) = bearer_token(auth) else {
+        return false;
+    };
+    tokens.iter().any(|t| t == token) || actors.contains_key(token)
+}
+
+/// The actor pinned to the credential in `auth`, if that token is bound in
+/// `XAZZ_ADMIN_ACTORS`. `None` means the credential is unbound (legacy
+/// `XAZZ_ADMIN_TOKEN`), so the request's `X-Xazz-Actor` is honored.
+fn admin_actor_for(
+    actors: &std::collections::HashMap<String, String>,
+    auth: &str,
+) -> Option<String> {
+    actors.get(bearer_token(auth)?).cloned()
 }
 
 // ── Static IDE serving ───────────────────────────────────────────────────────
@@ -4045,12 +4104,49 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
     #[test]
     fn admin_bearer_authorizes_any_listed_token() {
         let tokens = parse_admin_tokens("old,new");
-        assert!(admin_bearer_authorized(&tokens, "Bearer old"));
-        assert!(admin_bearer_authorized(&tokens, "Bearer new"));
-        assert!(!admin_bearer_authorized(&tokens, "Bearer stale"));
-        assert!(!admin_bearer_authorized(&tokens, "old"));
-        assert!(!admin_bearer_authorized(&tokens, ""));
-        assert!(!admin_bearer_authorized(&[], "Bearer old"));
+        let actors = std::collections::HashMap::new();
+        assert!(admin_bearer_authorized(&tokens, &actors, "Bearer old"));
+        assert!(admin_bearer_authorized(&tokens, &actors, "Bearer new"));
+        assert!(!admin_bearer_authorized(&tokens, &actors, "Bearer stale"));
+        assert!(!admin_bearer_authorized(&tokens, &actors, "old"));
+        assert!(!admin_bearer_authorized(&tokens, &actors, ""));
+        assert!(!admin_bearer_authorized(&[], &actors, "Bearer old"));
+    }
+
+    /// `XAZZ_ADMIN_ACTORS` parses `token:actor` entries, splitting on the last `:`
+    /// so a credential may contain colons; blank/invalid entries are dropped.
+    #[test]
+    fn parse_admin_actors_binds_token_to_actor() {
+        assert!(parse_admin_actors("").is_empty());
+        assert!(parse_admin_actors("   ").is_empty());
+        let actors = parse_admin_actors("tok1:root, tok2:ops ");
+        assert_eq!(actors.get("tok1"), Some(&"root".to_string()));
+        assert_eq!(actors.get("tok2"), Some(&"ops".to_string()));
+        assert_eq!(actors.len(), 2);
+        assert_eq!(
+            parse_admin_actors("a:b:c").get("a:b"),
+            Some(&"c".to_string())
+        );
+        assert!(parse_admin_actors("noactor").is_empty());
+        assert!(parse_admin_actors(":actor").is_empty());
+        assert!(parse_admin_actors("token:").is_empty());
+    }
+
+    /// A bound credential authenticates and pins the audit actor; an unbound one
+    /// keeps the legacy `X-Xazz-Actor` behavior (issue C2).
+    #[test]
+    fn admin_actor_binding_pins_actor() {
+        let actors = parse_admin_actors("bound:root");
+        let tokens = parse_admin_tokens("free");
+        assert!(admin_bearer_authorized(&tokens, &actors, "Bearer bound"));
+        assert!(admin_bearer_authorized(&tokens, &actors, "Bearer free"));
+        assert_eq!(
+            admin_actor_for(&actors, "Bearer bound"),
+            Some("root".to_string())
+        );
+        assert_eq!(admin_actor_for(&actors, "Bearer free"), None);
+        assert_eq!(admin_actor_for(&actors, "bound"), None);
+        assert_eq!(admin_actor_for(&actors, ""), None);
     }
 
     /// Policy-pack changes are recorded append-only with who/when/previous (issue C2).

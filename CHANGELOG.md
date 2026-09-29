@@ -9,6 +9,16 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 관리자 토큰↔actor 바인딩(`XAZZ_ADMIN_ACTORS`) (issue C2)
+
+- `XAZZ_ADMIN_ACTORS=token:actor,token:actor`(쉼표 구분)로 관리자 자격 증명에
+  감사 주체를 고정한다. 이 목록의 토큰으로 인증하면 관리자로 인가되되
+  `X-Xazz-Actor` 헤더를 무시하고 바인딩된 actor로 기록되므로, 토큰 소지자가
+  다른 주체를 위장할 수 없다. 토큰은 마지막 `:` 기준으로 분리해 자격 증명 자체에
+  `:`가 있어도 동작한다. `XAZZ_ADMIN_TOKEN`(미바인딩)은 기존처럼 헤더/기본
+  `admin`을 사용하며 하위호환이다
+- 검증: 바인딩 파싱/인가/actor 고정 단위 테스트 2종 (xazz-server 112 tests)
+
 ### Added — 관리자 토큰 회전(다중 `XAZZ_ADMIN_TOKEN`) (issue C2)
 
 - `XAZZ_ADMIN_TOKEN`이 쉼표로 구분된 목록을 받아 관리자 자격 증명을 무중단으로

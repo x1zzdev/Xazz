@@ -134,6 +134,8 @@ and export `UID`/`GID` before `docker compose up`.
 | `XAZZ_WEB_DIR` | `/app/web` | Static Visual IDE |
 | `XAZZ_SERVER_TOKEN` | unset | If set, every request needs `Authorization: Bearer …` |
 | `XAZZ_TENANT_TOKENS` | unset | `tenant=token,tenant=token` multi-tenant map |
+| `XAZZ_ADMIN_TOKEN` | unset | Admin Bearer token(s), comma-separated for rotation; actor from `X-Xazz-Actor` |
+| `XAZZ_ADMIN_ACTORS` | unset | `token:actor,token:actor` admin credentials with a pinned audit actor (ignores `X-Xazz-Actor`) |
 | `XAZZ_EXEC_PATH` | unset | Absolute path to `xazz-exec` (default: next to `xazz-runner`) |
 | `XAZZ_EXEC_TIMEOUT_SECS` | runner default | Hard timeout for one run |
 
