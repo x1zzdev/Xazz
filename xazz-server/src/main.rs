@@ -599,8 +599,10 @@ const TENANT_HEADER: &str = "x-xazz-tenant";
 /// `changed_by` when delegating a policy change to a tenant (issue C2).
 const ACTOR_HEADER: &str = "x-xazz-actor";
 
-/// Admin credential env var — when set, a request bearing this Bearer token may
-/// act on any tenant's policy and is recorded under the actor identity.
+/// Admin credential env var — one Bearer token, or a comma-separated list so an
+/// admin can rotate between several credentials without downtime. A request
+/// bearing any of them may act on any tenant's policy and is recorded under the
+/// actor identity.
 const ADMIN_TOKEN_ENV: &str = "XAZZ_ADMIN_TOKEN";
 
 /// Default actor identity when an admin request omits `X-Xazz-Actor`.
@@ -618,8 +620,9 @@ struct Actor(String);
 /// When `XAZZ_SERVER_TOKEN` is set, every request requires `Authorization: Bearer <token>`.
 /// When `XAZZ_TENANT_TOKENS` is set (format `tenant1=token1,tenant2=token2`), a request
 /// must present `X-Xazz-Tenant: <tenant>` + `Authorization: Bearer <token>` for that tenant.
-/// When `XAZZ_ADMIN_TOKEN` is set, a request bearing that token is an administrator:
-/// it may target any `X-Xazz-Tenant` namespace and is recorded under `X-Xazz-Actor`
+/// When `XAZZ_ADMIN_TOKEN` is set, a request bearing one of those tokens (a
+/// comma-separated list enables rotation) is an administrator: it may target any
+/// `X-Xazz-Tenant` namespace and is recorded under `X-Xazz-Actor`
 /// (default `admin`) as the policy-change actor.
 /// When none is set, all requests pass (default local-only behavior).
 async fn optional_bearer_auth(
@@ -628,10 +631,10 @@ async fn optional_bearer_auth(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let single_token = std::env::var("XAZZ_SERVER_TOKEN").unwrap_or_default();
     let tenant_map = parse_tenant_tokens(&std::env::var("XAZZ_TENANT_TOKENS").unwrap_or_default());
-    let admin_token = std::env::var(ADMIN_TOKEN_ENV).unwrap_or_default();
+    let admin_tokens = parse_admin_tokens(&std::env::var(ADMIN_TOKEN_ENV).unwrap_or_default());
 
     // No auth mode configured → allow all (local loopback tool).
-    if single_token.is_empty() && tenant_map.is_empty() && admin_token.is_empty() {
+    if single_token.is_empty() && tenant_map.is_empty() && admin_tokens.is_empty() {
         req.extensions_mut().insert(String::new());
         return Ok(next.run(req).await);
     }
@@ -644,7 +647,7 @@ async fn optional_bearer_auth(
         .to_string();
 
     // Admin mode: cross-tenant, recorded under the actor identity.
-    if !admin_token.is_empty() && auth == format!("Bearer {admin_token}") {
+    if admin_bearer_authorized(&admin_tokens, &auth) {
         let tenant = header_str(&req, TENANT_HEADER);
         let actor = header_str(&req, ACTOR_HEADER);
         req.extensions_mut().insert(tenant);
@@ -716,6 +719,23 @@ fn parse_tenant_tokens(raw: &str) -> std::collections::HashMap<String, String> {
             }
         })
         .collect()
+}
+
+/// Parses `XAZZ_ADMIN_TOKEN` into one or more Bearer tokens. A single value is the
+/// common case; a comma-separated list lets an admin rotate credentials without
+/// downtime. Blank entries are ignored, so an unset/blank value yields no tokens.
+fn parse_admin_tokens(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// True when `auth` is exactly `Bearer <one of tokens>`. An empty token list never
+/// authorizes, so admin mode stays off unless a credential is configured.
+fn admin_bearer_authorized(tokens: &[String], auth: &str) -> bool {
+    tokens.iter().any(|token| auth == format!("Bearer {token}"))
 }
 
 // ── Static IDE serving ───────────────────────────────────────────────────────
@@ -4005,6 +4025,32 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
     fn actor_header_defaults_to_admin() {
         assert_eq!(resolve_actor(""), "admin");
         assert_eq!(resolve_actor("root"), "root");
+    }
+
+    /// `XAZZ_ADMIN_TOKEN` accepts a comma-separated list for rotation; blank
+    /// entries are dropped and a blank value yields no tokens (issue C2).
+    #[test]
+    fn parse_admin_tokens_splits_and_trims() {
+        assert_eq!(parse_admin_tokens(""), Vec::<String>::new());
+        assert_eq!(parse_admin_tokens("   "), Vec::<String>::new());
+        assert_eq!(parse_admin_tokens("only"), vec!["only".to_string()]);
+        assert_eq!(
+            parse_admin_tokens(" old , new ,, "),
+            vec!["old".to_string(), "new".to_string()]
+        );
+    }
+
+    /// Any configured admin token authenticates; unknown, absent, or empty token
+    /// lists are rejected (issue C2).
+    #[test]
+    fn admin_bearer_authorizes_any_listed_token() {
+        let tokens = parse_admin_tokens("old,new");
+        assert!(admin_bearer_authorized(&tokens, "Bearer old"));
+        assert!(admin_bearer_authorized(&tokens, "Bearer new"));
+        assert!(!admin_bearer_authorized(&tokens, "Bearer stale"));
+        assert!(!admin_bearer_authorized(&tokens, "old"));
+        assert!(!admin_bearer_authorized(&tokens, ""));
+        assert!(!admin_bearer_authorized(&[], "Bearer old"));
     }
 
     /// Policy-pack changes are recorded append-only with who/when/previous (issue C2).

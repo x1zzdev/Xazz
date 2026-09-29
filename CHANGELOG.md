@@ -9,6 +9,14 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 관리자 토큰 회전(다중 `XAZZ_ADMIN_TOKEN`) (issue C2)
+
+- `XAZZ_ADMIN_TOKEN`이 쉼표로 구분된 목록을 받아 관리자 자격 증명을 무중단으로
+  교체(회전)할 수 있다. 목록 중 하나와 일치하는 `Authorization: Bearer <token>`이면
+  관리자로 인증되며, `X-Xazz-Actor`로 관리자별 변경 주체를 기록하는 동작은 그대로다.
+  빈 항목은 무시되고 값이 없으면 관리자 모드는 꺼진 채다(하위호환)
+- 검증: 토큰 목록 파싱/인가 단위 테스트 2종 (xazz-server 110 tests)
+
 ### Added — predict 경로 임베딩 입력 진단의 구조화 노출 (`[xazz:predict]`/`--json`) (issue D3)
 
 - `prepare_inference_input`이 버려지던 임베딩 진단을 반환하고, `predict`/
