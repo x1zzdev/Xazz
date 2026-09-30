@@ -9,6 +9,19 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 서버 환경변수 레퍼런스 `docs/SERVER.md` (issue C2)
+
+- `xazz-server`가 읽는 환경변수를 한 문서로 정리: 인증
+  (`XAZZ_SERVER_TOKEN` / `XAZZ_TENANT_TOKENS` / `XAZZ_ADMIN_TOKEN` /
+  `XAZZ_ADMIN_ACTORS`), 바인드·경로(`XAZZ_BIND` / `XAZZ_WEB_DIR` /
+  `XAZZ_EXEC_PATH` / `XAZZ_EXEC_TIMEOUT_SECS`), DP 예산
+  (`XAZZ_TENANT_DP_BUDGET` / `..._DELTA_BUDGET` / `..._WINDOW_SECS` /
+  `XAZZ_DP_RESERVATION_TTL_SECS` / `XAZZ_TENANT_DP_WINDOW_HISTORY_MAX`),
+  정책 이력 보존(`XAZZ_TENANT_POLICY_HISTORY_MAX` / `..._TTL_SECS` /
+  `XAZZ_TENANT_POLICY_TTL_HISTORY_MAX` / `XAZZ_POLICY_HISTORY_SWEEP_SECS`).
+  docs book `SUMMARY`/`README`와 README(+kr) 기능 표에서 링크
+- 검증: `mdbook build` exit 0
+
 ### Added — 관리자 토큰↔actor 바인딩(`XAZZ_ADMIN_ACTORS`) (issue C2)
 
 - `XAZZ_ADMIN_ACTORS=token:actor,token:actor`(쉼표 구분)로 관리자 자격 증명에

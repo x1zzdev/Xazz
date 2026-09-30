@@ -313,6 +313,7 @@ python benches/run_readme_benchmark.py --xlarge
 | Visual IDE | 노드 기반 파이프라인 편집기 + 모니터, `xazz-server`가 서빙 | Stable |
 | 런 히스토리 | SQLite 영속 런 레코드 — `GET /runs`, `GET /runs/:id` (Track C1) | Stable |
 | 인증 & 멀티테넌시 | `XAZZ_SERVER_TOKEN` / `XAZZ_TENANT_TOKENS` + `X-Xazz-Tenant`; 위임 정책 변경용 `XAZZ_ADMIN_TOKEN` + `X-Xazz-Actor` (`XAZZ_ADMIN_ACTORS=token:actor`로 actor 고정 시 `X-Xazz-Actor`를 무시하므로 CLI `--actor`는 무효) — 테넌트별 런 히스토리·감사 (Track C2) | Stable |
+| 서버 설정 | `xazz-server` 환경변수 — 인증, DP 예산, 정책 이력 보존, 바인드/경로 — [`docs/SERVER.md`](docs/SERVER.md) (Track C2) | Stable |
 | 파이프라인 카탈로그 | `POST /catalog` — Typed IR 기반 파이프라인 카탈로그 + 컬럼 계보 (Track C3) | Stable |
 | Python 바인딩 | Python에서 `xazz.check/run/policy` — CLI와 동일한 진단 (Track C4) | Stable |
 | `xazz sde` | 합성 데이터 생성 엔진 | Stable |

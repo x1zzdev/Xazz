@@ -12,6 +12,7 @@
 # Running Xazz
 
 - [Docker: images, ports, volumes](DOCKER.md)
+- [Server reference: environment variables](SERVER.md)
 - [GPU & ONNX backends](GPU_BACKENDS.md)
 - [Data source connectors](CONNECTORS.md)
 - [Check diagnostics](CHECK_DIAGNOSTICS.md)

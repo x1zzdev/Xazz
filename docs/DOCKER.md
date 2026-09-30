@@ -139,6 +139,10 @@ and export `UID`/`GID` before `docker compose up`.
 | `XAZZ_EXEC_PATH` | unset | Absolute path to `xazz-exec` (default: next to `xazz-runner`) |
 | `XAZZ_EXEC_TIMEOUT_SECS` | runner default | Hard timeout for one run |
 
+The image sets only what a container needs. The full server variable reference —
+DP budgets, policy-history retention, and the rest — is in
+[Server reference](SERVER.md).
+
 ## Smoke checklist (clean host)
 
 1. `docker pull ghcr.io/x1zzdev/xazz:<tag>` after publication (or `docker compose up` for the local image).
