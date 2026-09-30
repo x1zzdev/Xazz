@@ -34,7 +34,7 @@ export const defaults = () => ({
   },
   'GET /security/policy/history': { tenant: '', history: [] },
   'GET /security/policy/history/ttl': { tenant: '', ttl_secs: 0, ttl_source: 'global' },
-  'GET /security/policy/history/ttl/history': { tenant: '', limit: 20, offset: 0, history: [] },
+  'GET /security/policy/history/ttl/history': { tenant: '', limit: 20, next_cursor: null, history: [] },
 })
 
 const API = /^\/(execute|health|schema|catalog|runs|dp\/|security\/)/

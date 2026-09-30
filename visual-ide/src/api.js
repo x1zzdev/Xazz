@@ -151,11 +151,13 @@ export const verifyAuditChain = () => request('/security/audit/chain')
 export const getPolicy = () => request('/security/policy')
 export const putPolicy = (policy) => request('/security/policy', { method: 'PUT', json: policy })
 export const deletePolicy = () => request('/security/policy', { method: 'DELETE' })
-export const getPolicyHistory = ({ limit = 20, offset = 0 } = {}) =>
-  request(`/security/policy/history?limit=${limit}&offset=${offset}`)
+const historyQuery = ({ limit = 20, cursor } = {}) =>
+  cursor == null ? `limit=${limit}` : `limit=${limit}&cursor=${encodeURIComponent(cursor)}`
+export const getPolicyHistory = (options) =>
+  request(`/security/policy/history?${historyQuery(options)}`)
 export const getPolicyTtl = () => request('/security/policy/history/ttl')
-export const getPolicyTtlHistory = ({ limit = 20, offset = 0 } = {}) =>
-  request(`/security/policy/history/ttl/history?limit=${limit}&offset=${offset}`)
+export const getPolicyTtlHistory = (options) =>
+  request(`/security/policy/history/ttl/history?${historyQuery(options)}`)
 export const putPolicyTtl = (ttlSecs) =>
   request('/security/policy/history/ttl', { method: 'PUT', json: { ttl_secs: ttlSecs } })
 export const deletePolicyTtl = () => request('/security/policy/history/ttl', { method: 'DELETE' })

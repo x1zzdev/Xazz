@@ -684,10 +684,11 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
   const time = useLocaleTime()
   const [policyState, reloadPolicy] = useServerData(getPolicy, revision)
   const [historyState, reloadHistory] = useServerData(loadPolicyHistory, revision)
-  const [ttlOffset, setTtlOffset] = useState(0)
-  useEffect(() => setTtlOffset(0), [revision])
+  const [ttlPath, setTtlPath] = useState([null])
+  useEffect(() => setTtlPath([null]), [revision])
+  const ttlCursor = ttlPath[ttlPath.length - 1]
   const [ttlHistoryState, reloadTtlHistory] = useServerData(
-    () => getPolicyTtlHistory({ offset: ttlOffset }), `${revision}:${ttlOffset}`,
+    () => getPolicyTtlHistory({ cursor: ttlCursor }), `${revision}:${ttlCursor ?? ''}`,
   )
   const [draft, setDraft] = useState('')
   const [notice, setNotice] = useState(null)
@@ -704,8 +705,8 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
   }
 
   const refreshTtlHistory = () => {
-    if (ttlOffset === 0) reloadTtlHistory()
-    else setTtlOffset(0)
+    if (ttlPath.length === 1) reloadTtlHistory()
+    else setTtlPath([null])
   }
 
   const act = async (action, success) => {
@@ -944,13 +945,17 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
         )}
         <div className="gov-actions">
           <button className="button button--tool-secondary button--compact" type="button"
-            disabled={ttlOffset === 0} onClick={() => setTtlOffset(Math.max(0, ttlOffset - 20))}>
+            disabled={ttlPath.length === 1}
+            onClick={() => setTtlPath((path) => path.slice(0, -1))}>
             {t('gov.policy.previous')}
           </button>
-          <span>{t('gov.policy.ttlPage').replace('{n}', String(Math.floor(ttlOffset / 20) + 1))}</span>
+          <span>{t('gov.policy.ttlPage').replace('{n}', String(ttlPath.length))}</span>
           <button className="button button--tool-secondary button--compact" type="button"
             disabled={ttlHistoryState.status !== 'ready' || (ttlHistoryState.data?.history?.length ?? 0) < 20}
-            onClick={() => setTtlOffset(ttlOffset + 20)}>
+            onClick={() => {
+              const next = ttlHistoryState.data?.next_cursor
+              if (next != null) setTtlPath((path) => [...path, next])
+            }}>
             {t('gov.policy.next')}
           </button>
         </div>

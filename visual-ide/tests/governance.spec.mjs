@@ -227,17 +227,26 @@ test('audit chain shows the server verdict and names a tampered record', async (
 // ── #109 Policy packs ───────────────────────────────────────────────────────
 
 test('TTL change history pages and refreshes after a retention change', async ({ page }) => {
-  const history = Array.from({ length: 21 }, (_, id) => ({
-    id: id + 1, action: 'set', old_ttl_secs: id, new_ttl_secs: id + 1,
-    changed_by: 'alice', changed_at: 1790000000 - id,
-  }))
+  const history = Array.from({ length: 21 }, (_, i) => {
+    const id = 21 - i
+    return {
+      id, action: 'set', old_ttl_secs: id, new_ttl_secs: id + 1,
+      changed_by: 'alice', changed_at: 1790000000 - i,
+    }
+  })
   let ttl = { tenant: '', ttl_secs: 0, ttl_source: 'global' }
   const requests = await mockServer(page, {
     'GET /security/policy/history/ttl': () => ttl,
     'GET /security/policy/history/ttl/history': (request) => {
-      const query = new URL(request.url()).searchParams
-      const offset = Number(query.get('offset') ?? 0)
-      return { tenant: '', limit: 20, offset, history: history.slice(offset, offset + 20) }
+      const cursor = new URL(request.url()).searchParams.get('cursor')
+      const pageHistory = cursor == null
+        ? history.slice(0, 20)
+        : history.filter((entry) => entry.id < Number(cursor)).slice(0, 20)
+      return {
+        tenant: '', limit: 20,
+        next_cursor: pageHistory.length ? pageHistory[pageHistory.length - 1].id : null,
+        history: pageHistory,
+      }
     },
     'PUT /security/policy/history/ttl': (request) => {
       const secs = request.postDataJSON().ttl_secs
@@ -277,11 +286,18 @@ test('TTL history returns to page one when server access changes', async ({ page
   const requests = await mockServer(page, {
     'GET /security/policy/history/ttl/history': (request) => {
       const tenant = request.headers()['x-xazz-tenant']
-      const offset = Number(new URL(request.url()).searchParams.get('offset'))
+      const cursor = new URL(request.url()).searchParams.get('cursor')
       const history = tenant === 'A'
-        ? Array.from({ length: 21 }, (_, id) => ({ id, action: 'set', changed_by: 'A', changed_at: 1790000000 - id })).slice(offset, offset + 20)
-        : [{ id: 100, action: 'set', changed_by: 'B', changed_at: 1790000000 }].slice(offset, offset + 20)
-      return { tenant, limit: 20, offset, history }
+        ? Array.from({ length: 21 }, (_, i) => ({ id: 21 - i, action: 'set', changed_by: 'A', changed_at: 1790000000 - i }))
+        : [{ id: 100, action: 'set', changed_by: 'B', changed_at: 1790000000 }]
+      const pageHistory = cursor == null
+        ? history.slice(0, 20)
+        : history.filter((entry) => entry.id < Number(cursor)).slice(0, 20)
+      return {
+        tenant, limit: 20,
+        next_cursor: pageHistory.length ? pageHistory[pageHistory.length - 1].id : null,
+        history: pageHistory,
+      }
     },
   })
   await openMonitor(page)
