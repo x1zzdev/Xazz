@@ -1839,6 +1839,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
                   training={runResult?.training}
                   model={runResult?.model}
                   dp={runResult?.dp}
+                  prediction={runResult?.prediction}
                   policy={policyExample ? exampleReport : policyReport}
                   remediation={policyExample ? null : remediation}
                   originalCode={policyExample ? policyExamples[policyExample] : guardrailSource}

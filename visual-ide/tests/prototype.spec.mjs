@@ -349,9 +349,11 @@ test('monitor view separates a measured contract from a proposed one', async ({
   const burn = page.getByRole('region', { name: 'Burn compile and training' })
   const privacy = page.getByRole('region', { name: 'Differential privacy budget' })
   const resource = page.getByRole('region', { name: 'Resource efficiency' })
+  const predict = page.getByRole('region', { name: 'Predict embedding input' })
   await expect(burn).toBeVisible()
   await expect(privacy).toBeVisible()
   await expect(resource).toBeVisible()
+  await expect(predict).toBeVisible()
 
   // The Burn panel now reads the real run response. A URL-simulated success state
   // has no training report behind it, so the panel must show the structural
@@ -384,6 +386,13 @@ test('monitor view separates a measured contract from a proposed one', async ({
     (node) => window.getComputedStyle(node).backgroundColor,
   )
   expect(background).toBe('rgba(0, 0, 0, 0)')
+
+  // The predict diagnostics panel is implemented: with no predict(...) this run it
+  // stays Beta and empty rather than showing a zero.
+  await expect(predict.getByLabel('Maturity: Beta')).toBeVisible()
+  await expect(
+    predict.getByText('no predict(...) statement ran this Full Run'),
+  ).toBeVisible()
 
   assertRuntime()
 })

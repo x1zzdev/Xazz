@@ -7,6 +7,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
+  Sparkles,
 } from 'lucide-react'
 import { StatusBadge } from './Common'
 import executeResponse from '../mock/execute-response.json'
@@ -214,6 +215,77 @@ function fmtNum(value) {
   const v = Number(value)
   if (!Number.isFinite(v)) return '—'
   return String(parseFloat(v.toPrecision(6)))
+}
+
+/**
+ * Predict-path embedding input diagnostics. Two honest states, never blended:
+ *   - measured : a real [xazz:predict] report came back from the Full Run. The
+ *                counters are shown as facts (non-fatal clamps/truncations).
+ *   - implemented/empty : no predict(...) statement ran this run, so nothing was
+ *                measured. The panel states that instead of showing a zero.
+ *
+ * These counters never block a run — out-of-range indices are clamped and
+ * non-integer values truncated at the runtime, so the panel is diagnostic, not a
+ * verdict. It borrows no success colour.
+ */
+function PredictPanel({ prediction }) {
+  const report = prediction?.report
+  const isMeasured = Boolean(report)
+
+  if (!isMeasured) {
+    return (
+      <MonitorPanel
+        contract="implemented"
+        icon={Sparkles}
+        title="Predict embedding input"
+        unit="input diagnostics · none run"
+        maturity="Beta"
+        scope="Panel is implemented — no predict(...) statement ran this Full Run, so nothing is shown as measured."
+      >
+        <p className="monitor-gap">
+          <FlaskConical size={13} aria-hidden="true" />
+          Add a predict step (e.g.{' '}
+          <code>|&gt; predict(model, as: &quot;pred&quot;)</code>) to measure the
+          embedding input diagnostics.
+        </p>
+      </MonitorPanel>
+    )
+  }
+
+  const outOfRange = Number(report.embedding_out_of_range ?? 0)
+  const nonInteger = Number(report.embedding_non_integer ?? 0)
+  const modelName = prediction.model_name ?? '—'
+
+  return (
+    <MonitorPanel
+      contract="measured"
+      icon={Sparkles}
+      title="Predict embedding input"
+      unit="count · clamped indices / truncated values"
+      maturity="Real"
+      scope={`Measured from a real Full Run · model ${modelName}`}
+    >
+      <dl className="monitor-facts">
+        <div>
+          <dt>Model</dt>
+          <dd>{modelName}</dd>
+        </div>
+        <div>
+          <dt>Out-of-range indices (clamped)</dt>
+          <dd>{outOfRange}</dd>
+        </div>
+        <div>
+          <dt>Non-integer inputs (truncated)</dt>
+          <dd>{nonInteger}</dd>
+        </div>
+      </dl>
+      <p className="monitor-caveat">
+        Diagnostics only: indices beyond the vocabulary are clamped and non-integer
+        values are truncated, so the run continues. Match the input encoding to remove
+        them.
+      </p>
+    </MonitorPanel>
+  )
 }
 
 /**
@@ -629,12 +701,13 @@ function GuardrailPanel({ policy, remediation, originalCode }) {
   )
 }
 
-export function MonitorView({ runState, training, model, dp, policy, remediation, originalCode, children }) {
+export function MonitorView({ runState, training, model, dp, policy, remediation, originalCode, prediction, children }) {
   return (
     <div className="monitor-view" aria-label="Run monitoring">
       <div className="monitor-view__rail" aria-hidden="true" />
       <div className="monitor-view__panels">
         <BurnPanel runState={runState} training={training} model={model} />
+        <PredictPanel prediction={prediction} />
         <div className="monitor-view__pair">
           <PrivacyBudgetPanel dp={dp} />
           <ResourcePanel />

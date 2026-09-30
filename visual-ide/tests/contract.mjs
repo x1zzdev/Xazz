@@ -174,6 +174,9 @@ assert.match(monitor, /maturity="Real"/)
 assert.match(monitor, /maturity="Planned"/)
 assert.match(monitor, /contract="proposed"/)
 assert.match(monitor, /Synthetic structure · not measured · proposed contract/)
+// The predict-path embedding diagnostics get their own panel with the same
+// measured/implemented honesty split as the Burn panel.
+assert.match(monitor, /Predict embedding input/)
 assert.doesNotMatch(monitor, /tone="success"|tone="warning"|tone="danger"/)
 for (const forbidden of [
   /budget safe/i,
@@ -201,7 +204,7 @@ assert.match(workspaceMonitor, /\['monitor', Activity\]/)
 assert.match(workspaceMonitor, /view === 'monitor'/)
 
 console.log(
-  `contract: ok; fixture=100→${scenario.resultCount}; requirements=18/18; forbidden CDN/effects=0; ml-nodes=${mlNodes.length}; monitor-panels=3`,
+  `contract: ok; fixture=100→${scenario.resultCount}; requirements=18/18; forbidden CDN/effects=0; ml-nodes=${mlNodes.length}; monitor-panels=4`,
 )
 
 // ── IDE workstream #104 ─────────────────────────────────────────────────────
