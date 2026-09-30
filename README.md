@@ -318,7 +318,7 @@ python benches/run_readme_benchmark.py --xlarge
 | 26 pipeline operators | `filter`, `groupBy`, `agg([...])`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
 | Visual IDE | Node-based pipeline editor + monitor, served by `xazz-server` | Stable |
 | Run history | SQLite-persisted run records — `GET /runs`, `GET /runs/:id` (Track C1) | Stable |
-| Auth & multi-tenant | `XAZZ_SERVER_TOKEN` / `XAZZ_TENANT_TOKENS` + `X-Xazz-Tenant`; `XAZZ_ADMIN_TOKEN` + `X-Xazz-Actor` (or `XAZZ_ADMIN_ACTORS=token:actor` to pin the actor) for delegated policy changes — tenant-scoped run history & audit (Track C2) | Stable |
+| Auth & multi-tenant | `XAZZ_SERVER_TOKEN` / `XAZZ_TENANT_TOKENS` + `X-Xazz-Tenant`; `XAZZ_ADMIN_TOKEN` + `X-Xazz-Actor` (or `XAZZ_ADMIN_ACTORS=token:actor` to pin the actor, which then ignores `X-Xazz-Actor` so CLI `--actor` has no effect) for delegated policy changes — tenant-scoped run history & audit (Track C2) | Stable |
 | Pipeline catalog | `POST /catalog` — pipeline catalog + column lineage from the Typed IR (Track C3) | Stable |
 | Python bindings | `xazz.check/run/policy` from Python — same diagnostics as the CLI (Track C4) | Stable |
 | `xazz sde` | Synthetic data generation engine | Stable |

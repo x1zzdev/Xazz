@@ -1,6 +1,12 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Shared help for every `--actor` flag. The audit actor is sent to the server as
+/// `X-Xazz-Actor`, but a server configured with `XAZZ_ADMIN_ACTORS` pins the actor
+/// to the credential and ignores that header, so `--actor` only takes effect for
+/// an unbound admin token (`XAZZ_ADMIN_TOKEN`).
+const ACTOR_HELP: &str = "Audit actor for an admin-delegated change (sent as X-Xazz-Actor); ignored when the server pins the actor via XAZZ_ADMIN_ACTORS";
+
 /// Xazz unified CLI — compiler · static analysis · Rust emit · synthetic data generator
 #[derive(Parser, Debug)]
 #[command(
@@ -285,8 +291,7 @@ pub enum PolicyTtlAction {
         #[arg(long)]
         token: Option<String>,
 
-        /// Audit actor for an admin-delegated change (sent as X-Xazz-Actor)
-        #[arg(long)]
+        #[arg(long, help = ACTOR_HELP)]
         actor: Option<String>,
     },
 
@@ -306,8 +311,7 @@ pub enum PolicyTtlAction {
         #[arg(long)]
         token: Option<String>,
 
-        /// Audit actor for an admin-delegated change (sent as X-Xazz-Actor)
-        #[arg(long)]
+        #[arg(long, help = ACTOR_HELP)]
         actor: Option<String>,
     },
 }
@@ -360,8 +364,7 @@ pub enum DpAction {
         #[arg(long)]
         token: Option<String>,
 
-        /// Audit actor for an admin-delegated reset (sent as X-Xazz-Actor)
-        #[arg(long)]
+        #[arg(long, help = ACTOR_HELP)]
         actor: Option<String>,
 
         /// Print the server's JSON body verbatim instead of a human summary
@@ -423,8 +426,7 @@ pub enum DpWindowAction {
         #[arg(long)]
         token: Option<String>,
 
-        /// Audit actor for an admin-delegated change (sent as X-Xazz-Actor)
-        #[arg(long)]
+        #[arg(long, help = ACTOR_HELP)]
         actor: Option<String>,
     },
 
@@ -444,8 +446,7 @@ pub enum DpWindowAction {
         #[arg(long)]
         token: Option<String>,
 
-        /// Audit actor for an admin-delegated change (sent as X-Xazz-Actor)
-        #[arg(long)]
+        #[arg(long, help = ACTOR_HELP)]
         actor: Option<String>,
     },
 
@@ -549,8 +550,7 @@ pub enum RegistryAction {
         #[arg(long)]
         token: Option<String>,
 
-        /// Audit actor for an admin-delegated change (sent as X-Xazz-Actor)
-        #[arg(long)]
+        #[arg(long, help = ACTOR_HELP)]
         actor: Option<String>,
     },
 
@@ -577,8 +577,7 @@ pub enum RegistryAction {
         #[arg(long)]
         token: Option<String>,
 
-        /// Audit actor for an admin-delegated change (sent as X-Xazz-Actor)
-        #[arg(long)]
+        #[arg(long, help = ACTOR_HELP)]
         actor: Option<String>,
     },
 }
