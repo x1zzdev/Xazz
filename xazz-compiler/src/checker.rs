@@ -19,8 +19,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{
-    AggFn, AggSpec, BinOpKind, ChartConfig, DpArgs, Expr, FillNullValue, JoinHow, LayerKind,
-    PipelineOp, PipelineSource, Program, Stmt, StructField, TrainConfig,
+    AggFn, AggSpec, BinOpKind, ChartConfig, DpArgs, EmbeddingVocab, Expr, FillNullValue, JoinHow,
+    LayerKind, PipelineOp, PipelineSource, Program, Stmt, StructField, TrainConfig,
 };
 use crate::error::{CompileError, ErrorKind};
 use crate::ir;
@@ -630,6 +630,7 @@ impl Analyzer {
         let cols = self.vars.get(source_var).map(|v| v.columns.clone());
         if let Some(cols) = cols {
             self.warn_model_output_dim(model_name, config, &cols);
+            self.validate_embedding_vocab(model_name, config, &cols);
         }
 
         // TrainStmt is `run <var> |> train(...)` — recorded in the IR as a model-training node with no binding.
@@ -891,6 +892,64 @@ impl Analyzer {
         });
     }
 
+    /// Errors when a leading `Embedding` layer declares a per-column vocab list
+    /// whose length does not match the input feature count.
+    ///
+    /// The runtime (`EmbeddingVocab::expand`) and the emitted Rust both reject
+    /// this, so catching it here fails fast. A single-element list such as
+    /// `Embedding([v], d)` on a multi-column model is a likely typo for the
+    /// shared form `Embedding(v, d)`; flagging it avoids a late runtime error.
+    fn validate_embedding_vocab(
+        &mut self,
+        model_name: &str,
+        config: &TrainConfig,
+        cols: &HashMap<String, CheckerColType>,
+    ) {
+        if !cols
+            .get(&config.target)
+            .is_some_and(CheckerColType::is_numeric)
+        {
+            return;
+        }
+        let feature_count = cols
+            .iter()
+            .filter(|(name, ty)| name.as_str() != config.target && ty.is_numeric())
+            .count();
+        let vocab_len = match self
+            .models
+            .get(model_name)
+            .and_then(|layers| layers.first())
+        {
+            Some(LayerKind::Embedding {
+                vocab: EmbeddingVocab::PerColumn(vs),
+                ..
+            }) => vs.len(),
+            _ => return,
+        };
+        if vocab_len == feature_count {
+            return;
+        }
+        self.error(
+            ErrorKind::Other("Embedding 컬럼별 vocab 길이 오류".to_string()),
+            Some(model_name),
+            if is_korean() {
+                format!(
+                    "train({}) : 모델 '{}' 의 Embedding 컬럼별 vocab {}개가 입력 특성 컬럼 수 {}개와 다릅니다. 목록 길이를 맞추거나 공유 형식 `Embedding(vocab, embed_dim)` 을 사용하세요.",
+                    model_name, model_name, vocab_len, feature_count
+                )
+            } else {
+                format!(
+                    "train({}) : model '{}' declares {} per-column vocab entr{} but the input has {} feature column(s). Match the list length or use the shared form `Embedding(vocab, embed_dim)`.",
+                    model_name,
+                    model_name,
+                    vocab_len,
+                    if vocab_len == 1 { "y" } else { "ies" },
+                    feature_count
+                )
+            },
+        );
+    }
+
     fn check_train_op(
         &mut self,
         model_name: &String,
@@ -916,6 +975,7 @@ impl Analyzer {
             );
         }
         self.warn_model_output_dim(model_name, config, &st.cols);
+        self.validate_embedding_vocab(model_name, config, &st.cols);
         st.steps.push(ir::Step::ML(ir::MLOp::Train {
             model: model_name.clone(),
             config: config.clone(),
@@ -2194,6 +2254,38 @@ mod tests {
         assert!(
             err_kinds(&r).iter().any(|k| k.contains("Embedding")),
             "Embedding 오류 없음: {:?}",
+            err_kinds(&r)
+        );
+    }
+
+    #[test]
+    fn embedding_single_element_list_on_multi_column_is_error() {
+        let r = check(
+            "type X = { a: int, b: int, y: float };
+             model Rec { Embedding([3], 2) -> ReLU() -> Dense(1) }
+             v data = load(\"x.csv\") :: X;
+             v trained = data |> train(Rec, target: \"y\", epochs: 3);",
+        );
+        assert!(r.is_err(), "단일 원소 목록이 통과함: {:?}", r.errors);
+        assert!(
+            err_kinds(&r).iter().any(|k| k.contains("vocab 길이 오류")),
+            "Embedding vocab 길이 오류 없음: {:?}",
+            err_kinds(&r)
+        );
+    }
+
+    #[test]
+    fn embedding_per_column_length_mismatch_on_train_stmt_is_error() {
+        let r = check(
+            "type X = { a: int, b: int, c: int, y: float };
+             model Rec { Embedding([3, 5], 2) -> ReLU() -> Dense(1) }
+             v data = load(\"x.csv\") :: X;
+             run data |> train(Rec, target: \"y\", epochs: 3);",
+        );
+        assert!(r.is_err(), "길이 불일치가 통과함: {:?}", r.errors);
+        assert!(
+            err_kinds(&r).iter().any(|k| k.contains("vocab 길이 오류")),
+            "Embedding vocab 길이 오류 없음: {:?}",
             err_kinds(&r)
         );
     }
