@@ -9,6 +9,15 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — predict 진단의 서버 `/execute` 노출 (`prediction`) (issue D3)
+
+- `xazz-server`의 `parse_stdout_markers`가 `[xazz:predict]` 마커를 파싱해
+  `ExecuteResponse.prediction`으로 노출한다(기존 `training`과 대칭). 이로써
+  임베딩 입력 진단(`embedding_out_of_range`/`embedding_non_integer`)이 CLI
+  `--json`·러너 stdout에만 머물지 않고 `/execute` 응답에서도 기계 판독 가능하다.
+  마커가 없거나 깨진 경우 필드는 생략된다
+- 검증: `parse_stdout_markers` predict 마커 파싱/부재/오류 단위 테스트 1종
+
 ### Added — 서버 환경변수 레퍼런스 `docs/SERVER.md` (issue C2)
 
 - `xazz-server`가 읽는 환경변수를 한 문서로 정리: 인증

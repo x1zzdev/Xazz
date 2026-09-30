@@ -396,6 +396,10 @@ struct ExecuteResponse {
     stdout: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     training: Option<Value>,
+    /// Embedding-input diagnostics of the last `predict`, parsed from the
+    /// `[xazz:predict]` marker (issue D3). None when the script does not predict.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prediction: Option<Value>,
     /// Differential-privacy audit report parsed from the `[xazz:dp]` marker (v0.6).
     /// None when withDp(...) is unused — the frontend shows this as "budget unconsumed".
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -870,6 +874,7 @@ async fn handle_execute(
                     logs: vec![],
                     stdout: String::new(),
                     training: None,
+                    prediction: None,
                     dp: None,
                     diagnostics: None,
                     policy: None,
@@ -906,6 +911,7 @@ async fn handle_execute(
                         logs,
                         stdout: String::new(),
                         training: None,
+                        prediction: None,
                         dp: None,
                         diagnostics: None,
                         policy: serde_json::to_value(&report).ok(),
@@ -947,6 +953,7 @@ async fn handle_execute(
                 logs: vec![],
                 stdout: String::new(),
                 training: None,
+                prediction: None,
                 dp: None,
                 diagnostics: None,
                 policy: None,
@@ -1071,9 +1078,16 @@ async fn run_execution_job(
             Err(e) => (false, String::new(), format!("xazz.exe 실행 실패: {}", e)),
         };
 
-        // 4. Parse stdout: extract [xazz:result], [xazz:chart], [xazz:train], [xazz:dp] markers
-        let (rows, schema, logs, training, dp, diagnostics) =
-            parse_stdout_markers(&stdout, &stderr);
+        // 4. Parse stdout: extract [xazz:result], [xazz:chart], [xazz:train], [xazz:predict], [xazz:dp] markers
+        let StdoutMarkers {
+            rows,
+            schema,
+            logs,
+            training,
+            prediction,
+            dp,
+            diagnostics,
+        } = parse_stdout_markers(&stdout, &stderr);
         // Resource telemetry relayed by the CLI (issue #128); absent when the
         // platform could not measure it or the run predates the feature.
         let resources = parse_resources_marker(&stdout);
@@ -1123,6 +1137,7 @@ async fn run_execution_job(
                 logs,
                 stdout,
                 training,
+                prediction,
                 dp,
                 diagnostics,
                 policy: policy_value,
@@ -1137,6 +1152,7 @@ async fn run_execution_job(
                 logs,
                 stdout,
                 training,
+                prediction,
                 dp,
                 diagnostics,
                 policy: policy_value,
@@ -1153,6 +1169,7 @@ async fn run_execution_job(
         logs: vec![],
         stdout: String::new(),
         training: None,
+        prediction: None,
         dp: None,
         diagnostics: None,
         policy: policy_for_err,
@@ -1161,21 +1178,23 @@ async fn run_execution_job(
     })
 }
 
-/// Parses the [xazz:result], [xazz:chart], [xazz:train], [xazz:diagnostics], [xazz:dp] markers from stdout.
-fn parse_stdout_markers(
-    stdout: &str,
-    stderr: &str,
-) -> (
-    Value,
-    Value,
-    Vec<String>,
-    Option<Value>,
-    Option<Value>,
-    Option<Value>,
-) {
+/// Parses the [xazz:result], [xazz:chart], [xazz:train], [xazz:predict],
+/// [xazz:diagnostics], [xazz:dp] markers from stdout.
+struct StdoutMarkers {
+    rows: Value,
+    schema: Value,
+    logs: Vec<String>,
+    training: Option<Value>,
+    prediction: Option<Value>,
+    dp: Option<Value>,
+    diagnostics: Option<Value>,
+}
+
+fn parse_stdout_markers(stdout: &str, stderr: &str) -> StdoutMarkers {
     let mut rows = json!([]);
     let mut schema = json!([]);
     let mut training: Option<Value> = None;
+    let mut prediction: Option<Value> = None;
     let mut dp: Option<Value> = None;
     let mut diagnostics: Option<Value> = None;
     let logs: Vec<String> = stderr.lines().map(|l| l.to_string()).collect();
@@ -1199,6 +1218,13 @@ fn parse_stdout_markers(
             && let Ok(parsed) = serde_json::from_str::<Value>(json_part)
         {
             training = Some(parsed);
+        }
+        // Predict-path embedding diagnostics marker (issue D3) — mirrors
+        // `[xazz:train]` so the server surfaces the report in its response.
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:predict] ")
+            && let Ok(parsed) = serde_json::from_str::<Value>(json_part)
+        {
+            prediction = Some(parsed);
         }
         // Differential-privacy audit marker — single-line self-contained:
         //   [xazz:dp] <JSON>            (new form — safe even if broken by newlines/emojis)
@@ -1231,7 +1257,15 @@ fn parse_stdout_markers(
         i += 1;
     }
 
-    (rows, schema, logs, training, dp, diagnostics)
+    StdoutMarkers {
+        rows,
+        schema,
+        logs,
+        training,
+        prediction,
+        dp,
+        diagnostics,
+    }
 }
 
 /// Extracts the CLI's `[xazz:resources]` telemetry marker (issue #128), if present.
@@ -2594,6 +2628,7 @@ fn internal_err(msg: String) -> (StatusCode, Json<ExecuteResponse>) {
             logs: vec![],
             stdout: String::new(),
             training: None,
+            prediction: None,
             dp: None,
             diagnostics: None,
             policy: None,
@@ -2663,6 +2698,33 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
         assert!(parse_resources_marker("no marker here").is_none());
         assert!(parse_resources_marker("[xazz:resources] not-json").is_none());
         assert!(parse_resources_marker("[xazz:resources]{\"evil\":1}").is_none());
+    }
+
+    /// The `[xazz:predict]` marker is surfaced as `prediction`, like `[xazz:train]`
+    /// is as `training` (issue D3). A malformed marker leaves it absent.
+    #[test]
+    fn predict_marker_is_parsed() {
+        let stdout = "\
+[xazz:predict] {\"type\":\"predict_stmt\",\"success\":true,\"model_name\":\"AirPredictor\",\"report\":{\"embedding_out_of_range\":3,\"embedding_non_integer\":1}}
+[xazz:result] {\"rows\":[],\"schema\":[]}
+";
+        let m = parse_stdout_markers(stdout, "");
+        assert!(m.training.is_none());
+        let prediction = m.prediction.expect("predict marker parsed");
+        assert_eq!(prediction["model_name"], "AirPredictor");
+        assert_eq!(prediction["report"]["embedding_out_of_range"], 3);
+        assert_eq!(prediction["report"]["embedding_non_integer"], 1);
+
+        assert!(
+            parse_stdout_markers("[xazz:predict] {not json\n", "")
+                .prediction
+                .is_none()
+        );
+        assert!(
+            parse_stdout_markers("[xazz:result] {\"rows\":[]}", "")
+                .prediction
+                .is_none()
+        );
     }
 
     /// The resources endpoint returns persisted telemetry, an honest empty state for
