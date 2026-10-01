@@ -263,6 +263,9 @@ pub fn run_pipeline(
     // 5-B: Sequential pipeline execution + SymbolTable management
     let mut symbol_table: HashMap<String, polars::frame::DataFrame> = HashMap::new();
     let mut model_table: HashMap<String, crate::dl::TrainedModel> = HashMap::new();
+    // Eager small-source cache: repeated `load()` of the same file + options is
+    // read/parsed once and reused (bench: P2/P7 double-scan regression).
+    let mut source_cache: HashMap<LoadCacheKey, polars::frame::DataFrame> = HashMap::new();
     // Session privacy budget (ε-budget) — deducted per withDp call, rejects the pipeline when exceeded
     let mut dp_budget = crate::dp::PrivacyBudget::from_env();
     let mut pipeline_count = 0usize;
@@ -278,6 +281,7 @@ pub fn run_pipeline(
             &model_registry,
             &mut model_table,
             &mut dp_budget,
+            &mut source_cache,
         ) {
             Ok(Some(df)) => {
                 if let Some(vname) = &node.name {
@@ -662,6 +666,31 @@ pub(crate) fn load_source_as_df(
         "arrow" | "ipc" | "feather" => load_arrow_as_df(file_path),
         _ => load_csv_as_df_from_file(file_path, options),
     }
+}
+
+/// Cache key for a small eager `load()` source: the file path plus the parse
+/// options that affect the resulting frame.
+type LoadCacheKey = (String, Option<u8>, Option<bool>);
+
+/// Eager-loads a **small** source once per program run. Repeated `load()` calls
+/// for the same file and options reuse the first materialized frame instead of
+/// re-reading and re-parsing the file (regression: the benchmark's P2/P7 both
+/// `load()` the same CSV, so it was scanned twice).
+///
+/// Only small sources use this path — large out-of-core sources are never
+/// materialized here (see `execute_node`), preserving the streaming guarantee.
+fn load_small_source_cached(
+    cache: &mut HashMap<LoadCacheKey, polars::frame::DataFrame>,
+    file_path: &str,
+    options: &LoadOptions,
+) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    let key = (file_path.to_string(), options.separator, options.has_header);
+    if let Some(df) = cache.get(&key) {
+        return Ok(df.clone());
+    }
+    let df = load_source_as_df(file_path, options)?;
+    cache.insert(key, df.clone());
+    Ok(df)
 }
 
 fn load_parquet_as_df(
@@ -1261,6 +1290,7 @@ fn execute_node(
     model_registry: &HashMap<String, Vec<LayerKind>>,
     model_table: &mut HashMap<String, crate::dl::TrainedModel>,
     dp_budget: &mut crate::dp::PrivacyBudget,
+    source_cache: &mut HashMap<LoadCacheKey, polars::frame::DataFrame>,
 ) -> Result<Option<polars::frame::DataFrame>, Box<dyn std::error::Error>> {
     use polars::prelude::IntoLazy;
 
@@ -1281,7 +1311,7 @@ fn execute_node(
                 // Read the file once via the format-dispatched eager loader, validate
                 // in-memory, then wrap in LazyFrame. Avoids the lazy-scan plus a
                 // second disk pass for null-validation (which regressed small files).
-                let df_raw = load_source_as_df(file_path, options)?;
+                let df_raw = load_small_source_cached(source_cache, file_path, options)?;
                 let src_headers: Vec<String> = df_raw
                     .get_column_names()
                     .iter()
@@ -1976,5 +2006,59 @@ mod postgres_tests {
             msg.contains("PostgreSQL") || msg.contains("postgres"),
             "unexpected error: {msg}"
         );
+    }
+}
+
+// ── Small-source load cache tests (bench double-scan regression) ──────────
+
+#[cfg(test)]
+mod load_cache_tests {
+    use super::*;
+
+    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    fn tmp_csv(tag: &str) -> std::path::PathBuf {
+        let n = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "xazz_load_cache_{tag}_{}_{n}.csv",
+            std::process::id()
+        ));
+        std::fs::write(&path, "a,b\n1,2\n3,4\n").expect("write temp csv");
+        path
+    }
+
+    #[test]
+    fn repeated_small_load_reuses_first_read() {
+        let path = tmp_csv("reuse");
+        let p = path.to_str().unwrap().to_string();
+        let mut cache = HashMap::new();
+        let opts = LoadOptions::default();
+
+        let first = load_small_source_cached(&mut cache, &p, &opts).expect("first load");
+        assert_eq!(first.height(), 2);
+        assert_eq!(cache.len(), 1);
+
+        // Remove the source between calls: a re-read would fail, so success proves
+        // the second load came from the cache (one scan for repeated `load()`).
+        std::fs::remove_file(&path).expect("remove temp csv");
+        let second = load_small_source_cached(&mut cache, &p, &opts).expect("cached load");
+        assert_eq!(second.height(), 2);
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn distinct_parse_options_are_cached_separately() {
+        let path = tmp_csv("opts");
+        let p = path.to_str().unwrap().to_string();
+        let mut cache = HashMap::new();
+
+        load_small_source_cached(&mut cache, &p, &LoadOptions::default()).expect("default load");
+        let custom = LoadOptions {
+            separator: Some(b';'),
+            has_header: Some(false),
+        };
+        // Distinct options → distinct key → cache miss (the file still exists here).
+        load_small_source_cached(&mut cache, &p, &custom).expect("custom load");
+        assert_eq!(cache.len(), 2);
     }
 }
