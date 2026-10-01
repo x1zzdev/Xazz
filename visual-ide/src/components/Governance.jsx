@@ -24,6 +24,7 @@ import {
   getAuditRecords,
   getDpBudget,
   getDpResetHistory,
+  getDpWindowHistory,
   getPolicy,
   getPolicyHistory,
   getPolicyTtl,
@@ -176,6 +177,12 @@ function DpLedgerPanel({ revision }) {
   const time = useLocaleTime()
   const [state, reload, replace] = useServerData(getDpBudget, revision)
   const [historyState, reloadResets] = useServerData(getDpResetHistory, revision)
+  const [windowPath, setWindowPath] = useState([null])
+  useEffect(() => setWindowPath([null]), [revision])
+  const windowCursor = windowPath[windowPath.length - 1]
+  const [windowHistoryState, reloadWindowHistory] = useServerData(
+    () => getDpWindowHistory({ cursor: windowCursor }), `${revision}:${windowCursor ?? ''}`,
+  )
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState(null)
@@ -215,6 +222,11 @@ function DpLedgerPanel({ revision }) {
     }
   }
 
+  const refreshWindowHistory = () => {
+    if (windowPath.length === 1) reloadWindowHistory()
+    else setWindowPath([null])
+  }
+
   const changeWindow = async (action) => {
     const accessAtStart = getApiAccess()
     setBusy(true)
@@ -223,6 +235,7 @@ function DpLedgerPanel({ revision }) {
       if (getApiAccess() === accessAtStart) {
         replace(after)
         setNotice({ tone: 'ok', text: (tr) => tr('gov.dp.windowSaved') })
+        refreshWindowHistory()
       }
     } catch (error) {
       if (getApiAccess() === accessAtStart) {
@@ -339,6 +352,56 @@ function DpLedgerPanel({ revision }) {
             </button>
           </form>
           <p className="monitor-caveat">{t('gov.dp.windowNote')}</p>
+          <div className="gov-subsection">
+            <strong><FileClock size={13} aria-hidden="true" /> {t('gov.dp.windowHistory')}</strong>
+            {windowHistoryState.status !== 'ready' ? (
+              <PanelStatus state={windowHistoryState} onRetry={reloadWindowHistory} lines={2} />
+            ) : windowHistoryState.data?.history?.length ? (
+              <div className="gov-table-wrap">
+                <table className="gov-table">
+                  <caption className="sr-only">{t('gov.dp.windowHistory')}</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('gov.dp.windowHistoryWhen')}</th>
+                      <th scope="col">{t('gov.dp.windowHistoryActor')}</th>
+                      <th scope="col">{t('gov.dp.windowHistoryAction')}</th>
+                      <th scope="col">{t('gov.dp.windowHistoryOld')}</th>
+                      <th scope="col">{t('gov.dp.windowHistoryNew')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {windowHistoryState.data.history.map((entry) => (
+                      <tr key={entry.id}>
+                        <td>{time(entry.changed_at)}</td>
+                        <td>{entry.changed_by || t('gov.defaultTenant')}</td>
+                        <td>{entry.action}</td>
+                        <td>{entry.old_window_secs ?? '—'}</td>
+                        <td>{entry.new_window_secs ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="monitor-empty">{t('gov.dp.windowHistoryEmpty')}</p>
+            )}
+            <div className="gov-actions">
+              <button className="button button--tool-secondary button--compact" type="button"
+                disabled={windowPath.length === 1}
+                onClick={() => setWindowPath((path) => path.slice(0, -1))}>
+                {t('gov.dp.previous')}
+              </button>
+              <span>{t('gov.dp.windowPage').replace('{n}', String(windowPath.length))}</span>
+              <button className="button button--tool-secondary button--compact" type="button"
+                disabled={windowHistoryState.status !== 'ready' || (windowHistoryState.data?.history?.length ?? 0) < 20}
+                onClick={() => {
+                  const next = windowHistoryState.data?.next_cursor
+                  if (next != null) setWindowPath((path) => [...path, next])
+                }}>
+                {t('gov.dp.next')}
+              </button>
+            </div>
+          </div>
           <div className="gov-actions">
             <RefreshButton onClick={reload} label={t('gov.refresh')} />
             <button

@@ -176,6 +176,11 @@ export const resetDpBudget = () => request('/dp/budget/reset', { method: 'POST' 
 export const putDpWindow = (windowSecs) =>
   request('/dp/budget/window', { method: 'PUT', json: { window_secs: windowSecs } })
 export const deleteDpWindow = () => request('/dp/budget/window', { method: 'DELETE' })
+// Window-override change audit (C2) — newest-first, cursor paged like the policy
+// history endpoints. {history:[{id,tenant,action,old_window_secs,new_window_secs,
+// changed_by,changed_at}], next_cursor}.
+export const getDpWindowHistory = (options) =>
+  request(`/dp/budget/window/history?${historyQuery(options)}`)
 
 // ── Column lineage (#116) — static compile only, nothing executes.
 export const fetchCatalog = (code) =>

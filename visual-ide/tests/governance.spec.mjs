@@ -549,6 +549,60 @@ test('DP ledger reset needs confirmation and shows the re-read value', async ({ 
   await expect(panel.getByRole('img')).toHaveAccessibleName('0 of 10 epsilon spent by this tenant.')
 })
 
+test('DP window override history pages and refreshes after a window change', async ({ page }) => {
+  const history = Array.from({ length: 21 }, (_, i) => {
+    const id = 21 - i
+    return {
+      id, action: id % 2 ? 'set' : 'clear',
+      old_window_secs: id % 2 ? null : id, new_window_secs: id % 2 ? id : null,
+      changed_by: 'alice', changed_at: 1790000000 - i,
+    }
+  })
+  let windowSecs = 60
+  let source = 'global'
+  const view = () => ({
+    ...defaults()['GET /dp/budget'], window_secs: windowSecs,
+    window_source: source, resets_at: windowSecs ? 1800000000 : 0,
+  })
+  const requests = await mockServer(page, {
+    'GET /dp/budget': view,
+    'GET /dp/budget/window/history': (request) => {
+      const cursor = new URL(request.url()).searchParams.get('cursor')
+      const pageHistory = cursor == null
+        ? history.slice(0, 20)
+        : history.filter((entry) => entry.id < Number(cursor)).slice(0, 20)
+      return {
+        tenant: '', limit: 20,
+        next_cursor: pageHistory.length ? pageHistory[pageHistory.length - 1].id : null,
+        history: pageHistory,
+      }
+    },
+    'PUT /dp/budget/window': (request) => {
+      windowSecs = request.postDataJSON().window_secs
+      source = 'tenant'
+      history.unshift({ id: 22, action: 'set', old_window_secs: 60, new_window_secs: windowSecs,
+        changed_by: 'operator', changed_at: 1790000001 })
+      return view()
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Differential-privacy ledger' })
+  const table = panel.getByRole('table', { name: 'Window override history' })
+  const section = panel.locator('.gov-subsection').first()
+  await expect(table.getByRole('row')).toHaveCount(21)
+  await section.getByRole('button', { name: 'Next' }).click()
+  await expect(section).toContainText('Page 2')
+  await expect(table.getByRole('row')).toHaveCount(2)
+  await section.getByRole('button', { name: 'Previous' }).click()
+  await expect(table.getByRole('row')).toHaveCount(21)
+
+  await panel.getByLabel('Window length (seconds)').fill('3600')
+  await panel.getByRole('button', { name: 'Save window' }).click()
+  await expect(table).toContainText('operator')
+  await expect(table).toContainText('3600')
+  expect(requests.some((r) => r.path === '/dp/budget/window/history')).toBe(true)
+})
+
 // ── Server access: headers sent, token never stored ────────────────────────
 
 test('server access headers reach every request and the token is never stored', async ({ page }) => {

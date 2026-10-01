@@ -25,6 +25,7 @@ export const defaults = () => ({
     resets_at: 0,
   },
   'GET /dp/budget/history': { tenant: '', resets: [] },
+  'GET /dp/budget/window/history': { tenant: '', limit: 20, next_cursor: null, history: [] },
   'GET /security/audit/log': auditFixture,
   'GET /security/audit/chain': { intact: true, records: auditFixture.records.length },
   'GET /security/policy': {
