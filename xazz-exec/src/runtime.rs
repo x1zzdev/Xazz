@@ -680,7 +680,9 @@ fn load_source_lazy(
             })?;
             // UTF-8 → true out-of-core scan_csv. Non-UTF-8 (EUC-KR/CP949) →
             // eager decode fallback (these files are small Korean public datasets).
-            if String::from_utf8(raw_bytes.clone()).is_ok() {
+            // `from_utf8` borrows the buffer so the common UTF-8 case avoids a
+            // whole-file copy before handing the bytes to the eager decoder.
+            if std::str::from_utf8(&raw_bytes).is_ok() {
                 load_csv_lazy(file_path, options)
             } else {
                 use polars::prelude::IntoLazy;
@@ -1282,11 +1284,13 @@ fn load_csv_as_df_from_bytes(
     use polars::prelude::{CsvParseOptions, CsvReadOptions, NullValues, SerReader};
     use std::io::Cursor;
 
-    let utf8_string = match String::from_utf8(raw_bytes.clone()) {
+    let utf8_string = match String::from_utf8(raw_bytes) {
         Ok(s) => s,
-        Err(_) => {
+        Err(e) => {
+            // Reuse the failed conversion's buffer instead of cloning it.
+            let bytes = e.into_bytes();
             use encoding_rs::EUC_KR;
-            let (cow, _encoding_used, _had_errors) = EUC_KR.decode(&raw_bytes);
+            let (cow, _encoding_used, _had_errors) = EUC_KR.decode(&bytes);
             cow.into_owned()
         }
     };
