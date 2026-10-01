@@ -9,6 +9,18 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 쿼리별 ε 런타임 상한 `XAZZ_DP_MAX_EPSILON` (issue #118)
+
+- **엔진** — `dp::apply_dp`가 opt-in 환경변수 `XAZZ_DP_MAX_EPSILON`을 읽어 ε이 상한을 넘는 `withDp`를
+  노이즈 주입 **전에** fail-closed로 거부한다(예산 미소진). 정책 팩의 컴파일 타임 `max_epsilon`(XZP005)과는
+  별개 계층이라 정책이 상한을 낮추거나 룰 severity를 바꿔도 적용된다. 미설정·비정상값은 무시(기존 동작 동일)
+- **서버** — `POST /execute`가 정책 게이트 뒤·DP 예약 **앞**에서 같은 상한을 검사해 초과 단계를 변수명/ε과 함께
+  `422`로 거부하고 감사 로그에 `blocked`로 남긴다. 러너는 서버 환경을 상속하므로 엔진에서 한 번 더 검사된다
+- **컴파일러** — `xazz_compiler::with_dp_requests(&Program) -> Vec<WithDpRequest>` 공개: 프로그램의 모든
+  `withDp` 요청(문장 인덱스·바인딩 변수·인자)을 소스 순서로 반환
+- 테스트: 엔진 단위 2종(파싱·경계), 통합 1종(`tests/dp_budget.rs` — 초과 거부·마커 미출력, `ε == cap` 통과,
+  2컬럼 `k·ε`은 상한과 무관, 비정상값 무시), 컴파일러 1종, 서버 2종. 문서: `dp-spec.md`, `SERVER.md`
+
 ### Docs — burn-cuda 실기 acceptance 통과 기록과 런타임 요구사항 정정 (issue #236, #103)
 
 - `docs/design/gpu-backend-acceptance.md` §4 — Windows 11 / RTX 4070, `windows-gnu` 툴체인 그대로
@@ -18,7 +30,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
   `nvidia-cuda-runtime`)을 사용자 폴더에 풀어 `PATH`·`CUDA_PATH`만 잡으면 Toolkit 설치·관리자 권한
   없이 해결됨을 확인. §6.2 CUDA 항목 완료, §6.1에 요구사항·probe 진단 개선 제안 추가
 - `docs/GPU_BACKENDS.md` — "드라이버만 있으면 됨" 표기를 **드라이버 + NVRTC 라이브러리 + CUDA 헤더**로
-  정정하고 pip 재배포본 확보 절차 수록. `docs/ROADMAP.md` D1 CUDA 실기 항목 완료 처리
+   정정하고 pip 재배포본 확보 절차 수록. `docs/ROADMAP.md` D1 CUDA 실기 항목 완료 처리
 
 ### Added — visual-ide 정책 이력 커서 페이지네이션 (issue C2)
 

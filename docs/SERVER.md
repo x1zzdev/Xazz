@@ -44,6 +44,7 @@ Per-tenant ε/δ envelopes are enforced by the server and injected into each run
 | `XAZZ_TENANT_DP_DELTA_BUDGET` | `1e-4` | Per-tenant total δ envelope. Values outside `[0, 1)` fall back to the default. |
 | `XAZZ_TENANT_DP_WINDOW_SECS` | `0` | Rolling budget window in seconds; `0` means cumulative (no window). Clamped to ~10 years. Overridable per tenant via `PUT /dp/budget/window`. |
 | `XAZZ_DP_RESERVATION_TTL_SECS` | `3600` | How long a cross-instance DP reservation stays valid before another instance may reclaim it. Values `<= 0` fall back to the default. |
+| `XAZZ_DP_MAX_EPSILON` | unset | Opt-in **per-query** ε cap (issue #118), independent of the policy pack's `max_epsilon`. `/execute` rejects with `422` before reserving budget when any `withDp` ε exceeds it (the error names the step and ε); the runner inherits the variable and re-checks it in `apply_dp`. Invalid or `<= 0` disables the cap. |
 | `XAZZ_TENANT_DP_WINDOW_HISTORY_MAX` | `1000` | Per-tenant cap on retained DP-window override change-history rows. Invalid or `0` falls back to the default. |
 
 The remaining ε/δ handed to a run is emitted as `XAZZ_DP_BUDGET` /

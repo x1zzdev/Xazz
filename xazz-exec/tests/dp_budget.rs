@@ -178,6 +178,50 @@ fn budget_boundary_uses_multiplied_charge() {
     );
 }
 
+/// Opt-in per-query cap (issue #118): `XAZZ_DP_MAX_EPSILON` refuses a `withDp`
+/// whose ε exceeds it before any noise is drawn, independently of the policy
+/// pack. Unset / invalid values leave behaviour unchanged.
+#[test]
+fn per_query_epsilon_cap_refuses_before_spending() {
+    // ε=1.0 > cap 0.5 → refused, no marker (nothing spent), reason names the cap.
+    let refused = run_script(&one_column_script("1.0"), &[("XAZZ_DP_MAX_EPSILON", "0.5")]);
+    let err = stderr_of(&refused);
+    assert!(
+        err.contains("[xazz RUNTIME ERROR]") && err.contains("XAZZ_DP_MAX_EPSILON"),
+        "cap violation must be refused with the cap named:\n{err}"
+    );
+    assert!(
+        dp_markers(&refused).is_empty(),
+        "refused step must not emit a marker"
+    );
+
+    // ε == cap passes and is charged normally.
+    let at_cap = run_script(&one_column_script("1.0"), &[("XAZZ_DP_MAX_EPSILON", "1.0")]);
+    assert!(at_cap.status.success(), "{}", stderr_of(&at_cap));
+    let dp = &dp_markers(&at_cap)[0];
+    assert!(approx(dp["budget_spent"].as_f64().unwrap(), 1.0));
+
+    // The cap is per query, not per column: a 2-column step with ε=1.0 under cap 1.0 passes
+    // (its k·ε=2.0 charge is the budget's business, not the cap's).
+    let two_cols = run_script(&two_column_script("1.0"), &[("XAZZ_DP_MAX_EPSILON", "1.0")]);
+    assert!(two_cols.status.success(), "{}", stderr_of(&two_cols));
+    assert!(approx(
+        dp_markers(&two_cols)[0]["budget_spent"].as_f64().unwrap(),
+        2.0
+    ));
+
+    // Invalid values are ignored (no cap), so the default policy cap is the only limit.
+    for bad in ["abc", "0", "-2"] {
+        let out = run_script(&one_column_script("1.0"), &[("XAZZ_DP_MAX_EPSILON", bad)]);
+        assert!(
+            out.status.success(),
+            "cap {bad:?} must be ignored:\n{}",
+            stderr_of(&out)
+        );
+        assert_eq!(dp_markers(&out).len(), 1);
+    }
+}
+
 /// Sequential composition across steps: 2-column ε=1.0 then 1-column ε=0.5
 /// accumulates to 2.5 over three composed mechanisms.
 #[test]
