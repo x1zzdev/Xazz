@@ -252,7 +252,9 @@ Same 4-stage pipeline (drop nulls → dual filter → group-by aggregates → fi
 - Both sides are measured as **pipeline execution only** — the Python interpreter boot (~0.3–0.7 s) is excluded from pandas, and Xazz reports its own `[xazz:timing]` pipeline marker, so the comparison is apples-to-apples. Peak RSS uses the process tree for both engines.
 - Source comes from Apache Arrow columnar memory + Polars LazyFrame query optimization + multithreaded native execution.
 - **Out-of-core execution:** `load()` now returns a lazy scan (`scan_csv`/`scan_parquet`/`scan_ipc`), so sources stay on disk until the terminal collect — no full-file materialization upfront. For very large workloads set `XAZZ_STREAMING=1` to collect through Polars' streaming engine (unsupported plans fall back to in-memory automatically). See [docs/ROADMAP.md](docs/ROADMAP.md) Track A2.
-- Honest footnote: Polars' multithreading trades higher peak RSS for latency — pandas holds more rows per thread, Polars parallelizes across them. Note the benchmark data itself is not committed (it is built from the Seoul air-quality sources). Reproduce it yourself:
+- Honest footnote: Polars' multithreading trades higher peak RSS for latency — pandas holds more rows per thread, Polars parallelizes across them. Note the benchmark data itself is not committed (it is built from the Seoul air-quality sources).
+
+**Measurement provenance.** The committed numbers were captured on a single development host and **predate provenance capture**, so the full CPU/OS/RAM spec is not recorded — read them as directional. `benches/run_readme_benchmark.py` now writes a `provenance` block (platform, OS, CPU model, physical/logical cores, total RAM, and the pandas/polars/Python versions) into `benches/benchmark_results.json`, so the next run on a stable host is fully attributed. Reproduce it yourself:
 
 ```bash
 git lfs pull                                    # fetch examples/data (Git LFS)

@@ -246,7 +246,9 @@ Xazz는 모듈화된 Rust 워크스페이스입니다. CLI는 2–5 MB 경량 �
 - 양쪽 모두 **파이프라인 실행 시간만** 측정합니다 — Python 인터프리터 부팅(~0.3–0.7초)은 pandas에서 제외하고, Xazz는 자체 `[xazz:timing]` 파이프라인 마커를 보고하므로 공정한 비교입니다. 피크 RSS는 두 엔진 모두 프로세스 트리 기준으로 측정합니다.
 - 성능의 원천은 Apache Arrow 컬럼형 메모리 + Polars LazyFrame 쿼리 최적화 + 멀티스레드 네이티브 실행입니다.
 - **Out-of-core 실행:** `load()`가 이제 lazy 스캔(`scan_csv`/`scan_parquet`/`scan_ipc`)을 반환하므로, 소스는 최종 collect 전까지 디스크에 남아 있습니다 — 앞단에서 파일 전체를 메모리에 올리지 않습니다. 매우 큰 워크로드에서는 `XAZZ_STREAMING=1`을 설정해 Polars 스트리밍 엔진으로 collect하세요(미지원 플랜은 자동으로 인메모리로 폴백). [docs/ROADMAP.md](docs/ROADMAP.md) Track A2 참고.
-- 정직한 주석: Polars의 멀티스레딩은 지연 시간을 줄이는 대신 더 높은 피크 RSS를 치른다는 트레이드오프가 있습니다. 벤치마크 데이터 자체는 커밋되어 있지 않습니다(서울시 공기질 원본에서 생성). 직접 재현해 볼 수 있습니다:
+- 정직한 주석: Polars의 멀티스레딩은 지연 시간을 줄이는 대신 더 높은 피크 RSS를 치른다는 트레이드오프가 있습니다. 벤치마크 데이터 자체는 커밋되어 있지 않습니다(서울시 공기질 원본에서 생성).
+
+**측정 프로비넌스.** 커밋된 수치는 개발 호스트 한 대에서 측정되었고 **프로비넌스 캡처 이전** 값이라 전체 CPU/OS/RAM 사양이 기록되어 있지 않습니다 — 방향성 지표로 보세요. 이제 `benches/run_readme_benchmark.py`가 `benches/benchmark_results.json`에 `provenance` 블록(플랫폼, OS, CPU 모델, 물리/논리 코어 수, 총 RAM, pandas/polars/Python 버전)을 기록하므로, 안정된 호스트에서 다음 실행을 하면 완전히 귀속된 수치가 됩니다. 직접 재현해 볼 수 있습니다:
 
 ```bash
 git lfs pull                                    # examples/data 가져오기 (Git LFS)

@@ -12,6 +12,8 @@ Python Pandas(eager)와 Xazz(Rust + Polars LazyFrame)로 실행해 측정한다.
   - 피크 RSS: **동일 기준** — 양쪽 모두 프로세스 트리(xazz는 xazz-runner 포함)를
     3ms 주기 폴링
   - 결과는 benches/benchmark_results.json 으로 저장 (`--out PATH`로 변경 가능)
+  - 최상위 `provenance` 키에 측정 호스트 스펙(플랫폼/OS/CPU/코어/RAM/툴체인 버전)을
+    기록한다 — 공개 벤치 수치를 머신에 귀속시키기 위함 (이슈 #262)
 
 사용법:
     python benches/run_readme_benchmark.py [--quick] [--out PATH]
@@ -20,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import statistics
 import subprocess
 import sys
@@ -163,6 +166,78 @@ def summarize(runs: list[dict]) -> dict:
     }
 
 
+def _cmd_stdout(cmd: list[str]) -> str | None:
+    try:
+        return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def _cpu_model() -> str | None:
+    """CPU 모델명 — 프로비넌스 캡션에 필요 (이슈 #262)."""
+    if sys.platform.startswith("linux"):
+        try:
+            for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+                if line.lower().startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+        except OSError:
+            pass
+    elif sys.platform == "darwin":
+        return _cmd_stdout(["sysctl", "-n", "machdep.cpu.brand_string"])
+    elif sys.platform.startswith("win"):
+        return os.environ.get("PROCESSOR_IDENTIFIER")
+    return None
+
+
+def _pkg_version(name: str) -> str | None:
+    try:
+        module = __import__(name)
+        return getattr(module, "__version__", None)
+    except Exception:
+        return None
+
+
+def _xazz_version() -> str | None:
+    out = _cmd_stdout([str(XAZZ_BIN), "--version"])
+    if out:
+        parts = out.split()
+        return parts[-1] if parts else out
+    try:
+        for line in (ROOT / "Cargo.toml").read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("version") and "=" in stripped:
+                return stripped.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    return None
+
+
+def collect_provenance() -> dict:
+    """측정 호스트/툴체인 메타데이터.
+
+    README 벤치 수치를 머신 스펙에 귀속시키기 위해 `benchmark_results.json`의
+    최상위 `provenance` 키로 기록한다 (이슈 #262 공개 게이트: 측정 머신 스펙·프로비넌스 명시).
+    """
+    vm = psutil.virtual_memory()
+    return {
+        "recorded": True,
+        "platform": platform.platform(),
+        "system": platform.system(),
+        "release": platform.release(),
+        "machine": platform.machine(),
+        "processor": platform.processor() or None,
+        "cpu_model": _cpu_model(),
+        "cpu_physical_cores": psutil.cpu_count(logical=False),
+        "cpu_logical_cores": psutil.cpu_count(logical=True),
+        "total_ram_gb": round(vm.total / 1_073_741_824, 1),
+        "python": platform.python_version(),
+        "pandas": _pkg_version("pandas"),
+        "polars": _pkg_version("polars"),
+        "numpy": _pkg_version("numpy"),
+        "xazz": _xazz_version(),
+    }
+
+
 def main() -> None:
     quick = "--quick" in sys.argv
     out_path = arg_value("--out", str(RESULTS_PATH))
@@ -187,8 +262,15 @@ def main() -> None:
         print(f"  [xazz] median latency = {x['latency_ms']:>10,.1f} ms | peak RSS = {x['peak_mb']:,.1f} MB", flush=True)
         results[scale]["rows"] = rows
 
+    results["provenance"] = collect_provenance()
     Path(out_path).write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\n결과 저장 → {out_path}")
+    prov = results["provenance"]
+    print(
+        "  host: "
+        f"{prov['cpu_model']} | {prov['cpu_physical_cores']}c/{prov['cpu_logical_cores']}t"
+        f" | {prov['total_ram_gb']} GB | {prov['system']} {prov['release']}"
+    )
     lg = results[scales[-1]]
     print(f"Speedup (last scale): {lg['pandas']['latency_ms'] / lg['xazz']['latency_ms']:.2f}x")
 
