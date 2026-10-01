@@ -328,7 +328,7 @@ test('policy change history pages by id cursor and returns to page one', async (
     }
   })
   const cursors = []
-  await mockServer(page, {
+  const requests = await mockServer(page, {
     'GET /security/policy/history': (request) => {
       const cursor = new URL(request.url()).searchParams.get('cursor')
       cursors.push(cursor)
@@ -358,6 +358,10 @@ test('policy change history pages by id cursor and returns to page one', async (
   await historySection.getByRole('button', { name: 'Previous' }).click()
   await expect(historySection).toContainText('Page 1')
   await expect(timeline.locator('li')).toHaveCount(20)
+  // The effective retention is independent of the history cursor: paging must not
+  // re-read it, so page navigation stays a single history request.
+  expect(requests.filter((r) => r.path === '/security/policy/history/ttl')).toHaveLength(1)
+  expect(requests.filter((r) => r.path === '/security/policy/history')).toHaveLength(3)
 })
 
 test('policy packs install, reject bad JSON, and remove only after confirmation', async ({ page }) => {
