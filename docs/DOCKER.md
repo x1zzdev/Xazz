@@ -155,3 +155,24 @@ DP budgets, policy-history retention, and the rest — is in
    the next `up`.
 
 Record the image tag and host OS/arch with the result (issue #176).
+
+### Smoke record template (issue #176)
+
+Attach this to the tracking issue for each host/arch. Until the first `v*` tag
+publishes a GHCR image, record against the local `xazz:local` build and note the
+git SHA so the number is reproducible.
+
+```markdown
+- Image tag:                  ghcr.io/x1zzdev/xazz:<tag>   (or xazz:local @ <git-sha>)
+- Host OS / arch:             <e.g. Ubuntu 24.04 / linux-amd64>
+- Docker / Compose:           <docker version> / <compose version>
+- Date:                       <YYYY-MM-DD>
+- `GET /health`:              <status>
+- IDE loads (no CDN):         <yes / no>
+- Check safe / unsafe:        <safe=pass, unsafe=blocked>
+- Full Run rows (/data rw):   <N rows>
+- History + DP/audit panels:  <yes / no>
+- `down` → `up` persistence:  <yes / no>
+- Notes:                      <anything unexpected>
+```
+
