@@ -563,6 +563,57 @@ fn apply_dynamic_bridge(
     }
 }
 
+/// Eager counterpart of `apply_dynamic_bridge` + `apply_schema_cast` for an
+/// already-materialized small source.
+///
+/// Renames columns positionally to the declared schema, then casts each column
+/// to its declared type — all in place on the in-memory frame. This lets the
+/// small-source fast path validate types without a second `LazyFrame::collect()`
+/// (which re-materialized and re-transformed the whole frame) and without
+/// re-running the rename/cast in every downstream pipeline that loads the file.
+///
+/// Columns are transformed by position (never by name): `DataFrame::rename_many`
+/// updates the cached schema but leaves `get_column_index` unable to resolve the
+/// new names, so a subsequent `df.column(name)` would spuriously fail.
+fn bridge_and_cast_small(
+    df: polars::frame::DataFrame,
+    src_headers: &[String],
+    schema: &Schema,
+) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    use polars::prelude::PlSmallStr;
+
+    let height = df.height();
+    let map_count = src_headers.len().min(schema.fields.len());
+    let src_width = df.width();
+
+    let mut out: Vec<polars::prelude::Column> = Vec::with_capacity(src_width);
+    for (i, mut series) in df.columns().to_vec().into_iter().enumerate() {
+        if i < map_count {
+            let field = &schema.fields[i];
+            let new_name = PlSmallStr::from(field.name.as_str());
+            if series.name() != &new_name {
+                series.rename(new_name);
+            }
+            if let Some(dt) = ir_col_to_dtype(&field.ty) {
+                series = series.cast(&dt)?;
+            }
+        }
+        out.push(series);
+    }
+
+    // Fields declared beyond the source column count have no data to bind to.
+    // The lazy path surfaced this only at `collect()`; fail eagerly instead.
+    if schema.fields.len() > src_width {
+        return Err(format!(
+            "schema field '{}' not found in source ({} columns)",
+            schema.fields[src_width].name, src_width
+        )
+        .into());
+    }
+
+    polars::frame::DataFrame::new(height, out).map_err(Into::into)
+}
+
 // ── Type validation / Null handling ─────────────────────────────────────────
 fn validate_schema_types(df: &polars::frame::DataFrame, label: &str, schema: &Schema) {
     for field in &schema.fields {
@@ -1308,27 +1359,25 @@ fn execute_node(
 
             if !is_large {
                 // ── Small source → eager fast path (issue #53) ──────────────────
-                // Read the file once via the format-dispatched eager loader, validate
-                // in-memory, then wrap in LazyFrame. Avoids the lazy-scan plus a
-                // second disk pass for null-validation (which regressed small files).
+                // Read the file once via the format-dispatched eager loader, then
+                // bridge/cast + validate **eagerly** on that frame. The previous
+                // code wrapped it in a LazyFrame and re-`collect()`ed the whole
+                // frame solely to validate types — a redundant full materialization
+                // (small-scale bench: the load path dominates pipeline_ms).
                 let df_raw = load_small_source_cached(source_cache, file_path, options)?;
                 let src_headers: Vec<String> = df_raw
                     .get_column_names()
                     .iter()
                     .map(|s| s.to_string())
                     .collect();
-                let lf_bridged = match schema {
+                match schema {
                     Some(fields) => {
-                        let lf_renamed = apply_dynamic_bridge(df_raw.lazy(), &src_headers, fields);
-                        apply_schema_cast(lf_renamed, fields)
+                        let df = bridge_and_cast_small(df_raw, &src_headers, fields)?;
+                        validate_schema_types(&df, file_path, fields);
+                        (df.lazy(), schema.as_ref(), false)
                     }
-                    None => df_raw.lazy(),
-                };
-                if let Some(fields) = schema {
-                    let df_loaded = lf_bridged.clone().collect()?;
-                    validate_schema_types(&df_loaded, file_path, fields);
+                    None => (df_raw.lazy(), None, false),
                 }
-                (lf_bridged, schema.as_ref(), false)
             } else {
                 // ── Large source → lazy out-of-core scan (issue #53) ────────────
                 // Source stays a LazyFrame until the terminal collect; large files
