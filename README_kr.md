@@ -46,6 +46,10 @@
 
 Xazz는 기존 라이브러리의 래퍼가 아닙니다. 파서, AST, 정적 타입 검사기, **Typed IR**, lowering, 딥러닝 컴파일 엔진을 모두 Rust로 직접 설계·구현했기 때문에, 단일 `.xzz` 스크립트만으로 CSV에서 학습된 모델까지 전 경로를 제어합니다. `.xzz`는 **Typed IR을 한 번** 컴파일하고, 런타임은 그 IR을 **한 번** 소비합니다 (소스를 다시 파싱해 raw AST를 Polars/Burn에 직접 해석하던 이중 해석 제거).
 
+### 왜 DuckDB / Polars 대신 DSL인가?
+
+"이건 문법만 얹은 Polars/DuckDB 아닌가?"라는 반문은 자연스럽습니다. 차이는 *언어가 무엇을 책임지는가*입니다. DuckDB와 Polars는 뛰어난 **실행 엔진**이고, Xazz는 Polars 위에서 실행됩니다. 다만 그 엔진들만으로는 파이프라인이 *실행돼도 되는지*를 판단하지 않습니다 — 타입·널 정확성, 개인정보·시크릿 노출, 차등 프라이버시 예산, 감사 가능한 기록은 보통 각 엔진 주변에 애플리케이션 접착 코드로 매번 다르게 재구현하게 됩니다. Xazz는 그 게이트들을 컴파일된 파이프라인의 일부로 만들고, 단 한 행도 읽기 전에 Typed IR에 대한 정적 패스 한 번으로 강제합니다. 단순히 빠른 SQL/DataFrame 실행이 필요하면 DuckDB·Polars가 정답입니다. Xazz는 파이프라인 자체가 컴파일·통제·감사되어야 하는 경우를 겨냥합니다.
+
 <div align="center">
 <img src="docs/figures/pipeline-flow-kr.svg" alt="Xazz 엔드투엔드 파이프라인: 컴파일 단계(렉서, 파서, 타입 검사, 가드레일, Typed IR, 프로세스 격리)와 실행 단계(Polars, DP 노이즈, 텐서 브리지, 학습, 결과, 감사 로그)" width="94%">
 </div>
@@ -322,6 +326,24 @@ python benches/run_readme_benchmark.py --xlarge
 | `xazz dp window` / `xazz dp budget` / `xazz dp reset` | 실행 중인 서버에서 테넌트 DP 예산 윈도 override 조회/변경 — `window set`/`clear`/`history` (`--window-secs`/`--json`/`--cursor`/`--limit`/`--actor`), 현재 소비/잔량 조회 (`dp budget`), 원장 초기화·actor 감사 (`dp reset`/`dp reset-history`, 둘 다 커서 페이지네이션) (Track C2) | Stable |
 | `xazz sanitize` | 파인튜닝 데이터 정화 — PII 스캔, 중복·편향 검사 (Track F3) | Stable |
 | 모델 프로비넌스 | 정책 레지스트리 게이트 — `hf://` 모델 참조, 라이선스·미검증 웨이트 차단 (Track F5) | Stable |
+
+---
+
+## 한계 & 비목표
+
+Xazz는 pre-1.0입니다. 설치한 뒤에 알게 되는 것보다, **검증되지 않은 것**을 먼저 밝히는 편이 낫다고 생각합니다. 이 섹션은 릴리스 노트에도 동일하게 반영됩니다.
+
+- **CPU가 기본이며 유일하게 완전히 검증된 경로입니다.** GPU 지원은 선택 사항이고 런타임에 `XAZZ_BACKEND` / `XAZZ_DEVICE`로 선택하며, `.xzz` 파이프라인 실행에 필수가 아닙니다.
+  - `burn-wgpu`(크로스 벤더)는 Windows 11 / RTX 4070 Laptop + Intel Arc iGPU에서 실기 acceptance를 통과했습니다(2026-09-25).
+  - `burn-cuda`는 컴파일되고 드라이버가 없으면 CPU로 fail-closed 폴백하지만, gated parity 테스트는 아직 CUDA 드라이버 호스트에서 실행되지 않았습니다.
+  - ONNX Runtime export/inference는 연결되어 있으나 gated acceptance 테스트가 표준 툴체인에서 아직 통과하지 못했습니다: `ort-sys`는 `*-windows-msvc`용 사전 빌드 바이너리만 제공하며(Windows GNU 툴체인 실패), macOS `coreml` 실행도 대기 중입니다. [docs/GPU_BACKENDS.md](docs/GPU_BACKENDS.md) 참고.
+- **네이티브 Python 확장은 아직 없습니다.** `import xazz`는 CLI 위의 순수 Python 어댑터이며 PyO3 모듈이 아닙니다 — CLI와 동일한 진단을 돌려주지만 서브프로세스 경계 비용을 지불합니다. PyO3 경로와 NumPy/Pandas → Arrow 핸드오프는 보류 상태입니다. [docs/ROADMAP.md](docs/ROADMAP.md) Track C4 참고.
+- **`xazz emit rust`는 참조용 emitter이며 두 번째 런타임이 아닙니다.** 신규 기능은 `xazz-exec`에 먼저 들어가고, 생성된 Rust는 일부 학습 옵션(예: 단일 실행 `validation_split`/조기 종료, 스윕의 per-epoch 열)에서 뒤처질 수 있습니다. 정본은 `xazz run`이며, emit 결과는 읽기 좋은 참조 코드로 취급하세요.
+- **컨테이너 이미지·클린 호스트 스모크는 다음 태그 대기 중입니다.** `Dockerfile`과 `docker compose up` 데모는 로컬 빌드로 동작하지만, GHCR 멀티아키 이미지는 `v*` 태그에서만 게시되며, [클린 호스트 스모크 체크리스트](docs/DOCKER.md#smoke-checklist-clean-host)는 아직 게시된 태그에 대해 기록되지 않았습니다.
+- **벤치마크는 단일 호스트 측정이며 프로비넌스가 아직 기록되지 않았습니다.** [성능](#성능) 섹션의 수치는 개발 호스트 한 대에서 나온 것이고 프로비넌스 캡처 이전 값입니다 — 보장이 아니라 방향성 지표로 보세요. 이제 `benches/run_readme_benchmark.py`가 호스트/OS/CPU/RAM/버전을 기록하므로 다음 실행은 재현 가능합니다.
+- **샌드박스가 아닙니다.** `xazz-runner`는 실행 타임아웃을 동반한 프로세스 격리이지 OS 수준 샌드박스가 아닙니다. Policy-as-Code는 실행 전에 알려진 위험 파이프라인 형태를 차단하며, `PATH` 섀도잉 배포 주의사항은 [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md)를 참고하세요.
+
+**비목표:** pandas / Polars / DuckDB를 연산 엔진으로 대체하거나, PyTorch를 학습 프레임워크로 대체하거나, GPU 커널 성능으로 경쟁하는 것이 아닙니다. Xazz는 그 엔진들 *위의* 컴파일·거버넌스 계층입니다.
 
 ---
 

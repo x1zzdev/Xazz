@@ -46,6 +46,10 @@ Python owns AI prototyping — but at pipeline scale three structural costs keep
 
 Xazz is not a wrapper around existing libraries. The parser, AST, static type checker, typed IR, lowering, and DL compilation engine are all designed and implemented from scratch in Rust — so a single `.xzz` script controls the whole path from CSV to trained model. `.xzz` compiles to a **typed IR** once, and the runtime consumes that IR once (instead of re-parsing the source and interpreting the raw AST directly against Polars/Burn).
 
+### Why not just DuckDB / Polars / pandas?
+
+A fair first reaction is "this is Polars or DuckDB with extra syntax." The distinction is *what the language is responsible for*. DuckDB and Polars are excellent **execution engines** — and Xazz runs on Polars. What they do not do on their own is decide whether a pipeline is *allowed* to run: type/null correctness, PII and secret exposure, differential-privacy budget, and an auditable record are gates you otherwise re-implement as application glue around each engine, differently every time. Xazz makes those gates part of the compiled pipeline, enforced in one static pass over a typed IR before a single row is read. If all you need is fast SQL/DataFrame execution, DuckDB and Polars are the right tools; Xazz targets the case where the pipeline itself must be compiled, governed, and audited.
+
 <div align="center">
 <img src="docs/figures/pipeline-flow.svg" alt="Xazz end-to-end pipeline: compile phase (lexer, parser, type check, guardrail, typed IR, process isolation) and execute phase (Polars, DP noise, tensor bridge, training, results, audit log)" width="94%">
 </div>
@@ -328,6 +332,24 @@ python benches/run_readme_benchmark.py --xlarge
 | `xazz dp window` / `xazz dp budget` / `xazz dp reset` | Read or change a tenant's DP budget on a running server — `window set`/`clear`/`history` (`--window-secs`/`--json`/`--cursor`/`--limit`/`--actor`), read the current spend/remaining envelope (`dp budget`), and clear the ledger + audit the actor (`dp reset`/`dp reset-history`, both cursor-pageable) (Track C2) | Stable |
 | `xazz sanitize` | Fine-tuning data sanitization — PII scan, duplicate & bias checks (Track F3) | Stable |
 | Model provenance | Policy registry gate — `hf://` model references, license/unknown-weights blocking (Track F5) | Stable |
+
+---
+
+## Limitations & Non-goals
+
+Xazz is pre-1.0. We would rather state what is **not** verified than let you discover it after installing. This section is mirrored in the release notes.
+
+- **CPU is the default and the only fully verified path.** GPU support is optional, selected at runtime via `XAZZ_BACKEND` / `XAZZ_DEVICE`, and never required to run a `.xzz` pipeline.
+  - `burn-wgpu` (cross-vendor) passed real-hardware acceptance on Windows 11 / RTX 4070 Laptop + Intel Arc iGPU (2026-09-25).
+  - `burn-cuda` compiles and fails closed to CPU when no driver is present, but its gated parity test has **not** run on a CUDA-driver host yet.
+  - ONNX Runtime export/inference is wired, but its gated acceptance test has **not** passed on a standard toolchain: `ort-sys` ships prebuilt binaries only for `*-windows-msvc` (the Windows GNU toolchain fails), and the macOS `coreml` run is pending. See [docs/GPU_BACKENDS.md](docs/GPU_BACKENDS.md).
+- **No native Python extension yet.** `import xazz` is a pure-Python adapter over the CLI, not a PyO3 module — it returns the same diagnostics as the CLI but pays a subprocess boundary. The PyO3 path and the NumPy/Pandas → Arrow handoff are deferred. See [docs/ROADMAP.md](docs/ROADMAP.md) Track C4.
+- **`xazz emit rust` is a reference emitter, not a second runtime.** New language features land in `xazz-exec` first; the emitted Rust can lag on some training options (e.g. single-run `validation_split` / early stopping, per-epoch sweep columns). `xazz run` is the source of truth — treat the emitted code as readable reference output.
+- **The container image and clean-host smoke are pending the next tag.** The `Dockerfile` and `docker compose up` demo work from a local build, but the GHCR multi-arch image is published only on a `v*` tag, and the [clean-host smoke checklist](docs/DOCKER.md#smoke-checklist-clean-host) has not been recorded against a published tag yet.
+- **Benchmarks are single-host and not yet provenance-stamped.** The numbers in [Performance](#performance) come from one development host and predate provenance capture — treat them as directional, not as a guarantee. `benches/run_readme_benchmark.py` now records host/OS/CPU/RAM/versions so the next run is reproducible.
+- **Not a sandbox.** `xazz-runner` is process isolation with an execution timeout, not an OS-level sandbox. Policy-as-Code blocks known-bad pipeline shapes before execution; see [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md) for the `PATH`-shadowing deployment caveat.
+
+**Non-goals:** replacing pandas / Polars / DuckDB as compute engines, replacing PyTorch as a training framework, or competing on GPU kernel performance. Xazz is the compile-and-governance layer *above* those engines.
 
 ---
 
