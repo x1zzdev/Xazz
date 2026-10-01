@@ -219,6 +219,50 @@ fn resolve_dp_envelope(eps_raw: Option<&str>, delta_raw: Option<&str>) -> (f64, 
     (epsilon, delta)
 }
 
+/// Opt-in per-query ε cap (issue #118). Same variable the execution engine reads
+/// (`xazz-exec` `dp::MAX_EPSILON_ENV`), so a cap set on the server is enforced
+/// twice: here before the DP reservation, and again inside the runner, which
+/// inherits the server's environment.
+const DP_MAX_EPSILON_ENV: &str = "XAZZ_DP_MAX_EPSILON";
+
+/// Parses the per-query ε cap. Unset, non-finite, non-positive or unparsable
+/// values mean "no cap" (mirrors the engine's `parse_max_epsilon`).
+fn resolve_dp_max_epsilon(raw: Option<&str>) -> Option<f64> {
+    raw.and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|v| v.is_finite() && *v > 0.0)
+}
+
+/// Reads the per-query ε cap from the environment.
+fn dp_max_epsilon() -> Option<f64> {
+    let raw = std::env::var(DP_MAX_EPSILON_ENV).ok();
+    resolve_dp_max_epsilon(raw.as_deref())
+}
+
+/// `withDp` requests in `code` whose ε exceeds `cap`, as `(label, ε)` with the
+/// label being the bound variable or `stmt#<index>`. Unparsable code yields an
+/// empty list — the policy gate ahead of this check already rejects it.
+fn with_dp_over_cap(code: &str, cap: f64) -> Vec<(String, f64)> {
+    let program = match xazz_compiler::Lexer::new(code)
+        .tokenize()
+        .ok()
+        .and_then(|tokens| xazz_compiler::Parser::new(tokens).parse().ok())
+    {
+        Some(program) => program,
+        None => return Vec::new(),
+    };
+    xazz_compiler::with_dp_requests(&program)
+        .into_iter()
+        .filter(|req| req.args.epsilon > cap)
+        .map(|req| {
+            let label = req
+                .var_name
+                .clone()
+                .unwrap_or_else(|| format!("stmt#{}", req.stmt_index));
+            (label, req.args.epsilon)
+        })
+        .collect()
+}
+
 /// Reads the per-tenant DP envelope from the environment.
 fn tenant_dp_envelope() -> (f64, f64) {
     let eps = std::env::var(TENANT_DP_BUDGET_ENV).ok();
@@ -922,6 +966,46 @@ async fn handle_execute(
             }
             guardrail::Decision::Allow { report, .. } => report,
         };
+
+    // 0b. Runtime per-query ε cap (issue #118) — opt-in via XAZZ_DP_MAX_EPSILON,
+    //     independent of the policy pack's compile-time `max_epsilon` (XZP005).
+    //     Rejected here, before the DP reservation, so nothing is reserved or
+    //     spent and the reason names the offending step(s).
+    if let Some(cap) = dp_max_epsilon() {
+        let over = with_dp_over_cap(&payload.code, cap);
+        if !over.is_empty() {
+            let detail = over
+                .iter()
+                .map(|(label, eps)| format!("{label}: ε={eps}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let message = format!(
+                "withDp epsilon exceeds the per-query cap {DP_MAX_EPSILON_ENV}={cap} ({detail}); \
+                 refused before reservation — no budget spent"
+            );
+            eprintln!("[xazz] ⛔ {message}");
+            if let Err(e) = audit_log::append_with_outcome(&payload.code, Some("blocked")) {
+                eprintln!("[xazz] ⚠️ failed to record block in audit log: {}", e);
+            }
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ExecuteResponse {
+                    success: false,
+                    rows: json!([]),
+                    schema: json!([]),
+                    logs: vec![message.clone()],
+                    stdout: String::new(),
+                    training: None,
+                    prediction: None,
+                    dp: None,
+                    diagnostics: None,
+                    policy: serde_json::to_value(&policy_report).ok(),
+                    error: Some(message),
+                    run_id: None,
+                }),
+            ));
+        }
+    }
 
     // 0c. Cross-instance DP budget reservation (issue C2): the in-process tenant
     //     lock above only serializes runs inside this server. The DB reservation
@@ -3137,6 +3221,33 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
     }
 
     // ── Per-tenant DP budget isolation (issue C2) ─────────────────────────────
+
+    #[test]
+    fn resolve_dp_max_epsilon_is_opt_in_and_ignores_invalid() {
+        assert_eq!(resolve_dp_max_epsilon(None), None);
+        assert_eq!(resolve_dp_max_epsilon(Some("3")), Some(3.0));
+        assert_eq!(resolve_dp_max_epsilon(Some(" 0.5 ")), Some(0.5));
+        for bad in ["0", "-1", "abc", "", "inf", "NaN"] {
+            assert_eq!(resolve_dp_max_epsilon(Some(bad)), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn with_dp_over_cap_names_only_the_offending_steps() {
+        let code = "type AQ = { station: string, pm10: float };
+            v ok = load(\"data.csv\") :: AQ |> groupBy(\"station\") |> mean(\"pm10\") |> withDp(epsilon: 0.5);
+            v big = load(\"data.csv\") :: AQ |> groupBy(\"station\") |> mean(\"pm10\") |> withDp(epsilon: 2.0);
+            ok |> mean(\"pm10\") |> withDp(epsilon: 1.5);";
+        let over = with_dp_over_cap(code, 1.0);
+        assert_eq!(
+            over,
+            vec![("big".to_string(), 2.0), ("stmt#3".to_string(), 1.5)]
+        );
+        // ε == cap is allowed; a looser cap clears everything.
+        assert!(with_dp_over_cap(code, 2.0).is_empty());
+        // Unparsable code is not this check's job (the policy gate rejects it first).
+        assert!(with_dp_over_cap("v x = load(", 0.1).is_empty());
+    }
 
     #[test]
     fn resolve_dp_envelope_defaults_and_overrides() {
