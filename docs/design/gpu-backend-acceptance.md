@@ -274,9 +274,10 @@ error: build script logged errors
 | 4 | **Windows에서 onnx는 MSVC 전용** (§5; cuda는 burn-cuda 전환으로 해당 없음, §4.1) | gnu 툴체인 사용자는 onnx 빌드 불가 | `xazz-exec/Cargo.toml` feature 주석과 README에 명시 |
 | 5 | **burn-cuda는 드라이버 외에 NVRTC DLL + CUDA 헤더(`CUDA_PATH/include`)가 실행 시점에 필요** (§4.1). 없으면 각각 cudarc 로드 panic / NVRTC `cannot open source file "cuda_runtime.h"` | "드라이버만 있으면 됨"으로 안내된 사용자는 CPU 폴백만 보게 됨 | `docs/GPU_BACKENDS.md`에 요구사항과 pip 재배포본 경로 명시 (이 PR); `CudaBackend::probe_device`가 panic payload를 경고 메시지에 포함하도록 개선하면 원인이 즉시 드러남 |
 
-> 위 제안 1·4는 반영됐다: `xazz-exec/build.rs`가 `windows-gnu` + `cuda`/`onnx*` 조합을
+> 위 제안 1·4는 반영됐다: `xazz-exec/build.rs`가 `windows-gnu` + `onnx*` 조합을
 > 빌드 초입에서 MSVC 설치 안내와 함께 차단하고(`XAZZ_ALLOW_WINDOWS_GNU_GPU=1`로 우회),
 > `CONTRIBUTING.md` "Optional GPU backends"에 `--release`·MSVC 요건을 문서화했다.
+> (`cuda`는 `burn-cuda` 전환 후 `windows-gnu`에서도 빌드되므로 이 가드에서 제외됐다 — §4.1.)
 >
 > 제안 2도 반영됐다: `xazz-exec/src/logging.rs`가 `XAZZ_LOG`(또는 `RUST_LOG`)가 설정된
 > 경우에만 stderr 로거를 설치해 cubecl-wgpu의 `Using adapter {..}`를 포함한 의존성 진단을
