@@ -182,9 +182,13 @@ datasets. This track makes Xazz handle real workloads.
       Intel Arc iGPU (2026-09-25); `XAZZ_DEVICE=dgpu:0` / `igpu:0` verified to select the
       intended adapter via per-process GPU engine counters
       (`docs/design/gpu-backend-acceptance.md`)
-- [ ] Real-hardware acceptance on a CUDA host — `cargo test --release -p xazz-exec --features cuda -- --ignored`
-      The native provider compiles and falls back cleanly on a no-CUDA host; the
-      gated parity test still needs a machine with an NVIDIA driver.
+- [x] Real-hardware acceptance on a CUDA host — `cargo test --release -p xazz-exec --features cuda -- --ignored`
+      passed on Windows 11 / RTX 4070 Laptop with the `windows-gnu` toolchain
+      (2026-10-01); `XAZZ_DEVICE=cuda:0` training verified on the RTX 4070 via
+      per-process GPU engine counters. Run-time requirement beyond the driver:
+      NVRTC DLL on `PATH` + CUDA headers at `$CUDA_PATH/include` (pip
+      redistributables suffice) — `docs/GPU_BACKENDS.md`,
+      `docs/design/gpu-backend-acceptance.md` §4
 - Depends on: none (Burn API is backend-agnostic). Acceptance: same `.xzz` trains on CPU and CUDA with identical reported losses.
   ⏳ **Provider revised 2026-09-25**: CUDA runs through `burn-cuda` (CubeCL) via
   `train_on_device`/`predict_on_device`; the gated acceptance test needs a CUDA-driver host.
