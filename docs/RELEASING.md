@@ -37,7 +37,9 @@ Copy this into the release issue/PR and tick items as they complete.
       `test:e2e`) when the frontend changed.
 - [ ] `CHANGELOG.md` gets a new dated section for the version; `[Unreleased]`
       is reset to empty.
-- [ ] Release notes drafted from the template below.
+- [ ] Release notes drafted from the template below, including the
+      **Known limitations** section (mirror the README "Limitations & Non-goals"
+      block as it stands at the tag).
 - [ ] Docker/GHCR: the `docker` job in `.github/workflows/release.yml` will
       build `linux/amd64`+`linux/arm64` and push
       `ghcr.io/x1zzdev/xazz:<version>` (plus `latest` for stable). Confirm the
@@ -105,6 +107,11 @@ issues/PRs for detail.
 
 ## Upgrade notes
 - <breaking changes and migration steps, or "None">
+
+## Known limitations
+- <what is explicitly not verified in this release, with links — GPU/ONNX
+  real-device status, PyO3 deferral, emitter parity, container smoke provenance.
+  This mirrors the README "Limitations & Non-goals" section; do not omit it.>
 
 ## Docker
 ```
