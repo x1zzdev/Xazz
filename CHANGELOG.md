@@ -1013,6 +1013,34 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - 통합 테스트: Parquet/Arrow save→load 왕복 (Schema cast 경유), streaming 엔진의
   벤치 파이프라인(벤치마크 shape) 실행·네이티브 연산 지원 검증, 컬럼형 스키마 추론 왕복
 
+### Known limitations — v0.4 공개 게이트 (issue #262)
+
+릴리스 노트 "알려진 한계"와 README "한계 & 비목표"에 함께 반영되는, 이 릴리스에서
+**검증되지 않은** 항목. 기능 완성도와 별개로 공개 시 정직하게 명시한다.
+
+- **GPU/ONNX 실기 미검증** — `burn-wgpu`는 Windows 11 / RTX 4070 Laptop + Intel Arc
+  iGPU 실기 통과(2026-09-25)했으나, `burn-cuda`는 CUDA 드라이버 호스트 부재로 gated
+  parity 미실행. ONNX Runtime은 `ort-sys`가 `*-windows-msvc` 사전 빌드만 제공해
+  Windows GNU 툴체인에서 실패, macOS `coreml`도 대기. CPU가 기본이자 유일한 완전 검증 경로
+- **PyO3 네이티브 확장 보류** — `import xazz`는 CLI 서브프로세스 어댑터(동일 진단,
+  경계 비용 지불). NumPy/Pandas→Arrow 핸드오프도 보류 (Track C4)
+- **emitter parity 미완** — `xazz emit rust`는 참조용 emitter. 단일 실행
+  `validation_split`/조기 종료, per-epoch 스윕 열 등 런타임과의 파리티 갭. 신규 기능은
+  `xazz-exec` 우선
+- **컨테이너 이미지/클린 호스트 스모크 미기록** — GHCR 멀티아키 이미지는 `v*` 태그에서만
+  게시되며, 게시된 태그에 대한 스모크 체크리스트 기록이 아직 없음 (issue #176)
+- **벤치 단일 호스트·프로비넌스 미기록** — 커밋된 수치는 개발 호스트 1대 측정이고
+  프로비넌스 캡처 이전 값. `run_readme_benchmark.py`가 이제 호스트 메타를 기록
+
+### Docs — 공개 게이트 사전 준비 (issue #262)
+
+- README(+kr)에 **한계 & 비목표** 섹션과 **"왜 DuckDB/Polars 대신 DSL인가"** 반박 단락
+  추가. 성능 섹션에 **측정 프로비넌스** 안내 추가
+- `docs/RELEASING.md` 릴리스 노트 템플릿·체크리스트에 **Known limitations** 섹션 추가
+- `benches/run_readme_benchmark.py`가 `benchmark_results.json`에 `provenance` 블록
+  (플랫폼/OS/CPU/코어/RAM/버전)을 기록
+- `docs/DOCKER.md` 클린 호스트 스모크 체크리스트에 기록 양식 보강
+
 ---
 
 ## [v0.3.1] — 2026-08-31
