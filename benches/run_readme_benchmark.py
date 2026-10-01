@@ -41,6 +41,7 @@ RESULTS_PATH = ROOT / "benches" / "benchmark_results.json"
 SCALES = ["small", "medium", "large"]
 RUNS = 3
 POLL_MS = 3
+STDERR_TAIL_LINES = 20  # 서브프로세스 실패 시 예외에 싣는 stderr 꼬리 줄 수
 
 
 def arg_value(flag: str, default: str) -> str:
@@ -65,7 +66,9 @@ def measure_tree(
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        # stderr 는 실패 진단용으로만 보관한다 — 성공 시 버려지고, 실패 시 꼬리를
+        # 예외 메시지에 싣는다 (CI 로그에 exit code 만 남아 원인을 못 보던 문제, #147).
+        stderr=subprocess.PIPE,
         cwd=cwd,
         env=proc_env,
     )
@@ -85,9 +88,12 @@ def measure_tree(
             pass
         time.sleep(POLL_MS / 1000.0)
     wall_ms = (time.perf_counter() - t0) * 1000.0
-    stdout, _ = proc.communicate()
+    stdout, stderr = proc.communicate()
     if proc.returncode != 0:
-        raise RuntimeError(f"exit={proc.returncode}: {' '.join(cmd)}")
+        tail = "\n".join(stderr.decode(errors="replace").splitlines()[-STDERR_TAIL_LINES:])
+        raise RuntimeError(
+            f"exit={proc.returncode}: {' '.join(cmd)}\n--- stderr (last {STDERR_TAIL_LINES} lines) ---\n{tail}"
+        )
     return wall_ms, peak_mb, stdout.decode(errors="replace") if capture else ""
 
 
