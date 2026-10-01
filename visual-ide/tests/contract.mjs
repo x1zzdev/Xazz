@@ -130,12 +130,9 @@ for (const node of pipeline) {
 
 const monitor = await read('visual-ide/src/components/Monitor.jsx')
 const implemented = JSON.parse(await read('visual-ide/src/mock/execute-response.json'))
-const proposed = JSON.parse(await read('visual-ide/src/mock/telemetry-proposed.json'))
 
-// The two mock files must stay honest about which contract they represent.
+// The mock fixture must stay honest about which contract it represents.
 assert.equal(implemented._contract, 'implemented')
-assert.equal(proposed._contract, 'proposed')
-assert.equal(proposed._measured, false)
 
 // TrainReport has no epoch history and no timing. Nothing may invent them.
 const reportFields = Object.keys(implemented.training.report)
@@ -166,14 +163,12 @@ assert.match(
   'compile node evidence must cite the parameter count the fixture reports',
 )
 
-// Implemented panels keep an honest "not yet measured" state; unimplemented
-// panels stay proposed and hollow. No panel borrows a success colour.
+// Implemented panels keep an honest "not yet measured" state. No panel borrows a
+// success colour. The last proposed panel (resource efficiency) became a measured
+// contract when GET /runs/{id}/resources shipped (#128).
 assert.match(monitor, /contract="implemented"/)
 assert.match(monitor, /contract="measured"/)
 assert.match(monitor, /maturity="Real"/)
-assert.match(monitor, /maturity="Planned"/)
-assert.match(monitor, /contract="proposed"/)
-assert.match(monitor, /Synthetic structure · not measured · proposed contract/)
 // The predict-path embedding diagnostics get their own panel with the same
 // measured/implemented honesty split as the Burn panel.
 assert.match(monitor, /Predict embedding input/)
@@ -188,14 +183,11 @@ for (const forbidden of [
   assert.doesNotMatch(monitor, forbidden, `forbidden claim ${forbidden} reappeared`)
 }
 
-// Unmeasured bars are hollow, not filled — the distinction cannot be colour-only.
-assert.match(css, /\.monitor-bars__fill--proposed \{[^}]*background: transparent/)
-assert.match(css, /\.monitor-bars__fill--proposed \{[^}]*border: 1px dashed/)
-assert.doesNotMatch(
-  css,
-  /\.monitor-panel--proposed \{[^}]*var\(--success-dark\)/,
-  'a proposed panel must not use the success token',
-)
+// The resource panel is a measured/implemented contract with no proposed variant
+// left in the view: it must not reintroduce the retired "proposed" contract.
+assert.match(monitor, /Resource efficiency/)
+assert.doesNotMatch(monitor, /contract="proposed"/)
+assert.doesNotMatch(monitor, /telemetry-proposed/)
 
 const workspaceMonitor = workspace
 // The label moved into src/i18n.jsx when the view gained Korean; the view id and
@@ -214,6 +206,9 @@ console.log(
 
 const api = await read('visual-ide/src/api.js')
 assert.doesNotMatch(api, /\b(localStorage|sessionStorage)\.\w/, 'server access (bearer token) must never be persisted')
+// Resource telemetry is read from its real endpoint, not a mock fixture (#128).
+assert.match(api, /export const getRunResources =/, 'resource telemetry must come from GET /runs/:id/resources')
+assert.match(api, /\/runs\/\$\{encodeURIComponent\(id\)\}\/resources/)
 
 const governance = await read('visual-ide/src/components/Governance.jsx')
 const runHistory = await read('visual-ide/src/components/RunHistory.jsx')

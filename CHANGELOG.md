@@ -9,6 +9,19 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Changed — Monitor 리소스 패널을 실제 `GET /runs/{id}/resources`에 연결 (issue #128 후속)
+
+- `visual-ide`가 더 이상 `src/mock/telemetry-proposed.json`(엔드포인트 부재를
+  표방하던 UI 제안)을 렌더하지 않는다. `api.js`에 `getRunResources(id)`를 추가하고
+  Workspace가 `/execute`가 돌려준 `run_id`로 조회(세션 복원 시 포함)해 Monitor의
+  Resource 패널에 전달한다. 패널은 측정 상태(`duration_ms`/`cpu_user_ms`+`cpu_sys_ms`/
+  `max_rss_kb`→MB/`source`, contract `measured`)와 기록 없음 상태(`available: false`의
+  `reason`, contract `implemented`·Beta)를 구분하며, 계약에 없는 per-stage·GPU 수치는
+  표시하지 않는다. mock 삭제 + 사용처가 사라진 CSS(`monitor-panel--proposed`/
+  `monitor-bars__fill--proposed`/`monitor-endpoint`) 정리
+- 검증: `test:contract`/`test:stdout`/`test:contrast`/`test:e2e`(67, 신규
+  `tests/resources.spec.mjs` measured·`available:false` 2종 포함) 통과
+
 ### Added — predict 진단의 서버 `/execute` 노출 (`prediction`) (issue D3)
 
 - `xazz-server`의 `parse_stdout_markers`가 `[xazz:predict]` 마커를 파싱해

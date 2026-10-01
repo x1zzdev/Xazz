@@ -298,12 +298,12 @@
       "metric": "Share of successful runs whose stdout contains a parseable [xazz:train] marker"
     },
     {
-      "frontstage": "Monitor view privacy and resource panels showing a proposed contract",
-      "backstage": "None. No accountant, no monitoring collector, and no run identity exist.",
-      "support_system_data": "visual-ide/src/mock/telemetry-proposed.json, marked _contract proposed and _measured false",
-      "owner": "unassigned — naming this owner is the decision this panel exists to force",
-      "failure_point": "A later implementer wires real-looking numbers into these panels without adding a backend, converting a specification into a false claim",
-      "recovery": "tests/contract.mjs fails the build on a success tone, a filled unmeasured bar, or a forbidden claim string; the guards were verified by five injected mutations",
+      "frontstage": "Monitor view privacy and resource panels showing their measured or honest-empty states",
+      "backstage": "Privacy: xazz-exec emits [xazz:dp] and xazz-server returns ExecuteResponse.dp. Resource: xazz-runner relays [xazz:resources] process-tree telemetry, xazz-server persists it and serves GET /runs/{id}/resources (#128).",
+      "support_system_data": "ExecuteResponse.dp and GET /runs/{id}/resources (duration_ms, cpu_user_ms, cpu_sys_ms, max_rss_kb, source); no resource sample => available:false with a reason, never fabricated",
+      "owner": "Xazz runtime maintainer",
+      "failure_point": "A later implementer renders a proposed shape as a measurement, or invents per-stage/GPU numbers the endpoint does not report",
+      "recovery": "tests/contract.mjs fails the build on a success tone or a forbidden claim string; the Monitor view has no proposed panel left, and resources.spec.mjs covers both the measured and available:false states",
       "metric": "Contract-test pass rate on every commit touching the Monitor view"
     }
   ],

@@ -11,13 +11,10 @@ import {
 } from 'lucide-react'
 import { StatusBadge } from './Common'
 import executeResponse from '../mock/execute-response.json'
-import proposedTelemetry from '../mock/telemetry-proposed.json'
 
 const fallbackFixture = executeResponse
-const resources = proposedTelemetry.resource_efficiency
 
 const NOT_AVAILABLE = 'Not available in this version'
-const PROPOSED_SCOPE = 'Synthetic structure · not measured · proposed contract'
 
 /**
  * Panel shell. `contract` is the whole point of this screen: an implemented panel and a
@@ -417,71 +414,89 @@ function PrivacyBudgetPanel({ dp }) {
   )
 }
 
-function ResourcePanel() {
-  const maxCpu = Math.max(...resources.samples.map((sample) => sample.cpu_percent))
-  const summary = `Illustrative only: this chart shows a proposed per-stage resource shape, not a measurement. No monitoring endpoint exists in the current implementation.`
+/**
+ * Resource telemetry for one Full Run (issue #128). The server reports the whole
+ * runner process tree — wall clock, CPU and peak RSS — via
+ * `GET /runs/{id}/resources`, so unlike an unimplemented capability this is a
+ * measured contract:
+ *   - measured    : the endpoint returned `available: true` for a recorded run.
+ *   - implemented : a run exists but carries no telemetry (predates the feature
+ *                   or the platform has no rusage); it says so, never invents one.
+ *
+ * There is no per-stage or GPU breakdown in the contract, so none is shown.
+ */
+function ResourcePanel({ resources }) {
+  const measured = Boolean(resources?.available === true && resources.resources)
+
+  if (!measured) {
+    return (
+      <MonitorPanel
+        contract="implemented"
+        icon={Cpu}
+        title="Resource efficiency"
+        unit="runner process tree · none recorded"
+        maturity="Beta"
+        scope="Panel is implemented — no recorded Full Run has resource telemetry for this session."
+      >
+        <p className="monitor-gap">
+          <FlaskConical size={13} aria-hidden="true" />
+          {resources?.reason
+            ? resources.reason
+            : 'No Full Run has produced a resource sample yet. Every new run reports the runner process tree via [xazz:resources].'}
+        </p>
+        <p className="monitor-caveat">
+          The backend records wall clock, CPU and peak RSS per run. Without a
+          recorded sample there is nothing to plot, so the panel stays empty
+          instead of inventing a fill.
+        </p>
+      </MonitorPanel>
+    )
+  }
+
+  const r = resources.resources
+  const wall = Number(r.duration_ms)
+  const cpuUser = Number(r.cpu_user_ms)
+  const cpuSys = Number(r.cpu_sys_ms)
+  const cpuTotal =
+    (Number.isFinite(cpuUser) ? cpuUser : 0) + (Number.isFinite(cpuSys) ? cpuSys : 0)
+  const rssKb = Number(r.max_rss_kb)
+  const rssMb = Number.isFinite(rssKb) ? rssKb / 1024 : null
+  const source = r.source ?? 'unknown'
 
   return (
     <MonitorPanel
-      contract="proposed"
+      contract="measured"
       icon={Cpu}
       title="Resource efficiency"
-      unit="percent · megabytes · proposed units"
-      maturity="Planned"
-      scope={PROPOSED_SCOPE}
+      unit="runner process tree · measured"
+      maturity="Real"
+      scope={`Measured from GET /runs/${resources.run_id}/resources · ${source}`}
     >
-      <p className="monitor-gap">
-        <FlaskConical size={13} aria-hidden="true" />
-        {resources.blocking_gap}
-      </p>
-
-      <div className="monitor-chart">
-        <div className="monitor-chart__heading">
-          <strong>Proposed per-stage utilisation</strong>
-          <span>four pipeline stages</span>
+      <dl className="monitor-facts">
+        <div>
+          <dt>Wall clock</dt>
+          <dd>{fmtNum(wall)} ms</dd>
         </div>
-        <div className="monitor-bars" role="img" aria-label={summary}>
-          {resources.samples.map((sample) => (
-            <div className="monitor-bars__row" key={sample.stage}>
-              <span>{sample.stage}</span>
-              <i
-                className="monitor-bars__fill monitor-bars__fill--proposed"
-                style={{ '--bar-width': `${(sample.cpu_percent / maxCpu) * 100}%` }}
-              />
-              <strong>{NOT_AVAILABLE}</strong>
-            </div>
-          ))}
+        <div>
+          <dt>CPU (user + sys)</dt>
+          <dd>{fmtNum(cpuTotal)} ms</dd>
         </div>
-        <p className="monitor-caveat">{summary}</p>
-        <details>
-          <summary>Table alternative · proposed samples</summary>
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Stage</th>
-                <th scope="col">Proposed CPU</th>
-                <th scope="col">Proposed memory</th>
-                <th scope="col">Measured</th>
-              </tr>
-            </thead>
-            <tbody>
-              {resources.samples.map((sample) => (
-                <tr key={sample.stage}>
-                  <td>
-                    <code>{sample.stage}</code>
-                  </td>
-                  <td>{sample.cpu_percent}%</td>
-                  <td>{sample.memory_mb} MB</td>
-                  <td>{NOT_AVAILABLE}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </details>
-      </div>
-
-      <p className="monitor-endpoint">
-        Proposed endpoint <code>{resources.proposed_endpoint}</code> · GPU {resources.gpu_reason}
+        <div>
+          <dt>Peak RSS</dt>
+          <dd>{rssMb == null ? '—' : `${fmtNum(rssMb)} MB`}</dd>
+        </div>
+        <div>
+          <dt>Source</dt>
+          <dd>
+            <code>{source}</code>
+          </dd>
+        </div>
+      </dl>
+      <p className="monitor-caveat">
+        Whole runner process tree for this run: wall clock, combined CPU time and
+        peak resident memory. The contract has no per-stage or GPU breakdown, so
+        none is shown — a run recorded before this feature reports “no resource
+        telemetry” instead.
       </p>
     </MonitorPanel>
   )
@@ -701,7 +716,7 @@ function GuardrailPanel({ policy, remediation, originalCode }) {
   )
 }
 
-export function MonitorView({ runState, training, model, dp, policy, remediation, originalCode, prediction, children }) {
+export function MonitorView({ runState, training, model, dp, resources, policy, remediation, originalCode, prediction, children }) {
   return (
     <div className="monitor-view" aria-label="Run monitoring">
       <div className="monitor-view__rail" aria-hidden="true" />
@@ -710,7 +725,7 @@ export function MonitorView({ runState, training, model, dp, policy, remediation
         <PredictPanel prediction={prediction} />
         <div className="monitor-view__pair">
           <PrivacyBudgetPanel dp={dp} />
-          <ResourcePanel />
+          <ResourcePanel resources={resources} />
         </div>
         <GuardrailPanel
           policy={policy}

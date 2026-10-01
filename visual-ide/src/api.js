@@ -140,6 +140,13 @@ export function remediateCode(code) {
 export const listRuns = () => request('/runs').then((data) => data?.runs ?? [])
 export const getRun = (id) => request(`/runs/${encodeURIComponent(id)}`)
 
+// ── Run resource telemetry (#128). Whole runner process tree for one run:
+// { run_id, tenant, available: true, resources: { duration_ms, cpu_user_ms,
+//   cpu_sys_ms, max_rss_kb, source } } — or { available: false, reason } when the
+// run predates the feature or the platform has no rusage. Never fabricate.
+export const getRunResources = (id) =>
+  request(`/runs/${encodeURIComponent(id)}/resources`)
+
 // ── Audit chain (#108)
 export const getAuditLog = () => request('/security/audit/log')
 export const getAuditRecords = (hash) =>
