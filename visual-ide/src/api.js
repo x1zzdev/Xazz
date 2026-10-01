@@ -171,7 +171,10 @@ export const deletePolicyTtl = () => request('/security/policy/history/ttl', { m
 
 // ── Differential-privacy ledger (#110)
 export const getDpBudget = () => request('/dp/budget')
-export const getDpResetHistory = () => request('/dp/budget/history')
+// Reset audit (C2) — newest-first, cursor paged like the other history endpoints.
+// {resets:[{id,tenant,actor,reset_at,spent_epsilon_before,spent_delta_before}], next_cursor}.
+export const getDpResetHistory = (options) =>
+  request(`/dp/budget/history?${historyQuery(options)}`)
 export const resetDpBudget = () => request('/dp/budget/reset', { method: 'POST' })
 export const putDpWindow = (windowSecs) =>
   request('/dp/budget/window', { method: 'PUT', json: { window_secs: windowSecs } })

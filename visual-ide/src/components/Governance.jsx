@@ -176,7 +176,12 @@ function DpLedgerPanel({ revision }) {
   const { t } = useLanguage()
   const time = useLocaleTime()
   const [state, reload, replace] = useServerData(getDpBudget, revision)
-  const [historyState, reloadResets] = useServerData(getDpResetHistory, revision)
+  const [resetPath, setResetPath] = useState([null])
+  useEffect(() => setResetPath([null]), [revision])
+  const resetCursor = resetPath[resetPath.length - 1]
+  const [historyState, reloadResets] = useServerData(
+    () => getDpResetHistory({ cursor: resetCursor }), `${revision}:${resetCursor ?? ''}`,
+  )
   const [windowPath, setWindowPath] = useState([null])
   useEffect(() => setWindowPath([null]), [revision])
   const windowCursor = windowPath[windowPath.length - 1]
@@ -202,6 +207,11 @@ function DpLedgerPanel({ revision }) {
     reload()
   }, [rolled, reload, data?.resets_at])
 
+  const refreshResetHistory = () => {
+    if (resetPath.length === 1) reloadResets()
+    else setResetPath([null])
+  }
+
   const reset = async () => {
     const accessAtStart = getApiAccess()
     setBusy(true)
@@ -209,7 +219,7 @@ function DpLedgerPanel({ revision }) {
       const after = await resetDpBudget()
       if (getApiAccess() === accessAtStart) {
         setNotice({ tone: 'ok', text: (tr) => tr('gov.dp.resetDone').replace('{spent}', num(after?.spent_epsilon)) })
-        reloadResets()
+        refreshResetHistory()
       }
     } catch (error) {
       if (getApiAccess() === accessAtStart) {
@@ -443,6 +453,22 @@ function DpLedgerPanel({ revision }) {
             ) : (
               <p className="monitor-empty">{t('gov.dp.historyEmpty')}</p>
             )}
+            <div className="gov-actions">
+              <button className="button button--tool-secondary button--compact" type="button"
+                disabled={resetPath.length === 1}
+                onClick={() => setResetPath((path) => path.slice(0, -1))}>
+                {t('gov.dp.previous')}
+              </button>
+              <span>{t('gov.dp.historyPage').replace('{n}', String(resetPath.length))}</span>
+              <button className="button button--tool-secondary button--compact" type="button"
+                disabled={historyState.status !== 'ready' || (historyState.data?.resets?.length ?? 0) < 20}
+                onClick={() => {
+                  const next = historyState.data?.next_cursor
+                  if (next != null) setResetPath((path) => [...path, next])
+                }}>
+                {t('gov.dp.next')}
+              </button>
+            </div>
           </div>
         </>
       )}

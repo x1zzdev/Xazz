@@ -523,6 +523,39 @@ test('DP reset history shows the actor and spend from before reset', async ({ pa
   await expect(table).toContainText('0.00001')
 })
 
+test('DP reset history pages by id cursor', async ({ page }) => {
+  const resets = Array.from({ length: 21 }, (_, i) => {
+    const id = 21 - i
+    return {
+      id, actor: id % 2 ? 'alice' : 'bob', reset_at: 1790000000 - i,
+      spent_epsilon_before: id, spent_delta_before: 0.00001,
+    }
+  })
+  await mockServer(page, {
+    'GET /dp/budget/history': (request) => {
+      const cursor = new URL(request.url()).searchParams.get('cursor')
+      const pageResets = cursor == null
+        ? resets.slice(0, 20)
+        : resets.filter((entry) => entry.id < Number(cursor)).slice(0, 20)
+      return {
+        tenant: '', limit: 20,
+        next_cursor: pageResets.length ? pageResets[pageResets.length - 1].id : null,
+        resets: pageResets,
+      }
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Differential-privacy ledger' })
+  const table = panel.getByRole('table', { name: 'Budget reset history' })
+  const section = panel.locator('.gov-subsection').last()
+  await expect(table.getByRole('row')).toHaveCount(21)
+  await section.getByRole('button', { name: 'Next' }).click()
+  await expect(section).toContainText('Page 2')
+  await expect(table.getByRole('row')).toHaveCount(2)
+  await section.getByRole('button', { name: 'Previous' }).click()
+  await expect(table.getByRole('row')).toHaveCount(21)
+})
+
 test('DP ledger reset needs confirmation and shows the re-read value', async ({ page }) => {
   let spent = 2.5
   const requests = await mockServer(page, {
