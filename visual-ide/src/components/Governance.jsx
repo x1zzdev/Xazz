@@ -758,10 +758,9 @@ function InferenceCheckPanel({ onChecked }) {
 // ── Policy packs (#109) ─────────────────────────────────────────────────────
 
 const loadPolicyHistory = (cursor) =>
-  Promise.all([getPolicyHistory({ limit: 20, cursor }), getPolicyTtl()]).then(([page, ttl]) => ({
+  getPolicyHistory({ limit: 20, cursor }).then((page) => ({
     entries: page?.history ?? [],
     nextCursor: page?.next_cursor ?? null,
-    ttl,
   }))
 
 function packName(json) {
@@ -779,6 +778,7 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
   const [historyState, reloadHistory] = useServerData(
     () => loadPolicyHistory(historyCursor), `${revision}:${historyCursor ?? ''}`,
   )
+  const [ttlState, reloadTtl] = useServerData(getPolicyTtl, revision)
   const [ttlPath, setTtlPath] = useState([null])
   useEffect(() => setTtlPath([null]), [revision])
   const ttlCursor = ttlPath[ttlPath.length - 1]
@@ -802,6 +802,7 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
   const reloadAll = () => {
     reloadPolicy()
     refreshHistory()
+    reloadTtl()
   }
 
   const refreshTtlHistory = () => {
@@ -846,7 +847,7 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
 
   const history = historyState.status === 'ready' ? historyState.data.entries : null
   const historyNextCursor = historyState.status === 'ready' ? historyState.data.nextCursor : null
-  const ttl = historyState.status === 'ready' ? historyState.data.ttl : null
+  const ttl = ttlState.status === 'ready' ? ttlState.data : null
 
   return (
     <MonitorPanel
