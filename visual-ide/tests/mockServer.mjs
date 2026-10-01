@@ -32,7 +32,7 @@ export const defaults = () => ({
     origin: 'builtin',
     policy: { id: 'xazz-builtin-pii', version: '1.0.0', domain: 'common', risk_level: 'medium' },
   },
-  'GET /security/policy/history': { tenant: '', history: [] },
+  'GET /security/policy/history': { tenant: '', limit: 20, next_cursor: null, history: [] },
   'GET /security/policy/history/ttl': { tenant: '', ttl_secs: 0, ttl_source: 'global' },
   'GET /security/policy/history/ttl/history': { tenant: '', limit: 20, next_cursor: null, history: [] },
 })

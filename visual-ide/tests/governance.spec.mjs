@@ -265,11 +265,12 @@ test('TTL change history pages and refreshes after a retention change', async ({
   await openMonitor(page)
   const panel = page.getByRole('region', { name: 'Policy packs' })
   const table = panel.getByRole('table', { name: 'Retention change history' })
+  const ttlSection = panel.locator('.gov-subsection').last()
   await expect(table.getByRole('row')).toHaveCount(21)
-  await panel.getByRole('button', { name: 'Next' }).click()
-  await expect(panel).toContainText('Page 2')
+  await ttlSection.getByRole('button', { name: 'Next' }).click()
+  await expect(ttlSection).toContainText('Page 2')
   await expect(table.getByRole('row')).toHaveCount(2)
-  await panel.getByRole('button', { name: 'Previous' }).click()
+  await ttlSection.getByRole('button', { name: 'Previous' }).click()
   await expect(table.getByRole('row')).toHaveCount(21)
 
   await panel.getByLabel(/History retention/).fill('3600')
@@ -306,13 +307,57 @@ test('TTL history returns to page one when server access changes', async ({ page
   await tenantInput.fill('A')
   await page.getByRole('button', { name: 'Apply and reload panels' }).click()
   const panel = page.getByRole('region', { name: 'Policy packs' })
-  await panel.getByRole('button', { name: 'Next' }).click()
-  await expect(panel).toContainText('Page 2')
+  const ttlSection = panel.locator('.gov-subsection').last()
+  await ttlSection.getByRole('button', { name: 'Next' }).click()
+  await expect(ttlSection).toContainText('Page 2')
   await tenantInput.fill('B')
   await page.getByRole('button', { name: 'Apply and reload panels' }).click()
-  await expect(panel).toContainText('Page 1')
+  await expect(ttlSection).toContainText('Page 1')
   await expect(panel.getByRole('table', { name: 'Retention change history' })).toContainText('B')
   expect(requests.some((r) => r.path === '/security/policy/history/ttl/history' && r.headers['x-xazz-tenant'] === 'B')).toBe(true)
+})
+
+test('policy change history pages by id cursor and returns to page one', async ({ page }) => {
+  const history = Array.from({ length: 21 }, (_, i) => {
+    const id = 21 - i
+    return {
+      id, action: 'set',
+      new_policy_json: { id: `pack-${id}`, version: '1' },
+      changed_by: id > 20 ? 'alice' : 'bob',
+      changed_at: 1790000000 - i,
+    }
+  })
+  const cursors = []
+  await mockServer(page, {
+    'GET /security/policy/history': (request) => {
+      const cursor = new URL(request.url()).searchParams.get('cursor')
+      cursors.push(cursor)
+      const pageHistory = cursor == null
+        ? history.slice(0, 20)
+        : history.filter((entry) => entry.id < Number(cursor)).slice(0, 20)
+      return {
+        tenant: '', limit: 20,
+        next_cursor: pageHistory.length ? pageHistory[pageHistory.length - 1].id : null,
+        history: pageHistory,
+      }
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Policy packs' })
+  const historySection = panel.locator('.gov-subsection').first()
+  const timeline = historySection.locator('.gov-timeline')
+  await expect(timeline.locator('li')).toHaveCount(20)
+  await expect(historySection).toContainText('Page 1')
+
+  await historySection.getByRole('button', { name: 'Next' }).click()
+  await expect(historySection).toContainText('Page 2')
+  await expect(timeline.locator('li')).toHaveCount(1)
+  await expect(timeline).toContainText('pack-1')
+  expect(cursors).toContain('2')
+
+  await historySection.getByRole('button', { name: 'Previous' }).click()
+  await expect(historySection).toContainText('Page 1')
+  await expect(timeline.locator('li')).toHaveCount(20)
 })
 
 test('policy packs install, reject bad JSON, and remove only after confirmation', async ({ page }) => {

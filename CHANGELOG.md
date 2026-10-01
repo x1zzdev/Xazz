@@ -9,6 +9,17 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — visual-ide 정책 이력 커서 페이지네이션 (issue C2)
+
+- `PolicyPackPanel`의 정책 팩 변경 이력이 첫 페이지(20건)만 보여주던 것을
+  `next_cursor` 기반 페이지네이션으로 전환했다. `loadPolicyHistory(cursor)`가
+  `GET /security/policy/history?cursor=...`를 호출하고, 정책 이력 타임라인 아래에
+  Previous/`Page n`/Next 컨트롤(신규 i18n `gov.policy.historyPage`)을 둔다.
+  페이지 상태는 커서 스택(`historyPath`)으로 관리해 Previous가 이전 커서로
+  되돌아가고, 팩 설치/제거 후에는 1페이지로 리셋된다
+- 검증: `test:contract`/`test:stdout`/`test:contrast`/`test:e2e`(68, 신규
+  `policy change history pages by id cursor and returns to page one` 포함) 통과
+
 ### Changed — Monitor 리소스 패널을 실제 `GET /runs/{id}/resources`에 연결 (issue #128 후속)
 
 - `visual-ide`가 더 이상 `src/mock/telemetry-proposed.json`(엔드포인트 부재를

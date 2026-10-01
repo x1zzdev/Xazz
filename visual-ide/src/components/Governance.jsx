@@ -668,9 +668,10 @@ function InferenceCheckPanel({ onChecked }) {
 
 // ── Policy packs (#109) ─────────────────────────────────────────────────────
 
-const loadPolicyHistory = () =>
-  Promise.all([getPolicyHistory({ limit: 20 }), getPolicyTtl()]).then(([page, ttl]) => ({
+const loadPolicyHistory = (cursor) =>
+  Promise.all([getPolicyHistory({ limit: 20, cursor }), getPolicyTtl()]).then(([page, ttl]) => ({
     entries: page?.history ?? [],
+    nextCursor: page?.next_cursor ?? null,
     ttl,
   }))
 
@@ -683,7 +684,12 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
   const { t } = useLanguage()
   const time = useLocaleTime()
   const [policyState, reloadPolicy] = useServerData(getPolicy, revision)
-  const [historyState, reloadHistory] = useServerData(loadPolicyHistory, revision)
+  const [historyPath, setHistoryPath] = useState([null])
+  useEffect(() => setHistoryPath([null]), [revision])
+  const historyCursor = historyPath[historyPath.length - 1]
+  const [historyState, reloadHistory] = useServerData(
+    () => loadPolicyHistory(historyCursor), `${revision}:${historyCursor ?? ''}`,
+  )
   const [ttlPath, setTtlPath] = useState([null])
   useEffect(() => setTtlPath([null]), [revision])
   const ttlCursor = ttlPath[ttlPath.length - 1]
@@ -699,9 +705,14 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
   const tenantPack = typeof active?.origin === 'string' && active.origin.startsWith('tenant:')
   const loadFailed = policyState.status === 'error' && policyState.error.status === 500
 
+  const refreshHistory = () => {
+    if (historyPath.length === 1) reloadHistory()
+    else setHistoryPath([null])
+  }
+
   const reloadAll = () => {
     reloadPolicy()
-    reloadHistory()
+    refreshHistory()
   }
 
   const refreshTtlHistory = () => {
@@ -745,6 +756,7 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
   }
 
   const history = historyState.status === 'ready' ? historyState.data.entries : null
+  const historyNextCursor = historyState.status === 'ready' ? historyState.data.nextCursor : null
   const ttl = historyState.status === 'ready' ? historyState.data.ttl : null
 
   return (
@@ -863,6 +875,21 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
             ))}
           </ol>
         )}
+        <div className="gov-actions">
+          <button className="button button--tool-secondary button--compact" type="button"
+            disabled={historyPath.length === 1}
+            onClick={() => setHistoryPath((path) => path.slice(0, -1))}>
+            {t('gov.policy.previous')}
+          </button>
+          <span>{t('gov.policy.historyPage').replace('{n}', String(historyPath.length))}</span>
+          <button className="button button--tool-secondary button--compact" type="button"
+            disabled={historyState.status !== 'ready' || (historyState.data?.entries?.length ?? 0) < 20}
+            onClick={() => {
+              if (historyNextCursor != null) setHistoryPath((path) => [...path, historyNextCursor])
+            }}>
+            {t('gov.policy.next')}
+          </button>
+        </div>
       </div>
 
       {ttl && (
