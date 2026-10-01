@@ -56,8 +56,11 @@ jobs:
       - name: Install benchmark dependencies
         run: pip install --disable-pip-version-check pandas numpy psutil
 
+      # `xazz run` spawns xazz-runner, which spawns xazz-exec from the same
+      # directory (no PATH fallback, fail-closed). Without xazz-exec the runner
+      # exits 1 and the benchmark aborts before measuring anything (issue #147).
       - name: Build release binaries
-        run: cargo build --release -p xazz -p xazz-runner
+        run: cargo build --release -p xazz -p xazz-runner -p xazz-exec
 
       - name: Generate synthetic dataset
         run: python benches/make_scale_data.py --synthetic
