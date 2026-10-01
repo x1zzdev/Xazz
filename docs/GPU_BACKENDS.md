@@ -19,7 +19,7 @@ Features are declared in [`xazz-exec/Cargo.toml`](../xazz-exec/Cargo.toml).
 |---------|----------------|--------|------------------|
 | *(none, default)* | `cpu` | `burn-ndarray` | none — always compiled |
 | `wgpu` | `wgpu` | `burn-wgpu` (WebGPU/CubeCL) | Vulkan / Metal / DX12 device; no external SDK |
-| `cuda` | `cuda` | `burn-cuda` (native CubeCL CUDA) | NVIDIA GPU + CUDA driver; no LibTorch/SDK |
+| `cuda` | `cuda` | `burn-cuda` (native CubeCL CUDA) | NVIDIA GPU + CUDA driver **+ NVRTC library + CUDA headers at run time** (see below); no LibTorch, no MSVC |
 | `onnx` | `onnx` | ONNX Runtime (CPU EP) | none — prebuilt runtime is downloaded |
 | `onnx-cuda` | `onnx` | ONNX Runtime + CUDA EP | NVIDIA GPU + CUDA |
 | `onnx-tensorrt` | `onnx` | ONNX Runtime + TensorRT EP | NVIDIA GPU + TensorRT |
@@ -54,9 +54,33 @@ Then build the rest of the demo binaries as usual (see
 [DEMO_GUIDE.md](../DEMO_GUIDE.md#step-1--build-the-binaries)) and keep
 `xazz`, `xazz-runner`, and `xazz-exec` in the same directory.
 
-> **CUDA backend is pure Rust.** The `cuda` feature uses `burn-cuda` (native
-> CubeCL), which JIT-compiles kernels at runtime and needs no LibTorch, system
-> SDK, or MSVC toolchain — only a working NVIDIA driver at run time. This is the
+> **CUDA backend is pure Rust, but not driver-only.** The `cuda` feature uses
+> `burn-cuda` (native CubeCL), which needs no LibTorch or MSVC toolchain and
+> builds on `windows-gnu`. Because CubeCL JIT-compiles kernels with NVRTC at
+> run time, the host also needs two CUDA Toolkit components next to the driver:
+>
+> | Component | Why | Where it is looked up |
+> |---|---|---|
+> | `nvrtc64_1xx_0.dll` / `libnvrtc.so` | kernel JIT compiler (`cudarc` loads it dynamically) | `PATH` / `LD_LIBRARY_PATH` |
+> | CUDA headers (`cuda_runtime.h`, …) | the generated kernel source includes them | `$CUDA_PATH/include` (read at run time by `cubecl-cuda`) |
+>
+> A full Toolkit install provides both. Without one (or without admin rights),
+> NVIDIA's pip redistributables are enough — download the wheels matching the
+> driver's CUDA version, unzip them, and point the two variables at them:
+>
+> ```powershell
+> pip download --only-binary=:all: --no-deps -d dl "nvidia-cuda-nvrtc==13.1.*" "nvidia-cuda-runtime==13.1.*"
+> # unzip the .whl files (they are zip archives), then:
+> $env:CUDA_PATH = "<unzipped nvidia_cuda_runtime>\nvidia\cu13"            # has include\cuda_runtime.h
+> $env:Path      = "<unzipped nvidia_cuda_nvrtc>\nvidia\cu13\bin\x86_64;$env:Path"
+> ```
+>
+> If either is missing the provider falls back to CPU with a generic
+> "no usable CUDA device/driver" warning (NVRTC: dynamic-load panic; headers:
+> `cannot open source file "cuda_runtime.h"` from NVRTC). Changing `CUDA_PATH`
+> triggers one rebuild of `cudarc` and its dependents. Verified on Windows 11 /
+> RTX 4070 with the gnu toolchain — see
+> [gpu-backend-acceptance.md §4](design/gpu-backend-acceptance.md). This is the
 > same CubeCL stack as `burn-wgpu` and matches the upstream Burn 0.22 direction
 > (CubeCL CUDA, graph replay, LLVM GPU backends). See [issue #62](https://github.com/x1zzdev/Xazz/issues/62).
 
@@ -65,11 +89,13 @@ Then build the rest of the demo binaries as usual (see
 - **Windows.** Every `onnx*` feature requires the **MSVC toolchain**
   (`stable-x86_64-pc-windows-msvc` + VS Build Tools, "Desktop development with
   C++") because ONNX Runtime has no windows-gnu prebuilt, so `build.rs` blocks
-  those features on GNU up front. `wgpu` and `cuda` work on either toolchain.
-  See [gpu-backend-acceptance.md §6](design/gpu-backend-acceptance.md).
+  those features on GNU up front. `wgpu` and `cuda` work on either toolchain
+  (`cuda` additionally needs the NVRTC DLL and CUDA headers described above).
+  See [gpu-backend-acceptance.md §4–§6](design/gpu-backend-acceptance.md).
 - **Linux.** `wgpu` uses Vulkan (Mesa/lavapipe is enough for CI). `cuda` needs
-  an NVIDIA driver (CubeCL kernels are JIT-compiled); `onnx` uses the prebuilt
-  runtime.
+  an NVIDIA driver plus `libnvrtc.so` and the CUDA headers (CubeCL kernels are
+  JIT-compiled; a Toolkit install or the pip redistributables provide them);
+  `onnx` uses the prebuilt runtime.
 - **macOS.** `wgpu` uses Metal; `onnx-coreml` targets the Apple Neural Engine /
   CoreML.
 

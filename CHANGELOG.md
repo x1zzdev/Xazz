@@ -9,6 +9,17 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Docs — burn-cuda 실기 acceptance 통과 기록과 런타임 요구사항 정정 (issue #236, #103)
+
+- `docs/design/gpu-backend-acceptance.md` §4 — Windows 11 / RTX 4070, `windows-gnu` 툴체인 그대로
+  `cuda_matches_cpu_losses` **통과**(13.52s)와 `XAZZ_DEVICE=cuda:0` 실기 학습(RTX 4070 사용 확인,
+  콜드 83.5s → 웜 17.4s) 기록. 드라이버만으로는 두 단계로 실패했고(cudarc의 NVRTC 동적 로드 panic →
+  NVRTC `cannot open source file "cuda_runtime.h"`), NVIDIA pip 재배포본(`nvidia-cuda-nvrtc`,
+  `nvidia-cuda-runtime`)을 사용자 폴더에 풀어 `PATH`·`CUDA_PATH`만 잡으면 Toolkit 설치·관리자 권한
+  없이 해결됨을 확인. §6.2 CUDA 항목 완료, §6.1에 요구사항·probe 진단 개선 제안 추가
+- `docs/GPU_BACKENDS.md` — "드라이버만 있으면 됨" 표기를 **드라이버 + NVRTC 라이브러리 + CUDA 헤더**로
+  정정하고 pip 재배포본 확보 절차 수록. `docs/ROADMAP.md` D1 CUDA 실기 항목 완료 처리
+
 ### Added — visual-ide 정책 이력 커서 페이지네이션 (issue C2)
 
 - `PolicyPackPanel`의 정책 팩 변경 이력이 첫 페이지(20건)만 보여주던 것을

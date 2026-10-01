@@ -12,21 +12,25 @@
 | **wgpu** acceptance | `cargo test --release -p xazz-exec --features wgpu -- --ignored` | **통과** — `wgpu_matches_cpu_losses` 1 passed (5.36s) |
 | **wgpu** `XAZZ_DEVICE=dgpu:0` | `xazz run` (학습·예측·차트) | **통과** — RTX 4070에서 실행됨을 GPU 엔진 카운터로 확인 |
 | **wgpu** `XAZZ_DEVICE=igpu:0` | `xazz run` | **통과** — Intel Arc에서 실행됨을 확인 (NVIDIA 사용률 0%) |
-| **cuda** (burn-tch, historical) | `cargo test --release -p xazz-exec --features cuda -- --ignored` | **실패 (툴체인)** — 이후 burn-cuda로 교체됨(상단 개정 참고) |
+| **cuda** (burn-cuda) acceptance | `cargo test --release -p xazz-exec --features cuda -- --ignored` | **통과** (2026-10-01) — `cuda_matches_cpu_losses` 1 passed (13.52s), windows-gnu 그대로. 단 **NVRTC DLL + CUDA 헤더 필요** (§4.1) |
+| **cuda** `XAZZ_DEVICE=cuda:0` | `xazz run` (학습·예측) | **통과** — RTX 4070 사용을 GPU 엔진 카운터·nvidia-smi로 확인 (§4.2) |
+| **cuda** (burn-tch, historical) | 동일 명령 (2026-09-25 이전 provider) | **실패 (툴체인)** — LibTorch MSVC ABI. burn-cuda로 교체돼 역사 기록만 남김 (§4.3) |
 | **onnx** (ort) | `cargo test --release -p xazz-exec --features onnx -- --ignored` | **실패 (툴체인)** — `x86_64-pc-windows-gnu` 타깃용 prebuilt ONNX Runtime 없음 |
 | **onnx-coreml** (macOS M5) | — | 미실시 (별도 기기, 후속) |
 
-한 줄 결론: **wgpu 경로는 실제 dGPU/iGPU 양쪽에서 동작하고 `XAZZ_DEVICE` 어댑터 선택이 정확하다.**
-CUDA·ONNX는 이 호스트의 Rust 툴체인이 `x86_64-pc-windows-gnu`라서 빌드 단계에서 막혔다.
-두 provider 모두 Windows에서는 **MSVC 툴체인(`stable-x86_64-pc-windows-msvc` + VS Build Tools)이 필수**이며,
-실기 검증은 그 환경에서 다시 수행해야 한다(§6).
+한 줄 결론: **wgpu와 cuda(burn-cuda) 경로는 실제 RTX 4070에서 동작하고, wgpu는 Intel Arc iGPU까지
+`XAZZ_DEVICE` 어댑터 선택이 정확하다.** ONNX만 이 호스트의 `x86_64-pc-windows-gnu` 툴체인에서 빌드가
+막혀 MSVC 환경이 필요하다(§5·§6). burn-cuda는 MSVC·LibTorch·CUDA Toolkit 설치 없이 돌았지만
+**"드라이버만 있으면 된다"는 것은 부정확**하다 — NVRTC 공유 라이브러리와 CUDA 런타임 헤더가 실행 시점에
+추가로 필요하며, 둘 다 NVIDIA의 pip 재배포 패키지로 사용자 권한만으로 확보할 수 있다(§4.1).
 
 > **2026-09-25 개정 (issue #62).** CUDA provider는 `burn-tch`(LibTorch)에서
-> `burn-cuda`(native CubeCL)로 교체되었다. 위 §4의 burn-tch 실패 기록은 **역사적
-> 기록**으로만 남긴다 — `burn-cuda`는 순수 Rust라 LibTorch/MSVC가 필요 없고,
-> NVIDIA 드라이버만 있으면 된다. 따라서 CUDA 실기 검증은 이 호스트에서도
-> **MSVC 없이** `cargo test --release -p xazz-exec --features cuda -- --ignored`로
-> 재시도할 수 있다. ONNX(`ort`)만 여전히 MSVC가 필요하다(§6).
+> `burn-cuda`(native CubeCL)로 교체되었다. §4.3의 burn-tch 실패 기록은 **역사적
+> 기록**으로만 남긴다. ONNX(`ort`)만 여전히 MSVC가 필요하다(§6).
+>
+> **2026-10-01 실측 (issue #236).** burn-cuda acceptance를 같은 호스트·같은 gnu 툴체인에서
+> 재실행해 **통과**했다. 다만 드라이버만으로는 부족했고 NVRTC DLL과 CUDA 헤더를 별도로
+> 확보해야 했다 — 과정과 요구사항은 §4.1, 결과는 §4.2.
 
 ---
 
@@ -39,11 +43,11 @@ CUDA·ONNX는 이 호스트의 Rust 툴체인이 `x86_64-pc-windows-gnu`라서 �
 | CPU | Intel Core Ultra 9 185H |
 | dGPU | NVIDIA GeForce RTX 4070 Laptop GPU, 8GB — driver 591.44 (CUDA 13.1 지원) |
 | iGPU | Intel Arc Graphics (Meteor Lake) — driver 32.0.101.8424 |
-| CUDA Toolkit | 미설치 (드라이버만 존재) |
+| CUDA Toolkit | 미설치 (드라이버만 존재). CUDA 실측(§4)에는 pip 재배포 패키지 `nvidia-cuda-nvrtc` 13.1.115 + `nvidia-cuda-runtime` 13.1.80을 사용자 폴더에 압축 해제해 사용 (설치·관리자 권한 없음) |
 | Rust | 1.98.0, `stable-x86_64-pc-windows-gnu` — MSVC Build Tools 미설치 |
 | C/C++ | gcc 16.1.0 (WinLibs UCRT POSIX, MinGW-w64) |
-| 저장소 | `x1zzdev/Xazz` main `466a424` (2026-09-24) |
-| 실행 파일 | `target/release/{xazz,xazz-runner,xazz-exec}.exe`, xazz-exec는 `--features wgpu` |
+| 저장소 | wgpu/onnx: main `466a424` (2026-09-24) · cuda(burn-cuda): main `2b2737a` (2026-10-01) |
+| 실행 파일 | `target/release/{xazz,xazz-runner,xazz-exec}.exe`, xazz-exec는 `--features wgpu` (§3) / `--features cuda` (§4) |
 
 ---
 
@@ -121,7 +125,85 @@ Dense(32)→ReLU→Dense(1), 97 params, 228,383행 단일 배치, 10 epoch. 세 
 
 ---
 
-## 4. CUDA (burn-tch) — 실패, 툴체인 (historical, superseded by burn-cuda)
+## 4. CUDA
+
+### 4.1 burn-cuda 런타임 요구사항 — NVRTC + CUDA 헤더 (windows-gnu, 2026-10-01)
+
+`--features cuda`(burn-cuda 0.21, cubecl-cuda 0.10, cudarc 0.19.8)는 gnu 툴체인에서 **빌드는 바로 성공**했다
+(release 26m 56s, MSVC·LibTorch 없음). 그러나 첫 실행은 두 단계로 실패했고, 각각 CUDA Toolkit 구성요소를
+사용자 권한으로 확보해 해결했다.
+
+**(1) NVRTC 공유 라이브러리.** CubeCL은 커널을 실행 시점에 NVRTC로 JIT 컴파일하므로 `nvrtc64_*.dll`이 필요하다.
+이 DLL은 드라이버가 아니라 Toolkit에 포함된다. 이 호스트에는 `nvcuda.dll`(드라이버)만 있었다.
+
+```
+thread 'DSD-0-0' panicked at cudarc-0.19.8\src\lib.rs:200:5:
+Unable to dynamically load the "nvrtc" shared library - searched for library names:
+["nvrtc.dll", "nvrtc64.dll", "nvrtc64_13.dll", "nvrtc64_133.dll", "nvrtc64_133_0.dll", "nvrtc64_130_3.dll",
+ "nvrtc64_10.dll", "nvrtc64_11.dll", "nvrtc64_12.dll", "nvrtc64_130_0.dll", "nvrtc64_9.dll", ...]
+→ cubecl-common channel.rs:93 "Can't have an error when submitting a task: CallError"
+→ test backend::acceptance::cuda_matches_cpu_losses ... FAILED
+```
+
+해결: NVIDIA가 pip로 배포하는 NVRTC 재배포본을 받아 압축만 풀고 PATH에 추가했다 (드라이버 591.44 = CUDA 13.1에 맞춤).
+
+```powershell
+pip download --only-binary=:all: --no-deps -d dl "nvidia-cuda-nvrtc==13.1.115"   # CUDA 13부터 -cu13 접미사 없음
+python -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" dl\nvidia_cuda_nvrtc-13.1.115-py3-none-win_amd64.whl nvrtc
+# → nvrtc\nvidia\cu13\bin\x86_64\nvrtc64_130_0.dll (91MB), nvrtc-builtins64_131.dll
+```
+
+**(2) CUDA 런타임 헤더.** DLL이 잡히자 이번엔 `resolve()`의 장치 probe가 실패해 "device is unavailable … falling back to CPU"
+경고만 나왔다. probe(`CudaBackend::probe_device`)가 panic 훅을 묵음 처리해 원인이 보이지 않아, 훅 없이 같은 최소 연산
+(`Tensor::<Cuda<f32>,1>::zeros([1]).into_data()`)을 실행하는 임시 example로 확인했다:
+
+```
+[Compilation Error] default_program(1): catastrophic error: cannot open source file "cuda_runtime.h"
+      #include <cuda_runtime.h>
+```
+
+cubecl-cuda는 NVRTC에 `--include-path=$CUDA_PATH/include`를 넘기며(`cubecl-cuda/src/lib.rs` `install::include_path`,
+**실행 시점**에 `CUDA_PATH`를 읽음) 커널 소스가 `cuda_runtime.h`를 include한다. 역시 pip 재배포본으로 해결했다.
+
+```powershell
+pip download --only-binary=:all: --no-deps -d dl "nvidia-cuda-runtime==13.1.*"
+python -c "..." dl\nvidia_cuda_runtime-13.1.80-py3-none-win_amd64.whl cudart    # → cudart\nvidia\cu13\include\cuda_runtime.h 등 81개
+$env:CUDA_PATH = "<...>\cudart\nvidia\cu13"
+$env:Path      = "<...>\nvrtc\nvidia\cu13\bin\x86_64;$env:Path"
+```
+
+**요구사항 정리 (Windows, burn-cuda).** NVIDIA 드라이버 + `nvrtc64_1xx_0.dll`(PATH) + CUDA 헤더(`CUDA_PATH/include`).
+CUDA Toolkit 전체 설치나 관리자 권한은 필요 없다(두 패키지 합계 ≈150MB). cudarc는 `nvcc`가 없으면 `fallback-latest`로
+CUDA 13.3 드라이버 API 바인딩을 고르는데(build.rs), 13.1 드라이버에서도 문제는 없었다 — 필요 시 빌드 전
+`CUDARC_CUDA_VERSION=13010`으로 고정할 수 있다. `CUDA_PATH`를 새로 설정하면 cudarc의 `rerun-if-env-changed` 때문에
+cudarc→burn-cuda→xazz-exec가 한 번 재빌드된다(≈24분).
+
+### 4.2 Acceptance 테스트와 실기 학습 — 통과
+
+```
+cargo test --release -p xazz-exec --features cuda -- --ignored --nocapture
+```
+
+```
+test backend::acceptance::cuda_matches_cpu_losses ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 13.52s
+```
+
+- CPU 학습 체크포인트를 CPU와 CUDA에서 각각 추론 → 최대 편차 < 1e-3 (parity 통과)
+- CUDA 장치 학습 loss finite, CUDA 학습 체크포인트로 추론 가능
+
+`xazz run` — §3.2와 같은 데이터·모델(395,265 params, 228,383행 단일 배치)의 20 epoch 축약본, `XAZZ_BACKEND=cuda XAZZ_DEVICE=cuda:0`:
+
+| 실행 | xazz-exec가 사용한 어댑터 | nvidia-smi 피크 / VRAM | final MSE | `pipeline_ms` |
+|---|---|---|---|---|
+| 1회차 (콜드, 커널 JIT 컴파일 포함) | **RTX 4070** 3D 엔진 (14 samples) | 100% / 3.9GB | 450.0 | 83,460 |
+| 2회차 (웜, 컴파일 캐시 적중) | RTX 4070 | 98% / 3.4GB | 461.0 | **17,359** |
+
+`[xazz] ML backend: cuda`가 찍히고 Intel Arc는 사용되지 않았다. 콜드 실행에서 nvidia-smi 사용률이 0%↔99%로 교대한 것은
+커널 컴파일 스톨이다. 웜 기준 ≈0.87 s/epoch로, 같은 워크로드의 burn-wgpu(dGPU) ≈0.34 s/epoch(§3.2)보다 느리다 —
+단일 배치 소형 MLP 한 건의 수치이며 autotune/fusion 경로 차이로 추정되므로 일반화하지 않는다.
+
+### 4.3 (historical) burn-tch — 실패, 툴체인 (2026-09-25, superseded by burn-cuda)
 
 ```
 TORCH_CUDA_VERSION=cu128 cargo test --release -p xazz-exec --features cuda -- --ignored --nocapture
@@ -189,7 +271,8 @@ error: build script logged errors
 | 1 | **GNU 툴체인 debug 테스트 바이너리가 Windows 로더 한도 초과** — `cargo test --features wgpu`(debug)가 4,045,037,500 bytes exe를 만들어 `os error 193`(올바른 Win32 응용 프로그램이 아님)으로 실행 불가. GNU 링커는 DWARF를 exe에 포함하는데 wgpu(cubecl/burn)+Polars+DuckDB 조합이 한도를 넘김. 한도는 4GB가 아니라 그보다 낮다: 2026-09-25 main(`ac57a44`)에서는 **기본 feature의 debug 테스트 바이너리(3.24GB)도 같은 오류**로 실행되지 않았고, 8/27의 1.75GB 빌드는 실행됐다 | Windows-gnu에서 `xazz-exec` 테스트는 debug 기본 설정으로 불가 (GPU feature 여부 무관) | `--release` 또는 `CARGO_PROFILE_DEV_DEBUG=0`(디버그 정보 제거, 전체 재빌드 ≈7분)으로 실행. 저장소 차원에서는 `[profile.test] debug = 0` 또는 `split-debuginfo` 검토 |
 | 2 | **어댑터 선택 로그 부재** — cubecl-wgpu의 `Using adapter` info 로그가 로거 미설치로 소실 | `XAZZ_DEVICE` 결과를 로그로 검증 불가 | xazz-exec에 `XAZZ_LOG`(또는 `RUST_LOG`) 기반 로거 설치, `[xazz] ML backend: wgpu (adapter: …)` 형태로 노출 |
 | 3 | **xazz-runner 기본 타임아웃 300s** — iGPU/CPU로 큰 학습 시 96 epoch에서 종료 | 장시간 학습이 조용히 잘림 | `XAZZ_EXEC_TIMEOUT_SECS` 안내 강화, 또는 `train` 존재 시 기본값 상향 검토 |
-| 4 | **Windows에서 cuda/onnx는 MSVC 전용** (§4, §5) | gnu 툴체인 사용자는 빌드 불가 | `xazz-exec/Cargo.toml` feature 주석과 README에 명시 |
+| 4 | **Windows에서 onnx는 MSVC 전용** (§5; cuda는 burn-cuda 전환으로 해당 없음, §4.1) | gnu 툴체인 사용자는 onnx 빌드 불가 | `xazz-exec/Cargo.toml` feature 주석과 README에 명시 |
+| 5 | **burn-cuda는 드라이버 외에 NVRTC DLL + CUDA 헤더(`CUDA_PATH/include`)가 실행 시점에 필요** (§4.1). 없으면 각각 cudarc 로드 panic / NVRTC `cannot open source file "cuda_runtime.h"` | "드라이버만 있으면 됨"으로 안내된 사용자는 CPU 폴백만 보게 됨 | `docs/GPU_BACKENDS.md`에 요구사항과 pip 재배포본 경로 명시 (이 PR); `CudaBackend::probe_device`가 panic payload를 경고 메시지에 포함하도록 개선하면 원인이 즉시 드러남 |
 
 > 위 제안 1·4는 반영됐다: `xazz-exec/build.rs`가 `windows-gnu` + `cuda`/`onnx*` 조합을
 > 빌드 초입에서 MSVC 설치 안내와 함께 차단하고(`XAZZ_ALLOW_WINDOWS_GNU_GPU=1`로 우회),
@@ -202,8 +285,8 @@ error: build script logged errors
 
 ### 6.2 남은 검증
 
-- [ ] **CUDA 실기** — 같은 호스트에서 VS Build Tools 설치 후 `rustup default stable-msvc`로 전체 재빌드하여 §4 재실행
-- [ ] **ONNX 실기 (Windows)** — 위 MSVC 환경에서 `--features onnx` 및 `onnx-cuda`(`XAZZ_ORT_EP=cuda` fail-closed 경로 포함)
+- [x] **CUDA 실기** — burn-cuda, windows-gnu 그대로 통과 (2026-10-01, §4.2). MSVC 불필요; NVRTC DLL + CUDA 헤더 필요 (§4.1)
+- [ ] **ONNX 실기 (Windows)** — VS Build Tools + `stable-x86_64-pc-windows-msvc` 환경에서 `--features onnx` 및 `onnx-cuda`(`XAZZ_ORT_EP=cuda` fail-closed 경로 포함)
 - [ ] **ONNX coreml (macOS M5)** — `cargo test -p xazz-exec --features onnx-coreml -- --ignored`, `XAZZ_BACKEND=onnx XAZZ_DEVICE=coreml:0`
 - [ ] **chunk/cache 튜닝 A/B** — `XAZZ_INFER_CHUNK`, `XAZZ_INFER_CACHE_SLOTS` (선택)
 - [ ] 3종(dGPU/iGPU/CPU) 동일 워크로드 완주 비교 — 20 epoch 축약본으로 CPU·iGPU 완주 후 epoch당 시간 정식 기록
@@ -226,7 +309,13 @@ $env:XAZZ_BACKEND="cpu";                            .\target\release\xazz.exe ru
 Get-Counter '\GPU Engine(pid_<xazz-exec pid>_*)\Utilization Percentage'
 nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv
 
-# CUDA / ONNX (gnu 툴체인에서는 §4·§5의 오류로 종료)
-$env:TORCH_CUDA_VERSION="cu128"; cargo test --release -p xazz-exec --features cuda -- --ignored --nocapture
+# CUDA (burn-cuda) — NVRTC DLL과 CUDA 헤더를 먼저 확보 (§4.1), 그 다음 gnu 툴체인 그대로
+$env:CUDA_PATH = "<...>\cudart\nvidia\cu13"                       # include\cuda_runtime.h 가 있는 디렉터리
+$env:Path      = "<...>\nvrtc\nvidia\cu13\bin\x86_64;$env:Path"   # nvrtc64_130_0.dll
+cargo test --release -p xazz-exec --features cuda -- --ignored --nocapture
+cargo build --release -p xazz-exec --features cuda
+$env:XAZZ_BACKEND="cuda"; $env:XAZZ_DEVICE="cuda:0"; .\target\release\xazz.exe run examples/deep_learning/air_pipeline.xzz
+
+# ONNX (gnu 툴체인에서는 §5의 오류로 종료 — MSVC 필요)
 cargo test --release -p xazz-exec --features onnx -- --ignored --nocapture
 ```
