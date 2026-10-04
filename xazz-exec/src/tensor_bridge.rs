@@ -341,6 +341,18 @@ mod tests {
     }
 
     #[test]
+    fn class_label_precision_accepts_exact_integer_boundaries() {
+        let columns = [
+            Column::new("y".into(), [16_777_216i64, 16_777_218, -16_777_216, 0]),
+            Column::new("y".into(), [1u64 << 63, 1u64 << 24, 1, 0]),
+            Column::new("y".into(), [16_777_216f64, -16_777_216., 1., -0.]),
+        ];
+        for column in columns {
+            assert!(validate_class_label_precision(&column).is_ok());
+        }
+    }
+
+    #[test]
     fn extract_data_separates_features_and_target() {
         let frame = df!(
             "region" => ["a", "b"],          // non-numeric → excluded from features
