@@ -134,6 +134,11 @@ pub fn select_split_indices(
             "time_column requires split: sequential; random/stratified can leak future rows".into(),
         );
     }
+    if strategy == SplitStrategy::Stratified
+        && (targets.len() != n || targets.iter().any(|v| !v.is_finite() || v.fract() != 0.0))
+    {
+        return Err("stratified split requires one finite integer class label per row".into());
+    }
     let mut order: Vec<_> = time_order.map_or_else(|| (0..n).collect(), |v| v.to_vec());
     let mut sorted = order.clone();
     sorted.sort_unstable();
@@ -159,11 +164,6 @@ pub fn select_split_indices(
             }
         }
         SplitStrategy::Stratified => {
-            if targets.len() != n || targets.iter().any(|v| !v.is_finite() || v.fract() != 0.0) {
-                return Err(
-                    "stratified split requires one finite integer class label per row".into(),
-                );
-            }
             let mut groups = BTreeMap::<u32, Vec<usize>>::new();
             for &i in &order {
                 groups.entry(class_key(targets[i])).or_default().push(i);
@@ -208,6 +208,28 @@ pub fn select_split_indices(
 mod tests {
     use super::*;
     use polars::prelude::*;
+
+    #[test]
+    fn zero_fraction_stratified_checks_labels_before_returning() {
+        assert_eq!(
+            select_split_indices(4, 0.0, SplitStrategy::Stratified, &[0., 1., 0., 1.], None)
+                .unwrap(),
+            (vec![0, 1, 2, 3], Vec::new())
+        );
+        for targets in [
+            vec![0., 1.],
+            vec![0., 1., f32::NAN, 1.],
+            vec![0., 1., f32::INFINITY, 1.],
+            vec![0., 1., 0.5, 1.],
+        ] {
+            let error = select_split_indices(4, 0.0, SplitStrategy::Stratified, &targets, None)
+                .expect_err("invalid class labels must fail even without validation rows");
+            assert!(error.contains("finite integer class label"), "{error}");
+        }
+        for strategy in [SplitStrategy::Sequential, SplitStrategy::Random] {
+            assert!(select_split_indices(4, 0.0, strategy, &[0.5], None).is_ok());
+        }
+    }
 
     #[test]
     fn integer_timestamps_preserve_precision_above_float64_exact_range() {

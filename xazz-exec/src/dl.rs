@@ -1150,6 +1150,19 @@ where
     if !val_split.is_finite() || !(0.0..=MAX_VALIDATION_SPLIT).contains(&val_split) {
         return Err("validation_split must be finite and between 0 and 0.9".into());
     }
+    if config.time_column.is_some()
+        && config.split_strategy != xazz_core::ast::SplitStrategy::Sequential
+    {
+        return Err(
+            "time_column requires split: sequential; random/stratified can leak future rows".into(),
+        );
+    }
+    if config.split_strategy == xazz_core::ast::SplitStrategy::Stratified {
+        let target_column = df
+            .column(&config.target)
+            .map_err(|error| error.to_string())?;
+        crate::tensor_bridge::validate_class_label_precision(target_column)?;
+    }
     let time_order = match config.time_column.as_deref() {
         Some(col) if val_split > 0.0 => Some(time_order_by_column(df, col)?),
         _ => None,
@@ -1756,6 +1769,114 @@ pub type ModelRegistry = HashMap<String, Vec<LayerKind>>;
 mod tests {
     use super::*;
     use xazz_compiler::ast::EmbeddingVocab;
+
+    #[test]
+    fn stratified_rejects_labels_changed_by_float_conversion() {
+        use polars::prelude::*;
+        let columns = [
+            Column::new("y".into(), [16_777_216i64, 16_777_217, 0, 0]),
+            Column::new("y".into(), [u64::MAX, u64::MAX - 1, 0, 0]),
+            Column::new("y".into(), [1.00000001f64, 1., 0., 0.]),
+        ];
+        for column in columns {
+            let frame =
+                DataFrame::new(4, vec![Column::new("x".into(), [0., 1., 2., 3.]), column]).unwrap();
+            let config = TrainConfig {
+                target: "y".into(),
+                epochs: 1,
+                validation_split: Some(0.5),
+                split_strategy: xazz_core::ast::SplitStrategy::Stratified,
+                ..Default::default()
+            };
+            let error = train_impl::<Plain>(
+                &frame,
+                "invalid_label_precision",
+                &[LayerKind::Dense(1)],
+                &config,
+                &Default::default(),
+                false,
+            )
+            .err()
+            .expect("rounded class labels must fail");
+            assert!(error.contains("exactly as f32"), "{error}");
+        }
+    }
+
+    #[test]
+    fn zero_validation_rejects_nonsequential_time_column() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0., 1., 2., 3.], "y" => [0., 1., 0., 1.]).unwrap();
+        for validation_split in [None, Some(0.0)] {
+            for strategy in [
+                xazz_core::ast::SplitStrategy::Random,
+                xazz_core::ast::SplitStrategy::Stratified,
+            ] {
+                let config = TrainConfig {
+                    target: "y".into(),
+                    epochs: 1,
+                    validation_split,
+                    split_strategy: strategy,
+                    time_column: Some("x".into()),
+                    ..Default::default()
+                };
+                let error = train_impl::<Plain>(
+                    &frame,
+                    "invalid_time_strategy",
+                    &[LayerKind::Dense(1)],
+                    &config,
+                    &Default::default(),
+                    false,
+                )
+                .err()
+                .expect("time-column conflict must fail even without validation rows");
+                assert!(
+                    error.contains("time_column requires split: sequential"),
+                    "{error}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn stratified_zero_validation_checks_labels_and_retains_all_rows() {
+        use polars::prelude::*;
+        for validation_split in [None, Some(0.0)] {
+            let config = TrainConfig {
+                target: "y".into(),
+                epochs: 1,
+                validation_split,
+                split_strategy: xazz_core::ast::SplitStrategy::Stratified,
+                ..Default::default()
+            };
+            for labels in [[0., 1., 0.5, 1.], [0., 1., f64::NAN, 1.]] {
+                let frame = df!("x" => [0., 1., 2., 3.], "y" => labels).unwrap();
+                assert!(
+                    train_impl::<Plain>(
+                        &frame,
+                        "invalid_zero_validation_labels",
+                        &[LayerKind::Dense(1)],
+                        &config,
+                        &Default::default(),
+                        false,
+                    )
+                    .is_err()
+                );
+            }
+            let frame = df!("x" => [0., 1., 2., 3.], "y" => [0., 1., 0., 1.]).unwrap();
+            let trained = train_impl::<Plain>(
+                &frame,
+                "valid_zero_validation_labels",
+                &[LayerKind::Dense(1)],
+                &config,
+                &Default::default(),
+                false,
+            )
+            .unwrap();
+            assert_eq!(trained.report.validation.train_rows, 4);
+            assert_eq!(trained.report.validation.validation_rows, 0);
+            assert_eq!(trained.report.validation.classes.len(), 2);
+        }
+    }
 
     #[test]
     fn invalid_validation_fractions_are_rejected_without_clamping() {
