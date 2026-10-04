@@ -158,10 +158,13 @@ fn budget_boundary_uses_multiplied_charge() {
 
     // Budget 1.999 < 2.0: would pass if the runtime under-counted (charged ε once).
     //
-    // The refusal is observable as the pipeline's runtime error plus the absence
-    // of the marker. The engine currently logs a failed pipeline and keeps going
-    // (exit code stays 0), so the exit status is deliberately not asserted here.
+    // 예산 초과는 오류 메시지뿐 아니라 실패 종료 코드로도 전달되어야 한다.
     let rejected = run_script(&two_column_script("1.0"), &[("XAZZ_DP_BUDGET", "1.999")]);
+    assert_eq!(
+        rejected.status.code(),
+        Some(1),
+        "runtime errors must fail the process"
+    );
     let err = stderr_of(&rejected);
     assert!(
         err.contains("[xazz RUNTIME ERROR]") && err.contains("XAZZ_DP_BUDGET"),
@@ -262,4 +265,20 @@ fn composition_across_two_with_dp_steps_accumulates_per_column() {
         approx(markers[0]["budget_spent"].as_f64().unwrap(), 2.0),
         "the refused step must not change the ledger"
     );
+}
+
+#[test]
+fn runtime_failure_stops_later_pipelines_and_returns_failure() {
+    let output = run_script(
+        "v broken = load(\"missing-first.csv\") :: AQ; v later = load(\"missing-second.csv\") :: AQ;",
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = stderr_of(&output);
+    assert!(stderr.contains("missing-first.csv"), "{stderr}");
+    assert!(
+        !stderr.contains("missing-second.csv"),
+        "later pipeline must not run: {stderr}"
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("[xazz:result]"));
 }

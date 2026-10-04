@@ -1146,6 +1146,10 @@ async fn run_execution_job(
         let output = Command::new(&exe_path)
             .arg("run")
             .arg(&tmp_path)
+            // The server interprets this override as the CLI path, while the
+            // runner interprets it as the engine path. Do not pass the CLI
+            // override to the runner; it resolves its sibling xazz-exec.
+            .env_remove("XAZZ_EXEC_PATH")
             .env("XAZZ_DP_BUDGET", remaining_eps.to_string())
             .env("XAZZ_DP_DELTA_BUDGET", remaining_delta.to_string())
             // Ask the CLI to relay resource telemetry as a `[xazz:resources]` marker
