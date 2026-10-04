@@ -31,3 +31,5 @@ rusqlite = { version = "0.40.2", features = ["bundled"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "macros", "rt-multi-thread"] }
+# `ServiceExt::oneshot` drives the real middleware stack in-process (issue C2 follow-up).
+tower = { version = "0.5", features = ["util"] }

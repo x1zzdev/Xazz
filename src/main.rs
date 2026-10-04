@@ -2,8 +2,11 @@
 #![allow(clippy::result_large_err)]
 
 mod cli;
+mod dp_window;
 mod http;
 mod policy_cli;
+mod policy_query;
+mod policy_ttl;
 mod project;
 mod registry;
 mod schema;
@@ -83,9 +86,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // ── --json: print structured JSON execution result ──────────────────────
-            // Capture xazz-runner's stdout, parse the [xazz:result] / [xazz:diagnostics]
-            // markers, and reassemble into a single JSON object.
+            // Capture xazz-runner's stdout, parse the [xazz:result] / [xazz:diagnostics] /
+            // [xazz:train] / [xazz:dp] markers, and reassemble into a single JSON object.
             if json {
+                let started = std::time::Instant::now();
                 let output = cmd.output().map_err(|e| {
                     format!(
                         "failed to run xazz-runner: {}\n\
@@ -97,37 +101,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
                 let success = output.status.success();
 
-                let mut rows = serde_json::Value::Array(vec![]);
-                let mut schema = serde_json::Value::Array(vec![]);
-                let mut diagnostics: Option<serde_json::Value> = None;
-
-                for line in stdout.lines() {
-                    let trimmed = line.trim();
-                    if let Some(json_part) = trimmed.strip_prefix("[xazz:result] ")
-                        && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
-                    {
-                        if let Some(r) = parsed.get("rows") {
-                            rows = r.clone();
-                        }
-                        if let Some(s) = parsed.get("schema") {
-                            schema = s.clone();
-                        }
-                    }
-                    if let Some(json_part) = trimmed.strip_prefix("[xazz:diagnostics] ")
-                        && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
-                    {
-                        diagnostics = Some(parsed);
-                    }
-                }
+                let markers = parse_run_markers(&stdout);
+                // Issue #128 follow-up: expose the same resource telemetry the
+                // server consumes via the `[xazz:resources]` marker.
+                let resources = resources_json(started, child_resource_usage());
 
                 let exit_code = output.status.code().unwrap_or(1);
                 let summary = serde_json::json!({
                     "success": success,
                     "exit_code": exit_code,
                     "source": source_path,
-                    "rows": rows,
-                    "schema": schema,
-                    "diagnostics": diagnostics,
+                    "rows": markers.rows,
+                    "schema": markers.schema,
+                    "diagnostics": markers.diagnostics,
+                    "training": markers.training,
+                    "prediction": markers.prediction,
+                    "dp": markers.dp,
+                    "resources": resources,
                     "error": if success { None } else { Some(stderr.trim()) },
                     "logs": stderr.lines().map(|l| l.to_string()).collect::<Vec<_>>(),
                 });
@@ -141,6 +131,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
 
+            // Measure the runner process tree while it executes. The marker is
+            // emitted only when the server asks for it, so normal CLI output is
+            // unchanged (issue #128).
+            let started = std::time::Instant::now();
             let status = cmd.status().map_err(|e| {
                 format!(
                     "failed to run xazz-runner: {}\n\
@@ -148,6 +142,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     e
                 )
             })?;
+            emit_resource_telemetry(started);
 
             if !status.success() {
                 std::process::exit(status.code().unwrap_or(1));
@@ -437,11 +432,145 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 cli::RegistryAction::Deploy {
                     name,
+                    file,
                     server,
                     tenant,
                     token,
                     actor,
-                } => registry::deploy(&name, &server, &tenant, token.as_deref(), actor.as_deref()),
+                } => registry::deploy(
+                    name.as_deref(),
+                    file.as_deref(),
+                    &server,
+                    &tenant,
+                    token.as_deref(),
+                    actor.as_deref(),
+                ),
+                cli::RegistryAction::Undeploy {
+                    server,
+                    tenant,
+                    token,
+                    actor,
+                } => registry::undeploy(&server, &tenant, token.as_deref(), actor.as_deref()),
+            };
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        // ── policy-status: read-only tenant policy views (issue C2) ───────────────
+        Commands::PolicyStatus {
+            view,
+            server,
+            tenant,
+            token,
+            cursor,
+            limit,
+            json,
+        } => {
+            let code = policy_query::run(
+                view,
+                &server,
+                &tenant,
+                token.as_deref(),
+                cursor,
+                limit,
+                json,
+            );
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        // ── policy-ttl: mutate a tenant's retention window (issue C2) ─────────────
+        Commands::PolicyTtl { action } => {
+            let code = match action {
+                cli::PolicyTtlAction::Set {
+                    server,
+                    tenant,
+                    ttl_secs,
+                    token,
+                    actor,
+                } => policy_ttl::set(
+                    &server,
+                    &tenant,
+                    ttl_secs,
+                    token.as_deref(),
+                    actor.as_deref(),
+                ),
+                cli::PolicyTtlAction::Clear {
+                    server,
+                    tenant,
+                    token,
+                    actor,
+                } => policy_ttl::clear(&server, &tenant, token.as_deref(), actor.as_deref()),
+            };
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        // ── dp: tenant DP budget window override + budget status (issue C2) ───────
+        Commands::Dp { action } => {
+            let code = match action {
+                cli::DpAction::Window { action } => match action {
+                    cli::DpWindowAction::Set {
+                        server,
+                        tenant,
+                        window_secs,
+                        token,
+                        actor,
+                    } => dp_window::set(
+                        &server,
+                        &tenant,
+                        window_secs,
+                        token.as_deref(),
+                        actor.as_deref(),
+                    ),
+                    cli::DpWindowAction::Clear {
+                        server,
+                        tenant,
+                        token,
+                        actor,
+                    } => dp_window::clear(&server, &tenant, token.as_deref(), actor.as_deref()),
+                    cli::DpWindowAction::History {
+                        server,
+                        tenant,
+                        token,
+                        cursor,
+                        limit,
+                        json,
+                    } => {
+                        dp_window::history(&server, &tenant, token.as_deref(), cursor, limit, json)
+                    }
+                },
+                cli::DpAction::Budget {
+                    server,
+                    tenant,
+                    token,
+                    json,
+                } => dp_window::budget(&server, &tenant, token.as_deref(), json),
+                cli::DpAction::Reset {
+                    server,
+                    tenant,
+                    token,
+                    actor,
+                    json,
+                } => dp_window::reset(&server, &tenant, token.as_deref(), actor.as_deref(), json),
+                cli::DpAction::ResetHistory {
+                    server,
+                    tenant,
+                    token,
+                    cursor,
+                    limit,
+                    json,
+                } => dp_window::reset_history(
+                    &server,
+                    &tenant,
+                    token.as_deref(),
+                    cursor,
+                    limit,
+                    json,
+                ),
             };
             if code != 0 {
                 std::process::exit(code);
@@ -490,4 +619,305 @@ pub(crate) fn find_runner() -> Result<std::path::PathBuf, String> {
          Set XAZZ_RUNNER_PATH to an absolute path or place xazz-runner next to the xazz binary."
             .to_string(),
     )
+}
+
+// ── runner resource telemetry (issue #128) ────────────────────────────────────
+//
+// When the server requests it (`XAZZ_RESOURCE_TELEMETRY=1`) the CLI emits one
+// machine-readable `[xazz:resources]` stdout marker after the runner exits. The
+// numbers come from `getrusage(RUSAGE_CHILDREN)`, which aggregates the runner and
+// its waited descendants (xazz-exec) — i.e. the actual execution cost. On non-Unix
+// platforms only the wall-clock duration is available.
+
+/// Emits the `[xazz:resources]` marker when `XAZZ_RESOURCE_TELEMETRY=1`.
+fn emit_resource_telemetry(started: std::time::Instant) {
+    if std::env::var("XAZZ_RESOURCE_TELEMETRY").ok().as_deref() != Some("1") {
+        return;
+    }
+    let value = resources_json(started, child_resource_usage());
+    println!("[xazz:resources]{value}");
+}
+
+/// Builds the `[xazz:resources]`-shaped JSON object (issue #128).
+///
+/// Shared by the stdout marker (server relay) and the `xazz run --json`
+/// `resources` field (#128 follow-up). When per-process counters are unavailable
+/// (non-Unix) the object still carries `duration_ms` and
+/// `"source":"wall-clock-only"`.
+fn resources_json(started: std::time::Instant, usage: Option<ResourceUsage>) -> serde_json::Value {
+    let duration_ms = started.elapsed().as_millis() as u64;
+    match usage {
+        Some(u) => serde_json::json!({
+            "duration_ms": duration_ms,
+            "cpu_user_ms": u.cpu_user_ms,
+            "cpu_sys_ms": u.cpu_sys_ms,
+            "max_rss_kb": u.max_rss_kb,
+            "source": "runner-process-tree",
+        }),
+        None => serde_json::json!({
+            "duration_ms": duration_ms,
+            "source": "wall-clock-only",
+        }),
+    }
+}
+
+/// Aggregate resource usage of the runner subprocess tree.
+struct ResourceUsage {
+    cpu_user_ms: u64,
+    cpu_sys_ms: u64,
+    max_rss_kb: u64,
+}
+
+/// Reads `getrusage(RUSAGE_CHILDREN)` for the just-exited runner tree.
+#[cfg(unix)]
+fn child_resource_usage() -> Option<ResourceUsage> {
+    // SAFETY: `getrusage` fills the zeroed `rusage` and its return code is checked.
+    let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+    // RUSAGE_CHILDREN aggregates the runner *and* its waited descendants (xazz-exec).
+    if unsafe { libc::getrusage(libc::RUSAGE_CHILDREN, &mut ru) } != 0 {
+        return None;
+    }
+    let ms = |tv: libc::timeval| tv.tv_sec.max(0) as u64 * 1000 + tv.tv_usec.max(0) as u64 / 1000;
+    // Linux reports ru_maxrss in KiB; macOS reports it in bytes.
+    #[cfg(target_os = "macos")]
+    let max_rss_kb = ru.ru_maxrss.max(0) as u64 / 1024;
+    #[cfg(not(target_os = "macos"))]
+    let max_rss_kb = ru.ru_maxrss.max(0) as u64;
+    Some(ResourceUsage {
+        cpu_user_ms: ms(ru.ru_utime),
+        cpu_sys_ms: ms(ru.ru_stime),
+        max_rss_kb,
+    })
+}
+
+/// Non-Unix platforms cannot read per-process counters; wall-clock only.
+#[cfg(not(unix))]
+fn child_resource_usage() -> Option<ResourceUsage> {
+    None
+}
+
+// ── `xazz run --json`: stdout marker extraction ───────────────────────────────
+//
+// The execution engine reports structured results as single-line stdout markers
+// (`[xazz:<kind>] <JSON>`). The CLI never links Polars, so it only reassembles
+// those markers; the shapes are owned by xazz-exec (see `runtime.rs`).
+
+/// Markers collected from one `xazz-runner` run.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct RunMarkers {
+    /// `[xazz:result]` → `rows` (the last one wins, as in the server).
+    pub rows: serde_json::Value,
+    /// `[xazz:result]` → `schema`.
+    pub schema: serde_json::Value,
+    /// `[xazz:diagnostics]` — type-checker diagnostics.
+    pub diagnostics: Option<serde_json::Value>,
+    /// `[xazz:train]` — Burn training report (last `train` in the script).
+    pub training: Option<serde_json::Value>,
+    /// `[xazz:predict]` — embedding-input diagnostics of the last `predict` (D3).
+    pub prediction: Option<serde_json::Value>,
+    /// `[xazz:dp]` — one entry per `withDp` step, in execution order (issue #117).
+    /// Each carries the DpReport plus the session budget after that step
+    /// (`budget_spent`, `budget_total`, `budget_remaining`, the `_delta` twins, `query_count`).
+    pub dp: Vec<serde_json::Value>,
+}
+
+/// Parses the `[xazz:result]`, `[xazz:diagnostics]`, `[xazz:train]` and `[xazz:dp]`
+/// markers out of the runner's stdout.
+///
+/// `[xazz:dp]` accepts both the current single-line form and the legacy form where
+/// the JSON follows on the next line. Markers emitted by an older engine without
+/// `budget_remaining*` get those fields derived from `budget_total − budget_spent`,
+/// so consumers can rely on them either way.
+pub(crate) fn parse_run_markers(stdout: &str) -> RunMarkers {
+    let mut markers = RunMarkers {
+        rows: serde_json::Value::Array(vec![]),
+        schema: serde_json::Value::Array(vec![]),
+        ..RunMarkers::default()
+    };
+
+    let lines: Vec<&str> = stdout.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let trimmed = lines[i].trim();
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:result] ")
+            && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
+        {
+            if let Some(r) = parsed.get("rows") {
+                markers.rows = r.clone();
+            }
+            if let Some(s) = parsed.get("schema") {
+                markers.schema = s.clone();
+            }
+        }
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:diagnostics] ")
+            && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
+        {
+            markers.diagnostics = Some(parsed);
+        }
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:train] ")
+            && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
+        {
+            markers.training = Some(parsed);
+        }
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:predict] ")
+            && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
+        {
+            markers.prediction = Some(parsed);
+        }
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:dp] ") {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part) {
+                markers.dp.push(with_dp_remaining(parsed));
+            }
+        } else if trimmed == "[xazz:dp]" {
+            // Legacy two-line form: JSON on the following line.
+            let next = lines.get(i + 1).map(|l| l.trim()).unwrap_or("");
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(next) {
+                markers.dp.push(with_dp_remaining(parsed));
+                i += 1;
+            }
+        }
+        i += 1;
+    }
+
+    markers
+}
+
+/// Backfills `budget_remaining` / `budget_remaining_delta` on a `[xazz:dp]` payload
+/// that predates those fields. Leaves payloads that already carry them untouched.
+fn with_dp_remaining(mut dp: serde_json::Value) -> serde_json::Value {
+    if let Some(obj) = dp.as_object_mut() {
+        for (remaining, total, spent) in [
+            ("budget_remaining", "budget_total", "budget_spent"),
+            (
+                "budget_remaining_delta",
+                "budget_total_delta",
+                "budget_spent_delta",
+            ),
+        ] {
+            if obj.contains_key(remaining) {
+                continue;
+            }
+            if let (Some(t), Some(s)) = (
+                obj.get(total).and_then(|v| v.as_f64()),
+                obj.get(spent).and_then(|v| v.as_f64()),
+            ) {
+                obj.insert(remaining.into(), serde_json::json!((t - s).max(0.0)));
+            }
+        }
+    }
+    dp
+}
+
+#[cfg(test)]
+mod run_marker_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn dp_markers_are_collected_in_order_with_budget() {
+        let stdout = "\
+[xazz] Pipeline #1 'station_counts' done: 25 × 2
+[xazz:dp] {\"mechanism\":\"laplace\",\"epsilon\":1.0,\"delta\":null,\"noised_columns\":[\"pm10\"],\"budget_spent\":1.0,\"budget_total\":10.0,\"budget_spent_delta\":0.0,\"budget_total_delta\":0.0001,\"query_count\":1,\"budget_remaining\":9.0,\"budget_remaining_delta\":0.0001}
+[xazz:dp] {\"mechanism\":\"gaussian\",\"epsilon\":0.5,\"delta\":1e-5,\"noised_columns\":[\"pm10\"],\"budget_spent\":1.5,\"budget_total\":10.0,\"budget_spent_delta\":1e-5,\"budget_total_delta\":0.0001,\"query_count\":2,\"budget_remaining\":8.5,\"budget_remaining_delta\":9e-5}
+[xazz:result] {\"rows\":[{\"station\":\"강남구\",\"pm10\":21.3}],\"schema\":[{\"name\":\"station\",\"type\":\"str\"}]}
+";
+        let m = parse_run_markers(stdout);
+        assert_eq!(m.dp.len(), 2);
+        assert_eq!(m.dp[0]["mechanism"], "laplace");
+        assert_eq!(m.dp[0]["budget_remaining"], 9.0);
+        assert_eq!(m.dp[1]["mechanism"], "gaussian");
+        assert_eq!(m.dp[1]["budget_spent"], 1.5);
+        assert_eq!(m.dp[1]["query_count"], 2);
+        // Engine-provided remaining values are passed through, not recomputed.
+        assert_eq!(m.dp[1]["budget_remaining"], 8.5);
+        assert_eq!(m.rows[0]["station"], "강남구");
+        assert_eq!(m.schema[0]["name"], "station");
+    }
+
+    #[test]
+    fn dp_remaining_is_derived_for_engines_without_the_field() {
+        let stdout = "[xazz:dp] {\"mechanism\":\"laplace\",\"epsilon\":2.0,\"budget_spent\":2.0,\"budget_total\":10.0,\"budget_spent_delta\":0.0,\"budget_total_delta\":0.0}\n";
+        let m = parse_run_markers(stdout);
+        assert_eq!(m.dp.len(), 1);
+        assert_eq!(m.dp[0]["budget_remaining"], 8.0);
+        assert_eq!(m.dp[0]["budget_remaining_delta"], 0.0);
+    }
+
+    #[test]
+    fn dp_remaining_floors_at_zero_when_overspent_marker_is_replayed() {
+        let stdout = "[xazz:dp] {\"budget_spent\":11.0,\"budget_total\":10.0}\n";
+        let m = parse_run_markers(stdout);
+        assert_eq!(m.dp[0]["budget_remaining"], 0.0);
+        // No δ totals in the payload → no δ remainder is invented.
+        assert!(m.dp[0].get("budget_remaining_delta").is_none());
+    }
+
+    #[test]
+    fn legacy_two_line_dp_marker_is_still_parsed() {
+        let stdout = "[xazz:dp]\n{\"mechanism\":\"laplace\",\"budget_spent\":1.0,\"budget_total\":4.0}\n[xazz:result] {\"rows\":[],\"schema\":[]}\n";
+        let m = parse_run_markers(stdout);
+        assert_eq!(m.dp.len(), 1);
+        assert_eq!(m.dp[0]["budget_remaining"], 3.0);
+        assert_eq!(m.rows, json!([]));
+    }
+
+    #[test]
+    fn training_and_diagnostics_markers_are_captured() {
+        let stdout = "\
+[xazz:diagnostics] {\"error_count\":0,\"warning_count\":1,\"errors\":[],\"warnings\":[]}
+[xazz:train] {\"model_name\":\"AirPredictor\",\"report\":{\"epochs\":10,\"final_train_loss\":1513.07},\"success\":true,\"type\":\"train_stmt\"}
+";
+        let m = parse_run_markers(stdout);
+        assert_eq!(m.diagnostics.as_ref().unwrap()["warning_count"], 1);
+        assert_eq!(m.training.as_ref().unwrap()["model_name"], "AirPredictor");
+        assert!(m.dp.is_empty());
+    }
+
+    #[test]
+    fn predict_marker_carries_embedding_diagnostics() {
+        let stdout = "\
+[xazz:predict] {\"type\":\"predict_stmt\",\"success\":true,\"model_name\":\"AirPredictor\",\"report\":{\"embedding_out_of_range\":3,\"embedding_non_integer\":1}}
+[xazz:result] {\"rows\":[],\"schema\":[]}
+";
+        let m = parse_run_markers(stdout);
+        let prediction = m.prediction.as_ref().expect("predict marker");
+        assert_eq!(prediction["model_name"], "AirPredictor");
+        assert_eq!(prediction["report"]["embedding_out_of_range"], 3);
+        assert_eq!(prediction["report"]["embedding_non_integer"], 1);
+        assert!(m.training.is_none());
+    }
+
+    #[test]
+    fn malformed_markers_are_ignored_without_panicking() {
+        let stdout = "[xazz:dp] {not json\n[xazz:dp]\nalso not json\n[xazz:result] nope\n";
+        let m = parse_run_markers(stdout);
+        assert!(m.dp.is_empty());
+        assert_eq!(m.rows, json!([]));
+        assert!(m.training.is_none());
+    }
+
+    #[test]
+    fn resources_json_falls_back_to_wall_clock_only() {
+        let v = resources_json(std::time::Instant::now(), None);
+        assert_eq!(v["source"], "wall-clock-only");
+        assert!(v["duration_ms"].is_u64());
+        assert!(v.get("cpu_user_ms").is_none());
+    }
+
+    #[test]
+    fn resources_json_includes_counters_when_available() {
+        let v = resources_json(
+            std::time::Instant::now(),
+            Some(ResourceUsage {
+                cpu_user_ms: 3,
+                cpu_sys_ms: 1,
+                max_rss_kb: 2048,
+            }),
+        );
+        assert_eq!(v["cpu_user_ms"], 3);
+        assert_eq!(v["cpu_sys_ms"], 1);
+        assert_eq!(v["max_rss_kb"], 2048);
+        assert_eq!(v["source"], "runner-process-tree");
+        assert!(v["duration_ms"].is_u64());
+    }
 }

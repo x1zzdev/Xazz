@@ -22,7 +22,7 @@ use xazz_core::i18n::tr;
 
 use crate::backend::{DeviceSpec, OrtEpKind, OrtEpSpec, parse_device_spec, parse_ort_ep_spec};
 
-use super::{Activation, LayerOp, Plain, TrainedModel};
+use super::{Activation, EmbeddingDiagnostics, LayerOp, Plain, TrainedModel};
 
 /// ONNX opset targeted by the exporter.
 const OPSET: i64 = 13;
@@ -576,14 +576,15 @@ fn coreml_ep() -> Result<ExecutionProviderDispatch, String> {
 /// Runs inference through an already-loaded session — no re-export or session
 /// rebuild (issue D2). Preprocessing matches the in-memory CPU predict, so the
 /// two are numerically comparable. Rows are uploaded in chunks (see
-/// `XAZZ_INFER_CHUNK`) to bound peak memory on large frames.
+/// `XAZZ_INFER_CHUNK`) to bound peak memory on large frames. Returns the frame
+/// plus embedding-input diagnostics for `--json`.
 pub fn predict_with_session(
     trained: &TrainedModel,
     session: &mut ort::session::Session,
     df: &DataFrame,
     as_col: Option<&str>,
-) -> Result<DataFrame, String> {
-    let (xs, n, feature_count) = super::prepare_inference_input(trained, df)?;
+) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
+    let (xs, n, feature_count, diag) = super::prepare_inference_input(trained, df)?;
 
     let mut preds: Vec<f32> = Vec::with_capacity(n);
     for (start, end) in super::chunk_ranges(n, super::infer_chunk_size()) {
@@ -601,7 +602,7 @@ pub fn predict_with_session(
         preds.extend_from_slice(data);
     }
 
-    super::attach_prediction(trained, df, &preds, as_col)
+    Ok((super::attach_prediction(trained, df, &preds, as_col)?, diag))
 }
 
 #[cfg(test)]

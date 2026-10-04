@@ -134,8 +134,14 @@ and export `UID`/`GID` before `docker compose up`.
 | `XAZZ_WEB_DIR` | `/app/web` | Static Visual IDE |
 | `XAZZ_SERVER_TOKEN` | unset | If set, every request needs `Authorization: Bearer …` |
 | `XAZZ_TENANT_TOKENS` | unset | `tenant=token,tenant=token` multi-tenant map |
+| `XAZZ_ADMIN_TOKEN` | unset | Admin Bearer token(s), comma-separated for rotation; actor from `X-Xazz-Actor` |
+| `XAZZ_ADMIN_ACTORS` | unset | `token:actor,token:actor` admin credentials with a pinned audit actor (ignores `X-Xazz-Actor`) |
 | `XAZZ_EXEC_PATH` | unset | Absolute path to `xazz-exec` (default: next to `xazz-runner`) |
 | `XAZZ_EXEC_TIMEOUT_SECS` | runner default | Hard timeout for one run |
+
+The image sets only what a container needs. The full server variable reference —
+DP budgets, policy-history retention, and the rest — is in
+[Server reference](SERVER.md).
 
 ## Smoke checklist (clean host)
 
@@ -149,3 +155,24 @@ and export `UID`/`GID` before `docker compose up`.
    the next `up`.
 
 Record the image tag and host OS/arch with the result (issue #176).
+
+### Smoke record template (issue #176)
+
+Attach this to the tracking issue for each host/arch. Until the first `v*` tag
+publishes a GHCR image, record against the local `xazz:local` build and note the
+git SHA so the number is reproducible.
+
+```markdown
+- Image tag:                  ghcr.io/x1zzdev/xazz:<tag>   (or xazz:local @ <git-sha>)
+- Host OS / arch:             <e.g. Ubuntu 24.04 / linux-amd64>
+- Docker / Compose:           <docker version> / <compose version>
+- Date:                       <YYYY-MM-DD>
+- `GET /health`:              <status>
+- IDE loads (no CDN):         <yes / no>
+- Check safe / unsafe:        <safe=pass, unsafe=blocked>
+- Full Run rows (/data rw):   <N rows>
+- History + DP/audit panels:  <yes / no>
+- `down` → `up` persistence:  <yes / no>
+- Notes:                      <anything unexpected>
+```
+

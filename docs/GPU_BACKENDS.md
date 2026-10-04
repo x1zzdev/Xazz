@@ -18,8 +18,8 @@ Features are declared in [`xazz-exec/Cargo.toml`](../xazz-exec/Cargo.toml).
 | Feature | `XAZZ_BACKEND` | Engine | Host requirement |
 |---------|----------------|--------|------------------|
 | *(none, default)* | `cpu` | `burn-ndarray` | none — always compiled |
-| `wgpu` | `wgpu` | `burn-wgpu` (WebGPU) | Vulkan / Metal / DX12 device; no external SDK |
-| `cuda` | `cuda` | `burn-tch` (LibTorch) | NVIDIA GPU + LibTorch (CUDA build) |
+| `wgpu` | `wgpu` | `burn-wgpu` (WebGPU/CubeCL) | Vulkan / Metal / DX12 device; no external SDK |
+| `cuda` | `cuda` | `burn-cuda` (native CubeCL CUDA) | NVIDIA GPU + CUDA driver **+ NVRTC library + CUDA headers at run time** (see below); no LibTorch, no MSVC |
 | `onnx` | `onnx` | ONNX Runtime (CPU EP) | none — prebuilt runtime is downloaded |
 | `onnx-cuda` | `onnx` | ONNX Runtime + CUDA EP | NVIDIA GPU + CUDA |
 | `onnx-tensorrt` | `onnx` | ONNX Runtime + TensorRT EP | NVIDIA GPU + TensorRT |
@@ -39,7 +39,7 @@ runtime. `xazz` and `xazz-runner` stay lightweight and never link Polars/Burn.
 # WebGPU (no SDK required)
 cargo build --release -p xazz-exec --features wgpu
 
-# NVIDIA via LibTorch
+# NVIDIA via native CubeCL CUDA
 cargo build --release -p xazz-exec --features cuda
 
 # ONNX Runtime, CPU execution provider
@@ -54,20 +54,48 @@ Then build the rest of the demo binaries as usual (see
 [DEMO_GUIDE.md](../DEMO_GUIDE.md#step-1--build-the-binaries)) and keep
 `xazz`, `xazz-runner`, and `xazz-exec` in the same directory.
 
-> **CUDA LibTorch.** `torch-sys` downloads a CPU LibTorch by default. To target
-> an NVIDIA GPU, build a CUDA LibTorch and point `TORCH_CUDA_VERSION` (and
-> optionally `LIBTORCH`) at it before `cargo build`.
+> **CUDA backend is pure Rust, but not driver-only.** The `cuda` feature uses
+> `burn-cuda` (native CubeCL), which needs no LibTorch or MSVC toolchain and
+> builds on `windows-gnu`. Because CubeCL JIT-compiles kernels with NVRTC at
+> run time, the host also needs two CUDA Toolkit components next to the driver:
+>
+> | Component | Why | Where it is looked up |
+> |---|---|---|
+> | `nvrtc64_1xx_0.dll` / `libnvrtc.so` | kernel JIT compiler (`cudarc` loads it dynamically) | `PATH` / `LD_LIBRARY_PATH` |
+> | CUDA headers (`cuda_runtime.h`, …) | the generated kernel source includes them | `$CUDA_PATH/include` (read at run time by `cubecl-cuda`) |
+>
+> A full Toolkit install provides both. Without one (or without admin rights),
+> NVIDIA's pip redistributables are enough — download the wheels matching the
+> driver's CUDA version, unzip them, and point the two variables at them:
+>
+> ```powershell
+> pip download --only-binary=:all: --no-deps -d dl "nvidia-cuda-nvrtc==13.1.*" "nvidia-cuda-runtime==13.1.*"
+> # unzip the .whl files (they are zip archives), then:
+> $env:CUDA_PATH = "<unzipped nvidia_cuda_runtime>\nvidia\cu13"            # has include\cuda_runtime.h
+> $env:Path      = "<unzipped nvidia_cuda_nvrtc>\nvidia\cu13\bin\x86_64;$env:Path"
+> ```
+>
+> If either is missing the provider falls back to CPU with a generic
+> "no usable CUDA device/driver" warning (NVRTC: dynamic-load panic; headers:
+> `cannot open source file "cuda_runtime.h"` from NVRTC). Changing `CUDA_PATH`
+> triggers one rebuild of `cudarc` and its dependents. Verified on Windows 11 /
+> RTX 4070 with the gnu toolchain — see
+> [gpu-backend-acceptance.md §4](design/gpu-backend-acceptance.md). This is the
+> same CubeCL stack as `burn-wgpu` and matches the upstream Burn 0.22 direction
+> (CubeCL CUDA, graph replay, LLVM GPU backends). See [issue #62](https://github.com/x1zzdev/Xazz/issues/62).
 
 ### Platform notes
 
-- **Windows.** `cuda` and every `onnx*` feature require the **MSVC toolchain**
+- **Windows.** Every `onnx*` feature requires the **MSVC toolchain**
   (`stable-x86_64-pc-windows-msvc` + VS Build Tools, "Desktop development with
-  C++"). LibTorch ships MSVC-ABI only and ONNX Runtime has no windows-gnu
-  prebuilt, so `build.rs` blocks those features on GNU up front. `wgpu` works
-  on either toolchain. See
-  [gpu-backend-acceptance.md §6](design/gpu-backend-acceptance.md).
-- **Linux.** `wgpu` uses Vulkan (Mesa/lavapipe is enough for CI). `cuda`
-  needs a CUDA LibTorch; `onnx` uses the prebuilt runtime.
+  C++") because ONNX Runtime has no windows-gnu prebuilt, so `build.rs` blocks
+  those features on GNU up front. `wgpu` and `cuda` work on either toolchain
+  (`cuda` additionally needs the NVRTC DLL and CUDA headers described above).
+  See [gpu-backend-acceptance.md §4–§6](design/gpu-backend-acceptance.md).
+- **Linux.** `wgpu` uses Vulkan (Mesa/lavapipe is enough for CI). `cuda` needs
+  an NVIDIA driver plus `libnvrtc.so` and the CUDA headers (CubeCL kernels are
+  JIT-compiled; a Toolkit install or the pip redistributables provide them);
+  `onnx` uses the prebuilt runtime.
 - **macOS.** `wgpu` uses Metal; `onnx-coreml` targets the Apple Neural Engine /
   CoreML.
 
@@ -81,7 +109,7 @@ Selects the provider. Default is `cpu`. Aliases are accepted (case-insensitive).
 |-------|---------|----------|
 | `cpu` | `ndarray`, `burn`, `burn-ndarray`, empty | CPU |
 | `wgpu` | `gpu`, `webgpu`, `burn-wgpu` | WebGPU |
-| `cuda` | `tch`, `torch`, `libtorch`, `burn-tch` | LibTorch |
+| `cuda` | `nvidia`, `burn-cuda` | native CubeCL CUDA |
 | `onnx` | `onnxruntime`, `ort` | ONNX Runtime |
 
 If the requested backend was **not compiled into the binary**, or the device is
@@ -144,6 +172,25 @@ XAZZ_BACKEND=onnx XAZZ_ORT_EP=cuda,cpu xazz run model.xzz
 | `XAZZ_INFER_CACHE_SLOTS` | `4` | LRU slots for loaded models/ONNX sessions |
 | `XAZZ_INFER_CHUNK` | `4096` | Rows per inference upload (`0` disables chunking) |
 
+### Diagnostics
+
+Backend dependencies (Burn/cubecl/Polars) report diagnostics through the `log`
+facade — including which WebGPU adapter cubecl selected (`Using adapter …`).
+Nothing is printed unless you opt in with an `env_logger`-style filter in
+`XAZZ_LOG` (preferred) or `RUST_LOG`:
+
+```bash
+# show the selected adapter and other info-level diagnostics
+XAZZ_LOG=info XAZZ_BACKEND=wgpu XAZZ_DEVICE=dgpu:0 xazz run model.xzz
+
+# quiet globally, verbose for cubecl only
+XAZZ_LOG=warn,cubecl_wgpu=debug xazz run model.xzz
+```
+
+A bare level applies globally; `target=level` directives override it for
+matching module paths (longest prefix wins). This is the supported way to
+confirm `XAZZ_DEVICE` pinned the intended adapter (issue #103, §6.1).
+
 ## 4. Verify an acceptance test
 
 The GPU/ONNX acceptance tests are `#[ignore]`d behind their feature. Run them on
@@ -164,6 +211,6 @@ debug and GPU runs are impractically slow there.
 |---------|--------|
 | CPU | Reference implementation — always available |
 | `wgpu` | **Verified** on Windows 11 / RTX 4070 (dGPU) and Intel Arc (iGPU); `XAZZ_DEVICE` adapter pinning confirmed |
-| `cuda` | Implementation complete; real-hardware acceptance pending an MSVC + CUDA host ([#103](https://github.com/x1zzdev/Xazz/issues/103), [#236](https://github.com/x1zzdev/Xazz/issues/236)) |
+| `cuda` | Native CubeCL (`burn-cuda`) — implementation complete; real-hardware acceptance pending a CUDA-driver host ([#103](https://github.com/x1zzdev/Xazz/issues/103), [#236](https://github.com/x1zzdev/Xazz/issues/236)) |
 | `onnx` (CPU EP) | Implementation complete; real-hardware acceptance pending a standard (MSVC) toolchain ([#103](https://github.com/x1zzdev/Xazz/issues/103)) |
 | `onnx-coreml` | Pending macOS hardware |

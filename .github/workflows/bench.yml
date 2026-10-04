@@ -1,0 +1,84 @@
+# Benchmark regression gate — issue #147.
+#
+# Builds the release CLI + runner, generates a deterministic *synthetic* dataset
+# (no LFS source data needed), runs the README benchmark (`--quick`) and compares
+# the pandas-vs-xazz speedup against the committed baseline. Absolute latency is
+# machine-dependent, so the gate uses the ratio and fails only past a tolerance.
+#
+# Runs on demand, weekly, and on a scratch branch so it can be exercised without
+# merging. See benches/bench_regression.py for the comparison rules.
+
+name: Benchmark regression
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1" # Mondays 03:00 UTC
+  push:
+    branches:
+      - ci/bench-regression
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bench:
+    name: Bench regression (small, synthetic)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust stable
+        shell: bash
+        run: |
+          rustup toolchain install stable --no-self-update --profile minimal
+          rustup default stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: bench-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: bench-registry-
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install benchmark dependencies
+        run: pip install --disable-pip-version-check pandas numpy psutil
+
+      # `xazz run` spawns xazz-runner, which spawns xazz-exec from the same
+      # directory (no PATH fallback, fail-closed). Without xazz-exec the runner
+      # exits 1 and the benchmark aborts before measuring anything (issue #147).
+      - name: Build release binaries
+        run: cargo build --release -p xazz -p xazz-runner -p xazz-exec
+
+      - name: Generate synthetic dataset
+        run: python benches/make_scale_data.py --synthetic
+
+      - name: Run benchmark (small)
+        run: python benches/run_readme_benchmark.py --quick --out bench-current.json
+
+      - name: Check for regression
+        run: |
+          python benches/bench_regression.py \
+            --current bench-current.json \
+            --baseline benches/bench_regression_baseline.json
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bench-results
+          path: bench-current.json
+          if-no-files-found: warn
+          retention-days: 30

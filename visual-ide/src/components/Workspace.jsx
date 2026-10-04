@@ -51,7 +51,7 @@ import { ResultCharts } from './ResultCharts'
 import { RunHistory } from './RunHistory'
 import { LocaleSwitch, localizeStep, useLanguage } from '../i18n'
 import DagEditor from './DagEditor'
-import { ApiError, checkPolicy, executeCode, checkHealth, remediateCode, API_BASE_URL } from '../api'
+import { ApiError, checkPolicy, executeCode, checkHealth, getRunResources, remediateCode, API_BASE_URL } from '../api'
 
 // executeCode 기본 타임아웃(ms) — api.js 와 동일한 기본값 (ML 훈련 고려 5분)
 const EXEC_TIMEOUT_MS = 5 * 60 * 1000
@@ -1511,6 +1511,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
   )
   const [backendReachable, setBackendReachable] = useState(null)
   const [runResult, setRunResult] = useState(null)
+  const [runResources, setRunResources] = useState(null)
   const [execError, setExecError] = useState(null)
   const [executing, setExecuting] = useState(false)
   const [policyReport, setPolicyReport] = useState(null)
@@ -1570,9 +1571,23 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
     onStateChange(nextState)
   }
 
+  // Resource telemetry lives on its own endpoint (#128), not on /execute, so it is
+  // fetched per recorded run and never blocks the result. A 404 / unreachable
+  // server leaves the panel in its honest empty state.
+  const loadRunResources = (runId) => {
+    if (runId == null) {
+      setRunResources(null)
+      return
+    }
+    getRunResources(runId)
+      .then((data) => setRunResources(data))
+      .catch(() => setRunResources(null))
+  }
+
   const executeFullRun = async () => {
     setExecuting(true)
     setRunResult(null)
+    setRunResources(null)
     setExecError(null)
     setAcknowledged(false)
     setLiveMessage(`Executing on xazz-server · ${API_BASE_URL}`)
@@ -1583,6 +1598,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
       const result = await executeCode(dagCode, { signal: abortRef.current.signal })
       if (result.run_id != null) sessionResults.set(result.run_id, result)
       setRunResult(result)
+      loadRunResources(result.run_id)
       setBackendReachable(true)
       if (result.success && !result.error) {
         const rows = Array.isArray(result.rows) ? result.rows.length : 0
@@ -1642,6 +1658,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
     const result = sessionResults.get(runId)
     if (!result) return
     setRunResult(result)
+    loadRunResources(runId)
     setExecError(null)
     setLiveMessage(`Restored run #${runId} from this browser session`)
     changeState(result.success && !result.error ? 'success' : 'error')
@@ -1839,6 +1856,8 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
                   training={runResult?.training}
                   model={runResult?.model}
                   dp={runResult?.dp}
+                  resources={runResources}
+                  prediction={runResult?.prediction}
                   policy={policyExample ? exampleReport : policyReport}
                   remediation={policyExample ? null : remediation}
                   originalCode={policyExample ? policyExamples[policyExample] : guardrailSource}

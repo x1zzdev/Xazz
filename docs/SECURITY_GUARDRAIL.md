@@ -398,9 +398,26 @@ xazz run <file.xzz>                       # run — auto-blocked on violation
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/security/policy` | Active policy + sLM config |
+| `PUT` / `DELETE` | `/security/policy` | Install / remove the authenticated tenant's policy pack |
 | `POST` | `/security/policy/check` | Inspect only, no execution (200 even on violation) |
+| `GET` | `/security/policy/history` | Tenant policy-pack change history (`?cursor=` / `?limit=`) |
+| `GET` / `PUT` / `DELETE` | `/security/policy/history/ttl` | Effective policy-history retention window (`PUT` sets a tenant override, `DELETE` clears it) |
+| `GET` | `/security/policy/history/ttl/history` | Retention-window override change history |
 | `POST` | `/security/remediate` | Remediated code + violation report |
 | `POST` | `/execute` | Execute — **422** + report on violation |
+| `GET` | `/dp/budget` | Tenant ε/δ budget status: spent/remaining, in-flight reservations, effective window |
+| `POST` | `/dp/budget/reset` | Zero the tenant's accrued DP spend (audited; admins may delegate via `X-Xazz-Actor`) |
+| `GET` | `/dp/budget/history` | DP budget reset history (`?limit=` / `?offset=` / `?cursor=`) |
+| `PUT` / `DELETE` | `/dp/budget/window` | Set / clear a per-tenant rolling budget window (`window_secs`; `0` disables) |
+| `GET` | `/dp/budget/window/history` | Window-override change history (`?limit=` / `?offset=` / `?cursor=`) |
+
+History endpoints — `/security/policy/history`, `/security/policy/history/ttl/history`,
+`/dp/budget/history`, and `/dp/budget/window/history` — share one pagination contract.
+`?limit=` (default 100, clamped to 500) and `?offset=` page the newest-first list;
+`?cursor=<id>` pages by id instead (returns rows with `id < cursor`) and ignores
+`offset`, avoiding a deep `OFFSET` scan on large histories. Each response echoes
+`limit`, `offset`, `cursor`, and `next_cursor` (the last row's id, or `null` on the
+final page) so the next call can pass `next_cursor` as `?cursor=`.
 
 ```bash
 curl -X POST localhost:8005/security/remediate \

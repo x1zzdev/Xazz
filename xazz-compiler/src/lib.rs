@@ -61,6 +61,6 @@ pub use opt::optimize_program;
 pub use parser::Parser;
 pub use policy::{
     ActivePolicy, Policy, PolicyError, PolicyReport, Remediation, Severity, Violation,
-    analyze as check_policy, analyze_parsed as check_policy_parsed, load_active_policy,
-    policy_load_failure_report, remediate,
+    WithDpRequest, analyze as check_policy, analyze_parsed as check_policy_parsed,
+    load_active_policy, policy_load_failure_report, remediate, with_dp_requests,
 };

@@ -3,6 +3,7 @@
 // The audit fixture is a verbatim response from a locally built xazz-server.
 import { expect, test } from '@playwright/test'
 import { auditFixture, defaults, HASH, mockServer } from './mockServer.mjs'
+import { recordHash } from '../src/auditChain.js'
 
 async function openMonitor(page) {
   await page.goto('/?screen=workspace')
@@ -122,6 +123,84 @@ test('a run from this session restores its rows from History', async ({ page }) 
 
 // ── #108 Audit chain ────────────────────────────────────────────────────────
 
+test('inference gate blocks a leaked key and refreshes its audit record', async ({ page }) => {
+  const records = structuredClone(auditFixture.records)
+  const promptHash = 'a'.repeat(64)
+  const responseHash = 'b'.repeat(64)
+  const requests = await mockServer(page, {
+    'GET /security/audit/log': () => ({ records }),
+    'GET /security/audit/chain': () => ({ intact: true, records: records.length }),
+    'POST /security/inference/check': async (request) => {
+      const body = request.postDataJSON()
+      const record = {
+        index: records.length, timestamp: '2026-09-25T00:00:00Z', hash: HASH,
+        code_length: body.code.length, outcome: 'blocked', prompt_hash: promptHash,
+        response_hash: responseHash, prev_hash: records.at(-1).record_hash,
+      }
+      record.record_hash = await recordHash(record)
+      records.push(record)
+      return {
+        safe_to_emit: false,
+        findings: [{ kind: 'api_key', line: 1, col: 9, redacted: '••••' }],
+        audit_index: record.index, chain_valid: true,
+        prompt_hash: promptHash, response_hash: responseHash,
+      }
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Inference output gate' })
+  const audit = page.getByRole('region', { name: 'Audit hash chain' })
+  await panel.getByLabel('.xzz source code').fill('v x = load("d.csv") :: S;')
+  await panel.getByLabel('Prompt', { exact: true }).fill('summarize the incident')
+  await panel.getByLabel('Model response').fill('The key AKIAIOSFODNN7EXAMPLE was exposed.')
+  await panel.getByRole('button', { name: 'Check response' }).click()
+  await expect(panel.getByLabel('Control: Blocked')).toBeVisible()
+  await expect(panel).toContainText('api_key')
+  await expect(panel).toContainText('1:9')
+  await expect(panel).toContainText(promptHash)
+  await expect(panel).toContainText(responseHash)
+  await expect(audit.locator('tbody tr')).toHaveCount(auditFixture.records.length + 1)
+  await expect(audit.getByText('inference', { exact: true })).toHaveCount(2)
+  const posted = requests.find((r) => r.path === '/security/inference/check')
+  expect(JSON.parse(posted.body).response).toContain('AKIAIOSFODNN7EXAMPLE')
+  const stored = await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))
+  expect(stored).not.toContain('AKIAIOSFODNN7EXAMPLE')
+  await panel.getByRole('button', { name: 'Clear inputs and result' }).click()
+  await expect(panel.getByLabel('Model response')).toHaveValue('')
+  await expect(panel.getByLabel('Control: Blocked')).toHaveCount(0)
+})
+
+test('inference verdict clears when the checked text changes, including during a request', async ({ page }) => {
+  let releaseSecond
+  let checks = 0
+  await mockServer(page, {
+    'POST /security/inference/check': async () => {
+      checks += 1
+      if (checks === 2) await new Promise((resolve) => { releaseSecond = resolve })
+      return { safe_to_emit: true, findings: [], audit_index: checks, chain_valid: true,
+        prompt_hash: 'a'.repeat(64), response_hash: 'b'.repeat(64) }
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Inference output gate' })
+  await panel.getByLabel('.xzz source code').fill('v x = 1;')
+  await panel.getByLabel('Prompt', { exact: true }).fill('summarize')
+  const response = panel.getByLabel('Model response')
+  await response.fill('Nothing sensitive.')
+  await panel.getByRole('button', { name: 'Check response' }).click()
+  await expect(panel.getByLabel('Control: Safe to emit')).toBeVisible()
+  await response.fill('The key AKIAIOSFODNN7EXAMPLE was exposed.')
+  await expect(panel.getByLabel('Control: Safe to emit')).toHaveCount(0)
+
+  await response.fill('Another safe response.')
+  await panel.getByRole('button', { name: 'Check response' }).click()
+  await expect.poll(() => Boolean(releaseSecond)).toBe(true)
+  await response.fill('The key AKIAIOSFODNN7EXAMPLE was exposed.')
+  releaseSecond()
+  await expect(panel.getByRole('button', { name: 'Check response' })).toBeEnabled()
+  await expect(panel.getByLabel('Control: Safe to emit')).toHaveCount(0)
+})
+
 test('audit chain shows the server verdict and names a tampered record', async ({ page }) => {
   await mockServer(page)
   await openMonitor(page)
@@ -146,6 +225,144 @@ test('audit chain shows the server verdict and names a tampered record', async (
 })
 
 // ── #109 Policy packs ───────────────────────────────────────────────────────
+
+test('TTL change history pages and refreshes after a retention change', async ({ page }) => {
+  const history = Array.from({ length: 21 }, (_, i) => {
+    const id = 21 - i
+    return {
+      id, action: 'set', old_ttl_secs: id, new_ttl_secs: id + 1,
+      changed_by: 'alice', changed_at: 1790000000 - i,
+    }
+  })
+  let ttl = { tenant: '', ttl_secs: 0, ttl_source: 'global' }
+  const requests = await mockServer(page, {
+    'GET /security/policy/history/ttl': () => ttl,
+    'GET /security/policy/history/ttl/history': (request) => {
+      const cursor = new URL(request.url()).searchParams.get('cursor')
+      const pageHistory = cursor == null
+        ? history.slice(0, 20)
+        : history.filter((entry) => entry.id < Number(cursor)).slice(0, 20)
+      return {
+        tenant: '', limit: 20,
+        next_cursor: pageHistory.length ? pageHistory[pageHistory.length - 1].id : null,
+        history: pageHistory,
+      }
+    },
+    'PUT /security/policy/history/ttl': (request) => {
+      const secs = request.postDataJSON().ttl_secs
+      history.unshift({ id: 22, action: 'set', old_ttl_secs: null, new_ttl_secs: secs,
+        changed_by: 'operator', changed_at: 1790000001 })
+      ttl = { tenant: '', ttl_secs: secs, ttl_source: 'tenant' }
+      return ttl
+    },
+    'DELETE /security/policy/history/ttl': () => {
+      history.unshift({ id: 23, action: 'clear', old_ttl_secs: ttl.ttl_secs,
+        new_ttl_secs: null, changed_by: 'operator', changed_at: 1790000002 })
+      ttl = { tenant: '', ttl_secs: 0, ttl_source: 'global' }
+      return ttl
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Policy packs' })
+  const table = panel.getByRole('table', { name: 'Retention change history' })
+  const ttlSection = panel.locator('.gov-subsection').last()
+  await expect(table.getByRole('row')).toHaveCount(21)
+  await ttlSection.getByRole('button', { name: 'Next' }).click()
+  await expect(ttlSection).toContainText('Page 2')
+  await expect(table.getByRole('row')).toHaveCount(2)
+  await ttlSection.getByRole('button', { name: 'Previous' }).click()
+  await expect(table.getByRole('row')).toHaveCount(21)
+
+  await panel.getByLabel(/History retention/).fill('3600')
+  await panel.getByRole('button', { name: 'Save retention' }).click()
+  await expect(table).toContainText('operator')
+  await expect(table).toContainText('3600')
+  await panel.getByRole('button', { name: 'Use global default' }).click()
+  await expect(table.getByRole('row').nth(1)).toContainText('clear')
+  await expect(table.getByRole('row').nth(1)).toContainText('3600')
+  expect(requests.some((r) => r.path === '/security/policy/history/ttl/history')).toBe(true)
+})
+
+test('TTL history returns to page one when server access changes', async ({ page }) => {
+  const requests = await mockServer(page, {
+    'GET /security/policy/history/ttl/history': (request) => {
+      const tenant = request.headers()['x-xazz-tenant']
+      const cursor = new URL(request.url()).searchParams.get('cursor')
+      const history = tenant === 'A'
+        ? Array.from({ length: 21 }, (_, i) => ({ id: 21 - i, action: 'set', changed_by: 'A', changed_at: 1790000000 - i }))
+        : [{ id: 100, action: 'set', changed_by: 'B', changed_at: 1790000000 }]
+      const pageHistory = cursor == null
+        ? history.slice(0, 20)
+        : history.filter((entry) => entry.id < Number(cursor)).slice(0, 20)
+      return {
+        tenant, limit: 20,
+        next_cursor: pageHistory.length ? pageHistory[pageHistory.length - 1].id : null,
+        history: pageHistory,
+      }
+    },
+  })
+  await openMonitor(page)
+  await page.getByText('Server access').click()
+  const tenantInput = page.getByLabel('Tenant (X-Xazz-Tenant)')
+  await tenantInput.fill('A')
+  await page.getByRole('button', { name: 'Apply and reload panels' }).click()
+  const panel = page.getByRole('region', { name: 'Policy packs' })
+  const ttlSection = panel.locator('.gov-subsection').last()
+  await ttlSection.getByRole('button', { name: 'Next' }).click()
+  await expect(ttlSection).toContainText('Page 2')
+  await tenantInput.fill('B')
+  await page.getByRole('button', { name: 'Apply and reload panels' }).click()
+  await expect(ttlSection).toContainText('Page 1')
+  await expect(panel.getByRole('table', { name: 'Retention change history' })).toContainText('B')
+  expect(requests.some((r) => r.path === '/security/policy/history/ttl/history' && r.headers['x-xazz-tenant'] === 'B')).toBe(true)
+})
+
+test('policy change history pages by id cursor and returns to page one', async ({ page }) => {
+  const history = Array.from({ length: 21 }, (_, i) => {
+    const id = 21 - i
+    return {
+      id, action: 'set',
+      new_policy_json: { id: `pack-${id}`, version: '1' },
+      changed_by: id > 20 ? 'alice' : 'bob',
+      changed_at: 1790000000 - i,
+    }
+  })
+  const cursors = []
+  const requests = await mockServer(page, {
+    'GET /security/policy/history': (request) => {
+      const cursor = new URL(request.url()).searchParams.get('cursor')
+      cursors.push(cursor)
+      const pageHistory = cursor == null
+        ? history.slice(0, 20)
+        : history.filter((entry) => entry.id < Number(cursor)).slice(0, 20)
+      return {
+        tenant: '', limit: 20,
+        next_cursor: pageHistory.length ? pageHistory[pageHistory.length - 1].id : null,
+        history: pageHistory,
+      }
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Policy packs' })
+  const historySection = panel.locator('.gov-subsection').first()
+  const timeline = historySection.locator('.gov-timeline')
+  await expect(timeline.locator('li')).toHaveCount(20)
+  await expect(historySection).toContainText('Page 1')
+
+  await historySection.getByRole('button', { name: 'Next' }).click()
+  await expect(historySection).toContainText('Page 2')
+  await expect(timeline.locator('li')).toHaveCount(1)
+  await expect(timeline).toContainText('pack-1')
+  expect(cursors).toContain('2')
+
+  await historySection.getByRole('button', { name: 'Previous' }).click()
+  await expect(historySection).toContainText('Page 1')
+  await expect(timeline.locator('li')).toHaveCount(20)
+  // The effective retention is independent of the history cursor: paging must not
+  // re-read it, so page navigation stays a single history request.
+  expect(requests.filter((r) => r.path === '/security/policy/history/ttl')).toHaveLength(1)
+  expect(requests.filter((r) => r.path === '/security/policy/history')).toHaveLength(3)
+})
 
 test('policy packs install, reject bad JSON, and remove only after confirmation', async ({ page }) => {
   let pack = null // the tenant pack the mock server holds
@@ -206,6 +423,143 @@ test('a policy that fails to load is shown as fail-closed', async ({ page }) => 
 
 // ── #110 DP ledger ──────────────────────────────────────────────────────────
 
+test('DP window keeps zero override distinct from clearing and survives reload', async ({ page }) => {
+  let windowSecs = 60
+  let source = 'global'
+  const view = () => ({
+    ...defaults()['GET /dp/budget'], window_secs: windowSecs,
+    window_source: source, resets_at: windowSecs ? 1800000000 : 0,
+  })
+  const requests = await mockServer(page, {
+    'GET /dp/budget': view,
+    'PUT /dp/budget/window': (request) => {
+      windowSecs = request.postDataJSON().window_secs
+      if (windowSecs > 315360000) return { http: 400, text: 'window_secs must be at most 315360000 seconds' }
+      source = 'tenant'
+      return view()
+    },
+    'DELETE /dp/budget/window': () => {
+      windowSecs = 60
+      source = 'global'
+      return view()
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Differential-privacy ledger' })
+  const input = panel.getByLabel('Window length (seconds)')
+  await expect(panel).toContainText('60s · global')
+  await input.fill('-1')
+  await panel.getByRole('button', { name: 'Save window' }).click()
+  await expect(panel.getByRole('status')).toContainText('non-negative whole number')
+  await input.fill('1.5')
+  await panel.getByRole('button', { name: 'Save window' }).click()
+  expect(requests.filter((r) => r.method === 'PUT')).toHaveLength(0)
+
+  await input.fill('0')
+  await panel.getByRole('button', { name: 'Save window' }).click()
+  await expect(panel).toContainText('No rolling window · tenant')
+  await expect(panel).toContainText('Only on an explicit reset')
+  expect(JSON.parse(requests.find((r) => r.method === 'PUT').body)).toEqual({ window_secs: 0 })
+  await page.reload()
+  await page.getByRole('button', { name: 'Monitor' }).click()
+  await expect(panel).toContainText('No rolling window · tenant')
+
+  await panel.getByRole('button', { name: 'Use global window' }).click()
+  await expect(panel).toContainText('60s · global')
+  expect(requests.filter((r) => r.method === 'DELETE' && r.path === '/dp/budget/window')).toHaveLength(1)
+  await panel.getByLabel('Window length (seconds)').fill('315360001')
+  await panel.getByRole('button', { name: 'Save window' }).click()
+  await expect(panel.getByRole('status')).toContainText('window_secs must be at most 315360000 seconds')
+})
+
+test('a late DP window answer cannot replace another tenant’s ledger', async ({ page }) => {
+  let releaseA
+  await mockServer(page, {
+    'GET /dp/budget': (request) => {
+      const tenant = request.headers()['x-xazz-tenant']
+      return { ...defaults()['GET /dp/budget'], tenant, window_secs: tenant === 'A' ? 10 : 20, window_source: 'global' }
+    },
+    'PUT /dp/budget/window': (request) => new Promise((resolve) => {
+      releaseA = () => resolve({ ...defaults()['GET /dp/budget'], tenant: 'A', window_secs: 99, window_source: 'tenant' })
+    }),
+  })
+  await openMonitor(page)
+  await page.getByText('Server access').click()
+  const tenantInput = page.getByLabel('Tenant (X-Xazz-Tenant)')
+  await tenantInput.fill('A')
+  await page.getByRole('button', { name: 'Apply and reload panels' }).click()
+  const panel = page.getByRole('region', { name: 'Differential-privacy ledger' })
+  await expect(panel).toContainText('10s · global')
+  await panel.getByLabel('Window length (seconds)').fill('99')
+  await panel.getByRole('button', { name: 'Save window' }).click()
+  await expect.poll(() => Boolean(releaseA)).toBe(true)
+  await tenantInput.fill('B')
+  await page.getByRole('button', { name: 'Apply and reload panels' }).click()
+  await expect(panel).toContainText('20s · global')
+  releaseA()
+  await expect(panel.getByRole('button', { name: 'Save window' })).toBeEnabled()
+  await expect(panel).toContainText('20s · global')
+  await expect(panel).not.toContainText('99s · tenant')
+})
+
+test('DP reset history shows the actor and spend from before reset', async ({ page }) => {
+  let spent = 2.5
+  const resets = []
+  await mockServer(page, {
+    'GET /dp/budget': () => ({ ...defaults()['GET /dp/budget'], spent_epsilon: spent }),
+    'GET /dp/budget/history': () => ({ tenant: '', resets }),
+    'POST /dp/budget/reset': () => {
+      resets.unshift({ id: 1, actor: 'alice', reset_at: 1790000000, spent_epsilon_before: spent, spent_delta_before: 0.00001 })
+      spent = 0
+      return { ...defaults()['GET /dp/budget'], spent_epsilon: 0 }
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Differential-privacy ledger' })
+  await expect(panel).toContainText('No budget reset recorded')
+  await panel.getByRole('button', { name: 'Reset budget' }).click()
+  await page.getByRole('dialog', { name: 'Reset this tenant’s privacy budget?' })
+    .getByRole('button', { name: 'Reset budget' }).click()
+  const table = panel.getByRole('table', { name: 'Budget reset history' })
+  await expect(table.getByRole('row')).toHaveCount(2)
+  await expect(table).toContainText('alice')
+  await expect(table).toContainText('2.5')
+  await expect(table).toContainText('0.00001')
+})
+
+test('DP reset history pages by id cursor', async ({ page }) => {
+  const resets = Array.from({ length: 21 }, (_, i) => {
+    const id = 21 - i
+    return {
+      id, actor: id % 2 ? 'alice' : 'bob', reset_at: 1790000000 - i,
+      spent_epsilon_before: id, spent_delta_before: 0.00001,
+    }
+  })
+  await mockServer(page, {
+    'GET /dp/budget/history': (request) => {
+      const cursor = new URL(request.url()).searchParams.get('cursor')
+      const pageResets = cursor == null
+        ? resets.slice(0, 20)
+        : resets.filter((entry) => entry.id < Number(cursor)).slice(0, 20)
+      return {
+        tenant: '', limit: 20,
+        next_cursor: pageResets.length ? pageResets[pageResets.length - 1].id : null,
+        resets: pageResets,
+      }
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Differential-privacy ledger' })
+  const table = panel.getByRole('table', { name: 'Budget reset history' })
+  const section = panel.locator('.gov-subsection').last()
+  await expect(table.getByRole('row')).toHaveCount(21)
+  await section.getByRole('button', { name: 'Next' }).click()
+  await expect(section).toContainText('Page 2')
+  await expect(table.getByRole('row')).toHaveCount(2)
+  await section.getByRole('button', { name: 'Previous' }).click()
+  await expect(table.getByRole('row')).toHaveCount(21)
+})
+
 test('DP ledger reset needs confirmation and shows the re-read value', async ({ page }) => {
   let spent = 2.5
   const requests = await mockServer(page, {
@@ -230,6 +584,60 @@ test('DP ledger reset needs confirmation and shows the re-read value', async ({ 
   await dialog.getByRole('button', { name: 'Reset budget' }).click()
   await expect(panel.locator('p.gov-notice[role="status"]')).toContainText('spent ε now 0')
   await expect(panel.getByRole('img')).toHaveAccessibleName('0 of 10 epsilon spent by this tenant.')
+})
+
+test('DP window override history pages and refreshes after a window change', async ({ page }) => {
+  const history = Array.from({ length: 21 }, (_, i) => {
+    const id = 21 - i
+    return {
+      id, action: id % 2 ? 'set' : 'clear',
+      old_window_secs: id % 2 ? null : id, new_window_secs: id % 2 ? id : null,
+      changed_by: 'alice', changed_at: 1790000000 - i,
+    }
+  })
+  let windowSecs = 60
+  let source = 'global'
+  const view = () => ({
+    ...defaults()['GET /dp/budget'], window_secs: windowSecs,
+    window_source: source, resets_at: windowSecs ? 1800000000 : 0,
+  })
+  const requests = await mockServer(page, {
+    'GET /dp/budget': view,
+    'GET /dp/budget/window/history': (request) => {
+      const cursor = new URL(request.url()).searchParams.get('cursor')
+      const pageHistory = cursor == null
+        ? history.slice(0, 20)
+        : history.filter((entry) => entry.id < Number(cursor)).slice(0, 20)
+      return {
+        tenant: '', limit: 20,
+        next_cursor: pageHistory.length ? pageHistory[pageHistory.length - 1].id : null,
+        history: pageHistory,
+      }
+    },
+    'PUT /dp/budget/window': (request) => {
+      windowSecs = request.postDataJSON().window_secs
+      source = 'tenant'
+      history.unshift({ id: 22, action: 'set', old_window_secs: 60, new_window_secs: windowSecs,
+        changed_by: 'operator', changed_at: 1790000001 })
+      return view()
+    },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Differential-privacy ledger' })
+  const table = panel.getByRole('table', { name: 'Window override history' })
+  const section = panel.locator('.gov-subsection').first()
+  await expect(table.getByRole('row')).toHaveCount(21)
+  await section.getByRole('button', { name: 'Next' }).click()
+  await expect(section).toContainText('Page 2')
+  await expect(table.getByRole('row')).toHaveCount(2)
+  await section.getByRole('button', { name: 'Previous' }).click()
+  await expect(table.getByRole('row')).toHaveCount(21)
+
+  await panel.getByLabel('Window length (seconds)').fill('3600')
+  await panel.getByRole('button', { name: 'Save window' }).click()
+  await expect(table).toContainText('operator')
+  await expect(table).toContainText('3600')
+  expect(requests.some((r) => r.path === '/dp/budget/window/history')).toBe(true)
 })
 
 // ── Server access: headers sent, token never stored ────────────────────────

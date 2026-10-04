@@ -695,7 +695,7 @@ pub struct TrainConfig {
     /// Column whose ascending order defines the time axis for the split (issue
     /// #162). When set, rows are sorted by it before the tail split so the
     /// validation window never precedes the training window.
-    pub time_column: Option<String>,
+    pub time_column: Option<Box<str>>,
 }
 
 impl Default for TrainConfig {

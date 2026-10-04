@@ -31,6 +31,47 @@ pub const DEFAULT_TOTAL_BUDGET: f64 = 10.0;
 /// Default session total δ budget (overridable via the XAZZ_DP_DELTA_BUDGET env var)
 pub const DEFAULT_TOTAL_DELTA_BUDGET: f64 = 1e-4;
 
+/// Opt-in per-query ε cap (issue #118). Unset → no runtime cap.
+///
+/// This is a *runtime* guard, independent of the compile-time policy pack
+/// (`max_epsilon` / XZP005): it applies even when a policy lowers XZP005's
+/// severity or when `apply_dp` is driven outside the policy gate. A `withDp`
+/// whose ε exceeds the cap is refused **before** any noise is drawn, so no
+/// budget is spent.
+pub const MAX_EPSILON_ENV: &str = "XAZZ_DP_MAX_EPSILON";
+
+/// Parses a per-query ε cap. Non-finite, non-positive or unparsable values are
+/// ignored (treated as "no cap"), mirroring `XAZZ_DP_BUDGET` handling.
+pub fn parse_max_epsilon(raw: Option<&str>) -> Option<f64> {
+    raw.and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|v| v.is_finite() && *v > 0.0)
+}
+
+/// Reads the per-query ε cap from `XAZZ_DP_MAX_EPSILON`.
+pub fn max_epsilon_from_env() -> Option<f64> {
+    parse_max_epsilon(std::env::var(MAX_EPSILON_ENV).ok().as_deref())
+}
+
+/// Fail-closed per-query check: `Err` when `epsilon` exceeds `cap`. `None` cap
+/// always passes; `epsilon == cap` passes.
+pub fn check_epsilon_cap(epsilon: f64, cap: Option<f64>) -> Result<(), String> {
+    match cap {
+        Some(cap) if epsilon > cap => Err(format!(
+            "{}: {} ε={epsilon} > {MAX_EPSILON_ENV}={cap}. {}",
+            tr("DP error", "DP 에러"),
+            tr(
+                "per-query epsilon exceeds the runtime cap",
+                "쿼리별 epsilon 이 런타임 상한을 초과했습니다"
+            ),
+            tr(
+                "Refused before noising — no budget spent. Lower epsilon or raise/unset the cap.",
+                "노이즈 주입 전에 거부되어 예산은 소진되지 않았습니다. epsilon 을 낮추거나 상한을 올리거나 해제하세요."
+            ),
+        )),
+        _ => Ok(()),
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Session privacy budget (ε/δ composition accounting)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -212,6 +253,11 @@ impl PrivacyBudget {
     pub fn remaining(&self) -> f64 {
         (self.total_eps - self.spent_eps).max(0.0)
     }
+
+    /// Remaining δ budget (0 when the session is pure ε-DP or the cap is reached).
+    pub fn remaining_delta(&self) -> f64 {
+        (self.total_delta - self.spent_delta).max(0.0)
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -351,6 +397,9 @@ pub fn apply_dp(df: &DataFrame, args: &DpArgs) -> Result<(DataFrame, DpReport), 
             args.epsilon
         ));
     }
+    // Per-query cap (issue #118): checked before any noise is drawn, so a
+    // refused step never reaches the budget deduction in the runtime.
+    check_epsilon_cap(args.epsilon, max_epsilon_from_env())?;
     if args.sensitivity <= 0.0 {
         return Err(format!(
             "{}: {} {}",
@@ -589,6 +638,36 @@ mod tests {
     }
 
     #[test]
+    fn max_epsilon_parse_ignores_invalid_values() {
+        assert_eq!(parse_max_epsilon(None), None);
+        assert_eq!(parse_max_epsilon(Some("3")), Some(3.0));
+        assert_eq!(parse_max_epsilon(Some(" 0.5 ")), Some(0.5));
+        for bad in ["0", "-1", "abc", "", "inf", "NaN"] {
+            assert_eq!(
+                parse_max_epsilon(Some(bad)),
+                None,
+                "{bad:?} must be ignored"
+            );
+        }
+    }
+
+    #[test]
+    fn epsilon_cap_is_fail_closed_only_above_the_cap() {
+        assert!(check_epsilon_cap(9.99, None).is_ok());
+        assert!(check_epsilon_cap(3.0, Some(3.0)).is_ok());
+        assert!(check_epsilon_cap(2.999, Some(3.0)).is_ok());
+        let err = check_epsilon_cap(3.001, Some(3.0)).unwrap_err();
+        assert!(
+            err.contains(MAX_EPSILON_ENV),
+            "message names the env var: {err}"
+        );
+        assert!(
+            err.contains("3.001"),
+            "message carries the requested ε: {err}"
+        );
+    }
+
+    #[test]
     fn smaller_epsilon_means_larger_noise() {
         // The smaller ε, the larger the noise scale must be (stronger protection)
         assert!(laplace_scale(1.0, 0.1) > laplace_scale(1.0, 1.0));
@@ -606,6 +685,22 @@ mod tests {
         assert!(err.contains("예산 초과"), "예산 초과 메시지 아님: {err}");
         // A rejected request does not consume budget
         assert!((budget.spent() - 1.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn remaining_delta_tracks_gaussian_spend_and_floors_at_zero() {
+        let mut budget = PrivacyBudget::new_with_delta(5.0, 1e-4);
+        assert!((budget.remaining_delta() - 1e-4).abs() < 1e-18);
+        assert!(budget.spend(DpMechanism::Gaussian, 1.0, 4e-5).is_ok());
+        assert!((budget.remaining_delta() - 6e-5).abs() < 1e-18);
+        // Laplace spends no δ, so the δ remainder is unchanged.
+        assert!(budget.spend(DpMechanism::Laplace, 1.0, 0.0).is_ok());
+        assert!((budget.remaining_delta() - 6e-5).abs() < 1e-18);
+        // A pure-ε session (no δ cap) reports 0 rather than a negative remainder.
+        assert_eq!(
+            PrivacyBudget::new_with_delta(1.0, 0.0).remaining_delta(),
+            0.0
+        );
     }
 
     #[test]

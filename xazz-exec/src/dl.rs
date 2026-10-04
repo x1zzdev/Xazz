@@ -29,9 +29,11 @@ use burn::{
 };
 use burn_ndarray::NdArray;
 use polars::prelude::{Column, DataFrame};
-use xazz_compiler::ast::{LayerKind, SplitStrategy, SweepMetric, SweepSort, TrainConfig};
+use xazz_compiler::ast::{LayerKind, SweepMetric, SweepSort, TrainConfig};
 use xazz_core::i18n::{is_korean, tr};
 
+pub use crate::split::select_split_indices;
+use crate::split::{SplitReport, time_order_by_column};
 use crate::tensor_bridge::{extract_data, series_to_f32};
 
 /// ONNX export + inference path (D2 #63), enabled by the `onnx` feature. A child
@@ -396,17 +398,42 @@ fn warn_embedding_non_integer(count: usize) {
     eprintln!("[xazz] {msg}");
 }
 
-/// Runs the out-of-range embedding diagnostic when the model consumes raw indices.
-fn check_embedding_indices(layers: &[LayerKind], values: &[f32], feature_count: usize) {
-    if let Some(vocabs) = leading_embedding_vocabs(layers, feature_count) {
-        let count = count_out_of_range_per_column(values, feature_count, &vocabs);
-        if count > 0 {
-            warn_embedding_out_of_range(count, &vocabs);
-        }
-        let non_integer = count_non_integer_indices(values);
-        if non_integer > 0 {
-            warn_embedding_non_integer(non_integer);
-        }
+/// Structured mirror of the embedding-input warnings. The forward pass clamps
+/// out-of-range indices and truncates fractional ones silently, so these counts
+/// are surfaced in [`TrainReport`] and the `predict` diagnostics (and thus
+/// `--json`) for machine-readable consumption in addition to the stderr
+/// diagnostics (issue D3).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+pub struct EmbeddingDiagnostics {
+    /// Finite inputs below 0 or above `vocab_size - 1` (clamped in the forward pass).
+    #[serde(rename = "embedding_out_of_range")]
+    pub out_of_range: usize,
+    /// Finite inputs with a fractional part (truncated to an index in the forward pass).
+    #[serde(rename = "embedding_non_integer")]
+    pub non_integer: usize,
+}
+
+/// Runs the out-of-range embedding diagnostic when the model consumes raw indices,
+/// emitting the stderr warnings and returning the counts for [`TrainReport`].
+fn check_embedding_indices(
+    layers: &[LayerKind],
+    values: &[f32],
+    feature_count: usize,
+) -> EmbeddingDiagnostics {
+    let Some(vocabs) = leading_embedding_vocabs(layers, feature_count) else {
+        return EmbeddingDiagnostics::default();
+    };
+    let out_of_range = count_out_of_range_per_column(values, feature_count, &vocabs);
+    if out_of_range > 0 {
+        warn_embedding_out_of_range(out_of_range, &vocabs);
+    }
+    let non_integer = count_non_integer_indices(values);
+    if non_integer > 0 {
+        warn_embedding_non_integer(non_integer);
+    }
+    EmbeddingDiagnostics {
+        out_of_range,
+        non_integer,
     }
 }
 
@@ -430,6 +457,7 @@ pub struct TrainReport {
     pub predictions: Vec<f64>,
     pub targets: Vec<f64>,
     pub checkpoint_path: String,
+    pub validation: SplitReport,
     /// Xazz checkpoint format version written with this artifact (D3).
     #[serde(default)]
     pub checkpoint_format_version: u32,
@@ -451,6 +479,14 @@ pub struct TrainReport {
     /// Final coefficient of determination (R²) over the validation split (if any).
     #[serde(default)]
     pub final_val_r2: Option<f64>,
+    /// Raw embedding inputs outside `[0, vocab_size - 1]` (clamped silently in the
+    /// forward pass) — structured mirror of the stderr warning (issue D3).
+    #[serde(default)]
+    pub embedding_out_of_range: usize,
+    /// Finite raw embedding inputs with a fractional part (truncated to an index
+    /// in the forward pass) — structured mirror of the stderr warning (issue D3).
+    #[serde(default)]
+    pub embedding_non_integer: usize,
 }
 
 /// Trained model — also holds the standardization statistics needed for predict().
@@ -495,6 +531,14 @@ pub struct SweepCombo {
     /// Final validation-split R², when a split is configured.
     #[serde(default)]
     pub val_r2: Option<f64>,
+    /// Raw embedding inputs outside `[0, vocab_size - 1]` (clamped silently in
+    /// the forward pass) — per-combination mirror of [`TrainReport`] (issue D3).
+    #[serde(default)]
+    pub embedding_out_of_range: usize,
+    /// Finite raw embedding inputs with a fractional part (truncated to an index
+    /// in the forward pass) — per-combination mirror of [`TrainReport`] (D3).
+    #[serde(default)]
+    pub embedding_non_integer: usize,
     /// Whether this combination was selected as the sweep winner.
     pub selected: bool,
 }
@@ -957,9 +1001,9 @@ where
 
 /// Like [`train_on`], but trains on an explicit device `B::Device`.
 ///
-/// GPU providers whose default device is the CPU (e.g. `burn-tch`'s
-/// `LibTorchDevice::default()` is `Cpu`) pass their device here so training runs
-/// on the intended accelerator. The returned artifact is the portable CPU
+/// GPU providers pass their device here so training runs on the intended
+/// accelerator (rather than the backend's default device), and so the device
+/// index is explicit. The returned artifact is the portable CPU
 /// [`TrainedModel`], transferred from the device **in memory** (issue D1/D2), so
 /// no checkpoint save→load disk round-trip is added to training time.
 pub fn train_on_device<B>(
@@ -1070,111 +1114,6 @@ fn materialize_cpu_model<B: Backend>(
 /// manifest are written to disk. The sweep grid passes `false` for every
 /// combination and materialises only the winner, so a GPU provider does not pay
 /// a checkpoint save per combination (issue D1/D3).
-/// Deterministic LCG step used for reproducible row shuffles (issue #162).
-fn lcg_next(seed: &mut u64) -> u64 {
-    *seed = seed
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(1442695040888963407);
-    *seed
-}
-
-/// Row indices sorted ascending by a numeric `time_column:` (issue #162).
-///
-/// Null or non-numeric values sort last, keeping their relative order. Returns
-/// an error when the column is missing or cannot be read as f64.
-fn time_order_by_column(df: &DataFrame, column: &str) -> Result<Vec<usize>, String> {
-    let series = df
-        .column(column)
-        .map_err(|_| format!("time_column '{column}' not found in the training frame"))?;
-    let values: Vec<Option<f64>> = series
-        .cast(&polars::prelude::DataType::Float64)
-        .map_err(|e| format!("time_column '{column}' is not numeric: {e}"))?
-        .f64()
-        .map_err(|e| format!("time_column '{column}' read failed: {e}"))?
-        .into_iter()
-        .collect();
-    let mut order: Vec<usize> = (0..values.len()).collect();
-    order.sort_by(|&a, &b| match (values[a], values[b]) {
-        (Some(x), Some(y)) => x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal),
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => std::cmp::Ordering::Equal,
-    });
-    Ok(order)
-}
-
-/// Builds the train/validation index partition for a configured split (issue #162).
-///
-/// `targets` are the NaN-imputed target values indexed by row; `time_order` is
-/// the row order sorted ascending by `time_column:` when one was given. The
-/// validation set is always drawn after the training rows in the chosen order,
-/// so a time-ordered frame never leaks future rows into training.
-///
-/// [`SplitStrategy::Sequential`] is the historical tail split, [`Random`]
-/// shuffles with a fixed seed before the tail split, and [`Stratified`] draws
-/// the validation fraction from each target class so the class ratio holds.
-pub fn select_split_indices(
-    n: usize,
-    val_split: f64,
-    strategy: SplitStrategy,
-    targets: &[f32],
-    time_order: Option<&[usize]>,
-) -> (Vec<usize>, Vec<usize>) {
-    let val_split = val_split.clamp(0.0, MAX_VALIDATION_SPLIT);
-    let val_n = (n as f64 * val_split) as usize;
-    if n == 0 || val_n == 0 || val_n >= n {
-        return ((0..n).collect(), Vec::new());
-    }
-
-    // Base row order: explicit time order when provided, else natural order.
-    let base: Vec<usize> = match time_order {
-        Some(order) if order.len() == n => order.to_vec(),
-        _ => (0..n).collect(),
-    };
-
-    match strategy {
-        SplitStrategy::Sequential => {
-            let (train, val) = base.split_at(n - val_n);
-            (train.to_vec(), val.to_vec())
-        }
-        SplitStrategy::Random => {
-            let mut order = base;
-            let mut seed = 0x9E37_79B9_7F4A_7C15u64;
-            for i in (1..order.len()).rev() {
-                let j = (lcg_next(&mut seed) >> 33) as usize % (i + 1);
-                order.swap(i, j);
-            }
-            let (train, val) = order.split_at(n - val_n);
-            (train.to_vec(), val.to_vec())
-        }
-        SplitStrategy::Stratified => {
-            // Group rows by target value, preserving base order within a class.
-            let mut groups: Vec<(f32, Vec<usize>)> = Vec::new();
-            for &row in &base {
-                let t = targets.get(row).copied().unwrap_or(f32::NAN);
-                match groups.iter_mut().find(|(k, _)| *k == t) {
-                    Some((_, rows)) => rows.push(row),
-                    None => groups.push((t, vec![row])),
-                }
-            }
-            let mut train = Vec::with_capacity(n - val_n);
-            let mut val = Vec::with_capacity(val_n);
-            for (_, rows) in &groups {
-                let take = ((rows.len() as f64 * val_split).round() as usize).min(rows.len());
-                let (tr, va) = rows.split_at(rows.len() - take);
-                train.extend_from_slice(tr);
-                val.extend_from_slice(va);
-            }
-            // Restore base order inside each partition for reproducible output.
-            let pos: std::collections::HashMap<usize, usize> =
-                base.iter().enumerate().map(|(p, &r)| (r, p)).collect();
-            train.sort_by_key(|r| pos.get(r).copied().unwrap_or(usize::MAX));
-            val.sort_by_key(|r| pos.get(r).copied().unwrap_or(usize::MAX));
-            (train, val)
-        }
-    }
-}
-
 fn train_impl<B>(
     df: &DataFrame,
     model_name: &str,
@@ -1206,12 +1145,34 @@ where
         return Err(tr("Training data is empty.", "학습 데이터가 비어 있습니다.").into());
     }
 
+    // ── train / validation split (issue #162) ───────────────────────────────
+    let val_split = config.validation_split.unwrap_or(0.0);
+    if !val_split.is_finite() || !(0.0..=MAX_VALIDATION_SPLIT).contains(&val_split) {
+        return Err("validation_split must be finite and between 0 and 0.9".into());
+    }
+    let time_order = match config.time_column.as_deref() {
+        Some(col) if val_split > 0.0 => Some(time_order_by_column(df, col)?),
+        _ => None,
+    };
+    let (train_idx, val_idx) = select_split_indices(
+        n,
+        val_split,
+        config.split_strategy,
+        &targets,
+        time_order.as_deref(),
+    )?;
+    let train_n = train_idx.len();
+    if let Some(column) = config.time_column.as_deref().filter(|_| val_split > 0.0) {
+        crate::split::validate_time_boundary(df, column, &train_idx, &val_idx)?;
+    }
+    let validation = SplitReport::new(config, &train_idx, &val_idx, &targets);
+
     // ── Feature standardization statistics (NaN → mean imputation) ────────────────
     let mut fmean = vec![0f64; input_dim];
     let mut fstd = vec![1f64; input_dim];
     for (j, mean) in fmean.iter_mut().enumerate().take(input_dim) {
         let (mut s, mut c) = (0f64, 0usize);
-        for i in 0..n {
+        for &i in &train_idx {
             if let Some(v) = features.get(i).and_then(|row| row.get(j)) {
                 let v = *v as f64;
                 if v.is_finite() {
@@ -1224,7 +1185,7 @@ where
     }
     for j in 0..input_dim {
         let (mut s, mut c) = (0f64, 0usize);
-        for i in 0..n {
+        for &i in &train_idx {
             if let Some(v) = features.get(i).and_then(|row| row.get(j)) {
                 let d = *v as f64 - fmean[j];
                 if d.is_finite() {
@@ -1252,13 +1213,16 @@ where
             }
         }
     }
-    if raw_input {
-        check_embedding_indices(layers, &xs, input_dim);
-    }
+    let embedding_diagnostics = if raw_input {
+        check_embedding_indices(layers, &xs, input_dim)
+    } else {
+        EmbeddingDiagnostics::default()
+    };
 
     let tmean: f64 = {
         let (mut s, mut c) = (0f64, 0usize);
-        for &t in &targets {
+        for &i in &train_idx {
+            let t = targets[i];
             if t.is_finite() {
                 s += t as f64;
                 c += 1;
@@ -1270,24 +1234,6 @@ where
         .iter()
         .map(|&t| if t.is_finite() { t } else { tmean as f32 })
         .collect();
-
-    // ── train / validation split (issue #162) ───────────────────────────────
-    let val_split = config
-        .validation_split
-        .unwrap_or(0.0)
-        .clamp(0.0, MAX_VALIDATION_SPLIT);
-    let time_order = match config.time_column.as_deref() {
-        Some(col) => Some(time_order_by_column(df, col)?),
-        None => None,
-    };
-    let (train_idx, val_idx) = select_split_indices(
-        n,
-        val_split,
-        config.split_strategy,
-        &ys,
-        time_order.as_deref(),
-    );
-    let train_n = train_idx.len();
 
     let device_autodiff: Device<Autodiff<B>> = device.clone();
     let mut model = build_mlp::<Autodiff<B>>(layers, input_dim, &device_autodiff)?;
@@ -1388,7 +1334,9 @@ where
         if !val_idx.is_empty()
             && let Some((xv, yv)) = make_batch(&val_idx)
         {
+            model.training = false;
             let vout = model.forward(xv);
+            model.training = true;
             let vloss = ((vout - yv).powf_scalar(2.0)).mean();
             final_val_loss = vloss.into_data().to_vec::<f32>().map(|v| v[0] as f64).ok();
         }
@@ -1515,6 +1463,7 @@ where
         predictions,
         targets: targets_out,
         checkpoint_path: format!("{ckpt}.json"),
+        validation,
         checkpoint_format_version: CHECKPOINT_FORMAT_VERSION,
         stopped_early,
         best_epoch,
@@ -1522,6 +1471,8 @@ where
         final_val_mae,
         final_train_r2,
         final_val_r2,
+        embedding_out_of_range: embedding_diagnostics.out_of_range,
+        embedding_non_integer: embedding_diagnostics.non_integer,
     };
 
     // Versioned sidecar manifest (D3) — written next to the Burn record so a
@@ -1544,11 +1495,12 @@ where
 
 /// Shared inference preprocessing: validates the frame, reads the feature columns
 /// in training order, and applies the same standardization used during training.
-/// Returns `(xs, rows, feature_count)`.
+/// Returns `(xs, rows, feature_count, embedding_diagnostics)`; the diagnostics
+/// are the structured mirror of the stderr warnings (issue D3 predict follow-up).
 fn prepare_inference_input(
     trained: &TrainedModel,
     df: &DataFrame,
-) -> Result<(Vec<f32>, usize, usize), String> {
+) -> Result<(Vec<f32>, usize, usize, EmbeddingDiagnostics), String> {
     let feature_count = trained.feature_names.len();
     let n = df.height();
     if feature_count == 0 {
@@ -1586,10 +1538,12 @@ fn prepare_inference_input(
             }
         }
     }
-    if trained.model.raw_input {
-        check_embedding_indices(&trained.layers, &xs, feature_count);
-    }
-    Ok((xs, n, feature_count))
+    let diag = if trained.model.raw_input {
+        check_embedding_indices(&trained.layers, &xs, feature_count)
+    } else {
+        EmbeddingDiagnostics::default()
+    };
+    Ok((xs, n, feature_count, diag))
 }
 
 /// Appends the prediction column to a clone of `df`.
@@ -1684,14 +1638,21 @@ pub fn predict(
     df: &DataFrame,
     as_col: Option<&str>,
 ) -> Result<DataFrame, String> {
-    let (xs, n, feature_count) = prepare_inference_input(trained, df)?;
+    predict_with_diagnostics(trained, df, as_col).map(|(out, _)| out)
+}
 
+/// Like [`predict`], but also returns the structured embedding-input diagnostics
+/// so the runtime can surface them in `--json` (issue D3 predict follow-up). The
+/// stderr warnings are emitted by [`prepare_inference_input`] either way.
+pub fn predict_with_diagnostics(
+    trained: &TrainedModel,
+    df: &DataFrame,
+    as_col: Option<&str>,
+) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
     let device: Device<Plain> = Default::default();
     let mut infer_model = trained.model.clone();
     infer_model.training = false;
-    let preds = forward_predictions(&infer_model, &xs, n, feature_count, &device);
-
-    attach_prediction(trained, df, &preds, as_col)
+    predict_with_model::<Plain>(trained, &infer_model, &device, df, as_col)
 }
 
 /// `predict` on an arbitrary Burn backend `B`.
@@ -1704,7 +1665,7 @@ pub fn predict_on<B>(
     trained: &TrainedModel,
     df: &DataFrame,
     as_col: Option<&str>,
-) -> Result<DataFrame, String>
+) -> Result<(DataFrame, EmbeddingDiagnostics), String>
 where
     B: Backend,
 {
@@ -1751,36 +1712,36 @@ where
 ///
 /// `device` must be the device `model` lives on. Preprocessing (feature order,
 /// standardization) is identical to [`predict`], so a cached module produces the
-/// same predictions.
+/// same predictions. Returns the frame plus embedding-input diagnostics.
 pub fn predict_with_model<B>(
     trained: &TrainedModel,
     model: &Mlp<B>,
     device: &Device<B>,
     df: &DataFrame,
     as_col: Option<&str>,
-) -> Result<DataFrame, String>
+) -> Result<(DataFrame, EmbeddingDiagnostics), String>
 where
     B: Backend,
 {
-    let (xs, n, feature_count) = prepare_inference_input(trained, df)?;
+    let (xs, n, feature_count, diag) = prepare_inference_input(trained, df)?;
 
     let preds = forward_predictions(model, &xs, n, feature_count, device);
 
-    attach_prediction(trained, df, &preds, as_col)
+    Ok((attach_prediction(trained, df, &preds, as_col)?, diag))
 }
 
 /// Like [`predict_on`], but evaluates on an explicit device `B::Device`.
 ///
-/// Providers whose default device is the CPU (e.g. `burn-tch`) pass their device
-/// so the forward pass runs on the intended accelerator. The checkpoint is loaded
-/// on each call; providers that predict repeatedly should cache via
+/// Providers pass their device so the forward pass runs on the intended
+/// accelerator. The checkpoint is loaded on each call; providers that predict
+/// repeatedly should cache via
 /// [`load_inference_model`] + [`predict_with_model`].
 pub fn predict_on_device<B>(
     trained: &TrainedModel,
     df: &DataFrame,
     as_col: Option<&str>,
     device: &Device<B>,
-) -> Result<DataFrame, String>
+) -> Result<(DataFrame, EmbeddingDiagnostics), String>
 where
     B: Backend,
 {
@@ -1795,6 +1756,102 @@ pub type ModelRegistry = HashMap<String, Vec<LayerKind>>;
 mod tests {
     use super::*;
     use xazz_compiler::ast::EmbeddingVocab;
+
+    #[test]
+    fn invalid_validation_fractions_are_rejected_without_clamping() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0.,1.,2.,3.], "y" => [0.,1.,0.,1.]).unwrap();
+        for fraction in [-0.1, 0.95, f64::NAN, f64::INFINITY, 0.01] {
+            let config = TrainConfig {
+                target: "y".into(),
+                epochs: 1,
+                validation_split: Some(fraction),
+                ..Default::default()
+            };
+            let result = train_impl::<Plain>(
+                &frame,
+                "invalid_fraction",
+                &[LayerKind::Dense(1)],
+                &config,
+                &Default::default(),
+                false,
+            );
+            assert!(result.is_err(), "must reject validation_split={fraction}");
+        }
+    }
+
+    #[test]
+    fn validation_loss_matches_returned_model_with_dropout_disabled() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0.,1.,2.,3.], "y" => [0.,1.,0.,1.]).unwrap();
+        let config = TrainConfig {
+            target: "y".into(),
+            epochs: 2,
+            validation_split: Some(0.5),
+            ..Default::default()
+        };
+        let trained = train_impl::<Plain>(
+            &frame,
+            "dropout_validation_oracle",
+            &[
+                LayerKind::Dense(16),
+                LayerKind::Dropout(0.75),
+                LayerKind::Dense(1),
+            ],
+            &config,
+            &Default::default(),
+            false,
+        )
+        .unwrap();
+        let input: Vec<f32> = [2., 3.]
+            .iter()
+            .map(|x| ((x - trained.fmean[0]) / trained.fstd[0]) as f32)
+            .collect();
+        let tensor =
+            Tensor::<Plain, 2>::from_data(TensorData::new(input, [2, 1]), &Default::default());
+        let prediction = trained
+            .model
+            .forward(tensor)
+            .into_data()
+            .to_vec::<f32>()
+            .unwrap();
+        let expected =
+            (prediction[0] as f64).powi(2) / 2.0 + (prediction[1] as f64 - 1.0).powi(2) / 2.0;
+        assert!(
+            (trained.report.final_val_loss.unwrap() - expected).abs() < 1e-5 * expected.max(1.0),
+            "reported={:?}, independently recomputed={expected}",
+            trained.report.final_val_loss
+        );
+    }
+
+    #[test]
+    fn validation_rows_do_not_fit_training_standardization() {
+        use polars::prelude::*;
+        let frame =
+            df!("x" => [0.0, 2.0, 1000.0, 2000.0], "y" => [1.0, 3.0, 100.0, 200.0]).unwrap();
+        let config = TrainConfig {
+            target: "y".into(),
+            epochs: 1,
+            validation_split: Some(0.5),
+            ..Default::default()
+        };
+        let trained = train_impl::<Plain>(
+            &frame,
+            "SplitStats",
+            &[LayerKind::Dense(1)],
+            &config,
+            &Default::default(),
+            false,
+        )
+        .unwrap();
+        assert_eq!(trained.fmean, vec![1.0]);
+        assert!((trained.fstd[0] - 2.0f64.sqrt()).abs() < 1e-10);
+        assert_eq!(trained.report.validation.train_rows, 2);
+        assert_eq!(trained.report.validation.validation_rows, 2);
+        let json = serde_json::to_value(&trained.report).unwrap();
+        assert_eq!(json["validation"]["strategy"], "sequential");
+        assert!(trained.report.final_val_loss.unwrap().is_finite());
+    }
 
     fn embedding_layer(vocab: EmbeddingVocab) -> LayerKind {
         LayerKind::Embedding {
@@ -1842,51 +1899,6 @@ mod tests {
     }
 
     #[test]
-    fn split_sequential_takes_tail() {
-        let (train, val) = select_split_indices(10, 0.2, SplitStrategy::Sequential, &[], None);
-        assert_eq!(train, (0..8).collect::<Vec<_>>());
-        assert_eq!(val, vec![8, 9]);
-    }
-
-    #[test]
-    fn split_random_is_deterministic_and_disjoint() {
-        let first = select_split_indices(20, 0.25, SplitStrategy::Random, &[], None);
-        let second = select_split_indices(20, 0.25, SplitStrategy::Random, &[], None);
-        assert_eq!(first, second, "고정 시드라 같은 결과여야 함");
-        let (train, val) = first;
-        assert_eq!(train.len(), 15);
-        assert_eq!(val.len(), 5);
-        let mut all: Vec<usize> = train.iter().chain(val.iter()).copied().collect();
-        all.sort_unstable();
-        assert_eq!(
-            all,
-            (0..20).collect::<Vec<_>>(),
-            "두 집합은 전체를 중복 없이 덮어야 함"
-        );
-    }
-
-    #[test]
-    fn split_stratified_preserves_class_ratio() {
-        let targets = [0.0f32, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
-        let (train, val) = select_split_indices(8, 0.5, SplitStrategy::Stratified, &targets, None);
-        assert_eq!(train.len(), 4);
-        assert_eq!(val.len(), 4);
-        let zeros = val.iter().filter(|&&i| targets[i] == 0.0).count();
-        let ones = val.iter().filter(|&&i| targets[i] == 1.0).count();
-        assert_eq!((zeros, ones), (2, 2), "클래스 비율이 유지되어야 함");
-    }
-
-    #[test]
-    fn split_sequential_respects_time_order() {
-        // Rows sorted ascending by time: row 4 is earliest, row 0 latest.
-        let order = [4usize, 3, 2, 1, 0];
-        let (train, val) =
-            select_split_indices(5, 0.4, SplitStrategy::Sequential, &[], Some(&order));
-        assert_eq!(train, vec![4, 3, 2]);
-        assert_eq!(val, vec![1, 0], "검증 구간은 시간상 뒤쪽이어야 함");
-    }
-
-    #[test]
     fn regression_metrics_mae_and_r2() {
         // Perfect predictions: MAE 0, R² 1.
         let (mae, r2) = regression_metrics(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0]);
@@ -1927,6 +1939,8 @@ mod tests {
             val_mae,
             train_r2,
             val_r2,
+            embedding_out_of_range: 0,
+            embedding_non_integer: 0,
             selected: false,
         };
 
@@ -1972,6 +1986,8 @@ mod tests {
             val_mae: Some(val_loss),
             train_r2: 0.0,
             val_r2: Some(0.0),
+            embedding_out_of_range: 0,
+            embedding_non_integer: 0,
             selected: false,
         };
         let a = mk(3, 8, 0.05, 0.10);
@@ -2018,6 +2034,8 @@ mod tests {
             val_mae: Some(val_loss),
             train_r2: 0.0,
             val_r2: Some(0.0),
+            embedding_out_of_range: 0,
+            embedding_non_integer: 0,
             selected: false,
         };
         // Same metric (tie) but different axis values.
@@ -2128,6 +2146,31 @@ mod tests {
         assert_eq!(count_non_integer_indices(&[f32::NAN, f32::INFINITY]), 0);
     }
 
+    #[test]
+    fn check_embedding_indices_reports_structured_counts() {
+        // 2 columns sharing vocab 3; row-major. One out-of-range per column and
+        // one fractional value. Non-finite values must not be counted.
+        let values = [0.0, 1.0, 3.0, 0.5, f32::NAN, 9.0];
+        let diag =
+            check_embedding_indices(&[embedding_layer(EmbeddingVocab::Shared(3))], &values, 2);
+        assert_eq!(diag.out_of_range, 2, "3.0 and 9.0 are above vocab-1");
+        assert_eq!(diag.non_integer, 1, "0.5 is finite with a fractional part");
+
+        // A clean raw-index input yields zeros.
+        let clean = check_embedding_indices(
+            &[embedding_layer(EmbeddingVocab::Shared(3))],
+            &[0.0, 1.0, 2.0, 0.0],
+            2,
+        );
+        assert_eq!(clean, EmbeddingDiagnostics::default());
+
+        // Without a leading embedding layer there is nothing to diagnose.
+        assert_eq!(
+            check_embedding_indices(&[LayerKind::Dense(2)], &[9.0], 1),
+            EmbeddingDiagnostics::default()
+        );
+    }
+
     // ── Checkpoint versioning (D3) ──────────────────────────────────────────
 
     static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -2156,6 +2199,7 @@ mod tests {
             predictions: vec![1.0],
             targets: vec![1.0],
             checkpoint_path: "checkpoints/ManifestMlp.json".to_string(),
+            validation: SplitReport::default(),
             checkpoint_format_version: CHECKPOINT_FORMAT_VERSION,
             stopped_early: false,
             best_epoch: 0,
@@ -2163,6 +2207,8 @@ mod tests {
             final_val_mae: Some(0.5),
             final_train_r2: 0.9,
             final_val_r2: Some(0.85),
+            embedding_out_of_range: 0,
+            embedding_non_integer: 0,
         }
     }
 

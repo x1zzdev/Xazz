@@ -110,6 +110,21 @@ fn generate_rust_src(
     program: &Program,
     source_path: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    let unsupported = |config: &TrainConfig| {
+        config.split_strategy != crate::ast::SplitStrategy::Sequential
+            || config.time_column.is_some()
+    };
+    if program.stmts.iter().any(|stmt| match stmt {
+        Stmt::TrainStmt { config, .. } => unsupported(config),
+        Stmt::VarDecl { ops, .. } => ops.iter().any(|op| match op {
+            PipelineOp::Train { config, .. } => unsupported(config),
+            _ => false,
+        }),
+        _ => false,
+    }) {
+        return Err("Reference Rust emission supports sequential holdout only. Use xazz run for random, stratified or time_column validation.".into());
+    }
+
     // ── build the global schema map ──────────────────────────────────────────────────
     let mut schema_map: HashMap<String, Vec<StructField>> = HashMap::new();
     for stmt in &program.stmts {
@@ -158,10 +173,12 @@ fn generate_rust_src(
         }
         out.push_str(&emit_extract_xy_fn());
         out.push('\n');
-        out.push_str(&emit_dl_metrics_fn());
-        out.push('\n');
-        out.push_str(&emit_dl_sweep_helpers_fn());
-        out.push('\n');
+        if program_has_sweep(program) {
+            out.push_str(&emit_dl_metrics_fn());
+            out.push('\n');
+            out.push_str(&emit_dl_sweep_helpers_fn());
+            out.push('\n');
+        }
     }
 
     // fn main()
@@ -754,6 +771,22 @@ fn program_has_dl(program: &Program) -> bool {
     program.stmts.iter().any(|s| match s {
         Stmt::ModelDecl { .. } | Stmt::TrainStmt { .. } => true,
         Stmt::VarDecl { ops, .. } => ops.iter().any(|op| matches!(op, PipelineOp::Train { .. })),
+        _ => false,
+    })
+}
+
+/// Returns whether any `train(...)` in the script is a hyperparameter sweep
+/// (a grid on `epochs`/`lr`/`batch`/`metric`/`sort`/`top`/`tiebreak`). The
+/// emitted `XzSweepRow`/`xz_sweep_compare`/`xz_regression_metrics` helpers are
+/// only referenced by the sweep code path, so non-sweep programs must not emit
+/// them (otherwise the generated code has unused items / `dead_code` warnings).
+fn program_has_sweep(program: &Program) -> bool {
+    program.stmts.iter().any(|s| match s {
+        Stmt::TrainStmt { config, .. } => config.is_sweep(),
+        Stmt::VarDecl { ops, .. } => ops.iter().any(|op| match op {
+            PipelineOp::Train { config, .. } => config.is_sweep(),
+            _ => false,
+        }),
         _ => false,
     })
 }
@@ -1990,6 +2023,23 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_validation_is_not_silently_emitted_as_sequential() {
+        for option in [
+            "split: \"random\"",
+            "split: \"stratified\"",
+            "time_column: \"x\"",
+        ] {
+            for prefix in ["v trained =", "run"] {
+                let source = format!(
+                    "type S = {{ x: float, y: float }}; model M {{ Dense(1) }} v data = load(\"x.csv\") :: S; {prefix} data |> train(M, target: \"y\", validation_split: 0.2, {option});"
+                );
+                let error = generate_rust_src(&parse(&source), "test.xzz").unwrap_err();
+                assert!(error.to_string().contains("sequential holdout only"));
+            }
+        }
+    }
+
+    #[test]
     fn emit_rust_has_polars_imports() {
         let out = emit(
             "type S = { date: string, pm10: float };
@@ -2110,6 +2160,34 @@ mod tests {
         assert!(
             !out.contains("Burn training runs at xazz execution"),
             "구 placeholder 주석이 남음: {out}"
+        );
+    }
+
+    /// Non-sweep DL programs must not emit the sweep-only helpers
+    /// (`XzSweepRow`/`xz_sweep_compare`/`xz_regression_metrics`), otherwise the
+    /// generated code carries unused items / `dead_code` warnings.
+    #[test]
+    fn emit_rust_nonsweep_omits_sweep_helpers() {
+        let out = emit(
+            "type S = { a: float, y: float };
+             model M { Dense(4) -> Dense(1) }
+             v data = load(\"x.csv\") :: S |> train(M, target: \"y\", epochs: 3);",
+        );
+        assert!(
+            !out.contains("struct XzSweepRow"),
+            "비스윕 코드에 XzSweepRow가 emit됨: {out}"
+        );
+        assert!(
+            !out.contains("fn xz_sweep_compare("),
+            "비스윕 코드에 xz_sweep_compare가 emit됨: {out}"
+        );
+        assert!(
+            !out.contains("fn xz_regression_metrics("),
+            "비스윕 코드에 xz_regression_metrics가 emit됨: {out}"
+        );
+        assert!(
+            out.contains("fn extract_xy("),
+            "비스윕 필수 헬퍼(extract_xy) 누락: {out}"
         );
     }
 

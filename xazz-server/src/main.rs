@@ -21,8 +21,10 @@
 //!   POST /security/remediate    { "code": "<xzz DSL>" }    → safe code auto-remediation (deterministic + sLM)
 //!   GET  /runs                                → run history (SQLite, issue C1)
 //!   GET  /runs/:id                            → a single run record
+//!   GET  /runs/:id/resources                  → persisted run resource telemetry (issue #128)
 //!   GET  /dp/budget                           → per-tenant DP spend/remaining + window
 //!   POST /dp/budget/reset                     → reset the tenant's DP spend/window (C2)
+//!   GET  /dp/budget/window/history?limit=&offset= → tenant's DP-window override change audit (C2)
 //!
 //! Port: 8005 (frontend/.env: VITE_API_BASE_URL=http://127.0.0.1:8005)
 
@@ -41,7 +43,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedMutexGuard, OwnedSemaphorePermit, Semaphore};
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::ServeDir;
 
@@ -69,8 +71,12 @@ const POLICY_HISTORY_MAX_LIMIT: usize = 500;
 struct PolicyHistoryQuery {
     /// Page size; defaults to [`POLICY_HISTORY_LIMIT`], clamped to `1..=POLICY_HISTORY_MAX_LIMIT`.
     limit: Option<usize>,
-    /// Rows to skip in the newest-first list; defaults to 0.
+    /// Rows to skip in the newest-first list; defaults to 0. Ignored when
+    /// `cursor` is set.
     offset: Option<usize>,
+    /// Id cursor from a previous page (`next_cursor`); returns rows strictly
+    /// older (`id < cursor`). Preferred over `offset` for large histories.
+    cursor: Option<i64>,
 }
 
 impl PolicyHistoryQuery {
@@ -82,6 +88,12 @@ impl PolicyHistoryQuery {
 
     fn offset(&self) -> usize {
         self.offset.unwrap_or(0)
+    }
+
+    /// The id cursor, if a positive one was supplied. Non-positive ids are
+    /// treated as absent so a stray `cursor=0` cannot page past every row.
+    fn cursor(&self) -> Option<i64> {
+        self.cursor.filter(|c| *c > 0)
     }
 }
 
@@ -120,6 +132,19 @@ impl AppState {
     }
 }
 
+/// Owned execution-capacity guards for one run (issue C2 follow-up).
+///
+/// The global concurrency permit and the per-tenant serialization lock are
+/// *owned* so they can be moved into the detached blocking task that runs the
+/// pipeline. If the HTTP client disconnects, axum drops the handler future but
+/// the blocking task keeps running (GHSA-wxqx-r7f6-qq3p); owning the guards means
+/// the tenant stays serialized and the permit stays charged until the runner
+/// actually exits, instead of being released early.
+struct ExecutionSlot {
+    _permit: OwnedSemaphorePermit,
+    _tenant_guard: OwnedMutexGuard<()>,
+}
+
 /// Records a run in the store, returning the new id (0 on store failure).
 /// Extracts the authenticated tenant from the request extension (default "").
 fn tenant_str(tenant: &str) -> &str {
@@ -134,9 +159,18 @@ fn record_run_in_store(
     rows: i64,
     error: Option<&str>,
     tenant: &str,
+    resources: Option<&Value>,
 ) -> i64 {
     let hash = audit_log::hash_code(code);
-    match state.store.record_run(&hash, status, rows, error, tenant) {
+    let resources_json = resources.map(|v| v.to_string());
+    match state.store.record_run(
+        &hash,
+        status,
+        rows,
+        error,
+        tenant,
+        resources_json.as_deref(),
+    ) {
         Ok(id) => id,
         Err(e) => {
             eprintln!("[xazz] ⚠️ run history 저장 실패: {e}");
@@ -183,6 +217,50 @@ fn resolve_dp_envelope(eps_raw: Option<&str>, delta_raw: Option<&str>) -> (f64, 
         .filter(|v| v.is_finite() && (0.0..1.0).contains(v))
         .unwrap_or(DEFAULT_TENANT_DP_DELTA_BUDGET);
     (epsilon, delta)
+}
+
+/// Opt-in per-query ε cap (issue #118). Same variable the execution engine reads
+/// (`xazz-exec` `dp::MAX_EPSILON_ENV`), so a cap set on the server is enforced
+/// twice: here before the DP reservation, and again inside the runner, which
+/// inherits the server's environment.
+const DP_MAX_EPSILON_ENV: &str = "XAZZ_DP_MAX_EPSILON";
+
+/// Parses the per-query ε cap. Unset, non-finite, non-positive or unparsable
+/// values mean "no cap" (mirrors the engine's `parse_max_epsilon`).
+fn resolve_dp_max_epsilon(raw: Option<&str>) -> Option<f64> {
+    raw.and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|v| v.is_finite() && *v > 0.0)
+}
+
+/// Reads the per-query ε cap from the environment.
+fn dp_max_epsilon() -> Option<f64> {
+    let raw = std::env::var(DP_MAX_EPSILON_ENV).ok();
+    resolve_dp_max_epsilon(raw.as_deref())
+}
+
+/// `withDp` requests in `code` whose ε exceeds `cap`, as `(label, ε)` with the
+/// label being the bound variable or `stmt#<index>`. Unparsable code yields an
+/// empty list — the policy gate ahead of this check already rejects it.
+fn with_dp_over_cap(code: &str, cap: f64) -> Vec<(String, f64)> {
+    let program = match xazz_compiler::Lexer::new(code)
+        .tokenize()
+        .ok()
+        .and_then(|tokens| xazz_compiler::Parser::new(tokens).parse().ok())
+    {
+        Some(program) => program,
+        None => return Vec::new(),
+    };
+    xazz_compiler::with_dp_requests(&program)
+        .into_iter()
+        .filter(|req| req.args.epsilon > cap)
+        .map(|req| {
+            let label = req
+                .var_name
+                .clone()
+                .unwrap_or_else(|| format!("stmt#{}", req.stmt_index));
+            (label, req.args.epsilon)
+        })
+        .collect()
 }
 
 /// Reads the per-tenant DP envelope from the environment.
@@ -362,6 +440,10 @@ struct ExecuteResponse {
     stdout: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     training: Option<Value>,
+    /// Embedding-input diagnostics of the last `predict`, parsed from the
+    /// `[xazz:predict]` marker (issue D3). None when the script does not predict.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prediction: Option<Value>,
     /// Differential-privacy audit report parsed from the `[xazz:dp]` marker (v0.6).
     /// None when withDp(...) is unused — the frontend shows this as "budget unconsumed".
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -458,6 +540,7 @@ async fn main() {
         .route("/security/inference/check", post(handle_inference_check))
         .route("/runs", get(handle_runs_list))
         .route("/runs/{id}", get(handle_run_by_id))
+        .route("/runs/{id}/resources", get(handle_run_resources))
         .route("/dp/budget", get(handle_dp_budget))
         .route("/dp/budget/reset", post(handle_dp_budget_reset))
         .route("/dp/budget/history", get(handle_dp_reset_history))
@@ -465,6 +548,7 @@ async fn main() {
             "/dp/budget/window",
             put(handle_dp_window_set).delete(handle_dp_window_clear),
         )
+        .route("/dp/budget/window/history", get(handle_dp_window_history))
         .route("/catalog", post(handle_catalog))
         .with_state(AppState {
             exec_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_EXECUTIONS)),
@@ -563,9 +647,18 @@ const TENANT_HEADER: &str = "x-xazz-tenant";
 /// `changed_by` when delegating a policy change to a tenant (issue C2).
 const ACTOR_HEADER: &str = "x-xazz-actor";
 
-/// Admin credential env var — when set, a request bearing this Bearer token may
-/// act on any tenant's policy and is recorded under the actor identity.
+/// Admin credential env var — one Bearer token, or a comma-separated list so an
+/// admin can rotate between several credentials without downtime. A request
+/// bearing any of them may act on any tenant's policy and is recorded under the
+/// actor identity.
 const ADMIN_TOKEN_ENV: &str = "XAZZ_ADMIN_TOKEN";
+
+/// Optional admin credential→actor bindings — a comma-separated list of
+/// `token:actor` entries. A token listed here authenticates as an administrator
+/// whose audit actor is pinned: `X-Xazz-Actor` is ignored for that credential, so
+/// an administrator cannot impersonate another identity. Tokens are matched on
+/// the last `:` so a credential may itself contain colons.
+const ADMIN_ACTORS_ENV: &str = "XAZZ_ADMIN_ACTORS";
 
 /// Default actor identity when an admin request omits `X-Xazz-Actor`.
 const DEFAULT_ACTOR: &str = "admin";
@@ -582,9 +675,13 @@ struct Actor(String);
 /// When `XAZZ_SERVER_TOKEN` is set, every request requires `Authorization: Bearer <token>`.
 /// When `XAZZ_TENANT_TOKENS` is set (format `tenant1=token1,tenant2=token2`), a request
 /// must present `X-Xazz-Tenant: <tenant>` + `Authorization: Bearer <token>` for that tenant.
-/// When `XAZZ_ADMIN_TOKEN` is set, a request bearing that token is an administrator:
-/// it may target any `X-Xazz-Tenant` namespace and is recorded under `X-Xazz-Actor`
-/// (default `admin`) as the policy-change actor.
+/// When `XAZZ_ADMIN_TOKEN` is set, a request bearing one of those tokens (a
+/// comma-separated list enables rotation) is an administrator: it may target any
+/// `X-Xazz-Tenant` namespace and is recorded under `X-Xazz-Actor`
+/// (default `admin`) as the policy-change actor. When `XAZZ_ADMIN_ACTORS` is set
+/// (format `token:actor,token:actor`), a request bearing one of those tokens is
+/// also an administrator, but its audit actor is pinned to the bound identity and
+/// `X-Xazz-Actor` is ignored — a credential cannot impersonate another actor.
 /// When none is set, all requests pass (default local-only behavior).
 async fn optional_bearer_auth(
     mut req: axum::extract::Request,
@@ -592,10 +689,15 @@ async fn optional_bearer_auth(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let single_token = std::env::var("XAZZ_SERVER_TOKEN").unwrap_or_default();
     let tenant_map = parse_tenant_tokens(&std::env::var("XAZZ_TENANT_TOKENS").unwrap_or_default());
-    let admin_token = std::env::var(ADMIN_TOKEN_ENV).unwrap_or_default();
+    let admin_tokens = parse_admin_tokens(&std::env::var(ADMIN_TOKEN_ENV).unwrap_or_default());
+    let admin_actors = parse_admin_actors(&std::env::var(ADMIN_ACTORS_ENV).unwrap_or_default());
 
     // No auth mode configured → allow all (local loopback tool).
-    if single_token.is_empty() && tenant_map.is_empty() && admin_token.is_empty() {
+    if single_token.is_empty()
+        && tenant_map.is_empty()
+        && admin_tokens.is_empty()
+        && admin_actors.is_empty()
+    {
         req.extensions_mut().insert(String::new());
         return Ok(next.run(req).await);
     }
@@ -608,11 +710,14 @@ async fn optional_bearer_auth(
         .to_string();
 
     // Admin mode: cross-tenant, recorded under the actor identity.
-    if !admin_token.is_empty() && auth == format!("Bearer {admin_token}") {
+    if admin_bearer_authorized(&admin_tokens, &admin_actors, &auth) {
         let tenant = header_str(&req, TENANT_HEADER);
-        let actor = header_str(&req, ACTOR_HEADER);
+        let actor = match admin_actor_for(&admin_actors, &auth) {
+            Some(bound) => bound,
+            None => resolve_actor(&header_str(&req, ACTOR_HEADER)),
+        };
         req.extensions_mut().insert(tenant);
-        req.extensions_mut().insert(Actor(resolve_actor(&actor)));
+        req.extensions_mut().insert(Actor(actor));
         return Ok(next.run(req).await);
     }
 
@@ -682,6 +787,64 @@ fn parse_tenant_tokens(raw: &str) -> std::collections::HashMap<String, String> {
         .collect()
 }
 
+/// Parses `XAZZ_ADMIN_TOKEN` into one or more Bearer tokens. A single value is the
+/// common case; a comma-separated list lets an admin rotate credentials without
+/// downtime. Blank entries are ignored, so an unset/blank value yields no tokens.
+fn parse_admin_tokens(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Parses `XAZZ_ADMIN_ACTORS` (`token:actor,token:actor`) into a token→actor map.
+/// A bound credential pins the audit actor, so `X-Xazz-Actor` is ignored for it.
+/// Tokens are matched on the last `:` so a credential may itself contain colons;
+/// entries with an empty token/actor are dropped.
+fn parse_admin_actors(raw: &str) -> std::collections::HashMap<String, String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .filter_map(|entry| {
+            let (token, actor) = entry.rsplit_once(':')?;
+            let (token, actor) = (token.trim(), actor.trim());
+            if token.is_empty() || actor.is_empty() {
+                return None;
+            }
+            Some((token.to_string(), actor.to_string()))
+        })
+        .collect()
+}
+
+/// Extracts the credential from an `Authorization: Bearer <token>` value.
+fn bearer_token(auth: &str) -> Option<&str> {
+    auth.strip_prefix("Bearer ")
+}
+
+/// True when `auth` is exactly `Bearer <one of tokens>`. An empty token list never
+/// authorizes, so admin mode stays off unless a credential is configured.
+fn admin_bearer_authorized(
+    tokens: &[String],
+    actors: &std::collections::HashMap<String, String>,
+    auth: &str,
+) -> bool {
+    let Some(token) = bearer_token(auth) else {
+        return false;
+    };
+    tokens.iter().any(|t| t == token) || actors.contains_key(token)
+}
+
+/// The actor pinned to the credential in `auth`, if that token is bound in
+/// `XAZZ_ADMIN_ACTORS`. `None` means the credential is unbound (legacy
+/// `XAZZ_ADMIN_TOKEN`), so the request's `X-Xazz-Actor` is honored.
+fn admin_actor_for(
+    actors: &std::collections::HashMap<String, String>,
+    auth: &str,
+) -> Option<String> {
+    actors.get(bearer_token(auth)?).cloned()
+}
+
 // ── Static IDE serving ───────────────────────────────────────────────────────
 
 /// Finds the built Visual IDE static-asset directory. None if absent.
@@ -739,10 +902,11 @@ async fn handle_execute(
     //     remaining DP budget and can jointly exceed the envelope. Each tenant has
     //     its own lock, so cross-tenant throughput is unaffected.
     let tenant_mutex = state.tenant_lock(tenant_str(tenant.as_str()));
-    let _tenant_guard = tenant_mutex.lock().await;
+    // Owned so the guard can outlive this handler future (client disconnect).
+    let tenant_guard = tenant_mutex.lock_owned().await;
 
     // 0b. Concurrency semaphore — if no permit, deny execution (fail-closed, no queue).
-    let _permit = match state.exec_permits.try_acquire() {
+    let permit = match Arc::clone(&state.exec_permits).try_acquire_owned() {
         Ok(p) => p,
         Err(_) => {
             return Err((
@@ -754,6 +918,7 @@ async fn handle_execute(
                     logs: vec![],
                     stdout: String::new(),
                     training: None,
+                    prediction: None,
                     dp: None,
                     diagnostics: None,
                     policy: None,
@@ -790,6 +955,7 @@ async fn handle_execute(
                         logs,
                         stdout: String::new(),
                         training: None,
+                        prediction: None,
                         dp: None,
                         diagnostics: None,
                         policy: serde_json::to_value(&report).ok(),
@@ -800,6 +966,46 @@ async fn handle_execute(
             }
             guardrail::Decision::Allow { report, .. } => report,
         };
+
+    // 0b. Runtime per-query ε cap (issue #118) — opt-in via XAZZ_DP_MAX_EPSILON,
+    //     independent of the policy pack's compile-time `max_epsilon` (XZP005).
+    //     Rejected here, before the DP reservation, so nothing is reserved or
+    //     spent and the reason names the offending step(s).
+    if let Some(cap) = dp_max_epsilon() {
+        let over = with_dp_over_cap(&payload.code, cap);
+        if !over.is_empty() {
+            let detail = over
+                .iter()
+                .map(|(label, eps)| format!("{label}: ε={eps}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let message = format!(
+                "withDp epsilon exceeds the per-query cap {DP_MAX_EPSILON_ENV}={cap} ({detail}); \
+                 refused before reservation — no budget spent"
+            );
+            eprintln!("[xazz] ⛔ {message}");
+            if let Err(e) = audit_log::append_with_outcome(&payload.code, Some("blocked")) {
+                eprintln!("[xazz] ⚠️ failed to record block in audit log: {}", e);
+            }
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ExecuteResponse {
+                    success: false,
+                    rows: json!([]),
+                    schema: json!([]),
+                    logs: vec![message.clone()],
+                    stdout: String::new(),
+                    training: None,
+                    prediction: None,
+                    dp: None,
+                    diagnostics: None,
+                    policy: serde_json::to_value(&policy_report).ok(),
+                    error: Some(message),
+                    run_id: None,
+                }),
+            ));
+        }
+    }
 
     // 0c. Cross-instance DP budget reservation (issue C2): the in-process tenant
     //     lock above only serializes runs inside this server. The DB reservation
@@ -831,6 +1037,7 @@ async fn handle_execute(
                 logs: vec![],
                 stdout: String::new(),
                 training: None,
+                prediction: None,
                 dp: None,
                 diagnostics: None,
                 policy: None,
@@ -884,6 +1091,12 @@ async fn handle_execute(
     // not also release it.
     let reservation = dp_reservation.take_reservation();
     drop(dp_reservation);
+    // Move the tenant lock and concurrency permit into the detached task too, so
+    // they are held until the runner exits even if the client disconnects.
+    let slot = ExecutionSlot {
+        _permit: permit,
+        _tenant_guard: tenant_guard,
+    };
 
     Ok(Json(
         run_execution_job(
@@ -893,6 +1106,7 @@ async fn handle_execute(
             exe_path,
             tmp,
             reservation,
+            slot,
             window.secs,
             remaining_eps,
             remaining_delta,
@@ -917,6 +1131,7 @@ async fn run_execution_job(
     exe_path: PathBuf,
     tmp: tempfile::NamedTempFile,
     reservation: store::DpReservation,
+    slot: ExecutionSlot,
     window_secs: u64,
     remaining_eps: f64,
     remaining_delta: f64,
@@ -924,12 +1139,18 @@ async fn run_execution_job(
 ) -> ExecuteResponse {
     let policy_for_err = policy_value.clone();
     tokio::task::spawn_blocking(move || {
+        // Hold the tenant lock + concurrency permit for the *whole* run, not just
+        // while the (possibly-dropped) handler future is alive.
+        let _slot = slot;
         let tmp_path = tmp.path().to_path_buf();
         let output = Command::new(&exe_path)
             .arg("run")
             .arg(&tmp_path)
             .env("XAZZ_DP_BUDGET", remaining_eps.to_string())
             .env("XAZZ_DP_DELTA_BUDGET", remaining_delta.to_string())
+            // Ask the CLI to relay resource telemetry as a `[xazz:resources]` marker
+            // (issue #128). Gated by env so normal CLI output is unchanged.
+            .env("XAZZ_RESOURCE_TELEMETRY", "1")
             .output();
 
         let (success, stdout, stderr) = match output {
@@ -941,9 +1162,19 @@ async fn run_execution_job(
             Err(e) => (false, String::new(), format!("xazz.exe 실행 실패: {}", e)),
         };
 
-        // 4. Parse stdout: extract [xazz:result], [xazz:chart], [xazz:train], [xazz:dp] markers
-        let (rows, schema, logs, training, dp, diagnostics) =
-            parse_stdout_markers(&stdout, &stderr);
+        // 4. Parse stdout: extract [xazz:result], [xazz:chart], [xazz:train], [xazz:predict], [xazz:dp] markers
+        let StdoutMarkers {
+            rows,
+            schema,
+            logs,
+            training,
+            prediction,
+            dp,
+            diagnostics,
+        } = parse_stdout_markers(&stdout, &stderr);
+        // Resource telemetry relayed by the CLI (issue #128); absent when the
+        // platform could not measure it or the run predates the feature.
+        let resources = parse_resources_marker(&stdout);
 
         // 4b. Release the reservation, billing only this run's actual DP consumption
         //     (issue C2). No withDp → nothing billed but the reservation is freed.
@@ -979,6 +1210,7 @@ async fn run_execution_job(
             rows_count,
             err_msg_opt.as_deref(),
             &tenant,
+            resources.as_ref(),
         );
 
         if success {
@@ -989,6 +1221,7 @@ async fn run_execution_job(
                 logs,
                 stdout,
                 training,
+                prediction,
                 dp,
                 diagnostics,
                 policy: policy_value,
@@ -1003,6 +1236,7 @@ async fn run_execution_job(
                 logs,
                 stdout,
                 training,
+                prediction,
                 dp,
                 diagnostics,
                 policy: policy_value,
@@ -1019,6 +1253,7 @@ async fn run_execution_job(
         logs: vec![],
         stdout: String::new(),
         training: None,
+        prediction: None,
         dp: None,
         diagnostics: None,
         policy: policy_for_err,
@@ -1027,21 +1262,23 @@ async fn run_execution_job(
     })
 }
 
-/// Parses the [xazz:result], [xazz:chart], [xazz:train], [xazz:diagnostics], [xazz:dp] markers from stdout.
-fn parse_stdout_markers(
-    stdout: &str,
-    stderr: &str,
-) -> (
-    Value,
-    Value,
-    Vec<String>,
-    Option<Value>,
-    Option<Value>,
-    Option<Value>,
-) {
+/// Parses the [xazz:result], [xazz:chart], [xazz:train], [xazz:predict],
+/// [xazz:diagnostics], [xazz:dp] markers from stdout.
+struct StdoutMarkers {
+    rows: Value,
+    schema: Value,
+    logs: Vec<String>,
+    training: Option<Value>,
+    prediction: Option<Value>,
+    dp: Option<Value>,
+    diagnostics: Option<Value>,
+}
+
+fn parse_stdout_markers(stdout: &str, stderr: &str) -> StdoutMarkers {
     let mut rows = json!([]);
     let mut schema = json!([]);
     let mut training: Option<Value> = None;
+    let mut prediction: Option<Value> = None;
     let mut dp: Option<Value> = None;
     let mut diagnostics: Option<Value> = None;
     let logs: Vec<String> = stderr.lines().map(|l| l.to_string()).collect();
@@ -1065,6 +1302,13 @@ fn parse_stdout_markers(
             && let Ok(parsed) = serde_json::from_str::<Value>(json_part)
         {
             training = Some(parsed);
+        }
+        // Predict-path embedding diagnostics marker (issue D3) — mirrors
+        // `[xazz:train]` so the server surfaces the report in its response.
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:predict] ")
+            && let Ok(parsed) = serde_json::from_str::<Value>(json_part)
+        {
+            prediction = Some(parsed);
         }
         // Differential-privacy audit marker — single-line self-contained:
         //   [xazz:dp] <JSON>            (new form — safe even if broken by newlines/emojis)
@@ -1097,7 +1341,46 @@ fn parse_stdout_markers(
         i += 1;
     }
 
-    (rows, schema, logs, training, dp, diagnostics)
+    StdoutMarkers {
+        rows,
+        schema,
+        logs,
+        training,
+        prediction,
+        dp,
+        diagnostics,
+    }
+}
+
+/// Extracts the CLI's `[xazz:resources]` telemetry marker (issue #128), if present.
+///
+/// Only the known non-negative integer counters are kept, so a malformed or
+/// hostile marker cannot persist arbitrary data. Returns `None` when the marker is
+/// absent (older CLI, non-Unix platform) or has no usable fields.
+fn parse_resources_marker(stdout: &str) -> Option<Value> {
+    let payload = stdout
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("[xazz:resources]"))?;
+    let parsed: Value = serde_json::from_str(payload.trim()).ok()?;
+    let obj = parsed.as_object()?;
+    let mut out = serde_json::Map::new();
+    for key in ["duration_ms", "cpu_user_ms", "cpu_sys_ms", "max_rss_kb"] {
+        if let Some(n) = obj.get(key).and_then(Value::as_u64) {
+            out.insert(key.to_string(), json!(n));
+        }
+    }
+    if out.is_empty() {
+        return None;
+    }
+    out.insert(
+        "source".to_string(),
+        json!(
+            obj.get("source")
+                .and_then(Value::as_str)
+                .unwrap_or("runner")
+        ),
+    );
+    Some(Value::Object(out))
 }
 
 // ── POST /schema ──────────────────────────────────────────────────────────────
@@ -1521,7 +1804,9 @@ async fn handle_policy_delete(
 /// though `tenant_policies` only keeps the latest state (issue C2). Stored packs
 /// are returned as embedded JSON (falling back to a string if a legacy row is not
 /// parseable) rather than escaped text. `?limit=&offset=` page the newest-first
-/// list; the response echoes the effective page plus the tenant's effective
+/// list; `?cursor=<id>` selects the page by id instead (`next_cursor` in the
+/// response feeds the next call), which avoids a deep `OFFSET` scan on large
+/// histories. The response echoes the effective page plus the tenant's effective
 /// retention window (`ttl_secs`/`ttl_source`) so a caller can tell how much of
 /// the history has already expired (issue C2).
 async fn handle_policy_history(
@@ -1531,7 +1816,10 @@ async fn handle_policy_history(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant = tenant_str(tenant.as_str());
     let limit = page.limit();
-    let offset = page.offset();
+    let cursor = page.cursor();
+    // A cursor supersedes offset: the two are not combined so a cursor always
+    // starts a fresh window at the requested id.
+    let offset = if cursor.is_some() { 0 } else { page.offset() };
     let ttl = effective_policy_history_ttl(&state.store, tenant).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1540,13 +1828,14 @@ async fn handle_policy_history(
     })?;
     let records = state
         .store
-        .list_policy_history(tenant, limit, offset)
+        .list_policy_history(tenant, limit, offset, cursor)
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": e })),
             )
         })?;
+    let next_cursor = records.last().map(|r| r.id);
     let history: Vec<Value> = records
         .into_iter()
         .map(|r| {
@@ -1565,6 +1854,8 @@ async fn handle_policy_history(
         "tenant": tenant,
         "limit": limit,
         "offset": offset,
+        "cursor": cursor,
+        "next_cursor": next_cursor,
         "ttl_secs": ttl.secs,
         "ttl_source": ttl.source,
         "history": history,
@@ -1638,21 +1929,45 @@ struct PolicyHistoryTtlRequest {
     ttl_secs: u64,
 }
 
+/// Resolves the audit actor for a policy-history retention-override change (issue C2).
+///
+/// Mirrors [`policy_change_actor`]/[`dp_reset_actor`]: a delegated admin change is
+/// attributed to the [`Actor`] and must name a target tenant via `X-Xazz-Tenant`;
+/// a self-service change is attributed to the tenant itself.
+fn policy_history_ttl_actor(
+    tenant: &str,
+    actor: Option<&Extension<Actor>>,
+) -> Result<String, (StatusCode, String)> {
+    match actor {
+        Some(_) if tenant.is_empty() => Err((
+            StatusCode::BAD_REQUEST,
+            "admin policy-history TTL change requires X-Xazz-Tenant".to_string(),
+        )),
+        Some(Extension(a)) => Ok(a.0.clone()),
+        None => Ok(tenant.to_string()),
+    }
+}
+
 /// Sets the authenticated tenant's policy-history retention-window override — issue C2.
 ///
-/// Self-service and tenant-scoped: only the caller's override is written; the
-/// global `XAZZ_TENANT_POLICY_HISTORY_TTL_SECS` remains the fallback for tenants
-/// without one. `ttl_secs: 0` stores an explicit "no time-based expiry" override,
-/// which differs from deleting the override (which restores the global default).
+/// Self-service and tenant-scoped by default: only the caller's override is
+/// written; the global `XAZZ_TENANT_POLICY_HISTORY_TTL_SECS` remains the fallback
+/// for tenants without one. An administrator authenticated with `XAZZ_ADMIN_TOKEN`
+/// may target the namespace named by `X-Xazz-Tenant`, and the change is recorded
+/// under `X-Xazz-Actor` (issue C2). `ttl_secs: 0` stores an explicit "no
+/// time-based expiry" override, which differs from deleting the override (which
+/// restores the global default).
 async fn handle_policy_history_ttl_set(
     State(state): State<AppState>,
     Extension(tenant): Extension<String>,
+    actor: Option<Extension<Actor>>,
     Json(payload): Json<PolicyHistoryTtlRequest>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let tenant = tenant_str(tenant.as_str());
+    let changed_by = policy_history_ttl_actor(tenant, actor.as_ref())?;
     state
         .store
-        .set_policy_history_ttl(tenant, payload.ttl_secs, tenant)
+        .set_policy_history_ttl(tenant, payload.ttl_secs, &changed_by)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(json!({
         "tenant": tenant,
@@ -1665,15 +1980,19 @@ async fn handle_policy_history_ttl_set(
 ///
 /// After removal the tenant falls back to the global
 /// `XAZZ_TENANT_POLICY_HISTORY_TTL_SECS` default. Tenant-scoped: other tenants'
-/// overrides are untouched.
+/// overrides are untouched. An administrator authenticated with `XAZZ_ADMIN_TOKEN`
+/// may target the namespace named by `X-Xazz-Tenant`, and the clear is recorded
+/// under `X-Xazz-Actor` (issue C2).
 async fn handle_policy_history_ttl_clear(
     State(state): State<AppState>,
     Extension(tenant): Extension<String>,
+    actor: Option<Extension<Actor>>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let tenant = tenant_str(tenant.as_str());
+    let changed_by = policy_history_ttl_actor(tenant, actor.as_ref())?;
     state
         .store
-        .clear_policy_history_ttl(tenant, tenant)
+        .clear_policy_history_ttl(tenant, &changed_by)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     let ttl = effective_policy_history_ttl(&state.store, tenant)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -1691,7 +2010,8 @@ async fn handle_policy_history_ttl_clear(
 /// (in seconds), who changed it, and when — so a change to the tenant's
 /// policy-history retention window is auditable even though
 /// `tenant_policy_history_config` only keeps the latest state. `?limit=&offset=`
-/// page the newest-first list.
+/// page the newest-first list; `?cursor=<id>` selects the page by id instead
+/// (`next_cursor` feeds the next call).
 async fn handle_policy_history_ttl_history(
     Extension(tenant): Extension<String>,
     State(state): State<AppState>,
@@ -1699,16 +2019,18 @@ async fn handle_policy_history_ttl_history(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let tenant = tenant_str(tenant.as_str());
     let limit = page.limit();
-    let offset = page.offset();
+    let cursor = page.cursor();
+    let offset = if cursor.is_some() { 0 } else { page.offset() };
     let records = state
         .store
-        .list_policy_history_ttl_history(tenant, limit, offset)
+        .list_policy_history_ttl_history(tenant, limit, offset, cursor)
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": e })),
             )
         })?;
+    let next_cursor = records.last().map(|r| r.id);
     let history: Vec<Value> = records
         .into_iter()
         .map(|r| {
@@ -1727,6 +2049,8 @@ async fn handle_policy_history_ttl_history(
         "tenant": tenant,
         "limit": limit,
         "offset": offset,
+        "cursor": cursor,
+        "next_cursor": next_cursor,
         "history": history,
     })))
 }
@@ -1937,6 +2261,51 @@ async fn handle_run_by_id(
     }
 }
 
+/// Returns the persisted resource telemetry for one run — issue #128.
+///
+/// The figures are measured by the CLI around the runner subprocess (wall-clock
+/// duration and, on Unix, the aggregate CPU time / peak RSS of the runner process
+/// tree) and relayed via the `[xazz:resources]` marker. Runs recorded before the
+/// feature, or on platforms without `rusage`, report `available: false` instead of
+/// fabricated numbers.
+async fn handle_run_resources(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+    Extension(tenant): Extension<String>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let tenant = tenant_str(tenant.as_str());
+    let record = state
+        .store
+        .get_run_resources(id, tenant)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    match record {
+        None => Err((
+            StatusCode::NOT_FOUND,
+            format!("run {id} not found (or not in tenant '{tenant}')"),
+        )),
+        Some(rec) => {
+            let resources = rec
+                .resources_json
+                .as_deref()
+                .and_then(|s| serde_json::from_str::<Value>(s).ok());
+            Ok(Json(match resources {
+                Some(r) => json!({
+                    "run_id": id,
+                    "tenant": tenant,
+                    "available": true,
+                    "resources": r,
+                }),
+                None => json!({
+                    "run_id": id,
+                    "tenant": tenant,
+                    "available": false,
+                    "reason": "no resource telemetry was recorded for this run",
+                }),
+            }))
+        }
+    }
+}
+
 // ── Per-tenant DP budget (issue C2) ──────────────────────────────────────────
 
 /// Reports the authenticated tenant's cumulative DP spend and remaining envelope.
@@ -2024,16 +2393,31 @@ async fn handle_dp_budget_reset(
 }
 
 /// Returns the tenant's append-only DP budget reset history — issue #124.
+///
+/// `?limit=&offset=` page the newest-first list; `?cursor=<id>` selects the page
+/// by id instead (`next_cursor` in the response feeds the next call).
 async fn handle_dp_reset_history(
     State(state): State<AppState>,
     Extension(tenant): Extension<String>,
+    Query(page): Query<PolicyHistoryQuery>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let tenant = tenant_str(tenant.as_str());
+    let limit = page.limit();
+    let cursor = page.cursor();
+    let offset = if cursor.is_some() { 0 } else { page.offset() };
     let resets = state
         .store
-        .list_dp_resets(tenant, 50)
+        .list_dp_resets(tenant, limit, offset, cursor)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(json!({ "tenant": tenant, "resets": resets })))
+    let next_cursor = resets.last().map(|r| r.id);
+    Ok(Json(json!({
+        "tenant": tenant,
+        "limit": limit,
+        "offset": offset,
+        "cursor": cursor,
+        "next_cursor": next_cursor,
+        "resets": resets,
+    })))
 }
 
 /// Request body for `PUT /dp/budget/window`.
@@ -2043,18 +2427,42 @@ struct DpWindowRequest {
     window_secs: u64,
 }
 
+/// Resolves the audit actor for a DP budget window override change (issue C2).
+///
+/// Mirrors [`policy_history_ttl_actor`]: a delegated admin change is attributed
+/// to the [`Actor`] and must name a target tenant via `X-Xazz-Tenant`; a
+/// self-service change is attributed to the tenant itself.
+fn dp_window_actor(
+    tenant: &str,
+    actor: Option<&Extension<Actor>>,
+) -> Result<String, (StatusCode, String)> {
+    match actor {
+        Some(_) if tenant.is_empty() => Err((
+            StatusCode::BAD_REQUEST,
+            "admin DP window change requires X-Xazz-Tenant".to_string(),
+        )),
+        Some(Extension(a)) => Ok(a.0.clone()),
+        None => Ok(tenant.to_string()),
+    }
+}
+
 /// Sets the authenticated tenant's DP budget window override — issue C2.
 ///
 /// Self-service and tenant-scoped: only the caller's override is written; the
 /// global `XAZZ_TENANT_DP_WINDOW_SECS` remains the fallback for tenants without
 /// one. `window_secs: 0` stores an explicit "cumulative" override, which differs
-/// from deleting the override (which restores the global default).
+/// from deleting the override (which restores the global default). An
+/// administrator authenticated with `XAZZ_ADMIN_TOKEN` may target the namespace
+/// named by `X-Xazz-Tenant`, and the change is recorded under `X-Xazz-Actor` in
+/// `tenant_dp_config_history` (issue C2).
 async fn handle_dp_window_set(
     State(state): State<AppState>,
     Extension(tenant): Extension<String>,
+    actor: Option<Extension<Actor>>,
     Json(payload): Json<DpWindowRequest>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let tenant = tenant_str(tenant.as_str());
+    let changed_by = dp_window_actor(tenant, actor.as_ref())?;
     if payload.window_secs > MAX_DP_WINDOW_SECS {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -2063,7 +2471,7 @@ async fn handle_dp_window_set(
     }
     state
         .store
-        .set_dp_window(tenant, payload.window_secs)
+        .set_dp_window(tenant, payload.window_secs, &changed_by)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     let (total_eps, total_delta) = tenant_dp_envelope();
@@ -2088,15 +2496,20 @@ async fn handle_dp_window_set(
 /// Removes the authenticated tenant's DP budget window override — issue C2.
 ///
 /// After removal the tenant falls back to the global `XAZZ_TENANT_DP_WINDOW_SECS`
-/// default. Tenant-scoped: other tenants' overrides are untouched.
+/// default. Tenant-scoped: other tenants' overrides are untouched. An
+/// administrator authenticated with `XAZZ_ADMIN_TOKEN` may target the namespace
+/// named by `X-Xazz-Tenant`, and the clear is recorded under `X-Xazz-Actor` in
+/// `tenant_dp_config_history` (issue C2).
 async fn handle_dp_window_clear(
     State(state): State<AppState>,
     Extension(tenant): Extension<String>,
+    actor: Option<Extension<Actor>>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let tenant = tenant_str(tenant.as_str());
+    let changed_by = dp_window_actor(tenant, actor.as_ref())?;
     state
         .store
-        .clear_dp_window(tenant)
+        .clear_dp_window(tenant, &changed_by)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     let (total_eps, total_delta) = tenant_dp_envelope();
@@ -2115,6 +2528,57 @@ async fn handle_dp_window_clear(
         spent_eps,
         spent_delta,
     )?))
+}
+
+/// Returns the authenticated tenant's append-only DP budget window override
+/// change history — issue C2.
+///
+/// Each entry records the action (`set`/`clear`), the previous and new override
+/// (in seconds), who changed it, and when — so a change to the tenant's DP budget
+/// window is auditable even though `tenant_dp_config` only keeps the latest
+/// state. `?limit=&offset=` page the newest-first list; `?cursor=<id>` selects the
+/// page by id instead (`next_cursor` in the response feeds the next call).
+async fn handle_dp_window_history(
+    Extension(tenant): Extension<String>,
+    State(state): State<AppState>,
+    Query(page): Query<PolicyHistoryQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let tenant = tenant_str(tenant.as_str());
+    let limit = page.limit();
+    let cursor = page.cursor();
+    let offset = if cursor.is_some() { 0 } else { page.offset() };
+    let records = state
+        .store
+        .list_dp_window_history(tenant, limit, offset, cursor)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e })),
+            )
+        })?;
+    let next_cursor = records.last().map(|r| r.id);
+    let history: Vec<Value> = records
+        .into_iter()
+        .map(|r| {
+            json!({
+                "id": r.id,
+                "tenant": r.tenant,
+                "action": r.action,
+                "old_window_secs": r.old_window_secs,
+                "new_window_secs": r.new_window_secs,
+                "changed_by": r.changed_by,
+                "changed_at": r.changed_at,
+            })
+        })
+        .collect();
+    Ok(Json(json!({
+        "tenant": tenant,
+        "limit": limit,
+        "offset": offset,
+        "cursor": cursor,
+        "next_cursor": next_cursor,
+        "history": history,
+    })))
 }
 
 /// Builds the `GET /dp/budget` response body from the tenant's ledger state.
@@ -2248,6 +2712,7 @@ fn internal_err(msg: String) -> (StatusCode, Json<ExecuteResponse>) {
             logs: vec![],
             stdout: String::new(),
             training: None,
+            prediction: None,
             dp: None,
             diagnostics: None,
             policy: None,
@@ -2300,6 +2765,102 @@ mod tests {
     const UNSAFE_CODE: &str =
         "type Patient = { patient_id: string, name: string, age_band: string };
 v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);";
+
+    /// The `[xazz:resources]` marker is parsed and stripped to known counters.
+    #[test]
+    fn resources_marker_is_parsed_and_sanitized() {
+        let stdout = "noise\n[xazz:resources]{\"duration_ms\":12,\"cpu_user_ms\":3,\"cpu_sys_ms\":1,\"max_rss_kb\":2048,\"source\":\"runner-process-tree\",\"evil\":\"x\"}\n";
+        let got = parse_resources_marker(stdout).expect("marker parsed");
+        assert_eq!(got["duration_ms"], json!(12));
+        assert_eq!(got["cpu_user_ms"], json!(3));
+        assert_eq!(got["cpu_sys_ms"], json!(1));
+        assert_eq!(got["max_rss_kb"], json!(2048));
+        assert_eq!(got["source"], json!("runner-process-tree"));
+        assert!(got.get("evil").is_none(), "unknown fields must be dropped");
+
+        // Missing or malformed markers yield nothing rather than fabricated data.
+        assert!(parse_resources_marker("no marker here").is_none());
+        assert!(parse_resources_marker("[xazz:resources] not-json").is_none());
+        assert!(parse_resources_marker("[xazz:resources]{\"evil\":1}").is_none());
+    }
+
+    /// The `[xazz:predict]` marker is surfaced as `prediction`, like `[xazz:train]`
+    /// is as `training` (issue D3). A malformed marker leaves it absent.
+    #[test]
+    fn predict_marker_is_parsed() {
+        let stdout = "\
+[xazz:predict] {\"type\":\"predict_stmt\",\"success\":true,\"model_name\":\"AirPredictor\",\"report\":{\"embedding_out_of_range\":3,\"embedding_non_integer\":1}}
+[xazz:result] {\"rows\":[],\"schema\":[]}
+";
+        let m = parse_stdout_markers(stdout, "");
+        assert!(m.training.is_none());
+        let prediction = m.prediction.expect("predict marker parsed");
+        assert_eq!(prediction["model_name"], "AirPredictor");
+        assert_eq!(prediction["report"]["embedding_out_of_range"], 3);
+        assert_eq!(prediction["report"]["embedding_non_integer"], 1);
+
+        assert!(
+            parse_stdout_markers("[xazz:predict] {not json\n", "")
+                .prediction
+                .is_none()
+        );
+        assert!(
+            parse_stdout_markers("[xazz:result] {\"rows\":[]}", "")
+                .prediction
+                .is_none()
+        );
+    }
+
+    /// The resources endpoint returns persisted telemetry, an honest empty state for
+    /// legacy runs, and 404s across tenants (issue #128).
+    #[tokio::test]
+    async fn run_resources_endpoint_reports_telemetry_and_empty_state() {
+        let state = test_state();
+        let json = r#"{"duration_ms":12,"cpu_user_ms":3,"source":"runner-process-tree"}"#;
+        let recorded = state
+            .store
+            .record_run("h1", "success", 1, None, "acme", Some(json))
+            .expect("insert with resources");
+        let legacy = state
+            .store
+            .record_run("h2", "success", 1, None, "acme", None)
+            .expect("insert without resources");
+
+        let body = handle_run_resources(
+            Path(recorded),
+            State(state.clone()),
+            Extension("acme".to_string()),
+        )
+        .await
+        .expect("resources available")
+        .0;
+        assert_eq!(body["available"], json!(true));
+        assert_eq!(body["resources"]["duration_ms"], json!(12));
+
+        let empty = handle_run_resources(
+            Path(legacy),
+            State(state.clone()),
+            Extension("acme".to_string()),
+        )
+        .await
+        .expect("legacy run resolves")
+        .0;
+        assert_eq!(empty["available"], json!(false));
+
+        // A run belonging to another tenant is not visible.
+        let denied = handle_run_resources(
+            Path(recorded),
+            State(state.clone()),
+            Extension("other".to_string()),
+        )
+        .await;
+        assert!(denied.is_err());
+
+        // Unknown id → 404.
+        let missing =
+            handle_run_resources(Path(999_999), State(state), Extension("acme".to_string())).await;
+        assert!(missing.is_err());
+    }
 
     /// Violating code is rejected with 422 and the report is in the body.
     #[tokio::test]
@@ -2662,6 +3223,33 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
     // ── Per-tenant DP budget isolation (issue C2) ─────────────────────────────
 
     #[test]
+    fn resolve_dp_max_epsilon_is_opt_in_and_ignores_invalid() {
+        assert_eq!(resolve_dp_max_epsilon(None), None);
+        assert_eq!(resolve_dp_max_epsilon(Some("3")), Some(3.0));
+        assert_eq!(resolve_dp_max_epsilon(Some(" 0.5 ")), Some(0.5));
+        for bad in ["0", "-1", "abc", "", "inf", "NaN"] {
+            assert_eq!(resolve_dp_max_epsilon(Some(bad)), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn with_dp_over_cap_names_only_the_offending_steps() {
+        let code = "type AQ = { station: string, pm10: float };
+            v ok = load(\"data.csv\") :: AQ |> groupBy(\"station\") |> mean(\"pm10\") |> withDp(epsilon: 0.5);
+            v big = load(\"data.csv\") :: AQ |> groupBy(\"station\") |> mean(\"pm10\") |> withDp(epsilon: 2.0);
+            ok |> mean(\"pm10\") |> withDp(epsilon: 1.5);";
+        let over = with_dp_over_cap(code, 1.0);
+        assert_eq!(
+            over,
+            vec![("big".to_string(), 2.0), ("stmt#3".to_string(), 1.5)]
+        );
+        // ε == cap is allowed; a looser cap clears everything.
+        assert!(with_dp_over_cap(code, 2.0).is_empty());
+        // Unparsable code is not this check's job (the policy gate rejects it first).
+        assert!(with_dp_over_cap("v x = load(", 0.1).is_empty());
+    }
+
+    #[test]
     fn resolve_dp_envelope_defaults_and_overrides() {
         assert_eq!(resolve_dp_envelope(None, None), (10.0, 1e-4));
         assert_eq!(resolve_dp_envelope(Some("2.5"), Some("0.01")), (2.5, 0.01));
@@ -2811,21 +3399,82 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert!((admin_body["spent_epsilon_before"].as_f64().unwrap() - 1.0).abs() < 1e-12);
 
         // History is newest-first and tenant-scoped.
-        let history = handle_dp_reset_history(State(state.clone()), Extension(tenant.clone()))
-            .await
-            .expect("history")
-            .0;
+        let history = handle_dp_reset_history(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            Query(PolicyHistoryQuery {
+                limit: None,
+                offset: None,
+                cursor: None,
+            }),
+        )
+        .await
+        .expect("history")
+        .0;
         assert_eq!(history["tenant"], json!(tenant));
         let resets = history["resets"].as_array().unwrap();
         assert_eq!(resets.len(), 2);
         assert_eq!(resets[0]["actor"], json!("root"));
         assert_eq!(resets[1]["actor"], json!(tenant));
 
-        let other = handle_dp_reset_history(State(state), Extension("dp-audit-other".into()))
-            .await
-            .expect("other history")
-            .0;
+        let other = handle_dp_reset_history(
+            State(state),
+            Extension("dp-audit-other".into()),
+            Query(PolicyHistoryQuery {
+                limit: None,
+                offset: None,
+                cursor: None,
+            }),
+        )
+        .await
+        .expect("other history")
+        .0;
         assert_eq!(other["resets"].as_array().unwrap().len(), 0);
+    }
+
+    /// `?cursor=` pages the DP reset audit by id and echoes `next_cursor` for the
+    /// following call instead of relying on the fixed 50-row window (issue C2).
+    #[tokio::test]
+    async fn dp_reset_history_supports_cursor_pagination() {
+        let state = test_state();
+        let tenant = format!("dp-reset-page-{}", std::process::id());
+        for _ in 0..3 {
+            let _ = handle_dp_budget_reset(State(state.clone()), Extension(tenant.clone()), None)
+                .await
+                .expect("reset");
+        }
+
+        let first = handle_dp_reset_history(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            Query(PolicyHistoryQuery {
+                limit: Some(2),
+                offset: None,
+                cursor: None,
+            }),
+        )
+        .await
+        .expect("first page")
+        .0;
+        let rows = first["resets"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        let next = first["next_cursor"].as_i64().expect("next cursor");
+
+        let second = handle_dp_reset_history(
+            State(state),
+            Extension(tenant),
+            Query(PolicyHistoryQuery {
+                limit: Some(2),
+                offset: None,
+                cursor: Some(next),
+            }),
+        )
+        .await
+        .expect("second page")
+        .0;
+        let rows = second["resets"].as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0]["id"].as_i64().unwrap() < next);
     }
 
     /// An admin reset without a target tenant is rejected (issue #124).
@@ -2864,6 +3513,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         let body = handle_dp_window_set(
             State(state.clone()),
             Extension(tenant.clone()),
+            None,
             Json(DpWindowRequest { window_secs: 7200 }),
         )
         .await
@@ -2890,7 +3540,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(got["window_source"], json!("tenant"));
 
         // DELETE clears it and restores the global default.
-        let cleared = handle_dp_window_clear(State(state.clone()), Extension(tenant.clone()))
+        let cleared = handle_dp_window_clear(State(state.clone()), Extension(tenant.clone()), None)
             .await
             .expect("clear window")
             .0;
@@ -2913,6 +3563,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         let err = handle_dp_window_set(
             State(state.clone()),
             Extension(tenant.clone()),
+            None,
             Json(DpWindowRequest {
                 window_secs: MAX_DP_WINDOW_SECS + 1,
             }),
@@ -2924,6 +3575,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         let body = handle_dp_window_set(
             State(state.clone()),
             Extension(tenant.clone()),
+            None,
             Json(DpWindowRequest {
                 window_secs: MAX_DP_WINDOW_SECS,
             }),
@@ -2933,6 +3585,116 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         .0;
         assert_eq!(body["window_secs"], json!(MAX_DP_WINDOW_SECS));
         assert!(body["resets_at"].as_i64().unwrap() > 0);
+    }
+
+    /// `GET /dp/budget/window/history` exposes the tenant's window-override
+    /// change audit, newest-first (issue C2).
+    #[tokio::test]
+    async fn dp_window_change_history_endpoint_lists_changes() {
+        let state = test_state();
+        let tenant = format!("dp-win-hist-{}", std::process::id());
+
+        let empty = handle_dp_window_history(
+            Extension(tenant.clone()),
+            State(state.clone()),
+            Query(PolicyHistoryQuery {
+                limit: None,
+                offset: None,
+                cursor: None,
+            }),
+        )
+        .await
+        .expect("history")
+        .0;
+        assert_eq!(empty["tenant"], json!(tenant));
+        assert_eq!(empty["history"], json!([]));
+
+        let _ = handle_dp_window_set(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            None,
+            Json(DpWindowRequest { window_secs: 3600 }),
+        )
+        .await
+        .expect("set window");
+
+        let listed = handle_dp_window_history(
+            Extension(tenant.clone()),
+            State(state.clone()),
+            Query(PolicyHistoryQuery {
+                limit: None,
+                offset: None,
+                cursor: None,
+            }),
+        )
+        .await
+        .expect("history")
+        .0;
+        let history = listed["history"].as_array().expect("history array");
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0]["action"], json!("set"));
+        assert_eq!(history[0]["old_window_secs"], Value::Null);
+        assert_eq!(history[0]["new_window_secs"], json!(3600));
+        assert_eq!(history[0]["changed_by"], json!(tenant));
+    }
+
+    /// An administrator may change another tenant's DP window override; the audit
+    /// attributes the change to the actor, and an admin request must name the
+    /// target (issue C2).
+    #[tokio::test]
+    async fn admin_delegated_dp_window_change_records_actor() {
+        let state = test_state();
+        let tenant = format!("dp-win-admin-{}", std::process::id());
+
+        let set = handle_dp_window_set(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            Some(Extension(Actor("root".to_string()))),
+            Json(DpWindowRequest { window_secs: 1800 }),
+        )
+        .await
+        .expect("admin set")
+        .0;
+        assert_eq!(set["window_secs"], json!(1800));
+        assert_eq!(set["window_source"], json!("tenant"));
+
+        let _ = handle_dp_window_clear(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            Some(Extension(Actor("root".to_string()))),
+        )
+        .await
+        .expect("admin clear");
+
+        let listed = handle_dp_window_history(
+            Extension(tenant.clone()),
+            State(state.clone()),
+            Query(PolicyHistoryQuery {
+                limit: None,
+                offset: None,
+                cursor: None,
+            }),
+        )
+        .await
+        .expect("history")
+        .0;
+        let history = listed["history"].as_array().expect("history array");
+        assert_eq!(history.len(), 2, "{listed}");
+        assert_eq!(history[0]["action"], json!("clear"));
+        assert_eq!(history[0]["changed_by"], json!("root"));
+        assert_eq!(history[1]["action"], json!("set"));
+        assert_eq!(history[1]["changed_by"], json!("root"));
+
+        // An admin change without a target tenant is rejected.
+        let err = handle_dp_window_set(
+            State(state.clone()),
+            Extension(String::new()),
+            Some(Extension(Actor("root".to_string()))),
+            Json(DpWindowRequest { window_secs: 60 }),
+        )
+        .await
+        .expect_err("admin set without a target was accepted");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
     }
 
     /// Env/stored windows above the cap are clamped so `resets_at` cannot overflow.
@@ -3009,6 +3771,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         let body = handle_policy_history_ttl_set(
             State(state.clone()),
             Extension(tenant.clone()),
+            None,
             Json(PolicyHistoryTtlRequest { ttl_secs: 7200 }),
         )
         .await
@@ -3028,7 +3791,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
 
         // DELETE clears it and restores the global default.
         let cleared =
-            handle_policy_history_ttl_clear(State(state.clone()), Extension(tenant.clone()))
+            handle_policy_history_ttl_clear(State(state.clone()), Extension(tenant.clone()), None)
                 .await
                 .expect("clear ttl")
                 .0;
@@ -3092,6 +3855,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             Query(PolicyHistoryQuery {
                 limit: None,
                 offset: None,
+                cursor: None,
             }),
         )
         .await
@@ -3103,6 +3867,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         let _ = handle_policy_history_ttl_set(
             State(state.clone()),
             Extension(tenant.clone()),
+            None,
             Json(PolicyHistoryTtlRequest { ttl_secs: 3600 }),
         )
         .await
@@ -3114,6 +3879,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             Query(PolicyHistoryQuery {
                 limit: None,
                 offset: None,
+                cursor: None,
             }),
         )
         .await
@@ -3125,6 +3891,134 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(history[0]["old_ttl_secs"], Value::Null);
         assert_eq!(history[0]["new_ttl_secs"], json!(3600));
         assert_eq!(history[0]["changed_by"], json!(tenant));
+    }
+
+    /// `?cursor=` pages the retention-override change audit by id and echoes
+    /// `next_cursor` for the following call, instead of relying on `OFFSET`
+    /// (issue C2).
+    #[tokio::test]
+    async fn policy_history_ttl_change_history_supports_cursor_pagination() {
+        let state = unique_state("hist_ttl_cursor");
+        let tenant = format!("hist-ttl-cursor-{}", std::process::id());
+        for ttl in [1, 2, 3] {
+            let _ = handle_policy_history_ttl_set(
+                State(state.clone()),
+                Extension(tenant.clone()),
+                None,
+                Json(PolicyHistoryTtlRequest { ttl_secs: ttl }),
+            )
+            .await
+            .expect("set ttl");
+        }
+
+        let page = |cursor: Option<i64>| {
+            let state = state.clone();
+            let tenant = tenant.clone();
+            async move {
+                handle_policy_history_ttl_history(
+                    Extension(tenant),
+                    State(state),
+                    Query(PolicyHistoryQuery {
+                        limit: Some(2),
+                        offset: None,
+                        cursor,
+                    }),
+                )
+                .await
+                .expect("history")
+                .0
+            }
+        };
+        let ttls = |body: &Value| -> Vec<u64> {
+            body["history"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|h| h["new_ttl_secs"].as_u64().unwrap())
+                .collect()
+        };
+
+        let first = page(None).await;
+        assert_eq!(ttls(&first), vec![3, 2]);
+        assert_eq!(first["cursor"], Value::Null);
+        let next = first["next_cursor"].as_i64().expect("next_cursor");
+        assert!(next > 0);
+
+        let second = page(Some(next)).await;
+        assert_eq!(ttls(&second), vec![1]);
+        assert_eq!(second["cursor"], json!(next));
+        let last = second["next_cursor"].as_i64().expect("last next_cursor");
+        assert!(
+            page(Some(last)).await["history"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+
+        // A non-positive cursor is treated as absent (no cursor paging).
+        assert_eq!(page(Some(0)).await["cursor"], Value::Null);
+    }
+
+    /// An administrator may change another tenant's retention override; the audit
+    /// attributes the change to the actor while the namespace stays the target
+    /// tenant, and an admin request must name the target (issue C2).
+    #[tokio::test]
+    async fn admin_delegated_policy_history_ttl_change_records_actor() {
+        let state = unique_state("admin_hist_ttl");
+        let tenant = format!("hist-ttl-admin-{}", std::process::id());
+
+        // Set as a delegated admin: recorded under the actor, not the tenant.
+        let set = handle_policy_history_ttl_set(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            Some(Extension(Actor("root".to_string()))),
+            Json(PolicyHistoryTtlRequest { ttl_secs: 1800 }),
+        )
+        .await
+        .expect("admin set")
+        .0;
+        assert_eq!(set["tenant"], json!(tenant));
+        assert_eq!(set["ttl_secs"], json!(1800));
+        assert_eq!(set["ttl_source"], json!("tenant"));
+
+        // Clear as a delegated admin: also recorded under the actor.
+        let _ = handle_policy_history_ttl_clear(
+            State(state.clone()),
+            Extension(tenant.clone()),
+            Some(Extension(Actor("root".to_string()))),
+        )
+        .await
+        .expect("admin clear");
+
+        let listed = handle_policy_history_ttl_history(
+            Extension(tenant.clone()),
+            State(state.clone()),
+            Query(PolicyHistoryQuery {
+                limit: None,
+                offset: None,
+                cursor: None,
+            }),
+        )
+        .await
+        .expect("history")
+        .0;
+        let history = listed["history"].as_array().expect("history array");
+        assert_eq!(history.len(), 2, "{listed}");
+        assert_eq!(history[0]["action"], json!("clear"));
+        assert_eq!(history[0]["changed_by"], json!("root"));
+        assert_eq!(history[1]["action"], json!("set"));
+        assert_eq!(history[1]["changed_by"], json!("root"));
+
+        // An admin request must name the target tenant.
+        let no_target = handle_policy_history_ttl_set(
+            State(state.clone()),
+            Extension(String::new()),
+            Some(Extension(Actor("admin".to_string()))),
+            Json(PolicyHistoryTtlRequest { ttl_secs: 60 }),
+        )
+        .await;
+        let (status, _) = no_target.expect_err("admin set without target was accepted");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     /// `GET /security/policy/history` exposes the tenant's effective retention
@@ -3142,6 +4036,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             Query(PolicyHistoryQuery {
                 limit: None,
                 offset: None,
+                cursor: None,
             }),
         )
         .await
@@ -3164,6 +4059,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             Query(PolicyHistoryQuery {
                 limit: None,
                 offset: None,
+                cursor: None,
             }),
         )
         .await
@@ -3315,6 +4211,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             Query(PolicyHistoryQuery {
                 limit: None,
                 offset: None,
+                cursor: None,
             }),
         )
         .await
@@ -3362,6 +4259,257 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(resolve_actor("root"), "root");
     }
 
+    /// `XAZZ_ADMIN_TOKEN` accepts a comma-separated list for rotation; blank
+    /// entries are dropped and a blank value yields no tokens (issue C2).
+    #[test]
+    fn parse_admin_tokens_splits_and_trims() {
+        assert_eq!(parse_admin_tokens(""), Vec::<String>::new());
+        assert_eq!(parse_admin_tokens("   "), Vec::<String>::new());
+        assert_eq!(parse_admin_tokens("only"), vec!["only".to_string()]);
+        assert_eq!(
+            parse_admin_tokens(" old , new ,, "),
+            vec!["old".to_string(), "new".to_string()]
+        );
+    }
+
+    /// Any configured admin token authenticates; unknown, absent, or empty token
+    /// lists are rejected (issue C2).
+    #[test]
+    fn admin_bearer_authorizes_any_listed_token() {
+        let tokens = parse_admin_tokens("old,new");
+        let actors = std::collections::HashMap::new();
+        assert!(admin_bearer_authorized(&tokens, &actors, "Bearer old"));
+        assert!(admin_bearer_authorized(&tokens, &actors, "Bearer new"));
+        assert!(!admin_bearer_authorized(&tokens, &actors, "Bearer stale"));
+        assert!(!admin_bearer_authorized(&tokens, &actors, "old"));
+        assert!(!admin_bearer_authorized(&tokens, &actors, ""));
+        assert!(!admin_bearer_authorized(&[], &actors, "Bearer old"));
+    }
+
+    /// `XAZZ_ADMIN_ACTORS` parses `token:actor` entries, splitting on the last `:`
+    /// so a credential may contain colons; blank/invalid entries are dropped.
+    #[test]
+    fn parse_admin_actors_binds_token_to_actor() {
+        assert!(parse_admin_actors("").is_empty());
+        assert!(parse_admin_actors("   ").is_empty());
+        let actors = parse_admin_actors("tok1:root, tok2:ops ");
+        assert_eq!(actors.get("tok1"), Some(&"root".to_string()));
+        assert_eq!(actors.get("tok2"), Some(&"ops".to_string()));
+        assert_eq!(actors.len(), 2);
+        assert_eq!(
+            parse_admin_actors("a:b:c").get("a:b"),
+            Some(&"c".to_string())
+        );
+        assert!(parse_admin_actors("noactor").is_empty());
+        assert!(parse_admin_actors(":actor").is_empty());
+        assert!(parse_admin_actors("token:").is_empty());
+    }
+
+    /// A bound credential authenticates and pins the audit actor; an unbound one
+    /// keeps the legacy `X-Xazz-Actor` behavior (issue C2).
+    #[test]
+    fn admin_actor_binding_pins_actor() {
+        let actors = parse_admin_actors("bound:root");
+        let tokens = parse_admin_tokens("free");
+        assert!(admin_bearer_authorized(&tokens, &actors, "Bearer bound"));
+        assert!(admin_bearer_authorized(&tokens, &actors, "Bearer free"));
+        assert_eq!(
+            admin_actor_for(&actors, "Bearer bound"),
+            Some("root".to_string())
+        );
+        assert_eq!(admin_actor_for(&actors, "Bearer free"), None);
+        assert_eq!(admin_actor_for(&actors, "bound"), None);
+        assert_eq!(admin_actor_for(&actors, ""), None);
+    }
+
+    /// Serializes the auth-middleware tests: `optional_bearer_auth` reads
+    /// process-global env vars, so two tests that set them must not interleave
+    /// (issue C2 follow-up).
+    static AUTH_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// Clears every auth-related env var so an env-mutating test starts from a
+    /// known, auth-free state regardless of the ambient environment.
+    fn clear_auth_env() {
+        unsafe {
+            std::env::remove_var("XAZZ_SERVER_TOKEN");
+            std::env::remove_var("XAZZ_TENANT_TOKENS");
+            std::env::remove_var(ADMIN_TOKEN_ENV);
+            std::env::remove_var(ADMIN_ACTORS_ENV);
+        }
+    }
+
+    /// Drives the real `optional_bearer_auth` middleware through an axum router
+    /// (`oneshot`) rather than calling the helper directly: a bound
+    /// `XAZZ_ADMIN_ACTORS` credential must ignore `X-Xazz-Actor`, while the legacy
+    /// `XAZZ_ADMIN_TOKEN` keeps honoring it (issue C2 follow-up).
+    #[tokio::test]
+    async fn admin_actor_binding_is_enforced_through_middleware() {
+        use axum::body::{Body, to_bytes};
+        use axum::http::Request;
+        use tower::util::ServiceExt;
+
+        let _guard = AUTH_ENV_LOCK.lock().await;
+
+        async fn actor_probe(actor: Option<Extension<Actor>>) -> String {
+            actor.map(|Extension(a)| a.0).unwrap_or_default()
+        }
+        async fn tenant_probe(tenant: Option<Extension<String>>) -> String {
+            tenant.map(|Extension(t)| t).unwrap_or_default()
+        }
+
+        // Isolate from any ambient auth configuration.
+        clear_auth_env();
+        unsafe {
+            std::env::set_var(ADMIN_TOKEN_ENV, "legacy");
+            std::env::set_var(ADMIN_ACTORS_ENV, "bound:root");
+        }
+
+        let app = Router::new()
+            .route("/actor", get(actor_probe))
+            .route("/tenant", get(tenant_probe))
+            .layer(middleware::from_fn(optional_bearer_auth));
+
+        async fn call(
+            app: &Router,
+            uri: &str,
+            token: &str,
+            actor: Option<&str>,
+            tenant: Option<&str>,
+        ) -> (StatusCode, String) {
+            let mut req = Request::builder()
+                .uri(uri)
+                .header(AUTHORIZATION, format!("Bearer {token}"));
+            if let Some(actor) = actor {
+                req = req.header(ACTOR_HEADER, actor);
+            }
+            if let Some(tenant) = tenant {
+                req = req.header(TENANT_HEADER, tenant);
+            }
+            let resp = app
+                .clone()
+                .oneshot(req.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            let status = resp.status();
+            let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+            (status, String::from_utf8(bytes.to_vec()).unwrap())
+        }
+
+        // A bound credential authenticates but its actor is pinned: the header is ignored.
+        let (status, actor) = call(&app, "/actor", "bound", Some("mallory"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(actor, "root");
+
+        // The legacy unbound token still honors the header, defaulting to `admin`.
+        let (status, actor) = call(&app, "/actor", "legacy", Some("honest"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(actor, "honest");
+        let (_, actor) = call(&app, "/actor", "legacy", None, None).await;
+        assert_eq!(actor, "admin");
+
+        // Admin mode passes the tenant namespace through to handlers.
+        let (status, tenant) = call(&app, "/tenant", "bound", None, Some("acme")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(tenant, "acme");
+
+        // An unknown credential is rejected before any handler runs.
+        let (status, _) = call(&app, "/actor", "stale", Some("mallory"), None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        clear_auth_env();
+    }
+
+    /// Drives the real `optional_bearer_auth` middleware for the remaining modes
+    /// through an axum router (`oneshot`): the no-auth fallback, single-token
+    /// (`XAZZ_SERVER_TOKEN`), and per-tenant tokens (`XAZZ_TENANT_TOKENS`). The
+    /// admin modes are covered by `admin_actor_binding_is_enforced_through_middleware`
+    /// (issue C2 follow-up).
+    #[tokio::test]
+    async fn auth_modes_are_enforced_through_middleware() {
+        use axum::body::{Body, to_bytes};
+        use axum::http::Request;
+        use tower::util::ServiceExt;
+
+        let _guard = AUTH_ENV_LOCK.lock().await;
+
+        async fn actor_probe(actor: Option<Extension<Actor>>) -> String {
+            actor.map(|Extension(a)| a.0).unwrap_or_default()
+        }
+        async fn tenant_probe(tenant: Option<Extension<String>>) -> String {
+            tenant.map(|Extension(t)| t).unwrap_or_default()
+        }
+
+        async fn call(
+            app: &Router,
+            uri: &str,
+            token: &str,
+            tenant: Option<&str>,
+        ) -> (StatusCode, String) {
+            let mut req = Request::builder()
+                .uri(uri)
+                .header(AUTHORIZATION, format!("Bearer {token}"));
+            if let Some(tenant) = tenant {
+                req = req.header(TENANT_HEADER, tenant);
+            }
+            let resp = app
+                .clone()
+                .oneshot(req.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            let status = resp.status();
+            let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+            (status, String::from_utf8(bytes.to_vec()).unwrap())
+        }
+
+        clear_auth_env();
+        let app = Router::new()
+            .route("/actor", get(actor_probe))
+            .route("/tenant", get(tenant_probe))
+            .layer(middleware::from_fn(optional_bearer_auth));
+
+        // No auth mode configured → every request passes; the middleware applies
+        // its default empty tenant and no actor.
+        let (status, tenant) = call(&app, "/tenant", "", Some("acme")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(tenant, "");
+        let (status, actor) = call(&app, "/actor", "", Some("mallory")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(actor, "");
+
+        // Single-token mode: only the configured bearer passes; the tenant header
+        // is not trusted (empty tenant, no actor), wrong/missing tokens are 401.
+        unsafe {
+            std::env::set_var("XAZZ_SERVER_TOKEN", "s3cret");
+        }
+        let (status, tenant) = call(&app, "/tenant", "s3cret", Some("acme")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(tenant, "");
+        let (status, _) = call(&app, "/tenant", "wrong", Some("acme")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, _) = call(&app, "/tenant", "", Some("acme")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        unsafe {
+            std::env::remove_var("XAZZ_SERVER_TOKEN");
+        }
+
+        // Per-tenant mode: the request must carry a tenant header and that
+        // tenant's token; a missing/mismatched tenant or token is 401.
+        unsafe {
+            std::env::set_var("XAZZ_TENANT_TOKENS", "acme=tok-a,globex=tok-b");
+        }
+        let (status, tenant) = call(&app, "/tenant", "tok-a", Some("acme")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(tenant, "acme");
+        let (status, _) = call(&app, "/tenant", "tok-a", None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, _) = call(&app, "/tenant", "tok-b", Some("acme")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, _) = call(&app, "/tenant", "tok-a", Some("initech")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        clear_auth_env();
+    }
+
     /// Policy-pack changes are recorded append-only with who/when/previous (issue C2).
     #[tokio::test]
     async fn policy_history_records_who_when_and_previous_pack() {
@@ -3402,6 +4550,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             Query(PolicyHistoryQuery {
                 limit: None,
                 offset: None,
+                cursor: None,
             }),
         )
         .await
@@ -3429,6 +4578,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             Query(PolicyHistoryQuery {
                 limit: None,
                 offset: None,
+                cursor: None,
             }),
         )
         .await
@@ -3463,6 +4613,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
                     Query(PolicyHistoryQuery {
                         limit: Some(limit),
                         offset: Some(offset),
+                        cursor: None,
                     }),
                 )
                 .await
@@ -3492,6 +4643,72 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(second_ids, vec!["v1"]);
     }
 
+    /// `?cursor=` pages the newest-first history by id and echoes `next_cursor`
+    /// for the following call, instead of relying on `OFFSET` (issue C2).
+    #[tokio::test]
+    async fn policy_history_supports_cursor_pagination() {
+        let state = unique_state("hist_cursor");
+        for i in 1..=3 {
+            let mut pack = xazz_compiler::Policy::builtin();
+            pack.id = format!("v{i}");
+            let _ = handle_policy_set(
+                Extension("tenant-a".to_string()),
+                None,
+                State(state.clone()),
+                Json(serde_json::to_value(&pack).unwrap()),
+            )
+            .await
+            .expect("set");
+        }
+
+        let page = |cursor: Option<i64>| {
+            let state = state.clone();
+            async move {
+                handle_policy_history(
+                    Extension("tenant-a".to_string()),
+                    State(state),
+                    Query(PolicyHistoryQuery {
+                        limit: Some(2),
+                        offset: None,
+                        cursor,
+                    }),
+                )
+                .await
+                .expect("history")
+                .0
+            }
+        };
+        let ids = |body: &Value| -> Vec<String> {
+            body["history"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|h| h["new_policy_json"]["id"].as_str().unwrap().to_string())
+                .collect()
+        };
+
+        let first = page(None).await;
+        assert_eq!(ids(&first), vec!["v3", "v2"]);
+        assert_eq!(first["cursor"], Value::Null);
+        let next = first["next_cursor"].as_i64().expect("next_cursor");
+        assert!(next > 0);
+
+        // Using the echoed cursor returns the remainder and no further cursor.
+        let second = page(Some(next)).await;
+        assert_eq!(ids(&second), vec!["v1"]);
+        assert_eq!(second["cursor"], json!(next));
+        let last = second["next_cursor"].as_i64().expect("last next_cursor");
+        assert!(
+            page(Some(last)).await["history"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+
+        // A non-positive cursor is treated as absent (no cursor paging).
+        assert_eq!(page(Some(0)).await["cursor"], Value::Null);
+    }
+
     /// `?limit=` is clamped to a sane page range (issue C2).
     #[test]
     fn policy_history_limit_is_clamped() {
@@ -3499,6 +4716,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             PolicyHistoryQuery {
                 limit,
                 offset: None,
+                cursor: None,
             }
             .limit()
         };
@@ -3539,6 +4757,122 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(guardrail::runner_invocations(), before);
     }
 
+    /// A fake `xazz-runner` shell script for the disconnect tests: it touches a
+    /// start marker, sleeps, then prints one result row. The script and marker are
+    /// removed when the value is dropped.
+    #[cfg(unix)]
+    struct FakeRunner {
+        script: std::path::PathBuf,
+        started: std::path::PathBuf,
+    }
+
+    #[cfg(unix)]
+    impl FakeRunner {
+        fn new(prefix: &str, sleep_secs: f64) -> Self {
+            use std::io::Write;
+            use std::os::unix::fs::PermissionsExt;
+
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos();
+            let script =
+                std::env::temp_dir().join(format!("{prefix}_{}_{nonce}.sh", std::process::id()));
+            let started = std::env::temp_dir()
+                .join(format!("{prefix}_{}_{nonce}.started", std::process::id()));
+            {
+                let mut f = std::fs::File::create(&script).expect("create fake runner");
+                writeln!(f, "#!/bin/sh").unwrap();
+                writeln!(f, "touch '{}'", started.display()).unwrap();
+                writeln!(f, "sleep {sleep_secs}").unwrap();
+                writeln!(f, "echo '[xazz:result] {{\"rows\":[1],\"schema\":[]}}'").unwrap();
+                f.flush().unwrap();
+            }
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod fake runner");
+            Self { script, started }
+        }
+
+        /// Waits (up to ~5s) until the fake runner has signalled it started.
+        async fn wait_started(&self) {
+            for _ in 0..50 {
+                if self.started.exists() {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            panic!("fake runner never started");
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for FakeRunner {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.script);
+            let _ = std::fs::remove_file(&self.started);
+        }
+    }
+
+    /// Sets up a run exactly as `handle_execute` does — a temp `.xzz`, a granted DP
+    /// reservation, and an owned execution slot — then spawns `run_execution_job`,
+    /// waits for the fake runner to start, and aborts the caller future (what axum
+    /// does when the client disconnects). Returns the state's tenant lock so callers
+    /// can assert it stays held until the runner exits.
+    #[cfg(unix)]
+    async fn spawn_disconnected_run(
+        state: &AppState,
+        code: &str,
+        tenant: &str,
+        runner: &FakeRunner,
+    ) -> Arc<tokio::sync::Mutex<()>> {
+        use std::io::Write;
+
+        let tmp = tempfile::Builder::new()
+            .suffix(".xzz")
+            .tempfile()
+            .expect("temp file");
+        {
+            let mut f = tmp.as_file();
+            f.write_all(code.as_bytes()).expect("write code");
+            f.flush().ok();
+        }
+        let reservation = state
+            .store
+            .reserve_dp_budget(tenant, 10.0, 1e-4, 0, 3600)
+            .expect("reserve")
+            .expect("granted");
+
+        let permit = Arc::clone(&state.exec_permits)
+            .try_acquire_owned()
+            .expect("execution permit");
+        let tenant_mutex = state.tenant_lock(tenant);
+        let tenant_guard = Arc::clone(&tenant_mutex).lock_owned().await;
+        let slot = ExecutionSlot {
+            _permit: permit,
+            _tenant_guard: tenant_guard,
+        };
+
+        let task = tokio::spawn(run_execution_job(
+            state.clone(),
+            code.to_string(),
+            tenant.to_string(),
+            runner.script.clone(),
+            tmp,
+            reservation,
+            slot,
+            0,
+            10.0,
+            1e-4,
+            None,
+        ));
+
+        runner.wait_started().await;
+        task.abort();
+        let _ = task.await;
+
+        tenant_mutex
+    }
+
     /// A client disconnect (axum dropping the caller's future) must not lose the
     /// run's bookkeeping: the detached blocking task still settles DP, appends the
     /// audit record, and persists the run (GHSA-wxqx-r7f6-qq3p).
@@ -3548,36 +4882,11 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
     #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn disconnected_execute_still_audits_and_records() {
-        use std::io::Write;
-        use std::os::unix::fs::PermissionsExt;
-
-        // Fake runner: writes a start marker, then sleeps so the job is still in
-        // flight when we disconnect.
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let script = std::env::temp_dir().join(format!(
-            "xazz_fake_runner_{}_{}.sh",
-            std::process::id(),
-            nonce
-        ));
-        let started = std::env::temp_dir().join(format!(
-            "xazz_fake_runner_{}_{}.started",
-            std::process::id(),
-            nonce
-        ));
-        {
-            let mut f = std::fs::File::create(&script).expect("create fake runner");
-            writeln!(f, "#!/bin/sh").unwrap();
-            writeln!(f, "touch '{}'", started.display()).unwrap();
-            writeln!(f, "sleep 0.3").unwrap();
-            writeln!(f, "echo '[xazz:result] {{\"rows\":[1],\"schema\":[]}}'").unwrap();
-            f.flush().unwrap();
-        }
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
-            .expect("chmod fake runner");
-
+        let runner = FakeRunner::new("xazz_fake_runner", 0.3);
         let state = unique_state("disconnect");
         let tenant = String::new();
         let code = format!(
@@ -3585,7 +4894,115 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
              type P = {{ a: string }}; v x = load(\"data/a.csv\") :: P;"
         );
 
-        // A temp .xzz file and a real DP reservation, exactly as handle_execute sets up.
+        let before = state.store.list_runs(50, &tenant).expect("list runs").len();
+
+        // Drop the handler future mid-run — exactly what axum does on client disconnect.
+        let _tenant_mutex = spawn_disconnected_run(&state, &code, &tenant, &runner).await;
+
+        // The detached blocking task must finish its bookkeeping on its own.
+        let mut recorded = before;
+        for _ in 0..50 {
+            recorded = state.store.list_runs(50, &tenant).expect("list runs").len();
+            if recorded > before {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        assert!(
+            recorded > before,
+            "disconnected run was not persisted to history"
+        );
+        let audited =
+            audit_log::lookup_by_hash(&audit_log::hash_code(&code)).expect("audit lookup");
+        assert!(
+            !audited.is_empty(),
+            "disconnected run was not appended to the audit chain"
+        );
+    }
+
+    /// A disconnected run must keep holding its tenant lock and concurrency permit
+    /// until the runner actually exits (issue C2 follow-up). Otherwise a second
+    /// same-tenant request could start a concurrent run, and the global capacity
+    /// cap would under-count in-flight executions.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn disconnected_execute_holds_slot_until_runner_exits() {
+        let runner = FakeRunner::new("xazz_slot_runner", 0.6);
+        let state = unique_state("slot-hold");
+        let tenant = "slot-tenant".to_string();
+        let code = "type P = { a: string }; v x = load(\"data/a.csv\") :: P;";
+
+        let tenant_mutex = spawn_disconnected_run(&state, code, &tenant, &runner).await;
+
+        // The handler future is gone, but the run is still in flight: the slot must
+        // still be held.
+        assert!(
+            tenant_mutex.try_lock().is_err(),
+            "tenant lock was released while the run was still in flight"
+        );
+        assert_eq!(
+            state.exec_permits.available_permits(),
+            63,
+            "concurrency permit was released while the run was still in flight"
+        );
+
+        // Once the detached runner exits, both guards are released.
+        for _ in 0..50 {
+            if state.exec_permits.available_permits() == 64 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        assert_eq!(
+            state.exec_permits.available_permits(),
+            64,
+            "permit was not returned after the run exited"
+        );
+        assert!(
+            tenant_mutex.try_lock().is_ok(),
+            "tenant lock was not released after the run exited"
+        );
+    }
+
+    /// `run_execution_job` must persist the CLI's `[xazz:resources]` marker so
+    /// `GET /runs/:id/resources` can serve it (issue #128).
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn run_job_persists_resource_telemetry() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let script = std::env::temp_dir().join(format!(
+            "xazz_res_runner_{}_{}.sh",
+            std::process::id(),
+            nonce
+        ));
+        {
+            let mut f = std::fs::File::create(&script).expect("create fake runner");
+            writeln!(f, "#!/bin/sh").unwrap();
+            writeln!(
+                f,
+                "echo '[xazz:resources]{{\"duration_ms\":7,\"cpu_user_ms\":2,\"max_rss_kb\":1024,\"source\":\"runner-process-tree\"}}'"
+            )
+            .unwrap();
+            writeln!(f, "echo '[xazz:result] {{\"rows\":[],\"schema\":[]}}'").unwrap();
+            f.flush().unwrap();
+        }
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod fake runner");
+
+        let state = unique_state("resources-persist");
+        let tenant = "res-tenant".to_string();
+        let code = format!(
+            "// resources-nonce {nonce}\n\
+             type P = {{ a: string }}; v x = load(\"data/a.csv\") :: P;"
+        );
         let tmp = tempfile::Builder::new()
             .suffix(".xzz")
             .tempfile()
@@ -3600,57 +5017,41 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             .reserve_dp_budget(&tenant, 10.0, 1e-4, 0, 3600)
             .expect("reserve")
             .expect("granted");
+        let permit = Arc::clone(&state.exec_permits)
+            .try_acquire_owned()
+            .expect("execution permit");
+        let tenant_mutex = state.tenant_lock(&tenant);
+        let tenant_guard = Arc::clone(&tenant_mutex).lock_owned().await;
+        let slot = ExecutionSlot {
+            _permit: permit,
+            _tenant_guard: tenant_guard,
+        };
 
-        let before = state.store.list_runs(50, &tenant).expect("list runs").len();
-
-        let task = tokio::spawn(run_execution_job(
+        let response = run_execution_job(
             state.clone(),
             code.clone(),
             tenant.clone(),
             script.clone(),
             tmp,
             reservation,
+            slot,
             0,
             10.0,
             1e-4,
             None,
-        ));
+        )
+        .await;
+        let run_id = response.run_id.expect("run recorded");
 
-        // Wait until the runner has actually started, then drop the future — exactly
-        // what axum does when the client disconnects. Waiting on the marker makes the
-        // race deterministic: the job is provably suspended at the blocking `.await`.
-        for _ in 0..50 {
-            if started.exists() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-        assert!(started.exists(), "fake runner never started");
-        task.abort();
-        let _ = task.await;
-
-        // The detached blocking task must finish its bookkeeping on its own.
-        let mut recorded = before;
-        for _ in 0..50 {
-            recorded = state.store.list_runs(50, &tenant).expect("list runs").len();
-            if recorded > before {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
+        let recorded = state
+            .store
+            .get_run_resources(run_id, &tenant)
+            .expect("get resources")
+            .expect("run exists");
+        let json = recorded.resources_json.expect("resources persisted");
+        assert!(json.contains("\"duration_ms\":7"), "{json}");
+        assert!(json.contains("\"max_rss_kb\":1024"), "{json}");
 
         let _ = std::fs::remove_file(&script);
-        let _ = std::fs::remove_file(&started);
-
-        assert!(
-            recorded > before,
-            "disconnected run was not persisted to history"
-        );
-        let audited =
-            audit_log::lookup_by_hash(&audit_log::hash_code(&code)).expect("audit lookup");
-        assert!(
-            !audited.is_empty(),
-            "disconnected run was not appended to the audit chain"
-        );
     }
 }

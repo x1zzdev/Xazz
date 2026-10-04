@@ -28,7 +28,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ast::Program;
+use crate::ast::{DpArgs, PipelineOp, Program, Stmt};
 use crate::{Lexer, Parser};
 use xazz_core::i18n::{is_korean, tr};
 
@@ -934,6 +934,45 @@ pub fn analyze(source: &str, policy: &Policy) -> PolicyReport {
     }
 }
 
+// ── withDp inventory (issue #118) ───────────────────────────────────────────
+
+/// One `withDp(...)` request in a program, in statement order.
+///
+/// The policy rules judge each pipeline's *shape* (XZP005 caps ε against the
+/// policy pack). Callers that enforce a run-time cap before execution — the
+/// server's pre-reservation check — need the raw requests instead, without
+/// re-implementing the statement walk.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WithDpRequest {
+    /// Index into `program.stmts`.
+    pub stmt_index: usize,
+    /// Bound variable (`v name = …`), `None` for a bare expression statement.
+    pub var_name: Option<String>,
+    pub args: DpArgs,
+}
+
+/// Lists every `withDp` operator in `program`, in source order.
+pub fn with_dp_requests(program: &Program) -> Vec<WithDpRequest> {
+    let mut out = Vec::new();
+    for (stmt_index, stmt) in program.stmts.iter().enumerate() {
+        let (var_name, ops) = match stmt {
+            Stmt::VarDecl { var_name, ops, .. } => (Some(var_name.clone()), ops),
+            Stmt::ExprStmt { ops, .. } => (None, ops),
+            _ => continue,
+        };
+        for op in ops {
+            if let PipelineOp::WithDp(args) = op {
+                out.push(WithDpRequest {
+                    stmt_index,
+                    var_name: var_name.clone(),
+                    args: args.clone(),
+                });
+            }
+        }
+    }
+    out
+}
+
 /// Applies the policy to an already-parsed AST.
 ///
 /// `source` is used for the literal scan (including comments) and line-number calculation.
@@ -988,6 +1027,30 @@ pub(crate) fn record(report: &mut PolicyReport, violation: Violation) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `with_dp_requests` lists every withDp in source order with its binding and args.
+    #[test]
+    fn with_dp_requests_lists_each_step_in_order() {
+        let src = "type AQ = { station: string, pm10: float };
+            v a = load(\"data.csv\") :: AQ |> groupBy(\"station\") |> mean(\"pm10\") |> withDp(epsilon: 1.5, seed: 7);
+            v plain = load(\"data.csv\") :: AQ |> count(\"pm10\");
+            plain |> mean(\"pm10\") |> withDp(epsilon: 0.25, mechanism: gaussian, delta: 0.00001);";
+        let program = Parser::new(Lexer::new(src).tokenize().unwrap())
+            .parse()
+            .unwrap();
+        let reqs = with_dp_requests(&program);
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs[0].stmt_index, 1);
+        assert_eq!(reqs[0].var_name.as_deref(), Some("a"));
+        assert_eq!(reqs[0].args.epsilon, 1.5);
+        assert_eq!(reqs[1].stmt_index, 3);
+        assert_eq!(reqs[1].var_name, None);
+        assert_eq!(reqs[1].args.epsilon, 0.25);
+        assert!(matches!(
+            reqs[1].args.mechanism,
+            crate::ast::DpMechanism::Gaussian
+        ));
+    }
 
     /// Normalization absorbs spelling style (snake, camel, hyphen).
     #[test]

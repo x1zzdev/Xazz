@@ -17,6 +17,7 @@
 //   - exit code: 0 = success, 1 = failure
 
 fn main() {
+    xazz_exec::logging::init();
     let args: Vec<String> = std::env::args().collect();
     let usage = "[xazz-exec] usage: xazz-exec <file.xzz|file.csv> [--verbose] [--output <path.csv>] [--opt]";
 
