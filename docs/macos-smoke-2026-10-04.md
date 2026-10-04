@@ -218,3 +218,15 @@ macOS 시스템 로그에서 실패한 테스트의 임시 셸 파일에 대한 
 [PR #249](https://github.com/x1zzdev/Xazz/pull/249)의 코드·한국어 설명도 갱신했다.
 이 서버 결과는 macOS CPU 검증이며 공개 배포본, GPU·ONNX, 의존성 보안·라이선스 문제의
 해결까지 의미하지 않는다.
+
+### 원격 의존성 검사가 성공한 이유
+
+PR #282의 [의존성 정책 검사](https://github.com/x1zzdev/Xazz/actions/runs/37212553893/job/111466509352)는
+성공했지만 전체 작업공간 검사가 아니다. CI와 로컬 모두 cargo-deny 0.20.2이며,
+CI의 실제 명령은 `cargo deny --manifest-path ./Cargo.toml --all-features check`였다.
+`--workspace`가 없고 루트 manifest에 `[package] xazz`가 있으므로 CLI의 의존성 그래프만
+대상으로 삼는다. CLI가 직접 의존하지 않는 실행 엔진·서버의 의존성은 빠진다.
+
+따라서 원격 성공은 로컬 `cargo deny --workspace --all-features check`에서 발견한
+전체 작업공간의 라이선스·보안 권고·배포 철회 문제를 해결했다는 근거가 아니다.
+CI 검사 범위를 전체로 넓히는 변경과 기존 의존성 문제 해결은 별도 후속 작업으로 남아 있다.
