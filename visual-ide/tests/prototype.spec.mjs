@@ -336,7 +336,7 @@ test('ML compile band is visible in the graph before any run', async ({ page }) 
   assertRuntime()
 })
 
-test('monitor view separates a measured contract from a proposed one', async ({
+test('monitor view separates a measured contract from an honest empty one', async ({
   page,
 }) => {
   const assertRuntime = observeRuntime(page)
@@ -349,9 +349,11 @@ test('monitor view separates a measured contract from a proposed one', async ({
   const burn = page.getByRole('region', { name: 'Burn compile and training' })
   const privacy = page.getByRole('region', { name: 'Differential privacy budget' })
   const resource = page.getByRole('region', { name: 'Resource efficiency' })
+  const predict = page.getByRole('region', { name: 'Predict embedding input' })
   await expect(burn).toBeVisible()
   await expect(privacy).toBeVisible()
   await expect(resource).toBeVisible()
+  await expect(predict).toBeVisible()
 
   // The Burn panel now reads the real run response. A URL-simulated success state
   // has no training report behind it, so the panel must show the structural
@@ -370,20 +372,21 @@ test('monitor view separates a measured contract from a proposed one', async ({
   ).toBeVisible()
   await expect(privacy.getByText('Not available in this version').first()).toBeVisible()
 
-  // The resource panel is not implemented: it keeps a permanent maturity badge,
-  // synthetic scope, and hollow bars.
-  await expect(resource.getByLabel('Maturity: Planned')).toBeVisible()
+  // The resource capability is implemented: with no recorded run resources for
+  // this session it stays Beta and empty, and never presents a number as measured.
+  await expect(resource.getByLabel('Maturity: Beta')).toBeVisible()
   await expect(
-    resource.getByText('Synthetic structure · not measured · proposed contract'),
+    resource.getByText('No Full Run has produced a resource sample yet'),
   ).toBeVisible()
-  await expect(resource.getByText('Not available in this version').first()).toBeVisible()
+  await expect(resource.getByText('Not available in this version')).toHaveCount(0)
+  await expect(resource.locator('.monitor-bars__fill--proposed')).toHaveCount(0)
 
-  // A proposed bar is hollow: it has no filled background.
-  const proposedBar = resource.locator('.monitor-bars__fill--proposed').first()
-  const background = await proposedBar.evaluate(
-    (node) => window.getComputedStyle(node).backgroundColor,
-  )
-  expect(background).toBe('rgba(0, 0, 0, 0)')
+  // The predict diagnostics panel is implemented: with no predict(...) this run it
+  // stays Beta and empty rather than showing a zero.
+  await expect(predict.getByLabel('Maturity: Beta')).toBeVisible()
+  await expect(
+    predict.getByText('no predict(...) statement ran this Full Run'),
+  ).toBeVisible()
 
   assertRuntime()
 })

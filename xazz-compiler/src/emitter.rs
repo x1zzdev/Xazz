@@ -110,6 +110,25 @@ fn generate_rust_src(
     program: &Program,
     source_path: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    let unsupported = |model_name: &str, config: &TrainConfig| {
+        config.sweep_metric.is_classification()
+            || find_model_layers(program, model_name).is_some_and(
+                |layers| matches!(layers.last(), Some(LayerKind::Dense(width)) if *width > 1),
+            )
+    };
+    if program.stmts.iter().any(|stmt| match stmt {
+        Stmt::TrainStmt {
+            model_name, config, ..
+        } => unsupported(model_name, config),
+        Stmt::VarDecl { ops, .. } => ops.iter().any(|op| match op {
+            PipelineOp::Train { model_name, config } => unsupported(model_name, config),
+            _ => false,
+        }),
+        _ => false,
+    }) {
+        return Err("Reference Rust emission does not support classification. Use xazz run for cross-entropy training and classification metrics.".into());
+    }
+
     // ── build the global schema map ──────────────────────────────────────────────────
     let mut schema_map: HashMap<String, Vec<StructField>> = HashMap::new();
     for stmt in &program.stmts {
@@ -158,10 +177,12 @@ fn generate_rust_src(
         }
         out.push_str(&emit_extract_xy_fn());
         out.push('\n');
-        out.push_str(&emit_dl_metrics_fn());
-        out.push('\n');
-        out.push_str(&emit_dl_sweep_helpers_fn());
-        out.push('\n');
+        if program_has_sweep(program) {
+            out.push_str(&emit_dl_metrics_fn());
+            out.push('\n');
+            out.push_str(&emit_dl_sweep_helpers_fn());
+            out.push('\n');
+        }
     }
 
     // fn main()
@@ -754,6 +775,22 @@ fn program_has_dl(program: &Program) -> bool {
     program.stmts.iter().any(|s| match s {
         Stmt::ModelDecl { .. } | Stmt::TrainStmt { .. } => true,
         Stmt::VarDecl { ops, .. } => ops.iter().any(|op| matches!(op, PipelineOp::Train { .. })),
+        _ => false,
+    })
+}
+
+/// Returns whether any `train(...)` in the script is a hyperparameter sweep
+/// (a grid on `epochs`/`lr`/`batch`/`metric`/`sort`/`top`/`tiebreak`). The
+/// emitted `XzSweepRow`/`xz_sweep_compare`/`xz_regression_metrics` helpers are
+/// only referenced by the sweep code path, so non-sweep programs must not emit
+/// them (otherwise the generated code has unused items / `dead_code` warnings).
+fn program_has_sweep(program: &Program) -> bool {
+    program.stmts.iter().any(|s| match s {
+        Stmt::TrainStmt { config, .. } => config.is_sweep(),
+        Stmt::VarDecl { ops, .. } => ops.iter().any(|op| match op {
+            PipelineOp::Train { config, .. } => config.is_sweep(),
+            _ => false,
+        }),
         _ => false,
     })
 }
@@ -1987,6 +2024,24 @@ mod tests {
     }
 
     #[test]
+    fn classification_emission_is_rejected_in_both_train_forms() {
+        for train in [
+            "v trained = data |> train(M, target: \"y\", metric: \"f1\");",
+            "run data |> train(M, target: \"y\");",
+        ] {
+            let source = format!(
+                "type S = {{ x: float, y: float }}; model M {{ Dense(2) }} v data = load(\"x.csv\") :: S; {train}"
+            );
+            let error = generate_rust_src(&parse(&source), "test.xzz").unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("does not support classification")
+            );
+        }
+    }
+
+    #[test]
     fn emit_rust_has_polars_imports() {
         let out = emit(
             "type S = { date: string, pm10: float };
@@ -2107,6 +2162,34 @@ mod tests {
         assert!(
             !out.contains("Burn training runs at xazz execution"),
             "구 placeholder 주석이 남음: {out}"
+        );
+    }
+
+    /// Non-sweep DL programs must not emit the sweep-only helpers
+    /// (`XzSweepRow`/`xz_sweep_compare`/`xz_regression_metrics`), otherwise the
+    /// generated code carries unused items / `dead_code` warnings.
+    #[test]
+    fn emit_rust_nonsweep_omits_sweep_helpers() {
+        let out = emit(
+            "type S = { a: float, y: float };
+             model M { Dense(4) -> Dense(1) }
+             v data = load(\"x.csv\") :: S |> train(M, target: \"y\", epochs: 3);",
+        );
+        assert!(
+            !out.contains("struct XzSweepRow"),
+            "비스윕 코드에 XzSweepRow가 emit됨: {out}"
+        );
+        assert!(
+            !out.contains("fn xz_sweep_compare("),
+            "비스윕 코드에 xz_sweep_compare가 emit됨: {out}"
+        );
+        assert!(
+            !out.contains("fn xz_regression_metrics("),
+            "비스윕 코드에 xz_regression_metrics가 emit됨: {out}"
+        );
+        assert!(
+            out.contains("fn extract_xy("),
+            "비스윕 필수 헬퍼(extract_xy) 누락: {out}"
         );
     }
 

@@ -3674,12 +3674,6 @@ summary:focus-visible,
   color: var(--dark-text);
 }
 
-.monitor-panel--proposed {
-  background: var(--dark-surface-2);
-  border-top: 1px solid var(--dark-control-border);
-  color: var(--dark-text-2);
-}
-
 .monitor-panel__head {
   display: flex;
   align-items: flex-start;
@@ -3804,12 +3798,6 @@ summary:focus-visible,
   background: var(--info-dark);
 }
 
-/* Unmeasured series: hollow. An empty outline says "no number lives here". */
-.monitor-bars__fill--proposed {
-  background: transparent;
-  border: 1px dashed var(--dark-text-3);
-}
-
 .monitor-budget__track {
   height: 18px;
   background: transparent;
@@ -3853,7 +3841,6 @@ summary:focus-visible,
 
 .monitor-caveat,
 .monitor-gap,
-.monitor-endpoint,
 .monitor-empty {
   color: var(--dark-text-2);
   font-size: 11px;
@@ -3869,12 +3856,6 @@ summary:focus-visible,
 
 .monitor-caveat {
   margin: 10px 0 0;
-}
-
-.monitor-endpoint {
-  margin: 12px 0 0;
-  color: var(--dark-text-3);
-  font-size: 10px;
 }
 
 .monitor-empty {
@@ -3939,7 +3920,6 @@ summary:focus-visible,
 }
 
 .monitor-view td code,
-.monitor-endpoint code,
 .monitor-layers code {
   color: var(--dark-text);
   font-family: var(--font-code);
@@ -4920,6 +4900,10 @@ summary:focus-visible,
   color: var(--danger-dark);
   background: var(--dark-canvas);
   border: 1px solid var(--danger-dark);
+}
+
+.gov-hash {
+  overflow-wrap: anywhere;
 }
 
 .gov-verdict {

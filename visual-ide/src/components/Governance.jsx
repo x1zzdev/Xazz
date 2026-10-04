@@ -15,17 +15,23 @@ import { useServerData } from '../useServerData'
 import { findFirstBreak } from '../auditChain'
 import {
   ApiError,
+  checkInference,
+  deleteDpWindow,
   deletePolicy,
   deletePolicyTtl,
   getApiAccess,
   getAuditLog,
   getAuditRecords,
   getDpBudget,
+  getDpResetHistory,
+  getDpWindowHistory,
   getPolicy,
   getPolicyHistory,
   getPolicyTtl,
+  getPolicyTtlHistory,
   putPolicy,
   putPolicyTtl,
+  putDpWindow,
   resetDpBudget,
   setApiAccess,
   verifyAuditChain,
@@ -169,10 +175,24 @@ function countdown(seconds) {
 function DpLedgerPanel({ revision }) {
   const { t } = useLanguage()
   const time = useLocaleTime()
-  const [state, reload] = useServerData(getDpBudget, revision)
+  const [state, reload, replace] = useServerData(getDpBudget, revision)
+  const [resetPath, setResetPath] = useState([null])
+  useEffect(() => setResetPath([null]), [revision])
+  const resetCursor = resetPath[resetPath.length - 1]
+  const [historyState, reloadResets] = useServerData(
+    () => getDpResetHistory({ cursor: resetCursor }), `${revision}:${resetCursor ?? ''}`,
+  )
+  const [windowPath, setWindowPath] = useState([null])
+  useEffect(() => setWindowPath([null]), [revision])
+  const windowCursor = windowPath[windowPath.length - 1]
+  const [windowHistoryState, reloadWindowHistory] = useServerData(
+    () => getDpWindowHistory({ cursor: windowCursor }), `${revision}:${windowCursor ?? ''}`,
+  )
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState(null)
+  const [windowDraft, setWindowDraft] = useState('')
+  useEffect(() => setNotice(null), [revision])
   const data = state.status === 'ready' ? state.data : null
   const windowed = Number(data?.window_secs) > 0 && Number(data?.resets_at) > 0
   const now = useNow(windowed)
@@ -187,18 +207,63 @@ function DpLedgerPanel({ revision }) {
     reload()
   }, [rolled, reload, data?.resets_at])
 
+  const refreshResetHistory = () => {
+    if (resetPath.length === 1) reloadResets()
+    else setResetPath([null])
+  }
+
   const reset = async () => {
+    const accessAtStart = getApiAccess()
     setBusy(true)
     try {
       const after = await resetDpBudget()
-      setNotice({ tone: 'ok', text: (tr) => tr('gov.dp.resetDone').replace('{spent}', num(after?.spent_epsilon)) })
+      if (getApiAccess() === accessAtStart) {
+        setNotice({ tone: 'ok', text: (tr) => tr('gov.dp.resetDone').replace('{spent}', num(after?.spent_epsilon)) })
+        refreshResetHistory()
+      }
     } catch (error) {
-      setNotice({ tone: 'error', text: (tr) => `${tr('gov.dp.resetFailed')}: ${error.message}` })
+      if (getApiAccess() === accessAtStart) {
+        setNotice({ tone: 'error', text: (tr) => `${tr('gov.dp.resetFailed')}: ${error.message}` })
+      }
     } finally {
       setBusy(false)
       setConfirming(false)
-      reload()
+      if (getApiAccess() === accessAtStart) reload()
     }
+  }
+
+  const refreshWindowHistory = () => {
+    if (windowPath.length === 1) reloadWindowHistory()
+    else setWindowPath([null])
+  }
+
+  const changeWindow = async (action) => {
+    const accessAtStart = getApiAccess()
+    setBusy(true)
+    try {
+      const after = await action()
+      if (getApiAccess() === accessAtStart) {
+        replace(after)
+        setNotice({ tone: 'ok', text: (tr) => tr('gov.dp.windowSaved') })
+        refreshWindowHistory()
+      }
+    } catch (error) {
+      if (getApiAccess() === accessAtStart) {
+        setNotice({ tone: 'error', text: () => error.message })
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const saveWindow = (event) => {
+    event.preventDefault()
+    const secs = Number(windowDraft)
+    if (!/^\d+$/.test(windowDraft.trim()) || !Number.isSafeInteger(secs)) {
+      setNotice({ tone: 'error', text: (tr) => tr('gov.dp.windowInvalid') })
+      return
+    }
+    changeWindow(() => putDpWindow(secs))
   }
 
   const total = Number(data?.total_epsilon)
@@ -273,6 +338,80 @@ function DpLedgerPanel({ revision }) {
               </dd>
             </div>
           </dl>
+          <form className="gov-inline-form" noValidate onSubmit={saveWindow}>
+            <label className="gov-field">
+              <span>{t('gov.dp.windowInput')}</span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={windowDraft}
+                onChange={(event) => setWindowDraft(event.target.value)}
+              />
+            </label>
+            <button className="button button--tool-secondary button--compact" type="submit" disabled={busy}>
+              {t('gov.dp.windowSave')}
+            </button>
+            <button
+              className="button button--tool-secondary button--compact"
+              type="button"
+              disabled={busy || data.window_source !== 'tenant'}
+              onClick={() => changeWindow(deleteDpWindow)}
+            >
+              {t('gov.dp.windowClear')}
+            </button>
+          </form>
+          <p className="monitor-caveat">{t('gov.dp.windowNote')}</p>
+          <div className="gov-subsection">
+            <strong><FileClock size={13} aria-hidden="true" /> {t('gov.dp.windowHistory')}</strong>
+            {windowHistoryState.status !== 'ready' ? (
+              <PanelStatus state={windowHistoryState} onRetry={reloadWindowHistory} lines={2} />
+            ) : windowHistoryState.data?.history?.length ? (
+              <div className="gov-table-wrap">
+                <table className="gov-table">
+                  <caption className="sr-only">{t('gov.dp.windowHistory')}</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('gov.dp.windowHistoryWhen')}</th>
+                      <th scope="col">{t('gov.dp.windowHistoryActor')}</th>
+                      <th scope="col">{t('gov.dp.windowHistoryAction')}</th>
+                      <th scope="col">{t('gov.dp.windowHistoryOld')}</th>
+                      <th scope="col">{t('gov.dp.windowHistoryNew')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {windowHistoryState.data.history.map((entry) => (
+                      <tr key={entry.id}>
+                        <td>{time(entry.changed_at)}</td>
+                        <td>{entry.changed_by || t('gov.defaultTenant')}</td>
+                        <td>{entry.action}</td>
+                        <td>{entry.old_window_secs ?? '—'}</td>
+                        <td>{entry.new_window_secs ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="monitor-empty">{t('gov.dp.windowHistoryEmpty')}</p>
+            )}
+            <div className="gov-actions">
+              <button className="button button--tool-secondary button--compact" type="button"
+                disabled={windowPath.length === 1}
+                onClick={() => setWindowPath((path) => path.slice(0, -1))}>
+                {t('gov.dp.previous')}
+              </button>
+              <span>{t('gov.dp.windowPage').replace('{n}', String(windowPath.length))}</span>
+              <button className="button button--tool-secondary button--compact" type="button"
+                disabled={windowHistoryState.status !== 'ready' || (windowHistoryState.data?.history?.length ?? 0) < 20}
+                onClick={() => {
+                  const next = windowHistoryState.data?.next_cursor
+                  if (next != null) setWindowPath((path) => [...path, next])
+                }}>
+                {t('gov.dp.next')}
+              </button>
+            </div>
+          </div>
           <div className="gov-actions">
             <RefreshButton onClick={reload} label={t('gov.refresh')} />
             <button
@@ -282,6 +421,54 @@ function DpLedgerPanel({ revision }) {
             >
               {t('gov.dp.reset')}
             </button>
+          </div>
+          <div className="gov-subsection">
+            <strong><FileClock size={13} aria-hidden="true" /> {t('gov.dp.history')}</strong>
+            {historyState.status !== 'ready' ? (
+              <PanelStatus state={historyState} onRetry={reloadResets} lines={2} />
+            ) : historyState.data?.resets?.length ? (
+              <div className="gov-table-wrap">
+                <table className="gov-table">
+                  <caption className="sr-only">{t('gov.dp.history')}</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('gov.dp.historyWhen')}</th>
+                      <th scope="col">{t('gov.dp.historyActor')}</th>
+                      <th scope="col">{t('gov.dp.historyBefore')} ε</th>
+                      <th scope="col">{t('gov.dp.historyBefore')} δ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyState.data.resets.map((entry) => (
+                      <tr key={entry.id}>
+                        <td>{time(entry.reset_at)}</td>
+                        <td>{entry.actor || t('gov.defaultTenant')}</td>
+                        <td>{num(entry.spent_epsilon_before)}</td>
+                        <td>{num(entry.spent_delta_before)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="monitor-empty">{t('gov.dp.historyEmpty')}</p>
+            )}
+            <div className="gov-actions">
+              <button className="button button--tool-secondary button--compact" type="button"
+                disabled={resetPath.length === 1}
+                onClick={() => setResetPath((path) => path.slice(0, -1))}>
+                {t('gov.dp.previous')}
+              </button>
+              <span>{t('gov.dp.historyPage').replace('{n}', String(resetPath.length))}</span>
+              <button className="button button--tool-secondary button--compact" type="button"
+                disabled={historyState.status !== 'ready' || (historyState.data?.resets?.length ?? 0) < 20}
+                onClick={() => {
+                  const next = historyState.data?.next_cursor
+                  if (next != null) setResetPath((path) => [...path, next])
+                }}>
+                {t('gov.dp.next')}
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -470,12 +657,110 @@ function AuditChainPanel({ revision }) {
   )
 }
 
+// ── Runtime inference output gate (#244) ────────────────────────────────────
+
+function InferenceCheckPanel({ onChecked }) {
+  const { t } = useLanguage()
+  const [draft, setDraft] = useState({ code: '', prompt: '', response: '', model_fingerprint: '' })
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState(null)
+  const draftVersion = useRef(0)
+  const changeDraft = (name, value) => {
+    draftVersion.current += 1
+    setDraft((current) => ({ ...current, [name]: value }))
+    setResult(null)
+    setError(null)
+  }
+  const field = (name, rows = 2) => (
+    <label className="gov-field gov-field--wide">
+      <span>{t(`gov.inference.${name}`)}</span>
+      {rows ? (
+        <textarea rows={rows} value={draft[name]} autoComplete="off" spellCheck={false}
+          onChange={(event) => changeDraft(name, event.target.value)} />
+      ) : (
+        <input value={draft[name]} autoComplete="off" spellCheck={false}
+          onChange={(event) => changeDraft(name, event.target.value)} />
+      )}
+    </label>
+  )
+  const submit = async (event) => {
+    event.preventDefault()
+    const submittedVersion = draftVersion.current
+    setBusy(true)
+    setError(null)
+    setResult(null)
+    try {
+      const checked = await checkInference(draft)
+      if (draftVersion.current === submittedVersion) setResult(checked)
+      onChecked()
+    } catch (problem) {
+      if (draftVersion.current === submittedVersion) setError(problem)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <MonitorPanel contract="implemented" icon={ShieldHalf} title={t('gov.inference.title')}
+      unit="POST /security/inference/check" maturity="Beta" scope={t('gov.inference.scope')}>
+      <p className="monitor-caveat">{t('gov.inference.privacyNote')}</p>
+      <form className="gov-pack-form" onSubmit={submit}>
+        {field('code')}
+        {field('prompt')}
+        {field('response', 4)}
+        {field('model_fingerprint', 0)}
+        <div className="gov-actions">
+          <button className="button button--tool-primary button--compact" type="submit"
+            disabled={busy || !draft.code.trim() || !draft.prompt.trim() || !draft.response.trim()}>
+            {busy ? t('server.loading') : t('gov.inference.check')}
+          </button>
+          <button className="button button--tool-secondary button--compact" type="button"
+            disabled={busy}
+            onClick={() => { draftVersion.current += 1; setDraft({ code: '', prompt: '', response: '', model_fingerprint: '' }); setResult(null); setError(null) }}>
+            {t('gov.inference.clear')}
+          </button>
+        </div>
+      </form>
+      {error && <p className="gov-notice gov-notice--error" role="alert">{error.message}</p>}
+      {result && (
+        <div className="gov-subsection" role="status">
+          <strong>
+            <StatusBadge axis="Control" tone={result.safe_to_emit ? 'success' : 'danger'}>
+              {result.safe_to_emit ? t('gov.inference.allowed') : t('gov.inference.blocked')}
+            </StatusBadge>
+          </strong>
+          <dl className="monitor-facts">
+            <div><dt>{t('gov.inference.auditIndex')}</dt><dd>{result.audit_index}</dd></div>
+            <div><dt>{t('gov.inference.chain')}</dt><dd>{result.chain_valid ? t('gov.inference.valid') : t('gov.inference.invalid')}</dd></div>
+            <div><dt>{t('gov.inference.promptHash')}</dt><dd className="gov-hash">{result.prompt_hash}</dd></div>
+            <div><dt>{t('gov.inference.responseHash')}</dt><dd className="gov-hash">{result.response_hash}</dd></div>
+          </dl>
+          <div className="gov-subsection">
+            <strong>{t('gov.inference.findings')}</strong>
+            {result.findings?.length ? (
+              <ul className="gov-timeline">
+                {result.findings.map((finding, index) => (
+                  <li key={`${finding.kind}-${finding.line}-${finding.col}-${index}`}>
+                    <code>{finding.kind}</code>
+                    <span>{finding.line}:{finding.col} · {finding.redacted}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="monitor-empty">{t('gov.inference.noFindings')}</p>}
+          </div>
+        </div>
+      )}
+    </MonitorPanel>
+  )
+}
+
 // ── Policy packs (#109) ─────────────────────────────────────────────────────
 
-const loadPolicyHistory = () =>
-  Promise.all([getPolicyHistory({ limit: 20 }), getPolicyTtl()]).then(([page, ttl]) => ({
+const loadPolicyHistory = (cursor) =>
+  getPolicyHistory({ limit: 20, cursor }).then((page) => ({
     entries: page?.history ?? [],
-    ttl,
+    nextCursor: page?.next_cursor ?? null,
   }))
 
 function packName(json) {
@@ -487,7 +772,19 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
   const { t } = useLanguage()
   const time = useLocaleTime()
   const [policyState, reloadPolicy] = useServerData(getPolicy, revision)
-  const [historyState, reloadHistory] = useServerData(loadPolicyHistory, revision)
+  const [historyPath, setHistoryPath] = useState([null])
+  useEffect(() => setHistoryPath([null]), [revision])
+  const historyCursor = historyPath[historyPath.length - 1]
+  const [historyState, reloadHistory] = useServerData(
+    () => loadPolicyHistory(historyCursor), `${revision}:${historyCursor ?? ''}`,
+  )
+  const [ttlState, reloadTtl] = useServerData(getPolicyTtl, revision)
+  const [ttlPath, setTtlPath] = useState([null])
+  useEffect(() => setTtlPath([null]), [revision])
+  const ttlCursor = ttlPath[ttlPath.length - 1]
+  const [ttlHistoryState, reloadTtlHistory] = useServerData(
+    () => getPolicyTtlHistory({ cursor: ttlCursor }), `${revision}:${ttlCursor ?? ''}`,
+  )
   const [draft, setDraft] = useState('')
   const [notice, setNotice] = useState(null)
   const [confirming, setConfirming] = useState(false)
@@ -497,9 +794,20 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
   const tenantPack = typeof active?.origin === 'string' && active.origin.startsWith('tenant:')
   const loadFailed = policyState.status === 'error' && policyState.error.status === 500
 
+  const refreshHistory = () => {
+    if (historyPath.length === 1) reloadHistory()
+    else setHistoryPath([null])
+  }
+
   const reloadAll = () => {
     reloadPolicy()
-    reloadHistory()
+    refreshHistory()
+    reloadTtl()
+  }
+
+  const refreshTtlHistory = () => {
+    if (ttlPath.length === 1) reloadTtlHistory()
+    else setTtlPath([null])
   }
 
   const act = async (action, success) => {
@@ -538,7 +846,8 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
   }
 
   const history = historyState.status === 'ready' ? historyState.data.entries : null
-  const ttl = historyState.status === 'ready' ? historyState.data.ttl : null
+  const historyNextCursor = historyState.status === 'ready' ? historyState.data.nextCursor : null
+  const ttl = ttlState.status === 'ready' ? ttlState.data : null
 
   return (
     <MonitorPanel
@@ -656,6 +965,21 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
             ))}
           </ol>
         )}
+        <div className="gov-actions">
+          <button className="button button--tool-secondary button--compact" type="button"
+            disabled={historyPath.length === 1}
+            onClick={() => setHistoryPath((path) => path.slice(0, -1))}>
+            {t('gov.policy.previous')}
+          </button>
+          <span>{t('gov.policy.historyPage').replace('{n}', String(historyPath.length))}</span>
+          <button className="button button--tool-secondary button--compact" type="button"
+            disabled={historyState.status !== 'ready' || (historyState.data?.entries?.length ?? 0) < 20}
+            onClick={() => {
+              if (historyNextCursor != null) setHistoryPath((path) => [...path, historyNextCursor])
+            }}>
+            {t('gov.policy.next')}
+          </button>
+        </div>
       </div>
 
       {ttl && (
@@ -670,6 +994,7 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
               return
             }
             act(() => putPolicyTtl(secs), (_, tr) => tr('gov.policy.ttlSaved'))
+              .then((ok) => ok && refreshTtlHistory())
           }}
         >
           <label className="gov-field">
@@ -696,12 +1021,62 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
             className="button button--tool-secondary button--compact"
             type="button"
             disabled={busy || ttl.ttl_source !== 'tenant'}
-            onClick={() => act(deletePolicyTtl, (_, tr) => tr('gov.policy.ttlCleared'))}
+            onClick={() => act(deletePolicyTtl, (_, tr) => tr('gov.policy.ttlCleared'))
+              .then((ok) => ok && refreshTtlHistory())}
           >
             {t('gov.policy.ttlClear')}
           </button>
         </form>
       )}
+
+      <div className="gov-subsection">
+        <strong><FileClock size={13} aria-hidden="true" /> {t('gov.policy.ttlHistory')}</strong>
+        {ttlHistoryState.status !== 'ready' ? (
+          <PanelStatus state={ttlHistoryState} onRetry={reloadTtlHistory} lines={2} />
+        ) : ttlHistoryState.data?.history?.length ? (
+          <div className="gov-table-wrap">
+            <table className="gov-table">
+              <caption className="sr-only">{t('gov.policy.ttlHistory')}</caption>
+              <thead><tr>
+                <th scope="col">{t('gov.policy.ttlWhen')}</th>
+                <th scope="col">{t('gov.policy.ttlActor')}</th>
+                <th scope="col">{t('gov.policy.ttlAction')}</th>
+                <th scope="col">{t('gov.policy.ttlOld')}</th>
+                <th scope="col">{t('gov.policy.ttlNew')}</th>
+              </tr></thead>
+              <tbody>
+                {ttlHistoryState.data.history.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>{time(entry.changed_at)}</td>
+                    <td>{entry.changed_by || t('gov.defaultTenant')}</td>
+                    <td>{entry.action}</td>
+                    <td>{entry.old_ttl_secs ?? '—'}</td>
+                    <td>{entry.new_ttl_secs ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="monitor-empty">{t('gov.policy.ttlHistoryEmpty')}</p>
+        )}
+        <div className="gov-actions">
+          <button className="button button--tool-secondary button--compact" type="button"
+            disabled={ttlPath.length === 1}
+            onClick={() => setTtlPath((path) => path.slice(0, -1))}>
+            {t('gov.policy.previous')}
+          </button>
+          <span>{t('gov.policy.ttlPage').replace('{n}', String(ttlPath.length))}</span>
+          <button className="button button--tool-secondary button--compact" type="button"
+            disabled={ttlHistoryState.status !== 'ready' || (ttlHistoryState.data?.history?.length ?? 0) < 20}
+            onClick={() => {
+              const next = ttlHistoryState.data?.next_cursor
+              if (next != null) setTtlPath((path) => [...path, next])
+            }}>
+            {t('gov.policy.next')}
+          </button>
+        </div>
+      </div>
 
       <ConfirmDialog
         open={confirming}
@@ -729,6 +1104,7 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
  */
 export function GovernanceSection({ revision, onAccessChange, onPolicyChange }) {
   const { t } = useLanguage()
+  const [auditRevision, setAuditRevision] = useState(0)
   return (
     <section className="gov-section" aria-labelledby="gov-heading">
       <header className="gov-section__head">
@@ -737,7 +1113,8 @@ export function GovernanceSection({ revision, onAccessChange, onPolicyChange }) 
       </header>
       <AccessPanel onApply={onAccessChange} />
       <DpLedgerPanel revision={revision} />
-      <AuditChainPanel revision={revision} />
+      <AuditChainPanel revision={`${revision}:${auditRevision}`} />
+      <InferenceCheckPanel onChecked={() => setAuditRevision((value) => value + 1)} />
       <PolicyPackPanel revision={revision} onPolicyChange={onPolicyChange} />
     </section>
   )

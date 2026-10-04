@@ -368,8 +368,9 @@ impl Parser {
         }
     }
 
-    /// Parses a named train() option that accepts either a string literal or a
-    /// bare identifier (e.g. `metric: "mae"` / `metric: mae`).
+    /// Parses a named train() option that accepts a string literal, a bare
+    /// identifier, or the `lr`/`epochs` keyword tokens (e.g. `metric: "mae"` /
+    /// `metric: mae` / `sort: lr`).
     fn parse_string_or_ident(&mut self, name: &str) -> CompileResult<String> {
         match self.current_kind() {
             TokenKind::StringLit(s) => {
@@ -381,6 +382,14 @@ impl Parser {
                 let ident = ident.clone();
                 self.advance();
                 Ok(ident)
+            }
+            TokenKind::Lr => {
+                self.advance();
+                Ok("lr".to_string())
+            }
+            TokenKind::Epochs => {
+                self.advance();
+                Ok("epochs".to_string())
             }
             other => Err(CompileError::new(
                 ErrorKind::ExpectedToken("StringLit".into()),
@@ -426,22 +435,11 @@ impl Parser {
         Ok(axes)
     }
 
-    /// Parses one `tiebreak:` axis value (string literal or bare identifier) and
-    /// rejects unknown values and the `metric` pseudo-axis.
+    /// Parses one `tiebreak:` axis value (string literal, bare identifier, or
+    /// the `lr`/`epochs` keyword tokens) and rejects unknown values and the
+    /// `metric` pseudo-axis.
     fn parse_tiebreak_axis(&mut self) -> CompileResult<SweepSort> {
-        // `lr`/`epochs` are lexed as dedicated keyword tokens, so accept them
-        // explicitly before falling back to a string literal / bare identifier.
-        let raw = match self.current_kind() {
-            TokenKind::Lr => {
-                self.advance();
-                "lr".to_string()
-            }
-            TokenKind::Epochs => {
-                self.advance();
-                "epochs".to_string()
-            }
-            _ => self.parse_string_or_ident("tiebreak")?,
-        };
+        let raw = self.parse_string_or_ident("tiebreak")?;
         let axis = SweepSort::parse(&raw).ok_or_else(|| {
             CompileError::new(
                 ErrorKind::UnexpectedToken(raw.clone()),
@@ -553,7 +551,7 @@ impl Parser {
                         CompileError::new(
                             ErrorKind::UnexpectedToken(raw.clone()),
                             self.current_span(),
-                            format!("알 수 없는 스윕 지표: '{}'. 지원: mse, mae, r2", raw),
+                            format!("알 수 없는 스윕 지표: '{}'. 지원: mse, mae, r2, cross_entropy, accuracy, precision, recall, f1, auc", raw),
                         )
                     })?;
                 }
@@ -2387,6 +2385,31 @@ type AirQuality = {
                 assert_eq!(config.sweep_sort, SweepSort::Batch);
                 assert_eq!(config.sweep_tiebreak, vec![SweepSort::Lr]);
                 assert_eq!(config.sweep_top, Some(3));
+            }
+            other => panic!("TrainStmt 예상, 실제: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_train_sweep_sort_accepts_bare_keyword() {
+        let src = r#"
+            model M { Dense(1) }
+            v data = load("x.csv") :: S;
+            run data |> train(M, target: "y", epochs: [1, 2], sort: lr);
+            run data |> train(M, target: "y", epochs: [1, 2], sort: epochs);
+        "#;
+        let program = parse_src(src).expect("파싱 실패");
+        match &program.stmts[2] {
+            Stmt::TrainStmt { config, .. } => {
+                assert_eq!(config.sweep_sort, SweepSort::Lr);
+                assert!(config.sweep_sort_explicit);
+            }
+            other => panic!("TrainStmt 예상, 실제: {:?}", other),
+        }
+        match &program.stmts[3] {
+            Stmt::TrainStmt { config, .. } => {
+                assert_eq!(config.sweep_sort, SweepSort::Epochs);
+                assert!(config.sweep_sort_explicit);
             }
             other => panic!("TrainStmt 예상, 실제: {:?}", other),
         }

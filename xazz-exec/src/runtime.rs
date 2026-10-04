@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fs;
 
 use crate::chart::{build_chart_spec, df_to_json_array, write_chart_html};
-use xazz_compiler::ast::{LayerKind, LoadOptions, SaveFormat, SweepMetric};
+use xazz_compiler::ast::{LayerKind, LoadOptions, SaveFormat};
 use xazz_compiler::ir::{ColType, MLOp, PipelineNode, Schema, SideOp, Source, Step as IrStep};
 use xazz_compiler::{Lexer, Parser};
 use xazz_core::i18n::{is_korean, tr};
@@ -263,6 +263,9 @@ pub fn run_pipeline(
     // 5-B: Sequential pipeline execution + SymbolTable management
     let mut symbol_table: HashMap<String, polars::frame::DataFrame> = HashMap::new();
     let mut model_table: HashMap<String, crate::dl::TrainedModel> = HashMap::new();
+    // Eager small-source cache: repeated `load()` of the same file + options is
+    // read/parsed once and reused (bench: P2/P7 double-scan regression).
+    let mut source_cache: HashMap<LoadCacheKey, polars::frame::DataFrame> = HashMap::new();
     // Session privacy budget (ε-budget) — deducted per withDp call, rejects the pipeline when exceeded
     let mut dp_budget = crate::dp::PrivacyBudget::from_env();
     let mut pipeline_count = 0usize;
@@ -278,6 +281,7 @@ pub fn run_pipeline(
             &model_registry,
             &mut model_table,
             &mut dp_budget,
+            &mut source_cache,
         ) {
             Ok(Some(df)) => {
                 if let Some(vname) = &node.name {
@@ -330,6 +334,7 @@ pub fn run_pipeline(
                     tr("failed", "실패"),
                     e
                 );
+                return Err(e);
             }
         }
     }
@@ -559,6 +564,57 @@ fn apply_dynamic_bridge(
     }
 }
 
+/// Eager counterpart of `apply_dynamic_bridge` + `apply_schema_cast` for an
+/// already-materialized small source.
+///
+/// Renames columns positionally to the declared schema, then casts each column
+/// to its declared type — all in place on the in-memory frame. This lets the
+/// small-source fast path validate types without a second `LazyFrame::collect()`
+/// (which re-materialized and re-transformed the whole frame) and without
+/// re-running the rename/cast in every downstream pipeline that loads the file.
+///
+/// Columns are transformed by position (never by name): `DataFrame::rename_many`
+/// updates the cached schema but leaves `get_column_index` unable to resolve the
+/// new names, so a subsequent `df.column(name)` would spuriously fail.
+fn bridge_and_cast_small(
+    df: polars::frame::DataFrame,
+    src_headers: &[String],
+    schema: &Schema,
+) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    use polars::prelude::PlSmallStr;
+
+    let height = df.height();
+    let map_count = src_headers.len().min(schema.fields.len());
+    let src_width = df.width();
+
+    let mut out: Vec<polars::prelude::Column> = Vec::with_capacity(src_width);
+    for (i, mut series) in df.columns().to_vec().into_iter().enumerate() {
+        if i < map_count {
+            let field = &schema.fields[i];
+            let new_name = PlSmallStr::from(field.name.as_str());
+            if series.name() != &new_name {
+                series.rename(new_name);
+            }
+            if let Some(dt) = ir_col_to_dtype(&field.ty) {
+                series = series.cast(&dt)?;
+            }
+        }
+        out.push(series);
+    }
+
+    // Fields declared beyond the source column count have no data to bind to.
+    // The lazy path surfaced this only at `collect()`; fail eagerly instead.
+    if schema.fields.len() > src_width {
+        return Err(format!(
+            "schema field '{}' not found in source ({} columns)",
+            schema.fields[src_width].name, src_width
+        )
+        .into());
+    }
+
+    polars::frame::DataFrame::new(height, out).map_err(Into::into)
+}
+
 // ── Type validation / Null handling ─────────────────────────────────────────
 fn validate_schema_types(df: &polars::frame::DataFrame, label: &str, schema: &Schema) {
     for field in &schema.fields {
@@ -625,7 +681,9 @@ fn load_source_lazy(
             })?;
             // UTF-8 → true out-of-core scan_csv. Non-UTF-8 (EUC-KR/CP949) →
             // eager decode fallback (these files are small Korean public datasets).
-            if String::from_utf8(raw_bytes.clone()).is_ok() {
+            // `from_utf8` borrows the buffer so the common UTF-8 case avoids a
+            // whole-file copy before handing the bytes to the eager decoder.
+            if std::str::from_utf8(&raw_bytes).is_ok() {
                 load_csv_lazy(file_path, options)
             } else {
                 use polars::prelude::IntoLazy;
@@ -662,6 +720,31 @@ pub(crate) fn load_source_as_df(
         "arrow" | "ipc" | "feather" => load_arrow_as_df(file_path),
         _ => load_csv_as_df_from_file(file_path, options),
     }
+}
+
+/// Cache key for a small eager `load()` source: the file path plus the parse
+/// options that affect the resulting frame.
+type LoadCacheKey = (String, Option<u8>, Option<bool>);
+
+/// Eager-loads a **small** source once per program run. Repeated `load()` calls
+/// for the same file and options reuse the first materialized frame instead of
+/// re-reading and re-parsing the file (regression: the benchmark's P2/P7 both
+/// `load()` the same CSV, so it was scanned twice).
+///
+/// Only small sources use this path — large out-of-core sources are never
+/// materialized here (see `execute_node`), preserving the streaming guarantee.
+fn load_small_source_cached(
+    cache: &mut HashMap<LoadCacheKey, polars::frame::DataFrame>,
+    file_path: &str,
+    options: &LoadOptions,
+) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    let key = (file_path.to_string(), options.separator, options.has_header);
+    if let Some(df) = cache.get(&key) {
+        return Ok(df.clone());
+    }
+    let df = load_source_as_df(file_path, options)?;
+    cache.insert(key, df.clone());
+    Ok(df)
 }
 
 fn load_parquet_as_df(
@@ -1202,11 +1285,13 @@ fn load_csv_as_df_from_bytes(
     use polars::prelude::{CsvParseOptions, CsvReadOptions, NullValues, SerReader};
     use std::io::Cursor;
 
-    let utf8_string = match String::from_utf8(raw_bytes.clone()) {
+    let utf8_string = match String::from_utf8(raw_bytes) {
         Ok(s) => s,
-        Err(_) => {
+        Err(e) => {
+            // Reuse the failed conversion's buffer instead of cloning it.
+            let bytes = e.into_bytes();
             use encoding_rs::EUC_KR;
-            let (cow, _encoding_used, _had_errors) = EUC_KR.decode(&raw_bytes);
+            let (cow, _encoding_used, _had_errors) = EUC_KR.decode(&bytes);
             cow.into_owned()
         }
     };
@@ -1261,6 +1346,7 @@ fn execute_node(
     model_registry: &HashMap<String, Vec<LayerKind>>,
     model_table: &mut HashMap<String, crate::dl::TrainedModel>,
     dp_budget: &mut crate::dp::PrivacyBudget,
+    source_cache: &mut HashMap<LoadCacheKey, polars::frame::DataFrame>,
 ) -> Result<Option<polars::frame::DataFrame>, Box<dyn std::error::Error>> {
     use polars::prelude::IntoLazy;
 
@@ -1278,27 +1364,25 @@ fn execute_node(
 
             if !is_large {
                 // ── Small source → eager fast path (issue #53) ──────────────────
-                // Read the file once via the format-dispatched eager loader, validate
-                // in-memory, then wrap in LazyFrame. Avoids the lazy-scan plus a
-                // second disk pass for null-validation (which regressed small files).
-                let df_raw = load_source_as_df(file_path, options)?;
+                // Read the file once via the format-dispatched eager loader, then
+                // bridge/cast + validate **eagerly** on that frame. The previous
+                // code wrapped it in a LazyFrame and re-`collect()`ed the whole
+                // frame solely to validate types — a redundant full materialization
+                // (small-scale bench: the load path dominates pipeline_ms).
+                let df_raw = load_small_source_cached(source_cache, file_path, options)?;
                 let src_headers: Vec<String> = df_raw
                     .get_column_names()
                     .iter()
                     .map(|s| s.to_string())
                     .collect();
-                let lf_bridged = match schema {
+                match schema {
                     Some(fields) => {
-                        let lf_renamed = apply_dynamic_bridge(df_raw.lazy(), &src_headers, fields);
-                        apply_schema_cast(lf_renamed, fields)
+                        let df = bridge_and_cast_small(df_raw, &src_headers, fields)?;
+                        validate_schema_types(&df, file_path, fields);
+                        (df.lazy(), schema.as_ref(), false)
                     }
-                    None => df_raw.lazy(),
-                };
-                if let Some(fields) = schema {
-                    let df_loaded = lf_bridged.clone().collect()?;
-                    validate_schema_types(&df_loaded, file_path, fields);
+                    None => (df_raw.lazy(), None, false),
                 }
-                (lf_bridged, schema.as_ref(), false)
             } else {
                 // ── Large source → lazy out-of-core scan (issue #53) ────────────
                 // Source stays a LazyFrame until the terminal collect; large files
@@ -1412,8 +1496,8 @@ fn execute_node(
                     }
                 })?;
                 let snapshot = lf.clone().collect()?;
-                let out = crate::backend::active()
-                    .predict(trained, &snapshot, as_col.as_deref())
+                let (out, embedding) = crate::backend::active()
+                    .predict_with_diagnostics(trained, &snapshot, as_col.as_deref())
                     .map_err(|e| format!("{}: {e}", tr("prediction failed", "예측 실패")))?;
                 eprintln!(
                     "[xazz] Predict '{}' {}: {} ({} {})",
@@ -1422,6 +1506,18 @@ fn execute_node(
                     tr("prediction column added", "예측 컬럼 추가"),
                     out.height(),
                     tr("rows", "행")
+                );
+                // Structured embedding-input diagnostics for `--json` (D3 predict
+                // follow-up); mirrors the `[xazz:train]` report shape.
+                let predict_json = serde_json::json!({
+                    "type": "predict_stmt",
+                    "success": true,
+                    "model_name": model,
+                    "report": serde_json::to_value(embedding).unwrap_or_default(),
+                });
+                println!(
+                    "[xazz:predict] {}",
+                    serde_json::to_string(&predict_json).unwrap_or_default()
                 );
                 lf = out.lazy();
             }
@@ -1514,6 +1610,16 @@ fn execute_node(
                     obj.insert(
                         "query_count".into(),
                         serde_json::json!(dp_budget.query_count()),
+                    );
+                    // Remaining budget after this step, so `xazz run --json` / dashboards
+                    // (issue #117) need not re-derive it from total − spent.
+                    obj.insert(
+                        "budget_remaining".into(),
+                        serde_json::json!(dp_budget.remaining()),
+                    );
+                    obj.insert(
+                        "budget_remaining_delta".into(),
+                        serde_json::json!(dp_budget.remaining_delta()),
                     );
                 }
                 // Single-line self-contained marker (parse-safe even if broken by newlines/emoji).
@@ -1652,10 +1758,11 @@ fn print_sweep_report(report: &crate::dl::SweepReport) {
             .final_val_loss
             .map(|v| format!("{v:.6}"))
             .unwrap_or_else(|| "-".to_string());
-        let metric_value = match report.metric {
-            SweepMetric::Mse => c.final_val_loss.unwrap_or(c.final_train_loss),
-            SweepMetric::Mae => c.val_mae.unwrap_or(c.train_mae),
-            SweepMetric::R2 => c.val_r2.unwrap_or(c.train_r2),
+        let score = crate::dl::SweepReport::score(c, report.metric);
+        let metric_value = if report.metric.lower_is_better() {
+            score
+        } else {
+            -score
         };
         let mark = if i == report.best_index { " ★" } else { "" };
         println!(
@@ -1679,6 +1786,19 @@ fn print_sweep_report(report: &crate::dl::SweepReport) {
             best.batch_size,
             best.learning_rate
         );
+        // Every combination trains on the same inputs, so the winner's counts
+        // represent the whole grid (issue D3 follow-up).
+        if best.embedding_out_of_range > 0 || best.embedding_non_integer > 0 {
+            println!(
+                "  {} : {} / {}",
+                tr(
+                    "embedding diagnostics (out-of-range / non-integer)",
+                    "임베딩 진단(범위 밖/비정수)"
+                ),
+                best.embedding_out_of_range,
+                best.embedding_non_integer
+            );
+        }
     }
     println!();
 }
@@ -1699,33 +1819,68 @@ fn print_train_report(trained: &crate::dl::TrainedModel) {
         tr("parameters", "파라미터 수"),
         report.num_params
     );
-    println!(
-        "  {} : {:.6}",
-        tr("final loss (MSE)", "최종 손실(MSE)"),
-        report.final_train_loss
-    );
-    if let Some(v) = report.final_val_loss {
+    if let Some(metrics) = &report.classification {
+        println!("  cross-entropy (train): {:.6}", report.final_train_loss);
+        if let Some(loss) = report.final_val_loss {
+            println!("  cross-entropy (val): {loss:.6}");
+        }
+        for (partition, metrics) in std::iter::once(("train", metrics)).chain(
+            report
+                .validation_classification
+                .as_ref()
+                .map(|m| ("val", m)),
+        ) {
+            println!(
+                "  {partition}: accuracy={:.6}, precision={:.6}, recall={:.6}, F1={:.6}",
+                metrics.accuracy, metrics.precision, metrics.recall, metrics.f1
+            );
+            if let Some(auc) = metrics.auc {
+                println!("  AUC ({partition}): {auc:.6}");
+            }
+        }
+    } else {
         println!(
             "  {} : {:.6}",
-            tr("validation loss (MSE)", "검증 손실(MSE)"),
-            v
+            tr("final loss (MSE)", "최종 손실(MSE)"),
+            report.final_train_loss
+        );
+        if let Some(v) = report.final_val_loss {
+            println!(
+                "  {} : {:.6}",
+                tr("validation loss (MSE)", "검증 손실(MSE)"),
+                v
+            );
+        }
+        println!(
+            "  {} : {:.6}",
+            tr("final MAE (train)", "최종 MAE(학습)"),
+            report.final_train_mae
+        );
+        if let Some(v) = report.final_val_mae {
+            println!("  {} : {:.6}", tr("MAE (val)", "MAE(검증)"), v);
+        }
+        println!(
+            "  {} : {:.6}",
+            tr("final R² (train)", "최종 R²(학습)"),
+            report.final_train_r2
+        );
+        if let Some(v) = report.final_val_r2 {
+            println!("  {} : {:.6}", tr("R² (val)", "R²(검증)"), v);
+        }
+    }
+    if report.embedding_out_of_range > 0 {
+        println!(
+            "  {} : {}",
+            tr("embedding out-of-range indices", "임베딩 범위 밖 인덱스"),
+            report.embedding_out_of_range
         );
     }
-    println!(
-        "  {} : {:.6}",
-        tr("final MAE (train)", "최종 MAE(학습)"),
-        report.final_train_mae
-    );
-    if let Some(v) = report.final_val_mae {
-        println!("  {} : {:.6}", tr("MAE (val)", "MAE(검증)"), v);
-    }
-    println!(
-        "  {} : {:.6}",
-        tr("final R² (train)", "최종 R²(학습)"),
-        report.final_train_r2
-    );
-    if let Some(v) = report.final_val_r2 {
-        println!("  {} : {:.6}", tr("R² (val)", "R²(검증)"), v);
+    if report.embedding_non_integer > 0 {
+        println!(
+            "  {} : {}",
+            tr("embedding non-integer inputs", "임베딩 비정수 입력"),
+            report.embedding_non_integer
+        );
     }
     println!(
         "  {}  : {:?}",
@@ -1927,5 +2082,59 @@ mod postgres_tests {
             msg.contains("PostgreSQL") || msg.contains("postgres"),
             "unexpected error: {msg}"
         );
+    }
+}
+
+// ── Small-source load cache tests (bench double-scan regression) ──────────
+
+#[cfg(test)]
+mod load_cache_tests {
+    use super::*;
+
+    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    fn tmp_csv(tag: &str) -> std::path::PathBuf {
+        let n = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "xazz_load_cache_{tag}_{}_{n}.csv",
+            std::process::id()
+        ));
+        std::fs::write(&path, "a,b\n1,2\n3,4\n").expect("write temp csv");
+        path
+    }
+
+    #[test]
+    fn repeated_small_load_reuses_first_read() {
+        let path = tmp_csv("reuse");
+        let p = path.to_str().unwrap().to_string();
+        let mut cache = HashMap::new();
+        let opts = LoadOptions::default();
+
+        let first = load_small_source_cached(&mut cache, &p, &opts).expect("first load");
+        assert_eq!(first.height(), 2);
+        assert_eq!(cache.len(), 1);
+
+        // Remove the source between calls: a re-read would fail, so success proves
+        // the second load came from the cache (one scan for repeated `load()`).
+        std::fs::remove_file(&path).expect("remove temp csv");
+        let second = load_small_source_cached(&mut cache, &p, &opts).expect("cached load");
+        assert_eq!(second.height(), 2);
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn distinct_parse_options_are_cached_separately() {
+        let path = tmp_csv("opts");
+        let p = path.to_str().unwrap().to_string();
+        let mut cache = HashMap::new();
+
+        load_small_source_cached(&mut cache, &p, &LoadOptions::default()).expect("default load");
+        let custom = LoadOptions {
+            separator: Some(b';'),
+            has_header: Some(false),
+        };
+        // Distinct options → distinct key → cache miss (the file still exists here).
+        load_small_source_cached(&mut cache, &p, &custom).expect("custom load");
+        assert_eq!(cache.len(), 2);
     }
 }

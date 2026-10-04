@@ -9,6 +9,7 @@
  *   [xazz:chart] {JSON}    → 한 줄 payload → ChartEvent
  *                            (구형: `[xazz:chart]` 단독 + 다음 줄 JSON)
  *   [xazz:train] {JSON}    → TrainEvent (report: Burn 학습 리포트)
+ *   [xazz:predict] {JSON}  → PredictEvent (report: 임베딩 입력 진단)
  *   [xazz:model] {JSON}    → ModelEvent (모델 선언 메타데이터)
  *   [xazz:error]           → 다음 줄: ERROR[CODE]: message
  *                            선택적 다음 줄: AI_SUGGESTION: guidance → ErrorEvent
@@ -19,14 +20,16 @@
  * ── Event Types ──────────────────────────────────────────────────────────────
  * @typedef {{ type: 'chart', chartType: 'bar'|'line'|'pie'|'scatter', title: string, data: any[] }} ChartEvent
  * @typedef {{ type: 'train', report: any, raw: any }} TrainEvent
+ * @typedef {{ type: 'predict', report: any, raw: any }} PredictEvent
  * @typedef {{ type: 'model', model: any, raw: any }} ModelEvent
  * @typedef {{ type: 'error', code: string, message: string, suggestion: string|null }} ErrorEvent
  * @typedef {{ type: 'text',  text: string }} TextEvent
- * @typedef {ChartEvent | TrainEvent | ModelEvent | ErrorEvent | TextEvent} ExecutionEvent
+ * @typedef {ChartEvent | TrainEvent | PredictEvent | ModelEvent | ErrorEvent | TextEvent} ExecutionEvent
  */
 
 const PREFIX_CHART    = '[xazz:chart]';
 const PREFIX_TRAIN    = '[xazz:train]';
+const PREFIX_PREDICT  = '[xazz:predict]';
 const PREFIX_MODEL    = '[xazz:model]';
 const PREFIX_RESULT   = '[xazz:result]';
 const PREFIX_ERROR    = '[xazz:error]';
@@ -152,8 +155,8 @@ export function parseStdout(lines) {
       continue;
     }
 
-    // ── [xazz:result] / [xazz:train] / [xazz:model] (같은 줄에 JSON) ────────
-    const inlinePrefixes = [PREFIX_RESULT, PREFIX_TRAIN, PREFIX_MODEL];
+    // ── [xazz:result] / [xazz:train] / [xazz:predict] / [xazz:model] (같은 줄에 JSON) ──
+    const inlinePrefixes = [PREFIX_RESULT, PREFIX_TRAIN, PREFIX_PREDICT, PREFIX_MODEL];
     const inlinePrefix = inlinePrefixes.find(p => trimmed.startsWith(p + ' ') || trimmed === p);
     if (inlinePrefix) {
       const jsonStr = trimmed.slice(inlinePrefix.length).trim();
@@ -162,6 +165,9 @@ export function parseStdout(lines) {
 
       if (inlinePrefix === PREFIX_TRAIN && parsed) {
         events.push({ type: 'train', report: parsed.report || parsed, raw: parsed });
+      } else if (inlinePrefix === PREFIX_PREDICT && parsed) {
+        // predict 임베딩 입력 진단 — train 과 대칭으로 report 를 unwrap 한다.
+        events.push({ type: 'predict', report: parsed.report || parsed, raw: parsed });
       } else if (inlinePrefix === PREFIX_MODEL && parsed) {
         events.push({ type: 'model', model: parsed, raw: parsed });
       } else if (inlinePrefix === PREFIX_RESULT && parsed) {
@@ -243,6 +249,15 @@ export function parseStdout(lines) {
  */
 export function getChartEvents(events) {
   return events.filter(e => e.type === 'chart');
+}
+
+/**
+ * ExecutionEvent[] 에서 PredictEvent 만 추출합니다.
+ * @param {ExecutionEvent[]} events
+ * @returns {PredictEvent[]}
+ */
+export function getPredictEvents(events) {
+  return events.filter(e => e.type === 'predict');
 }
 
 /**

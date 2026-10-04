@@ -120,6 +120,12 @@ export function checkPolicy(code) {
   return request('/security/policy/check', { method: 'POST', json: { code } })
 }
 
+export const checkInference = ({ code, prompt, response, model_fingerprint }) =>
+  request('/security/inference/check', {
+    method: 'POST',
+    json: { code, prompt, response, ...(model_fingerprint ? { model_fingerprint } : {}) },
+  })
+
 /**
  * POST /security/remediate — 차단된 코드의 안전한 대체 코드와 위반 리포트를 받는다 (issue #2).
  *
@@ -134,6 +140,13 @@ export function remediateCode(code) {
 export const listRuns = () => request('/runs').then((data) => data?.runs ?? [])
 export const getRun = (id) => request(`/runs/${encodeURIComponent(id)}`)
 
+// ── Run resource telemetry (#128). Whole runner process tree for one run:
+// { run_id, tenant, available: true, resources: { duration_ms, cpu_user_ms,
+//   cpu_sys_ms, max_rss_kb, source } } — or { available: false, reason } when the
+// run predates the feature or the platform has no rusage. Never fabricate.
+export const getRunResources = (id) =>
+  request(`/runs/${encodeURIComponent(id)}/resources`)
+
 // ── Audit chain (#108)
 export const getAuditLog = () => request('/security/audit/log')
 export const getAuditRecords = (hash) =>
@@ -145,16 +158,32 @@ export const verifyAuditChain = () => request('/security/audit/chain')
 export const getPolicy = () => request('/security/policy')
 export const putPolicy = (policy) => request('/security/policy', { method: 'PUT', json: policy })
 export const deletePolicy = () => request('/security/policy', { method: 'DELETE' })
-export const getPolicyHistory = ({ limit = 20, offset = 0 } = {}) =>
-  request(`/security/policy/history?limit=${limit}&offset=${offset}`)
+const historyQuery = ({ limit = 20, cursor } = {}) =>
+  cursor == null ? `limit=${limit}` : `limit=${limit}&cursor=${encodeURIComponent(cursor)}`
+export const getPolicyHistory = (options) =>
+  request(`/security/policy/history?${historyQuery(options)}`)
 export const getPolicyTtl = () => request('/security/policy/history/ttl')
+export const getPolicyTtlHistory = (options) =>
+  request(`/security/policy/history/ttl/history?${historyQuery(options)}`)
 export const putPolicyTtl = (ttlSecs) =>
   request('/security/policy/history/ttl', { method: 'PUT', json: { ttl_secs: ttlSecs } })
 export const deletePolicyTtl = () => request('/security/policy/history/ttl', { method: 'DELETE' })
 
 // ── Differential-privacy ledger (#110)
 export const getDpBudget = () => request('/dp/budget')
+// Reset audit (C2) — newest-first, cursor paged like the other history endpoints.
+// {resets:[{id,tenant,actor,reset_at,spent_epsilon_before,spent_delta_before}], next_cursor}.
+export const getDpResetHistory = (options) =>
+  request(`/dp/budget/history?${historyQuery(options)}`)
 export const resetDpBudget = () => request('/dp/budget/reset', { method: 'POST' })
+export const putDpWindow = (windowSecs) =>
+  request('/dp/budget/window', { method: 'PUT', json: { window_secs: windowSecs } })
+export const deleteDpWindow = () => request('/dp/budget/window', { method: 'DELETE' })
+// Window-override change audit (C2) — newest-first, cursor paged like the policy
+// history endpoints. {history:[{id,tenant,action,old_window_secs,new_window_secs,
+// changed_by,changed_at}], next_cursor}.
+export const getDpWindowHistory = (options) =>
+  request(`/dp/budget/window/history?${historyQuery(options)}`)
 
 // ── Column lineage (#116) — static compile only, nothing executes.
 export const fetchCatalog = (code) =>

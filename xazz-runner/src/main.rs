@@ -103,10 +103,7 @@ fn main() {
                 if started.elapsed().as_secs() >= timeout_secs {
                     let _ = child.kill();
                     let _ = child.wait();
-                    eprintln!(
-                        "[xazz-runner] ERROR: execution exceeded {timeout_secs}s — engine terminated. \
-                         (adjustable via the XAZZ_EXEC_TIMEOUT_SECS environment variable)"
-                    );
+                    eprintln!("{}", timeout_error_message(timeout_secs));
                     std::process::exit(1);
                 }
                 std::thread::sleep(Duration::from_millis(100));
@@ -122,6 +119,19 @@ fn main() {
     std::process::exit(code);
 }
 
+/// Builds the user-facing message shown when the execution engine exceeds its time limit.
+///
+/// The default limit (`DEFAULT_EXEC_TIMEOUT_SECS`) is unchanged; this only makes the
+/// escalation path explicit so long `train`/sweep runs are not silently truncated.
+fn timeout_error_message(timeout_secs: u64) -> String {
+    format!(
+        "[xazz-runner] ERROR: execution exceeded {timeout_secs}s — engine terminated. \
+         Long-running `train`/sweep pipelines often need more time: set \
+         XAZZ_EXEC_TIMEOUT_SECS to the number of seconds to allow \
+         (default {DEFAULT_EXEC_TIMEOUT_SECS}; values ≤ 0 are ignored)."
+    )
+}
+
 fn print_usage() {
     println!("xazz-runner {} — Xazz execution-engine IPC bridge", VERSION);
     println!();
@@ -131,6 +141,12 @@ fn print_usage() {
     println!("  --version, -V        print version");
     println!("  --help, -h           show this help");
     println!("  --check-engine       diagnose availability of the execution engine (xazz-exec)");
+    println!();
+    println!("environment:");
+    println!(
+        "  XAZZ_EXEC_TIMEOUT_SECS  execution time limit in seconds \
+         (default {DEFAULT_EXEC_TIMEOUT_SECS}; values ≤ 0 ignored)"
+    );
 }
 
 /// Diagnoses the existence and runnability of the xazz-exec execution engine.
@@ -229,4 +245,24 @@ fn resolve_exec_binary() -> Result<PathBuf, String> {
 
     Err("xazz-exec 실행 엔진을 찾을 수 없습니다 (PATH 폴백은 보안상 비활성화됨). \
          XAZZ_EXEC_PATH 로 절대 경로를 지정하거나 xazz-exec 를 xazz-runner 와 같은 디렉터리에 배치하세요.".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timeout_message_reports_limit_and_escalation() {
+        let msg = timeout_error_message(45);
+        assert!(msg.contains("45s"), "limit missing: {msg}");
+        assert!(
+            msg.contains("XAZZ_EXEC_TIMEOUT_SECS"),
+            "env var missing: {msg}"
+        );
+        assert!(
+            msg.contains(&DEFAULT_EXEC_TIMEOUT_SECS.to_string()),
+            "default missing: {msg}"
+        );
+        assert!(msg.contains("train"), "long-run hint missing: {msg}");
+    }
 }

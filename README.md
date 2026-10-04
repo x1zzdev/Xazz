@@ -46,6 +46,10 @@ Python owns AI prototyping — but at pipeline scale three structural costs keep
 
 Xazz is not a wrapper around existing libraries. The parser, AST, static type checker, typed IR, lowering, and DL compilation engine are all designed and implemented from scratch in Rust — so a single `.xzz` script controls the whole path from CSV to trained model. `.xzz` compiles to a **typed IR** once, and the runtime consumes that IR once (instead of re-parsing the source and interpreting the raw AST directly against Polars/Burn).
 
+### Why not just DuckDB / Polars / pandas?
+
+A fair first reaction is "this is Polars or DuckDB with extra syntax." The distinction is *what the language is responsible for*. DuckDB and Polars are excellent **execution engines** — and Xazz runs on Polars. What they do not do on their own is decide whether a pipeline is *allowed* to run: type/null correctness, PII and secret exposure, differential-privacy budget, and an auditable record are gates you otherwise re-implement as application glue around each engine, differently every time. Xazz makes those gates part of the compiled pipeline, enforced in one static pass over a typed IR before a single row is read. If all you need is fast SQL/DataFrame execution, DuckDB and Polars are the right tools; Xazz targets the case where the pipeline itself must be compiled, governed, and audited.
+
 <div align="center">
 <img src="docs/figures/pipeline-flow.svg" alt="Xazz end-to-end pipeline: compile phase (lexer, parser, type check, guardrail, typed IR, process isolation) and execute phase (Polars, DP noise, tensor bridge, training, results, audit log)" width="94%">
 </div>
@@ -241,14 +245,16 @@ Deep details live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/WORK
 Same 4-stage pipeline (drop nulls → dual filter → group-by aggregates → fill + count), executed by pandas 3.0.5 and Xazz on real Seoul air-quality data (8 source files, 2008–2026). Median of 3 runs after warmup, wall-clock timing.
 
 <div align="center">
-<img src="docs/assets/benchmark_chart.png" alt="Benchmark: latency scaling across 228K/912K/4.09M rows and speedup bars — 1.39x, 1.95x, 1.39x vs pandas" width="94%">
+<img src="docs/assets/benchmark_chart.png" alt="Benchmark: latency scaling across 228K/912K/4.09M rows and speedup bars — 0.76x, 1.44x, 1.30x vs pandas" width="94%">
 </div>
 
-- **Faster at every scale**: 1.39× vs pandas at 228K rows (556 ms vs 770 ms), 1.95× at 912K rows (1,054 ms vs 2,052 ms), and 1.39× at 4.09M rows (4,344 ms vs 6,040 ms) — with lower peak RSS at the largest scale (570 MB vs 656 MB).
+- **Faster past the small file**: 1.44× vs pandas at 912K rows (467 ms vs 671 ms) and 1.30× at 4.09M rows (3,070 ms vs 3,981 ms) — with lower peak RSS at the largest scale (567 MB vs 656 MB). At 228K rows the two engines are roughly break-even (0.76×): the fixed load/filter overhead dominates a file pandas already reads in ~0.2 s.
 - Both sides are measured as **pipeline execution only** — the Python interpreter boot (~0.3–0.7 s) is excluded from pandas, and Xazz reports its own `[xazz:timing]` pipeline marker, so the comparison is apples-to-apples. Peak RSS uses the process tree for both engines.
 - Source comes from Apache Arrow columnar memory + Polars LazyFrame query optimization + multithreaded native execution.
 - **Out-of-core execution:** `load()` now returns a lazy scan (`scan_csv`/`scan_parquet`/`scan_ipc`), so sources stay on disk until the terminal collect — no full-file materialization upfront. For very large workloads set `XAZZ_STREAMING=1` to collect through Polars' streaming engine (unsupported plans fall back to in-memory automatically). See [docs/ROADMAP.md](docs/ROADMAP.md) Track A2.
-- Honest footnote: Polars' multithreading trades higher peak RSS for latency — pandas holds more rows per thread, Polars parallelizes across them. Note the benchmark data itself is not committed (it is built from the Seoul air-quality sources). Reproduce it yourself:
+- Honest footnote: Polars' multithreading trades higher peak RSS for latency — pandas holds more rows per thread, Polars parallelizes across them. Note the benchmark data itself is not committed (it is built from the Seoul air-quality sources).
+
+**Measurement provenance.** The committed numbers were captured on a single development host and **predate provenance capture**, so the full CPU/OS/RAM spec is not recorded — read them as directional. `benches/run_readme_benchmark.py` now writes a `provenance` block (platform, OS, CPU model, physical/logical cores, total RAM, and the pandas/polars/Python versions) into `benches/benchmark_results.json`, so the next run on a stable host is fully attributed. Reproduce it yourself:
 
 ```bash
 git lfs pull                                    # fetch examples/data (Git LFS)
@@ -318,13 +324,34 @@ python benches/run_readme_benchmark.py --xlarge
 | 26 pipeline operators | `filter`, `groupBy`, `agg([...])`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
 | Visual IDE | Node-based pipeline editor + monitor, served by `xazz-server` | Stable |
 | Run history | SQLite-persisted run records — `GET /runs`, `GET /runs/:id` (Track C1) | Stable |
-| Auth & multi-tenant | `XAZZ_SERVER_TOKEN` / `XAZZ_TENANT_TOKENS` + `X-Xazz-Tenant`; `XAZZ_ADMIN_TOKEN` + `X-Xazz-Actor` for delegated policy changes — tenant-scoped run history & audit (Track C2) | Stable |
+| Auth & multi-tenant | `XAZZ_SERVER_TOKEN` / `XAZZ_TENANT_TOKENS` + `X-Xazz-Tenant`; `XAZZ_ADMIN_TOKEN` + `X-Xazz-Actor` (or `XAZZ_ADMIN_ACTORS=token:actor` to pin the actor, which then ignores `X-Xazz-Actor` so CLI `--actor` has no effect) for delegated policy changes — tenant-scoped run history & audit (Track C2) | Stable |
+| Server config | `xazz-server` environment variables — auth, DP budgets, policy-history retention, bind/paths — in [`docs/SERVER.md`](docs/SERVER.md) (Track C2) | Stable |
 | Pipeline catalog | `POST /catalog` — pipeline catalog + column lineage from the Typed IR (Track C3) | Stable |
 | Python bindings | `xazz.check/run/policy` from Python — same diagnostics as the CLI (Track C4) | Stable |
 | `xazz sde` | Synthetic data generation engine | Stable |
-| `xazz registry` | Browse/install policy packs (`xazz.policy.json`) and stdlib modules (`std/`) — offline; `registry deploy` pushes a pack to a tenant via the server (Track E4/C2) | Stable |
+| `xazz registry` | Browse/install policy packs (`xazz.policy.json`) and stdlib modules (`std/`) — offline; `registry deploy` / `registry undeploy` push/remove a tenant's pack via the server (Track E4/C2) | Stable |
+| `xazz policy-status` / `xazz policy-ttl` | Read a tenant's policy state from a running server (`history`/`ttl`/`ttl-history`) and set/clear its policy-history retention window override (`--json`/`--cursor`/`--actor`) (Track C2) | Stable |
+| `xazz dp window` / `xazz dp budget` / `xazz dp reset` | Read or change a tenant's DP budget on a running server — `window set`/`clear`/`history` (`--window-secs`/`--json`/`--cursor`/`--limit`/`--actor`), read the current spend/remaining envelope (`dp budget`), and clear the ledger + audit the actor (`dp reset`/`dp reset-history`, both cursor-pageable) (Track C2) | Stable |
 | `xazz sanitize` | Fine-tuning data sanitization — PII scan, duplicate & bias checks (Track F3) | Stable |
 | Model provenance | Policy registry gate — `hf://` model references, license/unknown-weights blocking (Track F5) | Stable |
+
+---
+
+## Limitations & Non-goals
+
+Xazz is pre-1.0. We would rather state what is **not** verified than let you discover it after installing. This section is mirrored in the release notes.
+
+- **CPU is the default and the only fully verified path.** GPU support is optional, selected at runtime via `XAZZ_BACKEND` / `XAZZ_DEVICE`, and never required to run a `.xzz` pipeline.
+  - `burn-wgpu` (cross-vendor) passed real-hardware acceptance on Windows 11 / RTX 4070 Laptop + Intel Arc iGPU (2026-09-25).
+  - `burn-cuda` compiles and fails closed to CPU when no driver is present, but its gated parity test has **not** run on a CUDA-driver host yet.
+  - ONNX Runtime export/inference is wired, but its gated acceptance test has **not** passed on a standard toolchain: `ort-sys` ships prebuilt binaries only for `*-windows-msvc` (the Windows GNU toolchain fails), and the macOS `coreml` run is pending. See [docs/GPU_BACKENDS.md](docs/GPU_BACKENDS.md).
+- **No native Python extension yet.** `import xazz` is a pure-Python adapter over the CLI, not a PyO3 module — it returns the same diagnostics as the CLI but pays a subprocess boundary. The PyO3 path and the NumPy/Pandas → Arrow handoff are deferred. See [docs/ROADMAP.md](docs/ROADMAP.md) Track C4.
+- **`xazz emit rust` is a reference emitter, not a second runtime.** New language features land in `xazz-exec` first; the emitted Rust can lag on some training options (e.g. single-run `validation_split` / early stopping, per-epoch sweep columns). `xazz run` is the source of truth — treat the emitted code as readable reference output.
+- **The container image and clean-host smoke are pending the next tag.** The `Dockerfile` and `docker compose up` demo work from a local build, but the GHCR multi-arch image is published only on a `v*` tag, and the [clean-host smoke checklist](docs/DOCKER.md#smoke-checklist-clean-host) has not been recorded against a published tag yet.
+- **Benchmarks are single-host and not yet provenance-stamped.** The numbers in [Performance](#performance) come from one development host and predate provenance capture — treat them as directional, not as a guarantee. `benches/run_readme_benchmark.py` now records host/OS/CPU/RAM/versions so the next run is reproducible.
+- **Not a sandbox.** `xazz-runner` is process isolation with an execution timeout, not an OS-level sandbox. Policy-as-Code blocks known-bad pipeline shapes before execution; see [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md) for the `PATH`-shadowing deployment caveat.
+
+**Non-goals:** replacing pandas / Polars / DuckDB as compute engines, replacing PyTorch as a training framework, or competing on GPU kernel performance. Xazz is the compile-and-governance layer *above* those engines.
 
 ---
 
@@ -338,7 +365,7 @@ python benches/run_readme_benchmark.py --xlarge
 | Phase 4 — Typed IR & Optimizer | Single typed intermediate representation, double-parse removal, IR optimizer (`--opt`) | ✅ Complete (v0.3.0) |
 | Phase 5 — Expanded Language | More operators, join improvements, schema evolution | 🚧 In progress |
 | Phase 5.5 — Data Scale | Columnar sources & artifact output (`load`/`save`: Parquet, Arrow) | ✅ save/load (#52) |
-| Phase 6 — AI Expansion | GPU backends (burn-tch / burn-wgpu), distributed training, NQP | 🔭 Planned |
+| Phase 6 — AI Expansion | GPU backends (burn-cuda / burn-wgpu), distributed training, NQP | 🔭 Planned |
 | Phase 7 — GenAI Governance | Prompt input gate, LLM output re-scan, fine-tuning data sanitization (burn-engine LoRA/QLoRA pairing), model provenance | 🔭 Planned (Track F) |
 | Track G — Community | Multi-language docs + Discussions, release/contribution guides, local playground | 🚧 In progress ([#155](https://github.com/x1zzdev/Xazz/issues/155)) |
 

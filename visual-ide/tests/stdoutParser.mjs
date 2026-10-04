@@ -4,7 +4,7 @@
  * Covers the `[xazz:*]` marker contract consumed by the Visual IDE:
  *   - single-line `[xazz:chart] {JSON}` for bar/line/pie/scatter (current format)
  *   - legacy two-line `[xazz:chart]` + JSON (fallback)
- *   - `[xazz:train] {JSON}` / `[xazz:model] {JSON}` → train/model events
+ *   - `[xazz:train] {JSON}` / `[xazz:predict] {JSON}` / `[xazz:model] {JSON}` → events
  *   - `[xazz:dp] {JSON}` is not a chart/error event — it falls through to text
  *   - `[xazz:result] {JSON}` is exposed as text
  *   - `[xazz:error]` + `AI_SUGGESTION:` legacy block → error event
@@ -19,6 +19,7 @@ import assert from 'node:assert/strict'
 import {
   parseStdout,
   getChartEvents,
+  getPredictEvents,
   getErrorEvents,
   getTextEvents,
 } from '../src/transpiler/stdoutParser.js'
@@ -166,6 +167,37 @@ assert.deepEqual(
   'payload is used as report when the report key is absent',
 )
 
+// ── [xazz:predict] {JSON} → predict event ────────────────────────────────────
+
+const predictPayload = {
+  type: 'predict_stmt',
+  success: true,
+  model_name: 'AirPredictor',
+  report: { embedding_out_of_range: 3, embedding_non_integer: 1 },
+}
+const predictEvents = parseStdout([`[xazz:predict] ${JSON.stringify(predictPayload)}`])
+assert.equal(predictEvents.length, 1, 'a [xazz:predict] line yields one event')
+assert.equal(predictEvents[0].type, 'predict', '[xazz:predict] yields a predict event')
+assert.deepEqual(
+  predictEvents[0].report,
+  { embedding_out_of_range: 3, embedding_non_integer: 1 },
+  'the predict report is unwrapped',
+)
+assert.equal(
+  predictEvents[0].raw.model_name,
+  'AirPredictor',
+  'the raw predict payload is retained',
+)
+
+const barePredict = parseStdout([
+  `[xazz:predict] ${JSON.stringify({ embedding_out_of_range: 0 })}`,
+])[0]
+assert.deepEqual(
+  barePredict.report,
+  { embedding_out_of_range: 0 },
+  'payload is used as report when the report key is absent',
+)
+
 // ── [xazz:model] {JSON} → model event ────────────────────────────────────────
 
 const modelPayload = {
@@ -183,6 +215,8 @@ assert.equal(modelEvents[0].model.layers.length, 3, 'model layers are preserved'
 
 const badTrain = parseStdout(['[xazz:train] {not json'])[0]
 assert.equal(badTrain.type, 'text', 'unparseable [xazz:train] payload becomes text')
+const badPredict = parseStdout(['[xazz:predict] {not json'])[0]
+assert.equal(badPredict.type, 'text', 'unparseable [xazz:predict] payload becomes text')
 const badModel = parseStdout(['[xazz:model] {not json'])[0]
 assert.equal(badModel.type, 'text', 'unparseable [xazz:model] payload becomes text')
 
@@ -241,13 +275,15 @@ assert.equal(getTextEvents(noise).length, 2, 'getTextEvents keeps only text even
 const mixed = parseStdout([
   `[xazz:chart] ${JSON.stringify(barPayload)}`,
   'plain output',
+  `[xazz:predict] ${JSON.stringify(predictPayload)}`,
   '[xazz:error]',
   'ERROR[E1]: boom',
 ])
 assert.equal(getChartEvents(mixed).length, 1, 'getChartEvents isolates chart events')
+assert.equal(getPredictEvents(mixed).length, 1, 'getPredictEvents isolates predict events')
 assert.equal(getErrorEvents(mixed).length, 1, 'getErrorEvents isolates error events')
 assert.equal(getTextEvents(mixed).length, 1, 'getTextEvents isolates text events')
 
 console.log(
-  'stdoutParser: ok; chart(bar,line,pie,scatter); train/model; error(io,runtime,parser,legacy); helpers=3',
+  'stdoutParser: ok; chart(bar,line,pie,scatter); train/predict/model; error(io,runtime,parser,legacy); helpers=4',
 )

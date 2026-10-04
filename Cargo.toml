@@ -77,3 +77,7 @@ encoding_rs = { version = "0.8" }
 
 # ⚠️  REMOVED: tokio — run 명령어는 xazz-runner 서브프로세스로 위임
 # ⚠️  REMOVED: xazz-exec / Polars — CLI 바이너리에 절대 포함되지 않음
+
+# 러너 서브프로세스 리소스 텔레메트리(issue #128) — Unix `getrusage` 전용
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

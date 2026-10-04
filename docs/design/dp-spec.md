@@ -47,10 +47,33 @@ Xazz's `withDp(...)` applies **output perturbation to aggregate results**. The c
 |---|---|---|
 | `XAZZ_DP_BUDGET` | 10.0 | Total ε budget |
 | `XAZZ_DP_DELTA_BUDGET` | 1e-4 | Total δ budget (for Gaussian) |
+| `XAZZ_DP_MAX_EPSILON` | unset (no cap) | **Per-query** ε cap, opt-in (issue #118). A `withDp` whose ε exceeds it is refused before any noise is drawn, so no budget is spent. Invalid or `<= 0` values are ignored. |
+
+Two layers cap ε, and they are independent:
+
+- **Policy pack (compile time)** — `max_epsilon` (default 3.0) via rule XZP005. Enforced by the
+  policy gate in the CLI, the engine and the server; a pack may lower it, raise it, or downgrade the
+  rule's severity.
+- **Runtime (`XAZZ_DP_MAX_EPSILON`)** — checked inside `apply_dp` regardless of which policy pack is
+  active or whether the gate ran. The server also checks it before reserving the tenant's budget
+  (`POST /execute` → 422 naming the offending steps), and the runner inherits the variable so the
+  engine re-checks it.
 
 ### Rejection rules (fail-closed)
 
 Each `withDp` call spends budget via `spend_n(mechanism, ε, δ, k)`; if `Σε > total_ε` or `Σδ > total_δ`, the query is **rejected**. Rejected requests do not consume budget (atomic). This structurally blocks noise-averaging (reconstruction) attacks via repeated queries.
+
+### Audit output (`[xazz:dp]` marker, `xazz run --json`)
+
+Every `withDp` step prints one single-line stdout marker, `[xazz:dp] <JSON>`, after the budget is deducted. The payload is the `DpReport` (`mechanism`, `epsilon`, `delta`, `sensitivity`, `noise_param`, `noised_columns`, `seed`) plus the session budget **after that step**:
+
+| Field | Meaning |
+|---|---|
+| `budget_spent` / `budget_total` / `budget_remaining` | Σε so far, the ε cap, and `max(total − spent, 0)` |
+| `budget_spent_delta` / `budget_total_delta` / `budget_remaining_delta` | The same three for δ (Laplace steps leave δ unchanged) |
+| `query_count` | Mechanisms composed so far — a `k`-column `withDp` counts `k` |
+
+`xazz run --json` collects these markers into a `dp` array in execution order (issue #117), so a dashboard or CI job reads the last entry's `budget_remaining` instead of scraping the human-readable stderr line. The server's `parse_stdout_markers` reads the same marker for its per-tenant ledger. Training reports (`[xazz:train]`) are surfaced separately as `training`; DP is a property of the pipeline step, not of the model.
 
 ### Session scope (important limitation)
 

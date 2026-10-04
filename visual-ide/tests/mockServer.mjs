@@ -24,6 +24,8 @@ export const defaults = () => ({
     window_started_at: 0,
     resets_at: 0,
   },
+  'GET /dp/budget/history': { tenant: '', resets: [] },
+  'GET /dp/budget/window/history': { tenant: '', limit: 20, next_cursor: null, history: [] },
   'GET /security/audit/log': auditFixture,
   'GET /security/audit/chain': { intact: true, records: auditFixture.records.length },
   'GET /security/policy': {
@@ -31,8 +33,9 @@ export const defaults = () => ({
     origin: 'builtin',
     policy: { id: 'xazz-builtin-pii', version: '1.0.0', domain: 'common', risk_level: 'medium' },
   },
-  'GET /security/policy/history': { tenant: '', history: [] },
+  'GET /security/policy/history': { tenant: '', limit: 20, next_cursor: null, history: [] },
   'GET /security/policy/history/ttl': { tenant: '', ttl_secs: 0, ttl_source: 'global' },
+  'GET /security/policy/history/ttl/history': { tenant: '', limit: 20, next_cursor: null, history: [] },
 })
 
 const API = /^\/(execute|health|schema|catalog|runs|dp\/|security\/)/
@@ -64,4 +67,3 @@ export async function mockServer(page, overrides = {}) {
   )
   return requests
 }
-

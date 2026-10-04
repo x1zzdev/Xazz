@@ -46,6 +46,10 @@
 
 Xazz는 기존 라이브러리의 래퍼가 아닙니다. 파서, AST, 정적 타입 검사기, **Typed IR**, lowering, 딥러닝 컴파일 엔진을 모두 Rust로 직접 설계·구현했기 때문에, 단일 `.xzz` 스크립트만으로 CSV에서 학습된 모델까지 전 경로를 제어합니다. `.xzz`는 **Typed IR을 한 번** 컴파일하고, 런타임은 그 IR을 **한 번** 소비합니다 (소스를 다시 파싱해 raw AST를 Polars/Burn에 직접 해석하던 이중 해석 제거).
 
+### 왜 DuckDB / Polars 대신 DSL인가?
+
+"이건 문법만 얹은 Polars/DuckDB 아닌가?"라는 반문은 자연스럽습니다. 차이는 *언어가 무엇을 책임지는가*입니다. DuckDB와 Polars는 뛰어난 **실행 엔진**이고, Xazz는 Polars 위에서 실행됩니다. 다만 그 엔진들만으로는 파이프라인이 *실행돼도 되는지*를 판단하지 않습니다 — 타입·널 정확성, 개인정보·시크릿 노출, 차등 프라이버시 예산, 감사 가능한 기록은 보통 각 엔진 주변에 애플리케이션 접착 코드로 매번 다르게 재구현하게 됩니다. Xazz는 그 게이트들을 컴파일된 파이프라인의 일부로 만들고, 단 한 행도 읽기 전에 Typed IR에 대한 정적 패스 한 번으로 강제합니다. 단순히 빠른 SQL/DataFrame 실행이 필요하면 DuckDB·Polars가 정답입니다. Xazz는 파이프라인 자체가 컴파일·통제·감사되어야 하는 경우를 겨냥합니다.
+
 <div align="center">
 <img src="docs/figures/pipeline-flow-kr.svg" alt="Xazz 엔드투엔드 파이프라인: 컴파일 단계(렉서, 파서, 타입 검사, 가드레일, Typed IR, 프로세스 격리)와 실행 단계(Polars, DP 노이즈, 텐서 브리지, 학습, 결과, 감사 로그)" width="94%">
 </div>
@@ -235,14 +239,16 @@ Xazz는 모듈화된 Rust 워크스페이스입니다. CLI는 2–5 MB 경량 �
 동일한 4단계 파이프라인(널 제거 → 이중 필터 → 그룹 집계 → fill + count)을 실제 서울시 공기질 데이터(2008–2026, 원본 8개 파일)에 대해 pandas 3.0.5와 Xazz로 실행했습니다. 워밍업 1회 후 3회 측정의 중앙값, wall-clock 기준입니다.
 
 <div align="center">
-<img src="docs/assets/benchmark_chart.png" alt="벤치마크: 228K/912K/409만 행에서의 지연 시간 스케일링과 속도 향상 — pandas 대비 1.39배, 1.95배, 1.39배" width="94%">
+<img src="docs/assets/benchmark_chart.png" alt="벤치마크: 228K/912K/409만 행에서의 지연 시간 스케일링과 속도 향상 — pandas 대비 0.76배, 1.44배, 1.30배" width="94%">
 </div>
 
-- **모든 구간에서 더 빠름**: 228K 행에서 pandas 대비 1.39배(556 ms vs 770 ms), 912K 행에서 1.95배(1,054 ms vs 2,052 ms), 409만 행에서 1.39배(4,344 ms vs 6,040 ms) — 최대 구간에서 피크 RSS도 더 낮습니다(570 MB vs 656 MB).
+- **작은 파일 이후로 더 빠름**: 912K 행에서 pandas 대비 1.44배(467 ms vs 671 ms), 409만 행에서 1.30배(3,070 ms vs 3,981 ms) — 최대 구간에서 피크 RSS도 더 낮습니다(567 MB vs 656 MB). 228K 행에서는 두 엔진이 대략 동등합니다(0.76배): 이 규모에서는 파일 로드·필터의 고정 오버헤드가 지배적이며 pandas도 약 0.2초면 읽습니다.
 - 양쪽 모두 **파이프라인 실행 시간만** 측정합니다 — Python 인터프리터 부팅(~0.3–0.7초)은 pandas에서 제외하고, Xazz는 자체 `[xazz:timing]` 파이프라인 마커를 보고하므로 공정한 비교입니다. 피크 RSS는 두 엔진 모두 프로세스 트리 기준으로 측정합니다.
 - 성능의 원천은 Apache Arrow 컬럼형 메모리 + Polars LazyFrame 쿼리 최적화 + 멀티스레드 네이티브 실행입니다.
 - **Out-of-core 실행:** `load()`가 이제 lazy 스캔(`scan_csv`/`scan_parquet`/`scan_ipc`)을 반환하므로, 소스는 최종 collect 전까지 디스크에 남아 있습니다 — 앞단에서 파일 전체를 메모리에 올리지 않습니다. 매우 큰 워크로드에서는 `XAZZ_STREAMING=1`을 설정해 Polars 스트리밍 엔진으로 collect하세요(미지원 플랜은 자동으로 인메모리로 폴백). [docs/ROADMAP.md](docs/ROADMAP.md) Track A2 참고.
-- 정직한 주석: Polars의 멀티스레딩은 지연 시간을 줄이는 대신 더 높은 피크 RSS를 치른다는 트레이드오프가 있습니다. 벤치마크 데이터 자체는 커밋되어 있지 않습니다(서울시 공기질 원본에서 생성). 직접 재현해 볼 수 있습니다:
+- 정직한 주석: Polars의 멀티스레딩은 지연 시간을 줄이는 대신 더 높은 피크 RSS를 치른다는 트레이드오프가 있습니다. 벤치마크 데이터 자체는 커밋되어 있지 않습니다(서울시 공기질 원본에서 생성).
+
+**측정 프로비넌스.** 커밋된 수치는 개발 호스트 한 대에서 측정되었고 **프로비넌스 캡처 이전** 값이라 전체 CPU/OS/RAM 사양이 기록되어 있지 않습니다 — 방향성 지표로 보세요. 이제 `benches/run_readme_benchmark.py`가 `benches/benchmark_results.json`에 `provenance` 블록(플랫폼, OS, CPU 모델, 물리/논리 코어 수, 총 RAM, pandas/polars/Python 버전)을 기록하므로, 안정된 호스트에서 다음 실행을 하면 완전히 귀속된 수치가 됩니다. 직접 재현해 볼 수 있습니다:
 
 ```bash
 git lfs pull                                    # examples/data 가져오기 (Git LFS)
@@ -312,13 +318,34 @@ python benches/run_readme_benchmark.py --xlarge
 | 26 파이프라인 연산자 | `filter`, `groupBy`, `agg([...])`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
 | Visual IDE | 노드 기반 파이프라인 편집기 + 모니터, `xazz-server`가 서빙 | Stable |
 | 런 히스토리 | SQLite 영속 런 레코드 — `GET /runs`, `GET /runs/:id` (Track C1) | Stable |
-| 인증 & 멀티테넌시 | `XAZZ_SERVER_TOKEN` / `XAZZ_TENANT_TOKENS` + `X-Xazz-Tenant`; 위임 정책 변경용 `XAZZ_ADMIN_TOKEN` + `X-Xazz-Actor` — 테넌트별 런 히스토리·감사 (Track C2) | Stable |
+| 인증 & 멀티테넌시 | `XAZZ_SERVER_TOKEN` / `XAZZ_TENANT_TOKENS` + `X-Xazz-Tenant`; 위임 정책 변경용 `XAZZ_ADMIN_TOKEN` + `X-Xazz-Actor` (`XAZZ_ADMIN_ACTORS=token:actor`로 actor 고정 시 `X-Xazz-Actor`를 무시하므로 CLI `--actor`는 무효) — 테넌트별 런 히스토리·감사 (Track C2) | Stable |
+| 서버 설정 | `xazz-server` 환경변수 — 인증, DP 예산, 정책 이력 보존, 바인드/경로 — [`docs/SERVER.md`](docs/SERVER.md) (Track C2) | Stable |
 | 파이프라인 카탈로그 | `POST /catalog` — Typed IR 기반 파이프라인 카탈로그 + 컬럼 계보 (Track C3) | Stable |
 | Python 바인딩 | Python에서 `xazz.check/run/policy` — CLI와 동일한 진단 (Track C4) | Stable |
 | `xazz sde` | 합성 데이터 생성 엔진 | Stable |
-| `xazz registry` | 정책 팩(`xazz.policy.json`)·stdlib 모듈(`std/`) 조회/설치 — 오프라인; `registry deploy`가 서버로 팩 배포 (Track E4/C2) | Stable |
+| `xazz registry` | 정책 팩(`xazz.policy.json`)·stdlib 모듈(`std/`) 조회/설치 — 오프라인; `registry deploy`/`registry undeploy`가 서버로 테넌트 팩 배포/제거 (Track E4/C2) | Stable |
+| `xazz policy-status` / `xazz policy-ttl` | 실행 중인 서버에서 테넌트 정책 상태 조회(`history`/`ttl`/`ttl-history`)와 정책 이력 보존 윈도 override 설정/해제 (`--json`/`--cursor`/`--actor`) (Track C2) | Stable |
+| `xazz dp window` / `xazz dp budget` / `xazz dp reset` | 실행 중인 서버에서 테넌트 DP 예산 윈도 override 조회/변경 — `window set`/`clear`/`history` (`--window-secs`/`--json`/`--cursor`/`--limit`/`--actor`), 현재 소비/잔량 조회 (`dp budget`), 원장 초기화·actor 감사 (`dp reset`/`dp reset-history`, 둘 다 커서 페이지네이션) (Track C2) | Stable |
 | `xazz sanitize` | 파인튜닝 데이터 정화 — PII 스캔, 중복·편향 검사 (Track F3) | Stable |
 | 모델 프로비넌스 | 정책 레지스트리 게이트 — `hf://` 모델 참조, 라이선스·미검증 웨이트 차단 (Track F5) | Stable |
+
+---
+
+## 한계 & 비목표
+
+Xazz는 pre-1.0입니다. 설치한 뒤에 알게 되는 것보다, **검증되지 않은 것**을 먼저 밝히는 편이 낫다고 생각합니다. 이 섹션은 릴리스 노트에도 동일하게 반영됩니다.
+
+- **CPU가 기본이며 유일하게 완전히 검증된 경로입니다.** GPU 지원은 선택 사항이고 런타임에 `XAZZ_BACKEND` / `XAZZ_DEVICE`로 선택하며, `.xzz` 파이프라인 실행에 필수가 아닙니다.
+  - `burn-wgpu`(크로스 벤더)는 Windows 11 / RTX 4070 Laptop + Intel Arc iGPU에서 실기 acceptance를 통과했습니다(2026-09-25).
+  - `burn-cuda`는 컴파일되고 드라이버가 없으면 CPU로 fail-closed 폴백하지만, gated parity 테스트는 아직 CUDA 드라이버 호스트에서 실행되지 않았습니다.
+  - ONNX Runtime export/inference는 연결되어 있으나 gated acceptance 테스트가 표준 툴체인에서 아직 통과하지 못했습니다: `ort-sys`는 `*-windows-msvc`용 사전 빌드 바이너리만 제공하며(Windows GNU 툴체인 실패), macOS `coreml` 실행도 대기 중입니다. [docs/GPU_BACKENDS.md](docs/GPU_BACKENDS.md) 참고.
+- **네이티브 Python 확장은 아직 없습니다.** `import xazz`는 CLI 위의 순수 Python 어댑터이며 PyO3 모듈이 아닙니다 — CLI와 동일한 진단을 돌려주지만 서브프로세스 경계 비용을 지불합니다. PyO3 경로와 NumPy/Pandas → Arrow 핸드오프는 보류 상태입니다. [docs/ROADMAP.md](docs/ROADMAP.md) Track C4 참고.
+- **`xazz emit rust`는 참조용 emitter이며 두 번째 런타임이 아닙니다.** 신규 기능은 `xazz-exec`에 먼저 들어가고, 생성된 Rust는 일부 학습 옵션(예: 단일 실행 `validation_split`/조기 종료, 스윕의 per-epoch 열)에서 뒤처질 수 있습니다. 정본은 `xazz run`이며, emit 결과는 읽기 좋은 참조 코드로 취급하세요.
+- **컨테이너 이미지·클린 호스트 스모크는 다음 태그 대기 중입니다.** `Dockerfile`과 `docker compose up` 데모는 로컬 빌드로 동작하지만, GHCR 멀티아키 이미지는 `v*` 태그에서만 게시되며, [클린 호스트 스모크 체크리스트](docs/DOCKER.md#smoke-checklist-clean-host)는 아직 게시된 태그에 대해 기록되지 않았습니다.
+- **벤치마크는 단일 호스트 측정이며 프로비넌스가 아직 기록되지 않았습니다.** [성능](#성능) 섹션의 수치는 개발 호스트 한 대에서 나온 것이고 프로비넌스 캡처 이전 값입니다 — 보장이 아니라 방향성 지표로 보세요. 이제 `benches/run_readme_benchmark.py`가 호스트/OS/CPU/RAM/버전을 기록하므로 다음 실행은 재현 가능합니다.
+- **샌드박스가 아닙니다.** `xazz-runner`는 실행 타임아웃을 동반한 프로세스 격리이지 OS 수준 샌드박스가 아닙니다. Policy-as-Code는 실행 전에 알려진 위험 파이프라인 형태를 차단하며, `PATH` 섀도잉 배포 주의사항은 [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md)를 참고하세요.
+
+**비목표:** pandas / Polars / DuckDB를 연산 엔진으로 대체하거나, PyTorch를 학습 프레임워크로 대체하거나, GPU 커널 성능으로 경쟁하는 것이 아닙니다. Xazz는 그 엔진들 *위의* 컴파일·거버넌스 계층입니다.
 
 ---
 
@@ -332,7 +359,7 @@ python benches/run_readme_benchmark.py --xlarge
 | Phase 4 — Typed IR & 최적화 | 단일 Typed IR, 이중 해석 제거, IR 최적화(`--opt`) | ✅ 완료 (v0.3.0) |
 | Phase 5 — 언어 확장 | 연산자 확장, join 개선, 스키마 진화 | 🚧 진행 중 |
 | Phase 5.5 — 데이터 스케일 | 컬럼 소스·아티팩트 출력 (`load`/`save`: Parquet, Arrow) | ✅ save/load (#52) |
-| Phase 6 — AI 확장 | GPU 백엔드(burn-tch / burn-wgpu), 분산 학습, NQP | 🔭 계획 |
+| Phase 6 — AI 확장 | GPU 백엔드(burn-cuda / burn-wgpu), 분산 학습, NQP | 🔭 계획 |
 | Phase 7 — GenAI 거버넌스 | 프롬프트 입력 게이트, LLM 출력 재스캔, 파인튜닝 데이터 정화 (burn-engine LoRA/QLoRA 연동), 모델 프로비넌스 | 🔭 계획 (Track F) |
 | Track G — 커뮤니티 | 다국어 문서 + Discussions, 릴리스·기여 가이드, 로컬 플레이그라운드 | 🚧 진행 중 ([#155](https://github.com/x1zzdev/Xazz/issues/155)) |
 

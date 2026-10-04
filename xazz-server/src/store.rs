@@ -31,6 +31,27 @@ pub const DB_FILE: &str = "xazz.db";
 const DEFAULT_POLICY_HISTORY_MAX: usize = 1000;
 /// Environment override for the per-tenant policy-history retention cap.
 const POLICY_HISTORY_MAX_ENV: &str = "XAZZ_TENANT_POLICY_HISTORY_MAX";
+
+/// Default cap on retained DP budget window override change rows per tenant
+/// (issue C2).
+///
+/// Kept separate from [`DEFAULT_POLICY_HISTORY_MAX`] so operators can tune the
+/// two audit trails independently. Overridable with
+/// `XAZZ_TENANT_DP_WINDOW_HISTORY_MAX`.
+const DEFAULT_DP_WINDOW_HISTORY_MAX: usize = 1000;
+/// Environment override for the per-tenant DP window override change history cap.
+const DP_WINDOW_HISTORY_MAX_ENV: &str = "XAZZ_TENANT_DP_WINDOW_HISTORY_MAX";
+
+/// Default cap on retained policy-history retention-window override change rows
+/// per tenant (issue C2).
+///
+/// Kept separate from [`DEFAULT_POLICY_HISTORY_MAX`] so operators can tune the
+/// policy-history and its retention-window override audit trails independently.
+/// Overridable with `XAZZ_TENANT_POLICY_TTL_HISTORY_MAX`.
+const DEFAULT_POLICY_TTL_HISTORY_MAX: usize = 1000;
+/// Environment override for the per-tenant policy-history retention-window
+/// override change history cap.
+const POLICY_TTL_HISTORY_MAX_ENV: &str = "XAZZ_TENANT_POLICY_TTL_HISTORY_MAX";
 /// Environment override for the per-tenant policy-history retention window
 /// (seconds). Unset or `0` disables time-based expiry, leaving only the count cap.
 const POLICY_HISTORY_TTL_ENV: &str = "XAZZ_TENANT_POLICY_HISTORY_TTL_SECS";
@@ -48,6 +69,29 @@ pub fn resolve_policy_history_max(raw: Option<&str>) -> usize {
     raw.and_then(|v| v.parse::<usize>().ok())
         .filter(|v| *v > 0)
         .unwrap_or(DEFAULT_POLICY_HISTORY_MAX)
+}
+
+/// Parses the per-tenant DP window override change history cap (issue C2).
+///
+/// Independent from [`resolve_policy_history_max`]; invalid or `0` values fall
+/// back to [`DEFAULT_DP_WINDOW_HISTORY_MAX`] so the cap cannot be disabled
+/// accidentally.
+pub fn resolve_dp_window_history_max(raw: Option<&str>) -> usize {
+    raw.and_then(|v| v.parse::<usize>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(DEFAULT_DP_WINDOW_HISTORY_MAX)
+}
+
+/// Parses the per-tenant policy-history retention-window override change history
+/// cap (issue C2).
+///
+/// Independent from [`resolve_policy_history_max`]; invalid or `0` values fall
+/// back to [`DEFAULT_POLICY_TTL_HISTORY_MAX`] so the cap cannot be disabled
+/// accidentally.
+pub fn resolve_policy_ttl_history_max(raw: Option<&str>) -> usize {
+    raw.and_then(|v| v.parse::<usize>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(DEFAULT_POLICY_TTL_HISTORY_MAX)
 }
 
 /// Parses the per-tenant policy-history retention window in seconds (issue C2).
@@ -95,7 +139,8 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             rows INTEGER NOT NULL DEFAULT 0,
             error TEXT,
             created_at INTEGER NOT NULL,
-            tenant TEXT NOT NULL DEFAULT ''
+            tenant TEXT NOT NULL DEFAULT '',
+            resources TEXT
         );
         CREATE TABLE IF NOT EXISTS dp_budget (
             tenant TEXT PRIMARY KEY,
@@ -137,6 +182,15 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             changed_by TEXT NOT NULL DEFAULT '',
             changed_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS tenant_dp_config_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant TEXT NOT NULL,
+            action TEXT NOT NULL,
+            old_window_secs INTEGER,
+            new_window_secs INTEGER,
+            changed_by TEXT NOT NULL DEFAULT '',
+            changed_at INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS dp_reservation (
             tenant TEXT PRIMARY KEY,
             reservation_id TEXT NOT NULL,
@@ -162,6 +216,9 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     let _ = conn.execute_batch(
         "ALTER TABLE dp_budget ADD COLUMN window_started_at INTEGER NOT NULL DEFAULT 0",
     );
+    // Migration for DBs created before run resource telemetry (issue #128):
+    // adding an already-present column is a no-op error we swallow.
+    let _ = conn.execute_batch("ALTER TABLE runs ADD COLUMN resources TEXT");
     Ok(())
 }
 
@@ -179,6 +236,19 @@ pub struct RunRecord {
     pub tenant: String,
     /// Unix epoch seconds
     pub created_at: i64,
+}
+
+/// A run's persisted resource telemetry (issue #128).
+///
+/// `resources_json` is the compact `[xazz:resources]` object captured around the
+/// runner subprocess; `None` means the run predates the feature or the platform
+/// could not measure it.
+#[derive(Debug, Clone, Serialize)]
+pub struct RunResourceRecord {
+    pub run_id: i64,
+    pub tenant: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resources_json: Option<String>,
 }
 
 /// One append-only policy-pack change record (issue C2).
@@ -243,6 +313,30 @@ pub struct PolicyHistoryTtlChangeRecord {
     pub changed_at: i64,
 }
 
+/// One append-only record of a per-tenant DP budget window override change
+/// (issue C2).
+///
+/// `action` is `"set"` (create/replace the override) or `"clear"` (remove it,
+/// restoring the global default). `old_window_secs` is the override in effect
+/// before the change (absent for the first set), and `new_window_secs` is the
+/// override after it (absent for a clear). `changed_by` is the authenticated
+/// identity that performed the change — the tenant for a self-service change, or
+/// the [`Actor`](crate::Actor) for a delegated admin change.
+#[derive(Debug, Clone, Serialize)]
+pub struct DpWindowChangeRecord {
+    pub id: i64,
+    pub tenant: String,
+    pub action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_window_secs: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_window_secs: Option<u64>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub changed_by: String,
+    /// Unix epoch seconds
+    pub changed_at: i64,
+}
+
 /// A reserved slice of a tenant's DP envelope for one in-flight run — issue C2.
 ///
 /// The reservation reserves the tenant's *entire remaining* envelope so that a
@@ -263,6 +357,11 @@ pub struct Store {
     conn: Mutex<Option<Connection>>,
     /// Max policy-history rows retained per tenant (issue C2).
     history_max: usize,
+    /// Max DP window override change rows retained per tenant (issue C2).
+    dp_window_history_max: usize,
+    /// Max policy-history retention-window override change rows retained per
+    /// tenant (issue C2).
+    policy_ttl_history_max: usize,
     /// Global policy-history retention window in seconds (`0` = no time-based
     /// expiry). A stored per-tenant override (`tenant_policy_history_config`)
     /// takes precedence over this default.
@@ -275,9 +374,16 @@ impl Store {
             resolve_policy_history_max(std::env::var(POLICY_HISTORY_MAX_ENV).ok().as_deref());
         let history_ttl_secs =
             resolve_policy_history_ttl(std::env::var(POLICY_HISTORY_TTL_ENV).ok().as_deref());
+        let dp_window_history_max =
+            resolve_dp_window_history_max(std::env::var(DP_WINDOW_HISTORY_MAX_ENV).ok().as_deref());
+        let policy_ttl_history_max = resolve_policy_ttl_history_max(
+            std::env::var(POLICY_TTL_HISTORY_MAX_ENV).ok().as_deref(),
+        );
         Store {
             conn: Mutex::new(None),
             history_max,
+            dp_window_history_max,
+            policy_ttl_history_max,
             history_ttl_secs,
         }
     }
@@ -301,11 +407,30 @@ impl Store {
         history_max: usize,
         history_ttl_secs: u64,
     ) -> Self {
+        Self::open_at_with_retention(
+            path,
+            history_max,
+            history_ttl_secs,
+            DEFAULT_DP_WINDOW_HISTORY_MAX,
+            DEFAULT_POLICY_TTL_HISTORY_MAX,
+        )
+    }
+
+    /// Opens a store with every retention setting made explicit (tests).
+    fn open_at_with_retention(
+        path: &std::path::Path,
+        history_max: usize,
+        history_ttl_secs: u64,
+        dp_window_history_max: usize,
+        policy_ttl_history_max: usize,
+    ) -> Self {
         let conn = Connection::open(path).expect("open store db");
         ensure_schema(&conn).expect("create store schema");
         Store {
             conn: Mutex::new(Some(conn)),
             history_max,
+            dp_window_history_max,
+            policy_ttl_history_max,
             history_ttl_secs,
         }
     }
@@ -326,6 +451,9 @@ impl Store {
     }
 
     /// Records a run and returns its id.
+    ///
+    /// `resources_json` is the run's resource telemetry (issue #128) as a compact
+    /// JSON object string, or `None` when the platform/run produced none.
     pub fn record_run(
         &self,
         code_hash: &str,
@@ -333,13 +461,14 @@ impl Store {
         rows: i64,
         error: Option<&str>,
         tenant: &str,
+        resources_json: Option<&str>,
     ) -> Result<i64, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
         let created = now_epoch();
         conn.execute(
-            "INSERT INTO runs (code_hash, status, rows, error, created_at, tenant) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![code_hash, status, rows, error, created, tenant],
+            "INSERT INTO runs (code_hash, status, rows, error, created_at, tenant, resources) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![code_hash, status, rows, error, created, tenant, resources_json],
         )
         .map_err(|e| format!("failed to insert run: {e}"))?;
         Ok(conn.last_insert_rowid())
@@ -394,6 +523,39 @@ impl Store {
             .map_err(|e| format!("failed to query run: {e}"))?;
         match rows.next() {
             Some(r) => r.map_err(|e| format!("failed to read run: {e}")).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// Fetches a run's persisted resource telemetry (issue #128), scoped to a tenant.
+    ///
+    /// Returns `Ok(None)` when the run does not exist for the tenant,
+    /// `Ok(Some(RunResourceRecord { resources_json: None, .. }))` when the run exists
+    /// but no telemetry was recorded (legacy or platform without rusage), and
+    /// `Ok(Some(.. resources_json: Some(json)))` when it was.
+    pub fn get_run_resources(
+        &self,
+        id: i64,
+        tenant: &str,
+    ) -> Result<Option<RunResourceRecord>, String> {
+        let guard = self.open()?;
+        let conn = guard.as_ref().expect("open guarantees Some");
+        let mut stmt = conn
+            .prepare("SELECT id, tenant, resources FROM runs WHERE id = ?1 AND tenant = ?2")
+            .map_err(|e| format!("failed to prepare run resources: {e}"))?;
+        let mut rows = stmt
+            .query_map(params![id, tenant], |row| {
+                Ok(RunResourceRecord {
+                    run_id: row.get(0)?,
+                    tenant: row.get(1)?,
+                    resources_json: row.get(2)?,
+                })
+            })
+            .map_err(|e| format!("failed to query run resources: {e}"))?;
+        match rows.next() {
+            Some(r) => r
+                .map_err(|e| format!("failed to read run resources: {e}"))
+                .map(Some),
             None => Ok(None),
         }
     }
@@ -723,27 +885,40 @@ impl Store {
     }
 
     /// Lists a tenant's DP budget resets newest-first — issue #124.
-    pub fn list_dp_resets(&self, tenant: &str, limit: usize) -> Result<Vec<DpResetRecord>, String> {
+    ///
+    /// `limit`/`offset` page the newest-first list; when `before` is set the page
+    /// is selected by id cursor (`id < before`) instead, which avoids the
+    /// deep-`OFFSET` scan and stays stable if rows are pruned between pages.
+    pub fn list_dp_resets(
+        &self,
+        tenant: &str,
+        limit: usize,
+        offset: usize,
+        before: Option<i64>,
+    ) -> Result<Vec<DpResetRecord>, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
         let mut stmt = conn
             .prepare(
                 "SELECT id, tenant, actor, spent_epsilon_before, spent_delta_before, reset_at
-                 FROM dp_reset_history WHERE tenant = ?1
-                 ORDER BY id DESC LIMIT ?2",
+                 FROM dp_reset_history WHERE tenant = ?1 AND (?4 IS NULL OR id < ?4)
+                 ORDER BY id DESC LIMIT ?2 OFFSET ?3",
             )
             .map_err(|e| format!("failed to prepare dp reset history: {e}"))?;
         let rows = stmt
-            .query_map(params![tenant, limit as i64], |row| {
-                Ok(DpResetRecord {
-                    id: row.get(0)?,
-                    tenant: row.get(1)?,
-                    actor: row.get(2)?,
-                    spent_epsilon_before: row.get(3)?,
-                    spent_delta_before: row.get(4)?,
-                    reset_at: row.get(5)?,
-                })
-            })
+            .query_map(
+                params![tenant, limit as i64, offset as i64, before],
+                |row| {
+                    Ok(DpResetRecord {
+                        id: row.get(0)?,
+                        tenant: row.get(1)?,
+                        actor: row.get(2)?,
+                        spent_epsilon_before: row.get(3)?,
+                        spent_delta_before: row.get(4)?,
+                        reset_at: row.get(5)?,
+                    })
+                },
+            )
             .map_err(|e| format!("failed to read dp reset history: {e}"))?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("failed to read dp reset history: {e}"))
@@ -757,30 +932,34 @@ impl Store {
     pub fn get_dp_window(&self, tenant: &str) -> Result<Option<u64>, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
-        conn.query_row(
-            "SELECT window_secs FROM tenant_dp_config WHERE tenant = ?1",
-            params![tenant],
-            |row| row.get::<_, i64>(0),
-        )
-        .optional()
-        .map(|opt| opt.map(|secs| secs.max(0) as u64))
-        .map_err(|e| format!("failed to read tenant dp window: {e}"))
+        read_dp_window(conn, tenant)
     }
 
-    /// Stores a tenant's DP window override — issue C2.
+    /// Stores a tenant's DP window override and appends an append-only change
+    /// record — issue C2.
     ///
     /// The window is keyed by tenant, so one tenant's setting never changes
     /// another's. If the tenant already has a budget row, its window anchor is
     /// re-anchored to now so the newly configured window starts at set time
     /// (changing the length cannot retroactively expire spend that was accrued
-    /// under the previous setting).
-    pub fn set_dp_window(&self, tenant: &str, window_secs: u64) -> Result<(), String> {
+    /// under the previous setting). The previous override (if any) is captured in
+    /// the same transaction, so the audit trail is never out of sync with the
+    /// stored override. `changed_by` is the authenticated identity performing the
+    /// change (the tenant for a self-service change, the actor for a delegated
+    /// admin change).
+    pub fn set_dp_window(
+        &self,
+        tenant: &str,
+        window_secs: u64,
+        changed_by: &str,
+    ) -> Result<(), String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
         let tx = conn
             .unchecked_transaction()
             .map_err(|e| format!("failed to begin dp window transaction: {e}"))?;
         let now = now_epoch();
+        let previous = read_dp_window(&tx, tenant)?;
         tx.execute(
             "INSERT INTO tenant_dp_config (tenant, window_secs, updated_at)
              VALUES (?1, ?2, ?3)
@@ -795,25 +974,98 @@ impl Store {
             params![now, tenant],
         )
         .map_err(|e| format!("failed to re-anchor dp window: {e}"))?;
+        insert_dp_window_change(
+            &tx,
+            tenant,
+            "set",
+            previous,
+            Some(window_secs),
+            changed_by,
+            now,
+        )?;
+        prune_dp_window_history(&tx, tenant, self.dp_window_history_max)?;
         tx.commit()
             .map_err(|e| format!("failed to commit dp window transaction: {e}"))?;
         Ok(())
     }
 
-    /// Removes a tenant's DP window override. Returns `true` if one existed — issue C2.
+    /// Removes a tenant's DP window override and appends an append-only change
+    /// record. Returns `true` if one existed — issue C2.
     ///
     /// After removal the tenant falls back to the global `XAZZ_TENANT_DP_WINDOW_SECS`
-    /// default. Other tenants' overrides are untouched.
-    pub fn clear_dp_window(&self, tenant: &str) -> Result<bool, String> {
+    /// default. Other tenants' overrides are untouched. The removal and its change
+    /// record commit together; a clear that removes nothing records nothing.
+    /// `changed_by` is the authenticated identity performing the change.
+    pub fn clear_dp_window(&self, tenant: &str, changed_by: &str) -> Result<bool, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
-        let deleted = conn
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| format!("failed to begin dp window transaction: {e}"))?;
+        let now = now_epoch();
+        let previous = read_dp_window(&tx, tenant)?;
+        let deleted = tx
             .execute(
                 "DELETE FROM tenant_dp_config WHERE tenant = ?1",
                 params![tenant],
             )
             .map_err(|e| format!("failed to clear tenant dp window: {e}"))?;
+        if deleted > 0 {
+            insert_dp_window_change(&tx, tenant, "clear", previous, None, changed_by, now)?;
+            prune_dp_window_history(&tx, tenant, self.dp_window_history_max)?;
+        }
+        tx.commit()
+            .map_err(|e| format!("failed to commit dp window transaction: {e}"))?;
         Ok(deleted > 0)
+    }
+
+    /// Lists a tenant's DP budget window override change history, newest-first —
+    /// issue C2.
+    ///
+    /// History is tenant-scoped like the overrides themselves, so one tenant's
+    /// change trail is never visible to another. The rows are append-only up to
+    /// the retention cap and survive override replacement/removal.
+    /// `limit`/`offset` page the newest-first list; when `before` is set the page
+    /// is selected by id cursor (`id < before`) instead, which avoids the
+    /// deep-`OFFSET` scan and stays stable if rows are pruned between pages.
+    pub fn list_dp_window_history(
+        &self,
+        tenant: &str,
+        limit: usize,
+        offset: usize,
+        before: Option<i64>,
+    ) -> Result<Vec<DpWindowChangeRecord>, String> {
+        let guard = self.open()?;
+        let conn = guard.as_ref().expect("open guarantees Some");
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, tenant, action, old_window_secs, new_window_secs, changed_by, changed_at
+                 FROM tenant_dp_config_history
+                 WHERE tenant = ?1 AND (?4 IS NULL OR id < ?4)
+                 ORDER BY id DESC LIMIT ?2 OFFSET ?3",
+            )
+            .map_err(|e| format!("failed to prepare dp window history: {e}"))?;
+        let rows = stmt
+            .query_map(
+                params![tenant, limit as i64, offset as i64, before],
+                |row| {
+                    Ok(DpWindowChangeRecord {
+                        id: row.get(0)?,
+                        tenant: row.get(1)?,
+                        action: row.get(2)?,
+                        old_window_secs: row.get::<_, Option<i64>>(3)?.map(|v| v.max(0) as u64),
+                        new_window_secs: row.get::<_, Option<i64>>(4)?.map(|v| v.max(0) as u64),
+                        changed_by: row.get(5)?,
+                        changed_at: row.get(6)?,
+                    })
+                },
+            )
+            .map_err(|e| format!("failed to query dp window history: {e}"))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| format!("failed to read dp window history row: {e}"))?);
+        }
+        Ok(out)
     }
 
     /// The global policy-history retention window resolved at construction — issue C2.
@@ -874,7 +1126,7 @@ impl Store {
             changed_by,
             now,
         )?;
-        prune_policy_history_ttl_history(&tx, tenant, self.history_max)?;
+        prune_policy_history_ttl_history(&tx, tenant, self.policy_ttl_history_max)?;
         tx.commit()
             .map_err(|e| format!("failed to commit policy history ttl transaction: {e}"))?;
         Ok(())
@@ -905,7 +1157,7 @@ impl Store {
             insert_policy_history_ttl_change(
                 &tx, tenant, "clear", previous, None, changed_by, now,
             )?;
-            prune_policy_history_ttl_history(&tx, tenant, self.history_max)?;
+            prune_policy_history_ttl_history(&tx, tenant, self.policy_ttl_history_max)?;
         }
         tx.commit()
             .map_err(|e| format!("failed to commit policy history ttl transaction: {e}"))?;
@@ -917,13 +1169,17 @@ impl Store {
     ///
     /// History is tenant-scoped like the overrides themselves, so one tenant's
     /// change trail is never visible to another. The rows are append-only up to
-    /// the retention cap (see [`resolve_policy_history_max`]) and survive
-    /// override replacement/removal. `limit`/`offset` page the newest-first list.
+    /// the retention cap (see [`resolve_policy_ttl_history_max`]) and survive
+    /// override replacement/removal. `limit`/`offset` page the newest-first list;
+    /// when `before` is set the page is selected by id cursor (`id < before`)
+    /// instead, which avoids the deep-`OFFSET` scan and stays stable if rows are
+    /// pruned between pages.
     pub fn list_policy_history_ttl_history(
         &self,
         tenant: &str,
         limit: usize,
         offset: usize,
+        before: Option<i64>,
     ) -> Result<Vec<PolicyHistoryTtlChangeRecord>, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
@@ -931,22 +1187,25 @@ impl Store {
             .prepare(
                 "SELECT id, tenant, action, old_ttl_secs, new_ttl_secs, changed_by, changed_at
                  FROM tenant_policy_history_config_history
-                 WHERE tenant = ?1
+                 WHERE tenant = ?1 AND (?4 IS NULL OR id < ?4)
                  ORDER BY id DESC LIMIT ?2 OFFSET ?3",
             )
             .map_err(|e| format!("failed to prepare policy history ttl history: {e}"))?;
         let rows = stmt
-            .query_map(params![tenant, limit as i64, offset as i64], |row| {
-                Ok(PolicyHistoryTtlChangeRecord {
-                    id: row.get(0)?,
-                    tenant: row.get(1)?,
-                    action: row.get(2)?,
-                    old_ttl_secs: row.get::<_, Option<i64>>(3)?.map(|v| v.max(0) as u64),
-                    new_ttl_secs: row.get::<_, Option<i64>>(4)?.map(|v| v.max(0) as u64),
-                    changed_by: row.get(5)?,
-                    changed_at: row.get(6)?,
-                })
-            })
+            .query_map(
+                params![tenant, limit as i64, offset as i64, before],
+                |row| {
+                    Ok(PolicyHistoryTtlChangeRecord {
+                        id: row.get(0)?,
+                        tenant: row.get(1)?,
+                        action: row.get(2)?,
+                        old_ttl_secs: row.get::<_, Option<i64>>(3)?.map(|v| v.max(0) as u64),
+                        new_ttl_secs: row.get::<_, Option<i64>>(4)?.map(|v| v.max(0) as u64),
+                        changed_by: row.get(5)?,
+                        changed_at: row.get(6)?,
+                    })
+                },
+            )
             .map_err(|e| format!("failed to query policy history ttl history: {e}"))?;
         let mut out = Vec::new();
         for r in rows {
@@ -1072,12 +1331,15 @@ impl Store {
     /// (see [`resolve_policy_history_ttl`]) — and survive pack
     /// replacement/deletion. `limit`/`offset` page the newest-first list; rows
     /// older than the retention window are filtered out even if a write has not
-    /// pruned them yet.
+    /// pruned them yet. When `before` is set the page is selected by id cursor
+    /// (`id < before`) instead, which avoids the deep-`OFFSET` scan and stays
+    /// stable when pruning removes older rows between pages.
     pub fn list_policy_history(
         &self,
         tenant: &str,
         limit: usize,
         offset: usize,
+        before: Option<i64>,
     ) -> Result<Vec<PolicyChangeRecord>, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
@@ -1087,13 +1349,13 @@ impl Store {
             .prepare(
                 "SELECT id, tenant, action, old_policy_json, new_policy_json, changed_by, changed_at
                  FROM tenant_policy_history
-                 WHERE tenant = ?1 AND changed_at >= ?2
+                 WHERE tenant = ?1 AND changed_at >= ?2 AND (?5 IS NULL OR id < ?5)
                  ORDER BY id DESC LIMIT ?3 OFFSET ?4",
             )
             .map_err(|e| format!("failed to prepare policy history: {e}"))?;
         let rows = stmt
             .query_map(
-                params![tenant, cutoff, limit as i64, offset as i64],
+                params![tenant, cutoff, limit as i64, offset as i64, before],
                 |row| {
                     Ok(PolicyChangeRecord {
                         id: row.get(0)?,
@@ -1122,12 +1384,14 @@ impl Store {
     /// stale rows on disk (hidden only by the read filter). This sweep enforces
     /// both retentions without waiting for a write: it removes rows older than the
     /// tenant's effective window (stored override first, else the global default,
-    /// so an explicit `0` override is never expired) and trims both the policy
-    /// history and the retention-window override change history to the count cap
-    /// ([`resolve_policy_history_max`]). The override change history only ever
-    /// gets the count cap — its own window must not expire the audit trail of who
-    /// set it. Tenants are discovered from both tables so an override-only tenant
-    /// is still trimmed. Returns the number of rows removed.
+    /// so an explicit `0` override is never expired) and trims the policy history
+    /// to the pack cap ([`resolve_policy_history_max`]), the retention-window
+    /// override change history to its own cap ([`resolve_policy_ttl_history_max`]),
+    /// and the DP-window override change history to its own cap
+    /// ([`resolve_dp_window_history_max`]). The override change histories only
+    /// ever get the count cap — their own windows must not expire the audit trail
+    /// of who set them. Tenants are discovered from all three tables so an
+    /// override-only tenant is still trimmed. Returns the number of rows removed.
     pub fn sweep_expired_policy_history(&self) -> Result<usize, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
@@ -1140,7 +1404,9 @@ impl Store {
                 .prepare(
                     "SELECT tenant FROM tenant_policy_history
                      UNION
-                     SELECT tenant FROM tenant_policy_history_config_history",
+                     SELECT tenant FROM tenant_policy_history_config_history
+                     UNION
+                     SELECT tenant FROM tenant_dp_config_history",
                 )
                 .map_err(|e| format!("failed to list policy-history tenants: {e}"))?;
             let rows = stmt
@@ -1156,7 +1422,8 @@ impl Store {
         for tenant in tenants {
             let ttl = effective_history_ttl(&tx, &tenant, self.history_ttl_secs)?;
             removed += prune_policy_history(&tx, &tenant, self.history_max, ttl, now)?;
-            removed += prune_policy_history_ttl_history(&tx, &tenant, self.history_max)?;
+            removed += prune_policy_history_ttl_history(&tx, &tenant, self.policy_ttl_history_max)?;
+            removed += prune_dp_window_history(&tx, &tenant, self.dp_window_history_max)?;
         }
         tx.commit()
             .map_err(|e| format!("failed to commit policy sweep: {e}"))?;
@@ -1186,6 +1453,18 @@ fn read_policy_history_ttl(conn: &Connection, tenant: &str) -> Result<Option<u64
     .optional()
     .map(|opt| opt.map(|secs| secs.max(0) as u64))
     .map_err(|e| format!("failed to read tenant policy history ttl: {e}"))
+}
+
+/// Reads a tenant's stored DP budget window override, if any.
+fn read_dp_window(conn: &Connection, tenant: &str) -> Result<Option<u64>, String> {
+    conn.query_row(
+        "SELECT window_secs FROM tenant_dp_config WHERE tenant = ?1",
+        params![tenant],
+        |row| row.get::<_, i64>(0),
+    )
+    .optional()
+    .map(|opt| opt.map(|secs| secs.max(0) as u64))
+    .map_err(|e| format!("failed to read tenant dp window: {e}"))
 }
 
 /// Resolves a tenant's effective policy-history retention window.
@@ -1333,6 +1612,60 @@ fn prune_policy_history_ttl_history(
     Ok(removed)
 }
 
+/// Appends one DP budget window override change row (never updates/deletes) —
+/// issue C2.
+fn insert_dp_window_change(
+    conn: &Connection,
+    tenant: &str,
+    action: &str,
+    old_window_secs: Option<u64>,
+    new_window_secs: Option<u64>,
+    changed_by: &str,
+    changed_at: i64,
+) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO tenant_dp_config_history
+             (tenant, action, old_window_secs, new_window_secs, changed_by, changed_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            tenant,
+            action,
+            old_window_secs.map(|v| v as i64),
+            new_window_secs.map(|v| v as i64),
+            changed_by,
+            changed_at
+        ],
+    )
+    .map_err(|e| format!("failed to record dp window change: {e}"))?;
+    Ok(())
+}
+
+/// Trims a tenant's DP budget window override change history to its count cap —
+/// issue C2.
+///
+/// Runs in the same transaction as the change that triggered it, so the table
+/// never grows unbounded while the newest rows (the ones the audit endpoint
+/// serves) are preserved. Only the count cap applies — the override's own window
+/// must not expire the audit trail of who set it. Other tenants are never
+/// touched. Returns the number of rows removed.
+fn prune_dp_window_history(conn: &Connection, tenant: &str, max: usize) -> Result<usize, String> {
+    if max == 0 {
+        return Ok(0);
+    }
+    let removed = conn
+        .execute(
+            "DELETE FROM tenant_dp_config_history
+         WHERE tenant = ?1
+           AND id NOT IN (
+               SELECT id FROM tenant_dp_config_history
+               WHERE tenant = ?1 ORDER BY id DESC LIMIT ?2
+           )",
+            params![tenant, max as i64],
+        )
+        .map_err(|e| format!("failed to prune dp window history: {e}"))?;
+    Ok(removed)
+}
+
 impl Default for Store {
     fn default() -> Self {
         Store::new()
@@ -1385,14 +1718,14 @@ mod tests {
         let store = Store::open_at(&db);
 
         let id = store
-            .record_run("hash1", "success", 42, None, "tenant-a")
+            .record_run("hash1", "success", 42, None, "tenant-a", None)
             .expect("insert");
         let id2 = store
-            .record_run("hash2", "failed", 0, Some("boom"), "tenant-a")
+            .record_run("hash2", "failed", 0, Some("boom"), "tenant-a", None)
             .expect("insert");
         // A different tenant's run must not be visible to tenant-a.
         let id_other = store
-            .record_run("hash3", "success", 1, None, "tenant-b")
+            .record_run("hash3", "success", 1, None, "tenant-b", None)
             .expect("insert");
 
         let list = store.list_runs(10, "tenant-a").expect("list");
@@ -1443,6 +1776,60 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open_at(&db);
         assert!(store.get_run(999_999, "").expect("no err").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Resource telemetry is stored per run and scoped to its tenant (issue #128).
+    #[test]
+    fn run_resources_are_persisted_and_tenant_scoped() {
+        let dir = std::env::temp_dir().join(format!(
+            "xazz_store_res_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db = dir.join("xazz.db");
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open_at(&db);
+
+        let json = r#"{"duration_ms":12,"cpu_user_ms":3,"source":"runner-process-tree"}"#;
+        let id = store
+            .record_run("hash", "success", 1, None, "tenant-a", Some(json))
+            .expect("insert");
+        let legacy = store
+            .record_run("hash2", "success", 1, None, "tenant-a", None)
+            .expect("insert");
+
+        let rec = store
+            .get_run_resources(id, "tenant-a")
+            .expect("no err")
+            .expect("exists");
+        assert_eq!(rec.run_id, id);
+        assert_eq!(rec.resources_json.as_deref(), Some(json));
+
+        // A run without telemetry still resolves, but with no payload.
+        let none = store
+            .get_run_resources(legacy, "tenant-a")
+            .expect("no err")
+            .expect("exists");
+        assert!(none.resources_json.is_none());
+
+        // Cross-tenant access and unknown ids are not found.
+        assert!(
+            store
+                .get_run_resources(id, "tenant-b")
+                .expect("no err")
+                .is_none()
+        );
+        assert!(
+            store
+                .get_run_resources(999_999, "tenant-a")
+                .expect("no err")
+                .is_none()
+        );
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1572,17 +1959,17 @@ mod tests {
 
         // No override by default.
         assert_eq!(store.get_dp_window("a").expect("read"), None);
-        store.set_dp_window("a", 3600).expect("set a");
+        store.set_dp_window("a", 3600, "a").expect("set a");
         // An explicit 0 is a stored override, not "unset".
-        store.set_dp_window("b", 0).expect("set b");
+        store.set_dp_window("b", 0, "b").expect("set b");
         assert_eq!(store.get_dp_window("a").expect("read a"), Some(3600));
         assert_eq!(store.get_dp_window("b").expect("read b"), Some(0));
         assert_eq!(store.get_dp_window("c").expect("read c"), None);
 
         // Clearing is tenant-scoped and reports whether a row existed.
-        assert!(store.clear_dp_window("a").expect("clear a"));
+        assert!(store.clear_dp_window("a", "a").expect("clear a"));
         assert_eq!(store.get_dp_window("a").expect("read a"), None);
-        assert!(!store.clear_dp_window("a").expect("clear a again"));
+        assert!(!store.clear_dp_window("a", "a").expect("clear a again"));
         assert_eq!(store.get_dp_window("b").expect("read b"), Some(0));
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -1614,11 +2001,124 @@ mod tests {
             .expect("age window");
         }
 
-        store.set_dp_window("a", 3600).expect("set window");
+        store.set_dp_window("a", 3600, "a").expect("set window");
         // The anchor moved to now, so the fresh one-hour window retains the spend.
         assert!((store.dp_spent("a", 3600).expect("read").0 - 2.0).abs() < 1e-12);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// DP window override changes append a tenant-scoped audit history (issue C2).
+    #[test]
+    fn dp_window_changes_are_audited_per_tenant() {
+        let dir = std::env::temp_dir().join(format!(
+            "xazz_store_dpwin_hist_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db = dir.join("xazz.db");
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open_at(&db);
+
+        store.set_dp_window("a", 3600, "a").expect("set a");
+        store.set_dp_window("a", 0, "admin").expect("admin set a");
+        store.set_dp_window("b", 60, "b").expect("set b");
+        assert!(store.clear_dp_window("a", "a").expect("clear a"));
+
+        let rows = store
+            .list_dp_window_history("a", 100, 0, None)
+            .expect("history a");
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].action, "clear");
+        assert_eq!(rows[0].old_window_secs, Some(0));
+        assert_eq!(rows[0].new_window_secs, None);
+        assert_eq!(rows[0].changed_by, "a");
+        assert_eq!(rows[1].action, "set");
+        assert_eq!(rows[1].old_window_secs, Some(3600));
+        assert_eq!(rows[1].new_window_secs, Some(0));
+        assert_eq!(rows[1].changed_by, "admin");
+        assert_eq!(rows[2].action, "set");
+        assert_eq!(rows[2].old_window_secs, None);
+        assert_eq!(rows[2].new_window_secs, Some(3600));
+
+        // Another tenant sees only its own trail.
+        let rows_b = store
+            .list_dp_window_history("b", 100, 0, None)
+            .expect("history b");
+        assert_eq!(rows_b.len(), 1);
+        assert_eq!(rows_b[0].changed_by, "b");
+
+        // A clear that removes nothing records nothing.
+        assert!(!store.clear_dp_window("a", "a").expect("clear again"));
+        assert_eq!(
+            store
+                .list_dp_window_history("a", 100, 0, None)
+                .expect("history a")
+                .len(),
+            3
+        );
+
+        // Cursor paging stays newest-first.
+        let first = store
+            .list_dp_window_history("a", 1, 0, None)
+            .expect("page1");
+        assert_eq!(first.len(), 1);
+        let second = store
+            .list_dp_window_history("a", 10, 0, Some(first[0].id))
+            .expect("page2");
+        assert_eq!(second.len(), 2);
+        assert!(second[0].id < first[0].id);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The DP window override change history is capped independently from the
+    /// policy-history cap (issue C2).
+    #[test]
+    fn dp_window_history_is_pruned_to_its_own_cap() {
+        let db = unique_db("dpwin_hist_cap");
+        // Policy cap of 1, DP window cap of 3: the two trails must not share a cap.
+        let store = Store::open_at_with_retention(&db, 1, 0, 3, DEFAULT_POLICY_TTL_HISTORY_MAX);
+
+        for i in 1..=5 {
+            store.set_dp_window("a", i * 60, "a").expect("set a");
+        }
+        store.set_dp_window("b", 60, "b").expect("set b");
+
+        let hist_a = store
+            .list_dp_window_history("a", 100, 0, None)
+            .expect("dp history a");
+        assert_eq!(hist_a.len(), 3, "own cap keeps the newest 3");
+        assert_eq!(hist_a[0].new_window_secs, Some(300));
+
+        // The policy history is bounded by the separate policy cap.
+        for i in 1..=3 {
+            store
+                .set_tenant_policy("a", &format!(r#"{{"id":"a-{i}"}}"#), "a")
+                .expect("set policy a");
+        }
+        assert_eq!(
+            store
+                .list_policy_history("a", 100, 0, None)
+                .expect("policy history a")
+                .len(),
+            1,
+            "policy cap is independent of the DP window cap"
+        );
+
+        assert_eq!(
+            store
+                .list_dp_window_history("b", 100, 0, None)
+                .expect("dp history b")
+                .len(),
+            1,
+            "pruning is tenant-scoped"
+        );
+
+        let _ = std::fs::remove_dir_all(db.parent().unwrap());
     }
 
     /// Tenant policy packs are stored and isolated per tenant (issue C2).
@@ -1676,7 +2176,9 @@ mod tests {
         assert!(!store.delete_tenant_policy("a", "a").expect("delete again"));
 
         // The change history is append-only and tenant-scoped: set, replace, delete.
-        let hist_a = store.list_policy_history("a", 10, 0).expect("history a");
+        let hist_a = store
+            .list_policy_history("a", 10, 0, None)
+            .expect("history a");
         let actions: Vec<&str> = hist_a.iter().map(|h| h.action.as_str()).collect();
         assert_eq!(actions, vec!["delete", "set", "set"], "{hist_a:?}");
         assert_eq!(hist_a[0].changed_by, "a");
@@ -1687,7 +2189,9 @@ mod tests {
         assert!(hist_a[0].new_policy_json.is_none());
         assert!(hist_a[1].old_policy_json.is_some());
         // tenant-b's history is separate and untouched by a's deletes.
-        let hist_b = store.list_policy_history("b", 10, 0).expect("history b");
+        let hist_b = store
+            .list_policy_history("b", 10, 0, None)
+            .expect("history b");
         assert_eq!(hist_b.len(), 1);
         assert_eq!(hist_b[0].action, "set");
 
@@ -1706,6 +2210,45 @@ mod tests {
         assert_eq!(
             resolve_policy_history_max(Some("not-a-number")),
             DEFAULT_POLICY_HISTORY_MAX
+        );
+    }
+
+    /// The DP window history cap parser rejects disabled/invalid values and
+    /// defaults independently from the policy-history cap (issue C2).
+    #[test]
+    fn dp_window_history_max_resolver_falls_back_to_default() {
+        assert_eq!(
+            resolve_dp_window_history_max(None),
+            DEFAULT_DP_WINDOW_HISTORY_MAX
+        );
+        assert_eq!(resolve_dp_window_history_max(Some("5")), 5);
+        assert_eq!(
+            resolve_dp_window_history_max(Some("0")),
+            DEFAULT_DP_WINDOW_HISTORY_MAX
+        );
+        assert_eq!(
+            resolve_dp_window_history_max(Some("not-a-number")),
+            DEFAULT_DP_WINDOW_HISTORY_MAX
+        );
+    }
+
+    /// The policy-history retention-window change history cap parser rejects
+    /// disabled/invalid values and defaults independently from the pack cap
+    /// (issue C2).
+    #[test]
+    fn policy_ttl_history_max_resolver_falls_back_to_default() {
+        assert_eq!(
+            resolve_policy_ttl_history_max(None),
+            DEFAULT_POLICY_TTL_HISTORY_MAX
+        );
+        assert_eq!(resolve_policy_ttl_history_max(Some("5")), 5);
+        assert_eq!(
+            resolve_policy_ttl_history_max(Some("0")),
+            DEFAULT_POLICY_TTL_HISTORY_MAX
+        );
+        assert_eq!(
+            resolve_policy_ttl_history_max(Some("not-a-number")),
+            DEFAULT_POLICY_TTL_HISTORY_MAX
         );
     }
 
@@ -1824,8 +2367,8 @@ mod tests {
             seed.set_policy_history_ttl("b", i, "b").expect("set b ttl");
         }
 
-        // A later deployment lowers the cap; the sweep alone must trim both.
-        let store = Store::open_at_with_history_max(&db, 2);
+        // A later deployment lowers the caps; the sweep alone must trim both.
+        let store = Store::open_at_with_retention(&db, 2, 0, DEFAULT_DP_WINDOW_HISTORY_MAX, 2);
         let removed = store.sweep_expired_policy_history().expect("sweep");
         assert_eq!(
             removed, 6,
@@ -1834,14 +2377,14 @@ mod tests {
 
         assert_eq!(
             store
-                .list_policy_history("a", 100, 0)
+                .list_policy_history("a", 100, 0, None)
                 .expect("history a")
                 .len(),
             2
         );
         assert_eq!(
             store
-                .list_policy_history_ttl_history("b", 100, 0)
+                .list_policy_history_ttl_history("b", 100, 0, None)
                 .expect("history b")
                 .len(),
             2,
@@ -1882,7 +2425,9 @@ mod tests {
             .set_tenant_policy("b", r#"{"id":"b-1"}"#, "b")
             .expect("set b");
 
-        let hist_a = store.list_policy_history("a", 100, 0).expect("history a");
+        let hist_a = store
+            .list_policy_history("a", 100, 0, None)
+            .expect("history a");
         assert_eq!(hist_a.len(), 3, "cap keeps the newest 3");
         // Newest-first: a-5, a-4, a-3 (a-1/a-2 pruned).
         assert_eq!(
@@ -1894,7 +2439,9 @@ mod tests {
             Some(r#"{"id":"a-3"}"#)
         );
 
-        let hist_b = store.list_policy_history("b", 100, 0).expect("history b");
+        let hist_b = store
+            .list_policy_history("b", 100, 0, None)
+            .expect("history b");
         assert_eq!(hist_b.len(), 1, "pruning is tenant-scoped");
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -1928,7 +2475,9 @@ mod tests {
         }
 
         // Expired rows are hidden even before a write prunes them.
-        let hist_a = store.list_policy_history("a", 100, 0).expect("history a");
+        let hist_a = store
+            .list_policy_history("a", 100, 0, None)
+            .expect("history a");
         assert_eq!(hist_a.len(), 1, "only the fresh change is served");
         assert_eq!(
             hist_a[0].new_policy_json.as_deref(),
@@ -1953,7 +2502,7 @@ mod tests {
         // b's older-than-window risk does not apply; its single row is fresh.
         assert_eq!(
             store
-                .list_policy_history("b", 100, 0)
+                .list_policy_history("b", 100, 0, None)
                 .expect("history b")
                 .len(),
             1
@@ -2004,7 +2553,7 @@ mod tests {
 
         assert!(
             store
-                .list_policy_history_ttl_history("a", 100, 0)
+                .list_policy_history_ttl_history("a", 100, 0, None)
                 .expect("empty")
                 .is_empty()
         );
@@ -2016,7 +2565,7 @@ mod tests {
         store.set_policy_history_ttl("b", 60, "b").expect("set b");
 
         let hist = store
-            .list_policy_history_ttl_history("a", 100, 0)
+            .list_policy_history_ttl_history("a", 100, 0, None)
             .expect("history a");
         assert_eq!(hist.len(), 2, "newest-first set records");
         assert_eq!(hist[0].action, "set");
@@ -2033,7 +2582,7 @@ mod tests {
 
         assert!(store.clear_policy_history_ttl("a", "a").expect("clear a"));
         let hist = store
-            .list_policy_history_ttl_history("a", 100, 0)
+            .list_policy_history_ttl_history("a", 100, 0, None)
             .expect("history a after clear");
         assert_eq!(hist.len(), 3);
         assert_eq!(hist[0].action, "clear");
@@ -2048,7 +2597,7 @@ mod tests {
         );
         assert_eq!(
             store
-                .list_policy_history_ttl_history("a", 100, 0)
+                .list_policy_history_ttl_history("a", 100, 0, None)
                 .expect("history a after no-op")
                 .len(),
             3
@@ -2057,7 +2606,7 @@ mod tests {
         // History is tenant-scoped.
         assert_eq!(
             store
-                .list_policy_history_ttl_history("b", 100, 0)
+                .list_policy_history_ttl_history("b", 100, 0, None)
                 .expect("history b")
                 .len(),
             1
@@ -2080,24 +2629,125 @@ mod tests {
         ));
         let db = dir.join("xazz.db");
         std::fs::create_dir_all(&dir).unwrap();
-        let store = Store::open_at_with_history_max(&db, 2);
+        let store = Store::open_at_with_retention(
+            &db,
+            DEFAULT_POLICY_HISTORY_MAX,
+            0,
+            DEFAULT_DP_WINDOW_HISTORY_MAX,
+            2,
+        );
 
         for i in 1..=4 {
             store.set_policy_history_ttl("a", i, "a").expect("set a");
         }
 
         let hist = store
-            .list_policy_history_ttl_history("a", 100, 0)
+            .list_policy_history_ttl_history("a", 100, 0, None)
             .expect("history a");
         assert_eq!(hist.len(), 2, "cap keeps the newest 2");
         assert_eq!(hist[0].new_ttl_secs, Some(4));
         assert_eq!(hist[1].new_ttl_secs, Some(3));
 
         let page = store
-            .list_policy_history_ttl_history("a", 1, 1)
+            .list_policy_history_ttl_history("a", 1, 1, None)
             .expect("page");
         assert_eq!(page.len(), 1);
         assert_eq!(page[0].new_ttl_secs, Some(3));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The policy-history retention-window override change history is capped
+    /// independently from the pack-history cap (issue C2).
+    #[test]
+    fn policy_ttl_history_is_pruned_to_its_own_cap() {
+        let db = unique_db("policy_ttl_hist_cap");
+        // Pack cap of 1, TTL override history cap of 3: independent trails.
+        let store = Store::open_at_with_retention(&db, 1, 0, DEFAULT_DP_WINDOW_HISTORY_MAX, 3);
+
+        for i in 1..=5 {
+            store
+                .set_policy_history_ttl("a", i, "a")
+                .expect("set a ttl");
+        }
+        store
+            .set_policy_history_ttl("b", 60, "b")
+            .expect("set b ttl");
+
+        let hist_a = store
+            .list_policy_history_ttl_history("a", 100, 0, None)
+            .expect("ttl history a");
+        assert_eq!(hist_a.len(), 3, "own cap keeps the newest 3");
+        assert_eq!(hist_a[0].new_ttl_secs, Some(5));
+
+        // The pack history is bounded by the separate pack cap.
+        for i in 1..=3 {
+            store
+                .set_tenant_policy("a", &format!(r#"{{"id":"a-{i}"}}"#), "a")
+                .expect("set policy a");
+        }
+        assert_eq!(
+            store
+                .list_policy_history("a", 100, 0, None)
+                .expect("policy history a")
+                .len(),
+            1,
+            "pack cap is independent of the TTL history cap"
+        );
+
+        assert_eq!(
+            store
+                .list_policy_history_ttl_history("b", 100, 0, None)
+                .expect("ttl history b")
+                .len(),
+            1,
+            "pruning is tenant-scoped"
+        );
+
+        let _ = std::fs::remove_dir_all(db.parent().unwrap());
+    }
+
+    /// The retention-window change history pages by id cursor
+    /// (`id < before`) instead of `OFFSET`, newest-first (issue C2).
+    #[test]
+    fn policy_history_ttl_change_history_paginates_by_id_cursor() {
+        let dir = std::env::temp_dir().join(format!(
+            "xazz_store_hist_ttl_cursor_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db = dir.join("xazz.db");
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open_at(&db);
+
+        for i in 1..=5 {
+            store.set_policy_history_ttl("a", i, "a").expect("set a");
+        }
+
+        let page = |limit: usize, before: Option<i64>| {
+            store
+                .list_policy_history_ttl_history("a", limit, 0, before)
+                .expect("history page")
+        };
+        let ttls = |rows: &[PolicyHistoryTtlChangeRecord]| -> Vec<u64> {
+            rows.iter().filter_map(|r| r.new_ttl_secs).collect()
+        };
+
+        let first = page(2, None);
+        assert_eq!(ttls(&first), vec![5, 4]);
+        let cursor = first.last().expect("first page non-empty").id;
+
+        let second = page(2, Some(cursor));
+        assert_eq!(ttls(&second), vec![3, 2]);
+        let cursor = second.last().expect("second page non-empty").id;
+
+        assert_eq!(ttls(&page(2, Some(cursor))), vec![1]);
+
+        // A cursor at or below the oldest id yields an empty page.
+        assert!(page(2, Some(0)).is_empty());
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2135,7 +2785,9 @@ mod tests {
         }
 
         // a's override hides the aged rows; b's disabled global window keeps them.
-        let hist_a = store.list_policy_history("a", 100, 0).expect("history a");
+        let hist_a = store
+            .list_policy_history("a", 100, 0, None)
+            .expect("history a");
         assert_eq!(hist_a.len(), 1, "a's override expires aged rows");
         assert_eq!(
             hist_a[0].new_policy_json.as_deref(),
@@ -2143,7 +2795,7 @@ mod tests {
         );
         assert_eq!(
             store
-                .list_policy_history("b", 100, 0)
+                .list_policy_history("b", 100, 0, None)
                 .expect("history b")
                 .len(),
             1,
@@ -2192,7 +2844,7 @@ mod tests {
 
         let page = |offset| {
             store
-                .list_policy_history("a", 2, offset)
+                .list_policy_history("a", 2, offset, None)
                 .expect("history page")
         };
         let ids = |rows: &[PolicyChangeRecord]| -> Vec<String> {
@@ -2205,6 +2857,55 @@ mod tests {
         assert_eq!(ids(&page(2)), vec![r#"{"id":"a-3"}"#, r#"{"id":"a-2"}"#]);
         assert_eq!(ids(&page(4)), vec![r#"{"id":"a-1"}"#]);
         assert!(page(6).is_empty(), "offset past the end is empty");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// History can be paged by id cursor (`id < before`) instead of `OFFSET`,
+    /// so pages stay correct when older rows are pruned between calls (issue C2).
+    #[test]
+    fn policy_history_paginates_by_id_cursor() {
+        let dir = std::env::temp_dir().join(format!(
+            "xazz_store_hist_cursor_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db = dir.join("xazz.db");
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open_at(&db);
+
+        for i in 1..=5 {
+            store
+                .set_tenant_policy("a", &format!(r#"{{"id":"a-{i}"}}"#), "a")
+                .expect("set a");
+        }
+
+        let page = |limit: usize, before: Option<i64>| {
+            store
+                .list_policy_history("a", limit, 0, before)
+                .expect("history page")
+        };
+        let ids = |rows: &[PolicyChangeRecord]| -> Vec<String> {
+            rows.iter()
+                .map(|r| r.new_policy_json.clone().unwrap_or_default())
+                .collect()
+        };
+
+        let first = page(2, None);
+        assert_eq!(ids(&first), vec![r#"{"id":"a-5"}"#, r#"{"id":"a-4"}"#]);
+        let cursor = first.last().expect("first page non-empty").id;
+
+        let second = page(2, Some(cursor));
+        assert_eq!(ids(&second), vec![r#"{"id":"a-3"}"#, r#"{"id":"a-2"}"#]);
+        let cursor = second.last().expect("second page non-empty").id;
+
+        assert_eq!(ids(&page(2, Some(cursor))), vec![r#"{"id":"a-1"}"#]);
+
+        // A cursor at or below the oldest id yields an empty page.
+        assert!(page(2, Some(0)).is_empty());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

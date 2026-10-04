@@ -191,7 +191,7 @@ pub fn policy_endpoint(server: &str) -> String {
 
 /// Token fallback for `xazz registry deploy` — the admin token wins over the
 /// single-server token, matching the server's authentication precedence.
-fn env_token() -> Option<String> {
+pub(crate) fn env_token() -> Option<String> {
     ["XAZZ_ADMIN_TOKEN", "XAZZ_SERVER_TOKEN"]
         .iter()
         .find_map(|key| std::env::var(key).ok())
@@ -199,31 +199,65 @@ fn env_token() -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-/// `xazz registry deploy <name> --tenant T [--server URL] [--token TOKEN] [--actor A]`
+/// `xazz registry deploy [name] [--file PATH] --tenant T [--server URL] [--token TOKEN] [--actor A]`
 ///
-/// Deploys an embedded policy pack to a tenant namespace through the server's
-/// `PUT /security/policy` endpoint (issue C2). Only policy packs can be deployed;
-/// stdlib modules are project-local files and are rejected before any network call.
+/// Deploys a policy pack to a tenant namespace through the server's
+/// `PUT /security/policy` endpoint (issue C2). The pack source is either an
+/// embedded registry entry (`name`) or a local policy JSON file (`--file`);
+/// exactly one is required. Stdlib modules are project-local files and are
+/// rejected before any network call.
 pub fn deploy(
-    name: &str,
+    name: Option<&str>,
+    file: Option<&Path>,
     server: &str,
     tenant: &str,
     token: Option<&str>,
     actor: Option<&str>,
 ) -> i32 {
-    let Some(entry) = find(name) else {
-        eprintln!("[xazz] registry: unknown entry '{name}'");
-        eprintln!("        run `xazz registry list` to see available entries");
-        return 1;
+    let (label, source) = match (name, file) {
+        (Some(_), Some(_)) => {
+            eprintln!("[xazz] registry: pass either a registry name or --file, not both");
+            return 1;
+        }
+        (None, None) => {
+            eprintln!("[xazz] registry: provide a registry name or --file <path>");
+            return 1;
+        }
+        (Some(name), None) => {
+            let Some(entry) = find(name) else {
+                eprintln!("[xazz] registry: unknown entry '{name}'");
+                eprintln!("        run `xazz registry list` to see available entries");
+                return 1;
+            };
+            if entry.kind != EntryKind::PolicyPack {
+                eprintln!(
+                    "[xazz] registry: '{}' is a {} and cannot be deployed as a tenant policy",
+                    entry.name,
+                    entry.kind.as_str()
+                );
+                return 1;
+            }
+            (entry.name.to_string(), entry.source.to_string())
+        }
+        (None, Some(path)) => {
+            let source = match std::fs::read_to_string(path) {
+                Ok(source) => source,
+                Err(e) => {
+                    eprintln!("[xazz] registry: cannot read '{}': {e}", path.display());
+                    return 1;
+                }
+            };
+            if let Err(err) = xazz_compiler::policy::Policy::from_json_str(&source) {
+                eprintln!(
+                    "[xazz] registry: '{}' is not a valid policy: {}",
+                    path.display(),
+                    err.message
+                );
+                return 1;
+            }
+            (path.display().to_string(), source)
+        }
     };
-    if entry.kind != EntryKind::PolicyPack {
-        eprintln!(
-            "[xazz] registry: '{}' is a {} and cannot be deployed as a tenant policy",
-            entry.name,
-            entry.kind.as_str()
-        );
-        return 1;
-    }
 
     let tenant = tenant.trim();
     if tenant.is_empty() {
@@ -256,14 +290,9 @@ pub fn deploy(
         headers.push(("X-Xazz-Actor", actor.to_string()));
     }
 
-    match http::put_json(&endpoint, &headers, entry.source) {
+    match http::put_json(&endpoint, &headers, &source) {
         Ok(resp) if (200..300).contains(&resp.status) => {
-            println!(
-                "✔ deployed {} '{}' → tenant '{}'",
-                entry.kind.as_str(),
-                entry.name,
-                tenant
-            );
+            println!("✔ deployed policy-pack '{label}' → tenant '{tenant}'");
             println!("  server: {endpoint}");
             0
         }
@@ -280,6 +309,68 @@ pub fn deploy(
         }
         Err(e) => {
             eprintln!("[xazz] registry: deploy failed — {e}");
+            1
+        }
+    }
+}
+
+/// `xazz registry undeploy --tenant T [--server URL] [--token TOKEN] [--actor A]`
+///
+/// Removes the policy pack stored under a tenant namespace through the server's
+/// `DELETE /security/policy` endpoint (issue C2). After removal the tenant falls
+/// back to the global/builtin policy. Validation mirrors [`deploy`], so an empty
+/// tenant/server or a missing token fails locally before any network call.
+pub fn undeploy(server: &str, tenant: &str, token: Option<&str>, actor: Option<&str>) -> i32 {
+    let tenant = tenant.trim();
+    if tenant.is_empty() {
+        eprintln!("[xazz] registry: --tenant must not be empty");
+        return 1;
+    }
+    if server.trim().is_empty() {
+        eprintln!("[xazz] registry: --server must not be empty");
+        return 1;
+    }
+
+    let token = token
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(env_token);
+    let Some(token) = token else {
+        eprintln!(
+            "[xazz] registry: no token — pass --token or set XAZZ_ADMIN_TOKEN / XAZZ_SERVER_TOKEN"
+        );
+        return 1;
+    };
+
+    let endpoint = policy_endpoint(server);
+    let mut headers: Vec<(&str, String)> = vec![
+        ("Authorization", format!("Bearer {token}")),
+        ("X-Xazz-Tenant", tenant.to_string()),
+    ];
+    if let Some(actor) = actor.map(str::trim).filter(|value| !value.is_empty()) {
+        headers.push(("X-Xazz-Actor", actor.to_string()));
+    }
+
+    match http::delete_json(&endpoint, &headers) {
+        Ok(resp) if (200..300).contains(&resp.status) => {
+            println!("✔ undeployed policy-pack from tenant '{tenant}'");
+            println!("  server: {endpoint}");
+            0
+        }
+        Ok(resp) => {
+            eprintln!(
+                "[xazz] registry: server returned HTTP {} for tenant '{}'",
+                resp.status, tenant
+            );
+            let body = resp.body.trim();
+            if !body.is_empty() {
+                eprintln!("        {body}");
+            }
+            1
+        }
+        Err(e) => {
+            eprintln!("[xazz] registry: undeploy failed — {e}");
             1
         }
     }
@@ -337,8 +428,81 @@ mod tests {
 
     #[test]
     fn deploy_rejects_stdlib_entry_before_any_network_call() {
-        let code = deploy("models", "http://127.0.0.1:1", "acme", Some("secret"), None);
+        let code = deploy(
+            Some("models"),
+            None,
+            "http://127.0.0.1:1",
+            "acme",
+            Some("secret"),
+            None,
+        );
         assert_eq!(code, 1, "stdlib modules are not deployable");
+    }
+
+    #[test]
+    fn deploy_requires_name_or_file() {
+        let code = deploy(
+            None,
+            None,
+            "http://127.0.0.1:1",
+            "acme",
+            Some("secret"),
+            None,
+        );
+        assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn deploy_rejects_name_and_file_together() {
+        let code = deploy(
+            Some("healthcare"),
+            Some(Path::new("xazz.policy.json")),
+            "http://127.0.0.1:1",
+            "acme",
+            Some("secret"),
+            None,
+        );
+        assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn deploy_reports_unreadable_file() {
+        let code = deploy(
+            None,
+            Some(Path::new("does-not-exist-xazz.policy.json")),
+            "http://127.0.0.1:1",
+            "acme",
+            Some("secret"),
+            None,
+        );
+        assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn deploy_rejects_invalid_local_policy_before_any_network_call() {
+        let path = write_temp_policy("{ not a policy }");
+        let code = deploy(
+            None,
+            Some(&path),
+            "http://127.0.0.1:1",
+            "acme",
+            Some("secret"),
+            None,
+        );
+        assert_eq!(code, 1, "invalid policy JSON must fail before the network");
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// Writes `contents` to a unique temp `.json` path (process id + nanos).
+    fn write_temp_policy(contents: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("xazz-registry-{}-{nonce}.json", std::process::id()));
+        std::fs::write(&path, contents).expect("write temp policy file");
+        path
     }
 
     /// Minimal one-shot HTTP server: captures the raw request and replies with the
@@ -407,7 +571,14 @@ mod tests {
     #[test]
     fn deploy_puts_pack_to_tenant_endpoint() {
         let (server, rx) = spawn_policy_server("HTTP/1.1 200 OK", r#"{"tenant":"acme"}"#);
-        let code = deploy("healthcare", &server, "acme", Some("secret"), Some("admin"));
+        let code = deploy(
+            Some("healthcare"),
+            None,
+            &server,
+            "acme",
+            Some("secret"),
+            Some("admin"),
+        );
         assert_eq!(code, 0);
 
         let request = rx.recv().expect("captured request");
@@ -428,9 +599,82 @@ mod tests {
     }
 
     #[test]
+    fn deploy_puts_local_file_pack_to_tenant_endpoint() {
+        let pack = find("healthcare").unwrap().source;
+        let path = write_temp_policy(pack);
+        let (server, rx) = spawn_policy_server("HTTP/1.1 200 OK", r#"{"tenant":"acme"}"#);
+        let code = deploy(None, Some(&path), &server, "acme", Some("secret"), None);
+        assert_eq!(code, 0);
+
+        let request = rx.recv().expect("captured request");
+        assert!(
+            request.starts_with("PUT /security/policy HTTP/1.1\r\n"),
+            "{request}"
+        );
+        assert!(request.contains("X-Xazz-Tenant: acme\r\n"), "{request}");
+        assert!(
+            request.ends_with(pack),
+            "body must be the local policy file contents"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn deploy_reports_server_error_status() {
         let (server, _rx) = spawn_policy_server("HTTP/1.1 400 Bad Request", r#"{"error":"bad"}"#);
-        let code = deploy("healthcare", &server, "acme", Some("secret"), None);
+        let code = deploy(
+            Some("healthcare"),
+            None,
+            &server,
+            "acme",
+            Some("secret"),
+            None,
+        );
         assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn undeploy_deletes_tenant_endpoint() {
+        let (server, rx) =
+            spawn_policy_server("HTTP/1.1 200 OK", r#"{"tenant":"acme","deleted":true}"#);
+        let code = undeploy(&server, "acme", Some("secret"), Some("admin"));
+        assert_eq!(code, 0);
+
+        let request = rx.recv().expect("captured request");
+        assert!(
+            request.starts_with("DELETE /security/policy HTTP/1.1\r\n"),
+            "{request}"
+        );
+        assert!(request.contains("X-Xazz-Tenant: acme\r\n"), "{request}");
+        assert!(
+            request.contains("Authorization: Bearer secret\r\n"),
+            "{request}"
+        );
+        assert!(request.contains("X-Xazz-Actor: admin\r\n"), "{request}");
+    }
+
+    #[test]
+    fn undeploy_reports_server_error_status() {
+        let (server, _rx) = spawn_policy_server("HTTP/1.1 404 Not Found", r#"{"error":"missing"}"#);
+        let code = undeploy(&server, "acme", Some("secret"), None);
+        assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn undeploy_requires_tenant_and_token() {
+        assert_eq!(
+            undeploy("http://127.0.0.1:1", "  ", Some("secret"), None),
+            1,
+            "empty tenant must fail locally"
+        );
+        unsafe {
+            std::env::remove_var("XAZZ_ADMIN_TOKEN");
+            std::env::remove_var("XAZZ_SERVER_TOKEN");
+        }
+        assert_eq!(
+            undeploy("http://127.0.0.1:1", "acme", None, None),
+            1,
+            "missing token must fail locally"
+        );
     }
 }

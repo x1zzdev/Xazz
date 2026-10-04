@@ -491,6 +491,13 @@ pub enum SweepMetric {
     Mae,
     /// Coefficient of determination (higher is better).
     R2,
+    #[serde(rename = "cross_entropy")]
+    CrossEntropy,
+    Accuracy,
+    Precision,
+    Recall,
+    F1,
+    Auc,
 }
 
 impl SweepMetric {
@@ -500,6 +507,12 @@ impl SweepMetric {
             SweepMetric::Mse => "mse",
             SweepMetric::Mae => "mae",
             SweepMetric::R2 => "r2",
+            SweepMetric::CrossEntropy => "cross_entropy",
+            SweepMetric::Accuracy => "accuracy",
+            SweepMetric::Precision => "precision",
+            SweepMetric::Recall => "recall",
+            SweepMetric::F1 => "f1",
+            SweepMetric::Auc => "auc",
         }
     }
 
@@ -510,13 +523,31 @@ impl SweepMetric {
             "" | "mse" | "l2" | "loss" => Some(SweepMetric::Mse),
             "mae" | "l1" => Some(SweepMetric::Mae),
             "r2" | "r^2" | "rsquared" => Some(SweepMetric::R2),
+            "cross_entropy" | "ce" => Some(SweepMetric::CrossEntropy),
+            "accuracy" => Some(SweepMetric::Accuracy),
+            "precision" => Some(SweepMetric::Precision),
+            "recall" => Some(SweepMetric::Recall),
+            "f1" => Some(SweepMetric::F1),
+            "auc" => Some(SweepMetric::Auc),
             _ => None,
         }
     }
 
-    /// Whether a lower value is better. R² is the only "higher is better" metric.
+    pub fn is_classification(self) -> bool {
+        matches!(
+            self,
+            Self::CrossEntropy
+                | Self::Accuracy
+                | Self::Precision
+                | Self::Recall
+                | Self::F1
+                | Self::Auc
+        )
+    }
+
+    /// Losses are minimized; regression R² and classification scores are maximized.
     pub fn lower_is_better(self) -> bool {
-        !matches!(self, SweepMetric::R2)
+        matches!(self, Self::Mse | Self::Mae | Self::CrossEntropy)
     }
 }
 
@@ -701,7 +732,7 @@ impl TrainConfig {
                         early_stopping_patience: self.early_stopping_patience,
                         sweep: SweepGrid::default(),
                         sweep_metric: self.sweep_metric,
-                        sweep_metric_explicit: false,
+                        sweep_metric_explicit: self.sweep_metric_explicit,
                         sweep_sort: SweepSort::default(),
                         sweep_sort_explicit: false,
                         sweep_tiebreak: Vec::new(),

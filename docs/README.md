@@ -11,8 +11,9 @@ If you are new here, start with the project [README](../README.md) for the
 
 - **Understand the system** — [Architecture](ARCHITECTURE.md),
   [Workspace](WORKSPACE.md), [Glossary](GLOSSARY.md)
-- **Run it** — [Docker](DOCKER.md), [GPU & ONNX backends](GPU_BACKENDS.md),
-  [Data source connectors](CONNECTORS.md), [Check diagnostics](CHECK_DIAGNOSTICS.md)
+- **Run it** — [Docker](DOCKER.md), [Server reference](SERVER.md),
+  [GPU & ONNX backends](GPU_BACKENDS.md), [Data source connectors](CONNECTORS.md),
+  [Check diagnostics](CHECK_DIAGNOSTICS.md)
 - **Security & governance** — [Security guardrail](SECURITY_GUARDRAIL.md),
   [Security model](design/security-model.md)
 - **Roadmap & process** — [Roadmap](ROADMAP.md), [Community](COMMUNITY.md),

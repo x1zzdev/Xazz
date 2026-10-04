@@ -12,6 +12,8 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
+use crate::classification::decode_logits;
+use burn::nn::loss::CrossEntropyLossConfig;
 use burn::{
     backend::Autodiff,
     module::{AutodiffModule, Module},
@@ -396,17 +398,42 @@ fn warn_embedding_non_integer(count: usize) {
     eprintln!("[xazz] {msg}");
 }
 
-/// Runs the out-of-range embedding diagnostic when the model consumes raw indices.
-fn check_embedding_indices(layers: &[LayerKind], values: &[f32], feature_count: usize) {
-    if let Some(vocabs) = leading_embedding_vocabs(layers, feature_count) {
-        let count = count_out_of_range_per_column(values, feature_count, &vocabs);
-        if count > 0 {
-            warn_embedding_out_of_range(count, &vocabs);
-        }
-        let non_integer = count_non_integer_indices(values);
-        if non_integer > 0 {
-            warn_embedding_non_integer(non_integer);
-        }
+/// Structured mirror of the embedding-input warnings. The forward pass clamps
+/// out-of-range indices and truncates fractional ones silently, so these counts
+/// are surfaced in [`TrainReport`] and the `predict` diagnostics (and thus
+/// `--json`) for machine-readable consumption in addition to the stderr
+/// diagnostics (issue D3).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+pub struct EmbeddingDiagnostics {
+    /// Finite inputs below 0 or above `vocab_size - 1` (clamped in the forward pass).
+    #[serde(rename = "embedding_out_of_range")]
+    pub out_of_range: usize,
+    /// Finite inputs with a fractional part (truncated to an index in the forward pass).
+    #[serde(rename = "embedding_non_integer")]
+    pub non_integer: usize,
+}
+
+/// Runs the out-of-range embedding diagnostic when the model consumes raw indices,
+/// emitting the stderr warnings and returning the counts for [`TrainReport`].
+fn check_embedding_indices(
+    layers: &[LayerKind],
+    values: &[f32],
+    feature_count: usize,
+) -> EmbeddingDiagnostics {
+    let Some(vocabs) = leading_embedding_vocabs(layers, feature_count) else {
+        return EmbeddingDiagnostics::default();
+    };
+    let out_of_range = count_out_of_range_per_column(values, feature_count, &vocabs);
+    if out_of_range > 0 {
+        warn_embedding_out_of_range(out_of_range, &vocabs);
+    }
+    let non_integer = count_non_integer_indices(values);
+    if non_integer > 0 {
+        warn_embedding_non_integer(non_integer);
+    }
+    EmbeddingDiagnostics {
+        out_of_range,
+        non_integer,
     }
 }
 
@@ -451,33 +478,27 @@ pub struct TrainReport {
     /// Final coefficient of determination (R²) over the validation split (if any).
     #[serde(default)]
     pub final_val_r2: Option<f64>,
+    /// Raw embedding inputs outside `[0, vocab_size - 1]` (clamped silently in the
+    /// forward pass) — structured mirror of the stderr warning (issue D3).
+    #[serde(default)]
+    pub embedding_out_of_range: usize,
+    /// Finite raw embedding inputs with a fractional part (truncated to an index
+    /// in the forward pass) — structured mirror of the stderr warning (issue D3).
+    #[serde(default)]
+    pub embedding_non_integer: usize,
     /// Classification metrics when the target is categorical (issue #163).
     /// `None` for regression runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub classification: Option<ClassificationMetrics>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation_classification: Option<ClassificationMetrics>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub class_labels: Vec<f32>,
 }
 
-/// Classification metrics for a categorical target (issue #163).
-///
-/// Precision/recall/F1 are macro-averaged over classes. The confusion matrix is
-/// row-major: entry `actual * num_classes + predicted`.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct ClassificationMetrics {
-    /// Number of distinct classes.
-    pub num_classes: usize,
-    /// Fraction of correctly predicted rows.
-    pub accuracy: f64,
-    /// Macro-averaged precision.
-    pub precision: f64,
-    /// Macro-averaged recall.
-    pub recall: f64,
-    /// Macro-averaged F1.
-    pub f1: f64,
-    /// One-vs-rest AUC (binary targets only; NaN for multiclass).
-    pub auc: f64,
-    /// Row-major confusion matrix, `[actual * num_classes + predicted]`.
-    pub confusion_matrix: Vec<usize>,
-}
+pub use crate::classification::{
+    ClassificationMetrics, classification_metrics, detect_classification,
+};
 
 /// Trained model — also holds the standardization statistics needed for predict().
 #[derive(Debug, Clone)]
@@ -521,6 +542,18 @@ pub struct SweepCombo {
     /// Final validation-split R², when a split is configured.
     #[serde(default)]
     pub val_r2: Option<f64>,
+    /// Raw embedding inputs outside `[0, vocab_size - 1]` (clamped silently in
+    /// the forward pass) — per-combination mirror of [`TrainReport`] (issue D3).
+    #[serde(default)]
+    pub embedding_out_of_range: usize,
+    /// Finite raw embedding inputs with a fractional part (truncated to an index
+    /// in the forward pass) — per-combination mirror of [`TrainReport`] (D3).
+    #[serde(default)]
+    pub embedding_non_integer: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classification: Option<ClassificationMetrics>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation_classification: Option<ClassificationMetrics>,
     /// Whether this combination was selected as the sweep winner.
     pub selected: bool,
 }
@@ -559,9 +592,28 @@ impl SweepReport {
     /// metrics rank last.
     pub fn score(combo: &SweepCombo, metric: SweepMetric) -> f64 {
         let (primary, fallback) = match metric {
-            SweepMetric::Mse => (combo.final_val_loss, combo.final_train_loss),
+            SweepMetric::Mse | SweepMetric::CrossEntropy => {
+                (combo.final_val_loss, combo.final_train_loss)
+            }
             SweepMetric::Mae => (combo.val_mae, combo.train_mae),
             SweepMetric::R2 => (combo.val_r2, combo.train_r2),
+            metric => {
+                let metrics = combo
+                    .validation_classification
+                    .as_ref()
+                    .or(combo.classification.as_ref());
+                let value = metrics.and_then(|m| match metric {
+                    SweepMetric::Accuracy => Some(m.accuracy),
+                    SweepMetric::Precision => Some(m.precision),
+                    SweepMetric::Recall => Some(m.recall),
+                    SweepMetric::F1 => Some(m.f1),
+                    SweepMetric::Auc => m.auc,
+                    _ => None,
+                });
+                return value
+                    .filter(|v| v.is_finite())
+                    .map_or(f64::INFINITY, |v| -v);
+            }
         };
         let value = match primary {
             Some(v) if v.is_finite() => v,
@@ -650,6 +702,8 @@ pub fn save_checkpoint(model: &Mlp<Plain>, path: &str) -> Result<(), String> {
 /// be detected instead of silently misread.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CheckpointManifest {
+    #[serde(default)]
+    pub class_labels: Vec<f32>,
     pub format_version: u32,
     pub xazz_version: String,
     pub model_name: String,
@@ -672,6 +726,7 @@ impl CheckpointManifest {
     /// Builds a manifest from a training report and the declared layer graph.
     pub fn from_report(report: &TrainReport, layers: &[LayerKind]) -> Self {
         Self {
+            class_labels: report.class_labels.clone(),
             format_version: CHECKPOINT_FORMAT_VERSION,
             xazz_version: env!("CARGO_PKG_VERSION").to_string(),
             model_name: report.model_name.clone(),
@@ -919,53 +974,6 @@ fn regression_metrics(preds: &[f32], targets: &[f32]) -> (f64, f64) {
     (mae, r2)
 }
 
-/// Returns the sorted class values when `targets` look categorical (issue #163).
-///
-/// A target is treated as classification when every finite value is an integer
-/// and the distinct count is between 2 and `max_classes`. Returns `None` for a
-/// continuous target (any non-integer value) or a degenerate one (0/1 class).
-pub fn detect_classification(targets: &[f32], max_classes: usize) -> Option<Vec<f32>> {
-    let mut classes: Vec<f32> = Vec::new();
-    for &t in targets {
-        if !t.is_finite() {
-            continue;
-        }
-        if t.fract() != 0.0 {
-            return None;
-        }
-        if !classes.contains(&t) {
-            classes.push(t);
-            if classes.len() > max_classes {
-                return None;
-            }
-        }
-    }
-    if classes.len() < 2 {
-        return None;
-    }
-    classes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    Some(classes)
-}
-
-/// Computes accuracy, macro precision/recall/F1, one-vs-rest AUC, and the
-/// confusion matrix (issue #163).
-///
-/// `preds` are predicted class labels (already argmaxed), `targets` are the
-/// ground-truth labels, and `classes` is the class list from
-/// [`detect_classification`]. AUC is only defined for binary targets.
-///
-/// TODO(#163): implement the formulas and wire this into the classification
-/// training path. The [`TrainReport::classification`] field stays `None` until
-/// the classification loss/output path lands, so this is not called yet.
-pub fn classification_metrics(
-    preds: &[f32],
-    targets: &[f32],
-    classes: &[f32],
-) -> ClassificationMetrics {
-    let _ = (preds, targets, classes);
-    todo!("issue #163: classification metrics")
-}
-
 /// Runs `dataset |> train(<model>, target: "...", ...)` on the default CPU backend.
 pub fn train(
     df: &DataFrame,
@@ -1030,9 +1038,9 @@ where
 
 /// Like [`train_on`], but trains on an explicit device `B::Device`.
 ///
-/// GPU providers whose default device is the CPU (e.g. `burn-tch`'s
-/// `LibTorchDevice::default()` is `Cpu`) pass their device here so training runs
-/// on the intended accelerator. The returned artifact is the portable CPU
+/// GPU providers pass their device here so training runs on the intended
+/// accelerator (rather than the backend's default device), and so the device
+/// index is explicit. The returned artifact is the portable CPU
 /// [`TrainedModel`], transferred from the device **in memory** (issue D1/D2), so
 /// no checkpoint save→load disk round-trip is added to training time.
 pub fn train_on_device<B>(
@@ -1174,12 +1182,24 @@ where
         return Err(tr("Training data is empty.", "학습 데이터가 비어 있습니다.").into());
     }
 
+    // ── train / validation split ────────────────────────────────────────────
+    let val_split = config.validation_split.unwrap_or(0.0);
+    if !val_split.is_finite() || !(0.0..=MAX_VALIDATION_SPLIT).contains(&val_split) {
+        return Err("validation_split must be finite and between 0 and 0.9".into());
+    }
+    let val_n = (n as f64 * val_split) as usize;
+    let train_n = n - val_n;
+    if val_split > 0.0 && (val_n == 0 || train_n == 0) {
+        return Err("validation_split must leave at least one row in each partition".into());
+    }
+    let val_idx: Vec<usize> = (train_n..n).collect();
+
     // ── Feature standardization statistics (NaN → mean imputation) ────────────────
     let mut fmean = vec![0f64; input_dim];
     let mut fstd = vec![1f64; input_dim];
     for (j, mean) in fmean.iter_mut().enumerate().take(input_dim) {
         let (mut s, mut c) = (0f64, 0usize);
-        for i in 0..n {
+        for i in 0..train_n {
             if let Some(v) = features.get(i).and_then(|row| row.get(j)) {
                 let v = *v as f64;
                 if v.is_finite() {
@@ -1192,7 +1212,7 @@ where
     }
     for j in 0..input_dim {
         let (mut s, mut c) = (0f64, 0usize);
-        for i in 0..n {
+        for i in 0..train_n {
             if let Some(v) = features.get(i).and_then(|row| row.get(j)) {
                 let d = *v as f64 - fmean[j];
                 if d.is_finite() {
@@ -1220,13 +1240,15 @@ where
             }
         }
     }
-    if raw_input {
-        check_embedding_indices(layers, &xs, input_dim);
-    }
+    let embedding_diagnostics = if raw_input {
+        check_embedding_indices(layers, &xs, input_dim)
+    } else {
+        EmbeddingDiagnostics::default()
+    };
 
     let tmean: f64 = {
         let (mut s, mut c) = (0f64, 0usize);
-        for &t in &targets {
+        for &t in targets.iter().take(train_n) {
             if t.is_finite() {
                 s += t as f64;
                 c += 1;
@@ -1239,34 +1261,36 @@ where
         .map(|&t| if t.is_finite() { t } else { tmean as f32 })
         .collect();
 
-    // ── train / validation split ────────────────────────────────────────────
-    let val_split = config
-        .validation_split
-        .unwrap_or(0.0)
-        .clamp(0.0, MAX_VALIDATION_SPLIT);
-    let val_n = (n as f64 * val_split) as usize;
-    let train_n = n - val_n;
-    let val_idx: Vec<usize> = (train_n..n).collect();
-
     let device_autodiff: Device<Autodiff<B>> = device.clone();
     let mut model = build_mlp::<Autodiff<B>>(layers, input_dim, &device_autodiff)?;
-    // A regression target is a single scalar; a model that ends in Conv1d/Embedding
-    // (or a multi-unit Dense without a final Dense(1)) produces several outputs.
-    // Fail closed instead of silently broadcasting the target (which then breaks
-    // predict() with a column-length error).
-    if model.out_dim != 1 {
-        return Err(if is_korean() {
-            format!(
-                "모델 '{model_name}' 의 출력 차원이 {} 입니다. 회귀 타겟은 스칼라 하나여야 합니다. 마지막에 Dense(1) 을 추가하세요.",
-                model.out_dim
-            )
-        } else {
-            format!(
-                "Model '{model_name}' outputs {} values; a regression target must be a single scalar. Add a final Dense(1).",
-                model.out_dim
-            )
-        });
+    let class_labels = if model.out_dim > 1 {
+        let classes = detect_classification(&targets, 1024).ok_or(
+            "A regression target must be scalar (Dense(1)); classification requires finite integer labels and Dense(number_of_classes)."
+        )?;
+        if model.out_dim != classes.len() || !matches!(layers.last(), Some(LayerKind::Dense(_))) {
+            return Err(
+                "Classification requires a final Dense(number_of_classes) producing raw logits. Use Dense(1) for regression."
+                    .into(),
+            );
+        }
+        classes
+    } else {
+        Vec::new()
+    };
+    let is_classification = !class_labels.is_empty();
+    if config.sweep_metric.is_classification() && !is_classification {
+        return Err(
+            "Classification metrics require a multi-class Dense output and integer targets".into(),
+        );
     }
+    if is_classification && config.sweep_metric_explicit && !config.sweep_metric.is_classification()
+    {
+        return Err(
+            "Choose cross_entropy, accuracy, precision, recall, f1 or auc for classification"
+                .into(),
+        );
+    }
+    let classification_loss = CrossEntropyLossConfig::new().init::<Autodiff<B>>(&device_autodiff);
 
     let batch_size = config.batch_size.unwrap_or(train_n.max(1));
     let lr = config.learning_rate;
@@ -1283,7 +1307,14 @@ where
             for j in 0..input_dim {
                 xv.push(xs[i * input_dim + j]);
             }
-            yv.push(ys[i]);
+            yv.push(if is_classification {
+                class_labels
+                    .iter()
+                    .position(|&c| c == ys[i])
+                    .expect("validated class") as f32
+            } else {
+                ys[i]
+            });
         }
         let x = Tensor::<Autodiff<B>, 2>::from_data(
             TensorData::new(xv, [b, input_dim]),
@@ -1323,7 +1354,11 @@ where
                 None => continue,
             };
             let out = model.forward(x);
-            let loss = ((out - y).powf_scalar(2.0)).mean();
+            let loss = if is_classification {
+                classification_loss.forward(out, y.squeeze_dims::<1>(&[1]).int())
+            } else {
+                ((out - y).powf_scalar(2.0)).mean()
+            };
             let loss_val = loss
                 .clone()
                 .into_data()
@@ -1347,8 +1382,14 @@ where
         if !val_idx.is_empty()
             && let Some((xv, yv)) = make_batch(&val_idx)
         {
+            model.training = false;
             let vout = model.forward(xv);
-            let vloss = ((vout - yv).powf_scalar(2.0)).mean();
+            model.training = true;
+            let vloss = if is_classification {
+                classification_loss.forward(vout, yv.squeeze_dims::<1>(&[1]).int())
+            } else {
+                ((vout - yv).powf_scalar(2.0)).mean()
+            };
             final_val_loss = vloss.into_data().to_vec::<f32>().map(|v| v[0] as f64).ok();
         }
 
@@ -1400,6 +1441,11 @@ where
     valid_model.training = false;
     let pred_t = valid_model.forward(xp);
     let preds = pred_t.into_data().to_vec::<f32>().unwrap_or_default();
+    let preds = if is_classification {
+        decode_logits(&preds, &class_labels)?.0
+    } else {
+        preds
+    };
     let predictions: Vec<f64> = preds.iter().map(|&v| v as f64).collect();
     let targets_out: Vec<f64> = (0..n_pred).map(|i| ys[i] as f64).collect();
 
@@ -1413,7 +1459,76 @@ where
         }
     }
     let xall_t = Tensor::<B, 2>::from_data(TensorData::new(xall, [n, input_dim]), &device_plain);
-    let all_preds = valid_model.forward(xall_t).into_data().to_vec::<f32>();
+    let all_output = valid_model.forward(xall_t);
+    let all_preds = all_output.clone().into_data().to_vec::<f32>();
+    let (classification, validation_classification) = if is_classification {
+        let logits = all_preds
+            .as_ref()
+            .map_err(|e| format!("classification output: {e:?}"))?;
+        let (labels, scores) = decode_logits(logits, &class_labels)?;
+        // 최종 보고서와 스윕은 같은 반환 모델의 평가 모드 손실을 사용한다.
+        let encoded: Vec<i64> = ys
+            .iter()
+            .map(|target| {
+                class_labels
+                    .iter()
+                    .position(|class| class == target)
+                    .expect("validated class") as i64
+            })
+            .collect();
+        let encoded = Tensor::<B, 1, burn::tensor::Int>::from_data(
+            TensorData::new(encoded, [n]),
+            &device_plain,
+        );
+        let evaluation_loss = CrossEntropyLossConfig::new().init::<B>(&device_plain);
+        final_train_loss = evaluation_loss
+            .forward(
+                all_output
+                    .clone()
+                    .slice([0..train_n, 0..class_labels.len()]),
+                encoded.clone().slice(burn::tensor::s![0..train_n]),
+            )
+            .into_data()
+            .to_vec::<f32>()
+            .map_err(|e| format!("classification loss: {e:?}"))?[0]
+            as f64;
+        final_val_loss = if val_idx.is_empty() {
+            None
+        } else {
+            Some(
+                evaluation_loss
+                    .forward(
+                        all_output.slice([train_n..n, 0..class_labels.len()]),
+                        encoded.slice(burn::tensor::s![train_n..n]),
+                    )
+                    .into_data()
+                    .to_vec::<f32>()
+                    .map_err(|e| format!("classification loss: {e:?}"))?[0] as f64,
+            )
+        };
+        let train = classification_metrics(
+            &labels[..train_n],
+            &ys[..train_n],
+            &class_labels,
+            scores.as_ref().map(|s| &s[..train_n]),
+        )?;
+        let val = if val_idx.is_empty() {
+            None
+        } else {
+            Some(classification_metrics(
+                &labels[train_n..],
+                &ys[train_n..],
+                &class_labels,
+                scores.as_ref().map(|s| &s[train_n..]),
+            )?)
+        };
+        if config.sweep_metric == SweepMetric::Auc && val.as_ref().unwrap_or(&train).auc.is_none() {
+            return Err("AUC selection requires binary classes with both classes in the evaluation partition".into());
+        }
+        (Some(train), val)
+    } else {
+        (None, None)
+    };
     let (final_train_mae, final_train_r2, final_val_mae, final_val_r2) = match all_preds {
         Ok(all_preds) if all_preds.len() == n => {
             let (train_mae, train_r2) = regression_metrics(&all_preds[..train_n], &ys[..train_n]);
@@ -1479,7 +1594,11 @@ where
         final_val_mae,
         final_train_r2,
         final_val_r2,
-        classification: None,
+        classification,
+        validation_classification,
+        class_labels,
+        embedding_out_of_range: embedding_diagnostics.out_of_range,
+        embedding_non_integer: embedding_diagnostics.non_integer,
     };
 
     // Versioned sidecar manifest (D3) — written next to the Burn record so a
@@ -1502,11 +1621,12 @@ where
 
 /// Shared inference preprocessing: validates the frame, reads the feature columns
 /// in training order, and applies the same standardization used during training.
-/// Returns `(xs, rows, feature_count)`.
+/// Returns `(xs, rows, feature_count, embedding_diagnostics)`; the diagnostics
+/// are the structured mirror of the stderr warnings (issue D3 predict follow-up).
 fn prepare_inference_input(
     trained: &TrainedModel,
     df: &DataFrame,
-) -> Result<(Vec<f32>, usize, usize), String> {
+) -> Result<(Vec<f32>, usize, usize, EmbeddingDiagnostics), String> {
     let feature_count = trained.feature_names.len();
     let n = df.height();
     if feature_count == 0 {
@@ -1544,10 +1664,12 @@ fn prepare_inference_input(
             }
         }
     }
-    if trained.model.raw_input {
-        check_embedding_indices(&trained.layers, &xs, feature_count);
-    }
-    Ok((xs, n, feature_count))
+    let diag = if trained.model.raw_input {
+        check_embedding_indices(&trained.layers, &xs, feature_count)
+    } else {
+        EmbeddingDiagnostics::default()
+    };
+    Ok((xs, n, feature_count, diag))
 }
 
 /// Appends the prediction column to a clone of `df`.
@@ -1557,6 +1679,13 @@ fn attach_prediction(
     preds: &[f32],
     as_col: Option<&str>,
 ) -> Result<DataFrame, String> {
+    let decoded;
+    let preds = if trained.report.class_labels.is_empty() {
+        preds
+    } else {
+        decoded = decode_logits(preds, &trained.report.class_labels)?.0;
+        &decoded
+    };
     let out_col = match as_col {
         Some(c) => c.to_string(),
         None => format!("{}_pred", trained.target),
@@ -1642,14 +1771,21 @@ pub fn predict(
     df: &DataFrame,
     as_col: Option<&str>,
 ) -> Result<DataFrame, String> {
-    let (xs, n, feature_count) = prepare_inference_input(trained, df)?;
+    predict_with_diagnostics(trained, df, as_col).map(|(out, _)| out)
+}
 
+/// Like [`predict`], but also returns the structured embedding-input diagnostics
+/// so the runtime can surface them in `--json` (issue D3 predict follow-up). The
+/// stderr warnings are emitted by [`prepare_inference_input`] either way.
+pub fn predict_with_diagnostics(
+    trained: &TrainedModel,
+    df: &DataFrame,
+    as_col: Option<&str>,
+) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
     let device: Device<Plain> = Default::default();
     let mut infer_model = trained.model.clone();
     infer_model.training = false;
-    let preds = forward_predictions(&infer_model, &xs, n, feature_count, &device);
-
-    attach_prediction(trained, df, &preds, as_col)
+    predict_with_model::<Plain>(trained, &infer_model, &device, df, as_col)
 }
 
 /// `predict` on an arbitrary Burn backend `B`.
@@ -1662,7 +1798,7 @@ pub fn predict_on<B>(
     trained: &TrainedModel,
     df: &DataFrame,
     as_col: Option<&str>,
-) -> Result<DataFrame, String>
+) -> Result<(DataFrame, EmbeddingDiagnostics), String>
 where
     B: Backend,
 {
@@ -1709,36 +1845,36 @@ where
 ///
 /// `device` must be the device `model` lives on. Preprocessing (feature order,
 /// standardization) is identical to [`predict`], so a cached module produces the
-/// same predictions.
+/// same predictions. Returns the frame plus embedding-input diagnostics.
 pub fn predict_with_model<B>(
     trained: &TrainedModel,
     model: &Mlp<B>,
     device: &Device<B>,
     df: &DataFrame,
     as_col: Option<&str>,
-) -> Result<DataFrame, String>
+) -> Result<(DataFrame, EmbeddingDiagnostics), String>
 where
     B: Backend,
 {
-    let (xs, n, feature_count) = prepare_inference_input(trained, df)?;
+    let (xs, n, feature_count, diag) = prepare_inference_input(trained, df)?;
 
     let preds = forward_predictions(model, &xs, n, feature_count, device);
 
-    attach_prediction(trained, df, &preds, as_col)
+    Ok((attach_prediction(trained, df, &preds, as_col)?, diag))
 }
 
 /// Like [`predict_on`], but evaluates on an explicit device `B::Device`.
 ///
-/// Providers whose default device is the CPU (e.g. `burn-tch`) pass their device
-/// so the forward pass runs on the intended accelerator. The checkpoint is loaded
-/// on each call; providers that predict repeatedly should cache via
+/// Providers pass their device so the forward pass runs on the intended
+/// accelerator. The checkpoint is loaded on each call; providers that predict
+/// repeatedly should cache via
 /// [`load_inference_model`] + [`predict_with_model`].
 pub fn predict_on_device<B>(
     trained: &TrainedModel,
     df: &DataFrame,
     as_col: Option<&str>,
     device: &Device<B>,
-) -> Result<DataFrame, String>
+) -> Result<(DataFrame, EmbeddingDiagnostics), String>
 where
     B: Backend,
 {
@@ -1759,6 +1895,96 @@ mod tests {
             vocab,
             embed_dim: 2,
         }
+    }
+
+    #[test]
+    fn invalid_validation_fractions_are_rejected_without_clamping() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0.,1.,2.,3.], "y" => [0.,1.,0.,1.]).unwrap();
+        for fraction in [-0.1, 0.95, f64::NAN, f64::INFINITY, 0.01] {
+            let config = TrainConfig {
+                target: "y".into(),
+                epochs: 1,
+                validation_split: Some(fraction),
+                ..Default::default()
+            };
+            let result = train_impl::<Plain>(
+                &frame,
+                "invalid_fraction",
+                &[LayerKind::Dense(1)],
+                &config,
+                &Default::default(),
+                false,
+            );
+            assert!(result.is_err(), "must reject validation_split={fraction}");
+        }
+    }
+
+    #[test]
+    fn classification_losses_match_returned_logits_and_not_training_batches() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0.,1.,2.,3.], "y" => [0.,1.,0.,1.]).unwrap();
+        let config = TrainConfig {
+            target: "y".into(),
+            epochs: 2,
+            batch_size: Some(1),
+            validation_split: Some(0.5),
+            ..Default::default()
+        };
+        let trained = train_impl::<Plain>(
+            &frame,
+            "classification_loss_oracle",
+            &[
+                LayerKind::Dense(16),
+                LayerKind::Dropout(0.75),
+                LayerKind::Dense(2),
+            ],
+            &config,
+            &Default::default(),
+            false,
+        )
+        .unwrap();
+        let input: Vec<f32> = [0., 1., 2., 3.]
+            .iter()
+            .map(|x| ((x - trained.fmean[0]) / trained.fstd[0]) as f32)
+            .collect();
+        let tensor =
+            Tensor::<Plain, 2>::from_data(TensorData::new(input, [4, 1]), &Default::default());
+        let logits = trained
+            .model
+            .forward(tensor)
+            .into_data()
+            .to_vec::<f32>()
+            .unwrap();
+        let losses: Vec<f64> = logits
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .enumerate()
+            .map(|(i, row)| {
+                let max = row.iter().copied().fold(f32::NEG_INFINITY, f32::max) as f64;
+                max + row
+                    .iter()
+                    .map(|&v| (v as f64 - max).exp())
+                    .sum::<f64>()
+                    .ln()
+                    - row[i % 2] as f64
+            })
+            .collect();
+        let expected_val = (losses[2] + losses[3]) / 2.0;
+        let expected_train = (losses[0] + losses[1]) / 2.0;
+        assert!(
+            (trained.report.final_val_loss.unwrap() - expected_val).abs()
+                < 1e-5 * expected_val.max(1.0),
+            "reported val={:?}, oracle={expected_val}",
+            trained.report.final_val_loss
+        );
+        assert!(
+            (trained.report.final_train_loss - expected_train).abs()
+                < 1e-5 * expected_train.max(1.0),
+            "reported train={}, oracle={expected_train}",
+            trained.report.final_train_loss
+        );
     }
 
     #[test]
@@ -1838,15 +2064,13 @@ mod tests {
         assert!(detect_classification(&[1.0, 1.0, 1.0], 10).is_none());
     }
 
-    /// Issue #163 scaffold: expected accuracy / confusion matrix for a 3-class toy
-    /// example. Un-ignore once `classification_metrics` is implemented.
+    /// Expected accuracy and confusion matrix for a three-class example.
     #[test]
-    #[ignore = "issue #163 scaffold: implement classification_metrics"]
     fn classification_metrics_confusion_matrix() {
         let classes = [0.0f32, 1.0, 2.0];
         let targets = [0.0f32, 0.0, 1.0, 1.0, 2.0, 2.0];
         let preds = [0.0f32, 1.0, 1.0, 1.0, 2.0, 0.0];
-        let m = classification_metrics(&preds, &targets, &classes);
+        let m = classification_metrics(&preds, &targets, &classes, None).unwrap();
         assert_eq!(m.num_classes, 3);
         assert!((m.accuracy - 4.0 / 6.0).abs() < 1e-12);
         // Row-major (actual * 3 + predicted): class0→{0:1,1:1}, class1→{1:2},
@@ -1874,6 +2098,10 @@ mod tests {
             val_mae,
             train_r2,
             val_r2,
+            embedding_out_of_range: 0,
+            embedding_non_integer: 0,
+            classification: None,
+            validation_classification: None,
             selected: false,
         };
 
@@ -1919,6 +2147,10 @@ mod tests {
             val_mae: Some(val_loss),
             train_r2: 0.0,
             val_r2: Some(0.0),
+            embedding_out_of_range: 0,
+            embedding_non_integer: 0,
+            classification: None,
+            validation_classification: None,
             selected: false,
         };
         let a = mk(3, 8, 0.05, 0.10);
@@ -1965,6 +2197,10 @@ mod tests {
             val_mae: Some(val_loss),
             train_r2: 0.0,
             val_r2: Some(0.0),
+            embedding_out_of_range: 0,
+            embedding_non_integer: 0,
+            classification: None,
+            validation_classification: None,
             selected: false,
         };
         // Same metric (tie) but different axis values.
@@ -2075,6 +2311,31 @@ mod tests {
         assert_eq!(count_non_integer_indices(&[f32::NAN, f32::INFINITY]), 0);
     }
 
+    #[test]
+    fn check_embedding_indices_reports_structured_counts() {
+        // 2 columns sharing vocab 3; row-major. One out-of-range per column and
+        // one fractional value. Non-finite values must not be counted.
+        let values = [0.0, 1.0, 3.0, 0.5, f32::NAN, 9.0];
+        let diag =
+            check_embedding_indices(&[embedding_layer(EmbeddingVocab::Shared(3))], &values, 2);
+        assert_eq!(diag.out_of_range, 2, "3.0 and 9.0 are above vocab-1");
+        assert_eq!(diag.non_integer, 1, "0.5 is finite with a fractional part");
+
+        // A clean raw-index input yields zeros.
+        let clean = check_embedding_indices(
+            &[embedding_layer(EmbeddingVocab::Shared(3))],
+            &[0.0, 1.0, 2.0, 0.0],
+            2,
+        );
+        assert_eq!(clean, EmbeddingDiagnostics::default());
+
+        // Without a leading embedding layer there is nothing to diagnose.
+        assert_eq!(
+            check_embedding_indices(&[LayerKind::Dense(2)], &[9.0], 1),
+            EmbeddingDiagnostics::default()
+        );
+    }
+
     // ── Checkpoint versioning (D3) ──────────────────────────────────────────
 
     static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -2111,6 +2372,10 @@ mod tests {
             final_train_r2: 0.9,
             final_val_r2: Some(0.85),
             classification: None,
+            validation_classification: None,
+            class_labels: Vec::new(),
+            embedding_out_of_range: 0,
+            embedding_non_integer: 0,
         }
     }
 

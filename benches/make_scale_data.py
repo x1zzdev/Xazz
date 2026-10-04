@@ -12,6 +12,7 @@ UTF-8 · 영문 헤더(date, station, pm10, pm25) 스케일 파일 3종을 생�
 사용법:
     python benches/make_scale_data.py
     python benches/make_scale_data.py --xlarge   # 200M 행 생성 (선택)
+    python benches/make_scale_data.py --synthetic # LFS 소스 없이 small 합성 데이터 (CI용)
 """
 import sys
 
@@ -68,8 +69,47 @@ def load_frame(path: Path) -> pd.DataFrame:
     return df[list(canonical)]
 
 
+def make_synthetic(label: str, dest: Path) -> None:
+    """원본 LFS 데이터 없이 결정적 합성 데이터셋을 만든다 (CI 벤치 회귀 게이트용).
+
+    시드가 고정되어 있어 같은 스크립트/엔진 조합이면 재현 가능하다. 실제 데이터와
+    같은 컬럼(`date`/`station`/`pm10`/`pm25`)과 null 비율을 흉내 내 dropNull/fillNull
+    경로를 함께 행사한다.
+    """
+    import numpy as np
+
+    rng = np.random.default_rng(20240904)
+    rows = {"small": 227_760}.get(label)
+    if rows is None:
+        raise SystemExit(f"--synthetic 은 'small' 스케일만 지원합니다 (요청: {label})")
+
+    stations = [f"S{i:03d}" for i in range(25)]
+    dates = pd.date_range("2022-01-01", periods=rows, freq="min").astype(str)
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "station": rng.choice(stations, size=rows),
+            "pm10": np.round(rng.normal(60.0, 40.0, rows), 1),
+            "pm25": np.round(rng.normal(30.0, 20.0, rows), 1),
+        }
+    )
+    missing = rng.random(rows) < 0.03
+    df.loc[missing, "pm10"] = np.nan
+    df.loc[missing, "pm25"] = np.nan
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(dest, index=False, encoding="utf-8")
+    size_mb = dest.stat().st_size / 1_048_576
+    print(f"== {label} (synthetic): {len(df):,} rows -> {dest.name} ({size_mb:.1f} MB)")
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
+
+    # CI 벤치 회귀 게이트: LFS 원본 없이 small 합성 데이터만 생성하고 종료한다.
+    if "--synthetic" in sys.argv:
+        make_synthetic("small", OUT / "scale_small.csv")
+        return
 
     # xlarge 는 --xlarge 로만 생성 (약 200M 행, 수 GB — 기본 실행에 포함하면 너무 느림)
     labels = ["small", "medium", "large"]

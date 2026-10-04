@@ -7,7 +7,7 @@
 //! Burn + burn-ndarray (pure-Rust CPU) is the first provider. The same trait is
 //! the plug-in slot for the hardware-gated work:
 //!
-//!   - CUDA (`burn-tch`) and WebGPU (`burn-wgpu`) — issue D1 (#62)
+//!   - CUDA (`burn-cuda`) and WebGPU (`burn-wgpu`) — issue D1 (#62)
 //!   - ONNX Runtime interop — issue D2 (#63)
 //!   - burn-engine / remote inference — issue F4 (#73)
 //!
@@ -34,7 +34,7 @@ use polars::prelude::DataFrame;
 use xazz_compiler::ast::{LayerKind, SweepMetric, TrainConfig};
 use xazz_core::i18n::{is_korean, tr};
 
-use crate::dl::{CheckpointManifest, SweepCombo, SweepReport, TrainedModel};
+use crate::dl::{CheckpointManifest, EmbeddingDiagnostics, SweepCombo, SweepReport, TrainedModel};
 
 /// A pluggable ML engine behind the Typed IR's `MLOp` boundary.
 ///
@@ -55,13 +55,28 @@ pub trait ComputeBackend: Send + Sync {
         config: &TrainConfig,
     ) -> Result<TrainedModel, String>;
 
-    /// `dataset |> predict(model_var, as: "col")`.
+    /// `dataset |> predict(model_var, as: "col")` — frame only.
+    ///
+    /// Convenience wrapper over [`Self::predict_with_diagnostics`] for callers
+    /// that do not need the embedding diagnostics.
     fn predict(
         &self,
         trained: &TrainedModel,
         df: &DataFrame,
         as_col: Option<&str>,
-    ) -> Result<DataFrame, String>;
+    ) -> Result<DataFrame, String> {
+        self.predict_with_diagnostics(trained, df, as_col)
+            .map(|(out, _)| out)
+    }
+
+    /// `dataset |> predict(model_var, as: "col")`, plus the structured
+    /// embedding-input diagnostics the runtime surfaces in `--json` (D3).
+    fn predict_with_diagnostics(
+        &self,
+        trained: &TrainedModel,
+        df: &DataFrame,
+        as_col: Option<&str>,
+    ) -> Result<(DataFrame, EmbeddingDiagnostics), String>;
 
     /// Like [`Self::train`], but does not persist the checkpoint.
     ///
@@ -92,7 +107,7 @@ pub trait ComputeBackend: Send + Sync {
         config: &TrainConfig,
     ) -> Result<(TrainedModel, SweepReport), String> {
         let combos = config.expand_sweep();
-        let metric: SweepMetric = config.sweep_metric;
+        let mut metric: SweepMetric = config.sweep_metric;
         let mut best: Option<(usize, TrainedModel)> = None;
         let mut entries: Vec<SweepCombo> = Vec::with_capacity(combos.len());
 
@@ -101,6 +116,9 @@ pub trait ComputeBackend: Send + Sync {
             // provider does not write a checkpoint per combination (issue D1/D3).
             let trained = self.train_unpersisted(df, model_name, layers, combo)?;
             let report = &trained.report;
+            if !config.sweep_metric_explicit && report.classification.is_some() {
+                metric = SweepMetric::CrossEntropy;
+            }
             let entry = SweepCombo {
                 epochs: report.epochs,
                 batch_size: report.batch_size,
@@ -113,6 +131,10 @@ pub trait ComputeBackend: Send + Sync {
                 val_mae: report.final_val_mae,
                 train_r2: report.final_train_r2,
                 val_r2: report.final_val_r2,
+                embedding_out_of_range: report.embedding_out_of_range,
+                embedding_non_integer: report.embedding_non_integer,
+                classification: report.classification.clone(),
+                validation_classification: report.validation_classification.clone(),
                 selected: false,
             };
             let is_better = match &best {
@@ -212,13 +234,13 @@ impl ComputeBackend for CpuBackend {
         crate::dl::train(df, model_name, layers, config)
     }
 
-    fn predict(
+    fn predict_with_diagnostics(
         &self,
         trained: &TrainedModel,
         df: &DataFrame,
         as_col: Option<&str>,
-    ) -> Result<DataFrame, String> {
-        crate::dl::predict(trained, df, as_col)
+    ) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
+        crate::dl::predict_with_diagnostics(trained, df, as_col)
     }
 
     fn train_unpersisted(
@@ -265,7 +287,7 @@ impl BackendKind {
     pub fn parse(raw: &str) -> Option<Self> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "" | "cpu" | "ndarray" | "burn" | "burn-ndarray" => Some(BackendKind::Cpu),
-            "cuda" | "tch" | "torch" | "libtorch" | "burn-tch" => Some(BackendKind::Cuda),
+            "cuda" | "nvidia" | "burn-cuda" => Some(BackendKind::Cuda),
             "wgpu" | "gpu" | "webgpu" | "burn-wgpu" => Some(BackendKind::Wgpu),
             "onnx" | "onnxruntime" | "ort" => Some(BackendKind::Onnx),
             _ => None,
@@ -368,7 +390,7 @@ pub enum DeviceSpec {
     Integrated(usize),
     /// The `n`-th virtual GPU (WebGPU adapter).
     Virtual(usize),
-    /// CUDA device `n` (burn-tch device / ONNX CUDA EP).
+    /// CUDA device `n` (burn-cuda device / ONNX CUDA EP).
     Cuda(usize),
     /// TensorRT device `n` (ONNX EP).
     TensorRt(usize),
@@ -493,7 +515,7 @@ pub fn parse_ort_ep_spec(raw: &str) -> Result<OrtEpSpec, String> {
 // ─────────────────────────────────────────────────────────────────────────────
 // Feature-gated providers
 //
-// `cuda` (burn-tch), `wgpu` (burn-wgpu), and `onnx` (ONNX Runtime) are all
+// `cuda` (burn-cuda), `wgpu` (burn-wgpu), and `onnx` (ONNX Runtime) are all
 // implemented. Each provider's acceptance test beside the trait pins the
 // contract it must satisfy.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -502,18 +524,21 @@ pub fn parse_ort_ep_spec(raw: &str) -> Result<OrtEpSpec, String> {
 mod cuda {
     use super::*;
     use crate::dl::Mlp;
-    use burn_tch::{LibTorch, LibTorchDevice};
+    use burn::tensor::Tensor;
+    use burn_cuda::{Cuda, CudaDevice};
     use std::sync::Mutex;
 
-    /// CUDA provider (`burn-tch`, LibTorch). Trains and predicts on an NVIDIA GPU;
-    /// the portable checkpoint round-trips back to CPU for storage.
+    /// CUDA provider (`burn-cuda`, native CubeCL). Trains and predicts on an
+    /// NVIDIA GPU; the portable checkpoint round-trips back to CPU for storage.
     ///
-    /// The device is resolved once at construction (fail-closed when absent), and
-    /// loaded inference modules are kept in a small LRU keyed by checkpoint
-    /// identity, so repeated `predict` calls skip the JSON reload (issue D1).
+    /// Uses the same pure-Rust CubeCL stack as `burn-wgpu` (no LibTorch/system
+    /// SDK), so it tracks the upstream Burn 0.22 CUDA direction. The device is
+    /// resolved once at construction (fail-closed when absent), and loaded
+    /// inference modules are kept in a small LRU keyed by checkpoint identity,
+    /// so repeated `predict` calls skip the JSON reload (issue D1).
     pub struct CudaBackend {
-        device: LibTorchDevice,
-        cache: Mutex<crate::dl::LruCache<crate::dl::ArtifactKey, Mlp<LibTorch<f32>>>>,
+        device: CudaDevice,
+        cache: Mutex<crate::dl::LruCache<crate::dl::ArtifactKey, Mlp<Cuda<f32>>>>,
     }
 
     /// Resolves the CUDA device index.
@@ -545,38 +570,41 @@ mod cuda {
             .unwrap_or(0))
     }
 
-    /// Builds the LibTorch CUDA device, failing closed with a clear message when
-    /// the linked LibTorch has no CUDA runtime (rather than panicking inside tch).
-    fn device() -> Result<LibTorchDevice, String> {
-        if !tch::Cuda::is_available() {
-            return Err(tr(
-                "CUDA backend selected but LibTorch reports no available CUDA device. \
-                 Build LibTorch with CUDA (set TORCH_CUDA_VERSION) or unset XAZZ_BACKEND.",
-                "CUDA 백엔드를 선택했지만 LibTorch가 사용 가능한 CUDA 장치를 찾지 못했습니다. \
-                 LibTorch를 CUDA로 빌드(TORCH_CUDA_VERSION 설정)하거나 XAZZ_BACKEND를 해제하세요.",
+    /// Probes the device with a minimal op, converting CubeCL's CUDA
+    /// initialisation failure (missing driver/device, bad index) into a
+    /// fallback error instead of a later panic.
+    ///
+    /// CubeCL has no non-panicking device probe, so this catches the panic and
+    /// silences the default hook while doing so. It runs once during provider
+    /// construction (before any other CUDA work), so the temporary global hook
+    /// swap cannot race with concurrent GPU use.
+    fn probe_device(device: &CudaDevice) -> Result<(), String> {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let t = Tensor::<Cuda<f32>, 1>::zeros([1], device);
+            let _ = t.into_data();
+        }));
+        std::panic::set_hook(prev);
+        result.map_err(|_| {
+            tr(
+                "CUDA backend selected but no usable CUDA device/driver was found. \
+                 Check the NVIDIA driver and XAZZ_DEVICE/XAZZ_CUDA_DEVICE, or unset XAZZ_BACKEND.",
+                "CUDA 백엔드를 선택했지만 사용 가능한 CUDA 장치/드라이버를 찾지 못했습니다. \
+                 NVIDIA 드라이버와 XAZZ_DEVICE/XAZZ_CUDA_DEVICE를 확인하거나 XAZZ_BACKEND를 해제하세요.",
             )
-            .into());
-        }
-        let index = device_index()?;
-        let count = tch::Cuda::device_count();
-        if count > 0 && index as i64 >= count {
-            return Err(format!(
-                "{} (requested {index}, available {count})",
-                tr(
-                    "XAZZ_CUDA_DEVICE is out of range",
-                    "XAZZ_CUDA_DEVICE 인덱스가 범위를 벗어났습니다"
-                )
-            ));
-        }
-        Ok(LibTorchDevice::Cuda(index))
+            .to_string()
+        })
     }
 
     impl CudaBackend {
         /// Probes the CUDA device once, so an absent device becomes a CPU
         /// fallback at selection time instead of a per-call failure.
         pub fn new() -> Result<Self, String> {
+            let device = CudaDevice::new(device_index()?);
+            probe_device(&device)?;
             Ok(Self {
-                device: device()?,
+                device,
                 cache: Mutex::new(crate::dl::LruCache::new(crate::dl::infer_cache_slots())),
             })
         }
@@ -588,16 +616,16 @@ mod cuda {
             trained: &TrainedModel,
             df: &DataFrame,
             as_col: Option<&str>,
-        ) -> Result<DataFrame, String> {
+        ) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
             let key = crate::dl::artifact_key(&trained.report.checkpoint_path);
             let mut guard = self
                 .cache
                 .lock()
                 .map_err(|_| "CUDA inference cache poisoned".to_string())?;
             let model = guard.get_or_insert_with(key, || {
-                crate::dl::load_inference_model::<LibTorch<f32>>(trained, &self.device)
+                crate::dl::load_inference_model::<Cuda<f32>>(trained, &self.device)
             })?;
-            crate::dl::predict_with_model::<LibTorch<f32>>(trained, model, &self.device, df, as_col)
+            crate::dl::predict_with_model::<Cuda<f32>>(trained, model, &self.device, df, as_col)
         }
     }
 
@@ -613,13 +641,7 @@ mod cuda {
             layers: &[LayerKind],
             config: &TrainConfig,
         ) -> Result<TrainedModel, String> {
-            crate::dl::train_on_device::<LibTorch<f32>>(
-                df,
-                model_name,
-                layers,
-                config,
-                &self.device,
-            )
+            crate::dl::train_on_device::<Cuda<f32>>(df, model_name, layers, config, &self.device)
         }
 
         fn train_unpersisted(
@@ -629,7 +651,7 @@ mod cuda {
             layers: &[LayerKind],
             config: &TrainConfig,
         ) -> Result<TrainedModel, String> {
-            crate::dl::train_on_device_unpersisted::<LibTorch<f32>>(
+            crate::dl::train_on_device_unpersisted::<Cuda<f32>>(
                 df,
                 model_name,
                 layers,
@@ -638,12 +660,12 @@ mod cuda {
             )
         }
 
-        fn predict(
+        fn predict_with_diagnostics(
             &self,
             trained: &TrainedModel,
             df: &DataFrame,
             as_col: Option<&str>,
-        ) -> Result<DataFrame, String> {
+        ) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
             self.predict_cached(trained, df, as_col)
         }
     }
@@ -762,7 +784,7 @@ mod wgpu {
             trained: &TrainedModel,
             df: &DataFrame,
             as_col: Option<&str>,
-        ) -> Result<DataFrame, String> {
+        ) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
             let key = crate::dl::artifact_key(&trained.report.checkpoint_path);
             let mut guard = self
                 .cache
@@ -806,12 +828,12 @@ mod wgpu {
             )
         }
 
-        fn predict(
+        fn predict_with_diagnostics(
             &self,
             trained: &TrainedModel,
             df: &DataFrame,
             as_col: Option<&str>,
-        ) -> Result<DataFrame, String> {
+        ) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
             self.predict_cached(trained, df, as_col)
         }
     }
@@ -855,7 +877,7 @@ mod onnx {
             trained: &TrainedModel,
             df: &DataFrame,
             as_col: Option<&str>,
-        ) -> Result<DataFrame, String> {
+        ) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
             let path = artifact_path(&trained.report.checkpoint_path);
             crate::dl::onnx_export::ensure_export(trained, &path)?;
             let key = crate::dl::artifact_key(&path);
@@ -904,12 +926,12 @@ mod onnx {
             crate::dl::train_unpersisted(df, model_name, layers, config)
         }
 
-        fn predict(
+        fn predict_with_diagnostics(
             &self,
             trained: &TrainedModel,
             df: &DataFrame,
             as_col: Option<&str>,
-        ) -> Result<DataFrame, String> {
+        ) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
             self.predict_cached(trained, df, as_col)
         }
     }
@@ -1087,7 +1109,7 @@ mod tests {
         assert_eq!(BackendKind::parse(""), Some(BackendKind::Cpu));
         assert_eq!(BackendKind::parse(" burn-ndarray "), Some(BackendKind::Cpu));
         assert_eq!(BackendKind::parse("CUDA"), Some(BackendKind::Cuda));
-        assert_eq!(BackendKind::parse("tch"), Some(BackendKind::Cuda));
+        assert_eq!(BackendKind::parse("nvidia"), Some(BackendKind::Cuda));
         assert_eq!(BackendKind::parse("webgpu"), Some(BackendKind::Wgpu));
         assert_eq!(BackendKind::parse("ort"), Some(BackendKind::Onnx));
         assert_eq!(BackendKind::parse("quantum"), None);
@@ -1110,9 +1132,7 @@ mod tests {
     #[test]
     fn resolve_uncompiled_backend_falls_back_with_warning() {
         let (backend, warning) = resolve(Some("cuda"));
-        #[cfg(feature = "cuda")]
-        if tch::Cuda::is_available() {
-            assert_eq!(backend.id(), "cuda");
+        if backend.id() == "cuda" {
             assert!(warning.is_none());
             return;
         }
@@ -1334,6 +1354,193 @@ mod tests {
         assert!(err.contains("Dense(1)"), "오류 메시지에 안내가 없음: {err}");
     }
 
+    #[test]
+    fn classification_sweep_rejects_explicit_regression_metrics() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0.,1.,2.,3.], "y" => [0.,1.,0.,1.]).unwrap();
+        for metric in [SweepMetric::Mse, SweepMetric::Mae, SweepMetric::R2] {
+            let mut config = TrainConfig {
+                target: "y".into(),
+                epochs: 1,
+                sweep_metric: metric,
+                sweep_metric_explicit: true,
+                ..Default::default()
+            };
+            config.sweep.learning_rate = vec![0.01, 0.02];
+            let (backend, _) = resolve(Some("cpu"));
+            let error = backend
+                .sweep(
+                    &frame,
+                    "invalid_classification_metric",
+                    &[LayerKind::Dense(2)],
+                    &config,
+                )
+                .unwrap_err();
+            assert!(error.contains("for classification"), "{error}");
+        }
+    }
+
+    #[test]
+    fn cpu_classification_trains_predicts_and_selects_sweep_by_f1() {
+        use polars::prelude::*;
+        let frame = df!("x" => [-2.,2.,-1.,1.,-3.,3.,1000.,1001.],
+            "y" => [-3.,7.,-3.,7.,-3.,7.,-3.,7.])
+        .unwrap();
+        let layers = vec![LayerKind::Dense(4), LayerKind::ReLU, LayerKind::Dense(2)];
+        let mut config = TrainConfig {
+            target: "y".into(),
+            epochs: 3,
+            validation_split: Some(0.25),
+            sweep_metric: SweepMetric::F1,
+            sweep_metric_explicit: true,
+            ..Default::default()
+        };
+        config.sweep.learning_rate = vec![0.01, 0.05];
+        let (backend, _) = resolve(Some("cpu"));
+        let (trained, sweep) = backend
+            .sweep(&frame, "classification_cpu_f1", &layers, &config)
+            .unwrap();
+        assert_eq!(
+            trained.fmean,
+            vec![0.0],
+            "validation must not affect preprocessing"
+        );
+        assert_eq!(trained.report.class_labels, vec![-3., 7.]);
+        assert_eq!(trained.report.output_dim, 2);
+        assert!(trained.report.final_train_loss.is_finite());
+        assert!(trained.report.final_val_loss.unwrap().is_finite());
+        assert_eq!(
+            trained
+                .report
+                .classification
+                .as_ref()
+                .unwrap()
+                .confusion_matrix
+                .iter()
+                .sum::<usize>(),
+            6
+        );
+        assert_eq!(
+            trained
+                .report
+                .validation_classification
+                .as_ref()
+                .unwrap()
+                .confusion_matrix
+                .iter()
+                .sum::<usize>(),
+            2
+        );
+        assert_eq!(sweep.metric, SweepMetric::F1);
+        let score = SweepReport::score(&sweep.combos[sweep.best_index], sweep.metric);
+        assert!(
+            sweep
+                .combos
+                .iter()
+                .all(|c| score <= SweepReport::score(c, sweep.metric))
+        );
+        let pred = backend
+            .predict(&trained, &frame, Some("prediction"))
+            .unwrap();
+        assert_eq!(pred.height(), 8);
+        assert!(
+            pred.column("prediction")
+                .unwrap()
+                .f64()
+                .unwrap()
+                .into_no_null_iter()
+                .all(|v| v == -3. || v == 7.)
+        );
+        let json = serde_json::to_value(&trained.report).unwrap();
+        assert!(json["classification"]["auc"].is_number());
+        assert!(json["validation_classification"]["f1"].is_number());
+        let manifest = crate::dl::load_checkpoint_manifest(&trained.report.checkpoint_path)
+            .unwrap()
+            .unwrap();
+        assert_eq!(manifest.class_labels, vec![-3., 7.]);
+        cleanup(&trained.report.checkpoint_path);
+    }
+
+    #[test]
+    fn cpu_multiclass_defaults_to_cross_entropy_and_preserves_labels() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0.,1.,2.,0.,1.,2.,0.,1.,2.],
+            "y" => [10.,20.,30.,10.,20.,30.,10.,20.,30.])
+        .unwrap();
+        let layers = vec![LayerKind::Dense(3)];
+        let mut config = TrainConfig {
+            target: "y".into(),
+            epochs: 2,
+            validation_split: Some(0.34),
+            ..Default::default()
+        };
+        config.sweep.learning_rate = vec![0.01, 0.02];
+        let (backend, _) = resolve(Some("cpu"));
+        let (trained, sweep) = backend
+            .sweep(&frame, "classification_multiclass", &layers, &config)
+            .unwrap();
+        assert_eq!(sweep.metric, SweepMetric::CrossEntropy);
+        assert_eq!(serde_json::to_value(sweep.metric).unwrap(), "cross_entropy");
+        assert_eq!(trained.report.class_labels, vec![10., 20., 30.]);
+        assert!(
+            trained
+                .report
+                .classification
+                .as_ref()
+                .unwrap()
+                .auc
+                .is_none()
+        );
+        assert!(
+            trained
+                .report
+                .validation_classification
+                .as_ref()
+                .unwrap()
+                .auc
+                .is_none()
+        );
+        let predictions = backend
+            .predict(&trained, &frame, Some("prediction"))
+            .unwrap();
+        assert!(
+            predictions
+                .column("prediction")
+                .unwrap()
+                .f64()
+                .unwrap()
+                .into_no_null_iter()
+                .all(|label| [10., 20., 30.].contains(&label))
+        );
+        cleanup(&trained.report.checkpoint_path);
+    }
+
+    #[test]
+    fn cpu_auc_selection_rejects_single_class_validation() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0.,1.,2.,3.], "y" => [0.,1.,0.,0.]).unwrap();
+        let config = TrainConfig {
+            target: "y".into(),
+            epochs: 1,
+            validation_split: Some(0.5),
+            sweep_metric: SweepMetric::Auc,
+            sweep_metric_explicit: true,
+            ..Default::default()
+        };
+        let (backend, _) = resolve(Some("cpu"));
+        let error = backend
+            .train(&frame, "undefined_auc", &[LayerKind::Dense(2)], &config)
+            .unwrap_err();
+        assert!(
+            error.contains("both classes in the evaluation partition"),
+            "{error}"
+        );
+        let error = backend
+            .train(&frame, "regression_auc", &[LayerKind::Dense(1)], &config)
+            .unwrap_err();
+        assert!(error.contains("Classification metrics require"), "{error}");
+    }
+
     /// D3 Embedding: an Embedding -> ReLU -> Dense model trains and predicts end-to-end on CPU.
     #[test]
     fn cpu_backend_trains_embedding_model() {
@@ -1384,6 +1591,195 @@ mod tests {
             .expect("cpu embedding predict");
         assert_eq!(out.height(), df.height());
         assert!(out.column("pred").is_ok());
+
+        cleanup(&trained.report.checkpoint_path);
+    }
+
+    /// D3 Embedding: the report surfaces structured embedding diagnostics, and
+    /// they serialize into the `[xazz:train]` payload (issue D3 follow-up).
+    #[test]
+    fn cpu_backend_embedding_diagnostics_in_report() {
+        use polars::prelude::*;
+
+        let df = df!(
+            "cat1" => [0i64, 1, 5, 0, 1, 2],
+            "cat2" => [0.0f64, 1.5, 0.0, 1.0, 2.0, 0.5],
+            "y"    => [0.0f64, 1.0, 2.0, 0.0, 1.0, 2.0],
+        )
+        .expect("embedding diagnostics dataset");
+
+        let layers = vec![
+            LayerKind::Embedding {
+                vocab: EmbeddingVocab::PerColumn(vec![3, 3]),
+                embed_dim: 2,
+            },
+            LayerKind::ReLU,
+            LayerKind::Dense(1),
+        ];
+        let config = TrainConfig {
+            target: "y".to_string(),
+            epochs: 2,
+            learning_rate: 0.05,
+            batch_size: Some(3),
+            validation_split: None,
+            early_stopping_patience: None,
+            sweep: Default::default(),
+            sweep_metric: Default::default(),
+            sweep_metric_explicit: false,
+            sweep_sort: Default::default(),
+            sweep_sort_explicit: false,
+            sweep_tiebreak: Vec::new(),
+            sweep_top: None,
+        };
+
+        let (backend, warning) = resolve(None);
+        assert!(warning.is_none());
+
+        let trained = backend
+            .train(&df, "backend_unit_embedding_diag", &layers, &config)
+            .expect("cpu embedding train");
+        assert_eq!(
+            trained.report.embedding_out_of_range, 1,
+            "cat1=5 is above vocab-1 (3-1=2)"
+        );
+        assert_eq!(
+            trained.report.embedding_non_integer, 2,
+            "cat2 values 1.5 and 0.5 are fractional"
+        );
+
+        let json = serde_json::to_value(&trained.report).expect("report serializes");
+        assert_eq!(json["embedding_out_of_range"], 1);
+        assert_eq!(json["embedding_non_integer"], 2);
+
+        cleanup(&trained.report.checkpoint_path);
+    }
+
+    /// D3 Embedding: `predict` returns the structured embedding diagnostics for
+    /// the prediction input, so `--json` can surface them (predict follow-up).
+    #[test]
+    fn cpu_backend_predict_carries_embedding_diagnostics() {
+        use polars::prelude::*;
+
+        let train_df = df!(
+            "cat1" => [0i64, 1, 2, 0, 1, 2],
+            "cat2" => [0i64, 1, 2, 0, 1, 2],
+            "y"    => [0.0f64, 1.0, 2.0, 0.0, 1.0, 2.0],
+        )
+        .expect("predict diag training dataset");
+
+        let layers = vec![
+            LayerKind::Embedding {
+                vocab: EmbeddingVocab::PerColumn(vec![3, 3]),
+                embed_dim: 2,
+            },
+            LayerKind::ReLU,
+            LayerKind::Dense(1),
+        ];
+        let config = TrainConfig {
+            target: "y".to_string(),
+            epochs: 2,
+            learning_rate: 0.05,
+            batch_size: Some(3),
+            validation_split: None,
+            early_stopping_patience: None,
+            sweep: Default::default(),
+            sweep_metric: Default::default(),
+            sweep_metric_explicit: false,
+            sweep_sort: Default::default(),
+            sweep_sort_explicit: false,
+            sweep_tiebreak: Vec::new(),
+            sweep_top: None,
+        };
+
+        let (backend, warning) = resolve(None);
+        assert!(warning.is_none());
+
+        let trained = backend
+            .train(
+                &train_df,
+                "backend_unit_embedding_predict_diag",
+                &layers,
+                &config,
+            )
+            .expect("cpu embedding train");
+
+        let predict_df = df!(
+            "cat1" => [0i64, 5, 1],
+            "cat2" => [0.0f64, 1.5, 2.0],
+        )
+        .expect("predict diag input");
+
+        let (out, diag) = backend
+            .predict_with_diagnostics(&trained, &predict_df, Some("pred"))
+            .expect("cpu embedding predict");
+        assert_eq!(out.height(), 3);
+        assert_eq!(diag.out_of_range, 1, "cat1=5 is above vocab-1 (3-1=2)");
+        assert_eq!(diag.non_integer, 1, "cat2=1.5 is fractional");
+
+        let json = serde_json::to_value(diag).expect("diagnostics serialize");
+        assert_eq!(json["embedding_out_of_range"], 1);
+        assert_eq!(json["embedding_non_integer"], 1);
+
+        cleanup(&trained.report.checkpoint_path);
+    }
+
+    /// D3 Embedding: sweep combos carry the structured embedding diagnostics so
+    /// the per-combination report/JSON mirrors the winner's `TrainReport`.
+    #[test]
+    fn cpu_backend_sweep_carries_embedding_diagnostics() {
+        use polars::prelude::*;
+
+        let df = df!(
+            "cat1" => [0i64, 1, 5, 0, 1, 2],
+            "cat2" => [0.0f64, 1.5, 0.0, 1.0, 2.0, 0.5],
+            "y"    => [0.0f64, 1.0, 2.0, 0.0, 1.0, 2.0],
+        )
+        .expect("embedding diagnostics dataset");
+
+        let layers = vec![
+            LayerKind::Embedding {
+                vocab: EmbeddingVocab::PerColumn(vec![3, 3]),
+                embed_dim: 2,
+            },
+            LayerKind::ReLU,
+            LayerKind::Dense(1),
+        ];
+        let mut config = TrainConfig {
+            target: "y".to_string(),
+            epochs: 2,
+            learning_rate: 0.05,
+            batch_size: Some(3),
+            validation_split: None,
+            early_stopping_patience: None,
+            sweep: Default::default(),
+            sweep_metric: Default::default(),
+            sweep_metric_explicit: false,
+            sweep_sort: Default::default(),
+            sweep_sort_explicit: false,
+            sweep_tiebreak: Vec::new(),
+            sweep_top: None,
+        };
+        config.sweep.learning_rate = vec![0.05, 0.01];
+        assert!(config.is_sweep());
+
+        let (backend, warning) = resolve(None);
+        assert!(warning.is_none());
+
+        let (trained, report) = backend
+            .sweep(&df, "backend_unit_sweep_embedding_diag", &layers, &config)
+            .expect("cpu embedding sweep");
+        assert!(!report.combos.is_empty());
+        for combo in &report.combos {
+            assert_eq!(combo.embedding_out_of_range, 1, "cat1=5 is above vocab-1");
+            assert_eq!(
+                combo.embedding_non_integer, 2,
+                "cat2 values 1.5 and 0.5 are fractional"
+            );
+        }
+
+        let json = serde_json::to_value(&report).expect("sweep report serializes");
+        assert_eq!(json["combos"][0]["embedding_out_of_range"], 1);
+        assert_eq!(json["combos"][0]["embedding_non_integer"], 2);
 
         cleanup(&trained.report.checkpoint_path);
     }
@@ -1636,17 +2032,18 @@ mod tests {
         cleanup(&trained.report.checkpoint_path);
     }
 
-    /// CUDA provider: on a host whose linked LibTorch has no CUDA runtime the
-    /// provider must fall back to CPU at selection time with a clear warning
-    /// instead of panicking inside tch. On a real CUDA host this test defers to
-    /// the `#[ignore]`d acceptance test, which exercises the actual device path.
+    /// CUDA provider: on a host without a usable CUDA device the provider must
+    /// fall back to CPU at selection time with a clear warning instead of
+    /// panicking inside CubeCL. On a real CUDA host this test defers to the
+    /// `#[ignore]`d acceptance test, which exercises the actual device path.
     #[cfg(feature = "cuda")]
     #[test]
     fn cuda_provider_falls_back_without_device() {
-        if tch::Cuda::is_available() {
+        let (backend, warning) = resolve(Some("cuda"));
+        if backend.id() == "cuda" {
+            assert!(warning.is_none());
             return;
         }
-        let (backend, warning) = resolve(Some("cuda"));
         assert_eq!(backend.id(), "cpu");
         assert!(warning.unwrap().contains("cuda"));
     }
@@ -1744,7 +2141,7 @@ mod acceptance {
 
     #[cfg(feature = "cuda")]
     #[test]
-    #[ignore = "requires a CUDA GPU + burn-tch: `cargo test -p xazz-exec --features cuda -- --ignored` (issue #62)"]
+    #[ignore = "requires a CUDA GPU + burn-cuda: `cargo test -p xazz-exec --features cuda -- --ignored` (issue #62)"]
     fn cuda_matches_cpu_losses() {
         assert_parity("cuda");
     }

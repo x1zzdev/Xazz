@@ -112,11 +112,11 @@ For Visual IDE changes, run `npm ci` and the `test:contract`, `test:stdout`, `te
 | Feature | Provider | Acceptance (gated, `#[ignore]`) |
 |---|---|---|
 | `wgpu` | `burn-wgpu` (no SDK needed) | `cargo test --release -p xazz-exec --features wgpu -- --ignored --nocapture` |
-| `cuda` | `burn-tch` / LibTorch | `TORCH_CUDA_VERSION=cu128 cargo test --release -p xazz-exec --features cuda -- --ignored --nocapture` |
+| `cuda` | `burn-cuda` (native CubeCL, no SDK) | `cargo test --release -p xazz-exec --features cuda -- --ignored --nocapture` |
 | `onnx` | ONNX Runtime (`ort`) | `cargo test --release -p xazz-exec --features onnx -- --ignored --nocapture` |
 
 - Use `--release` for GPU feature tests: under `windows-gnu` the debug test binary can exceed the 4 GB PE limit.
-- **Windows: `cuda`/`onnx*` require the MSVC toolchain.** LibTorch is MSVC-ABI and ONNX Runtime has no `windows-gnu` prebuilt, so `build.rs` fails fast unless you install `stable-x86_64-pc-windows-msvc` + VS Build Tools ("Desktop development with C++"). Set `XAZZ_ALLOW_WINDOWS_GNU_GPU=1` only to bypass the guard (unsupported). See `docs/design/gpu-backend-acceptance.md` §4–§6.
+- **Windows: `onnx*` requires the MSVC toolchain.** ONNX Runtime has no `windows-gnu` prebuilt, so `build.rs` fails fast unless you install `stable-x86_64-pc-windows-msvc` + VS Build Tools ("Desktop development with C++"). `wgpu` and `cuda` (pure-Rust CubeCL) work on either toolchain. Set `XAZZ_ALLOW_WINDOWS_GNU_GPU=1` only to bypass the guard (unsupported). See `docs/design/gpu-backend-acceptance.md` §6.
 
 ---
 

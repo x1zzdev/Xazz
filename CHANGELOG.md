@@ -9,6 +9,301 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 쿼리별 ε 런타임 상한 `XAZZ_DP_MAX_EPSILON` (issue #118)
+
+- **엔진** — `dp::apply_dp`가 opt-in 환경변수 `XAZZ_DP_MAX_EPSILON`을 읽어 ε이 상한을 넘는 `withDp`를
+  노이즈 주입 **전에** fail-closed로 거부한다(예산 미소진). 정책 팩의 컴파일 타임 `max_epsilon`(XZP005)과는
+  별개 계층이라 정책이 상한을 낮추거나 룰 severity를 바꿔도 적용된다. 미설정·비정상값은 무시(기존 동작 동일)
+- **서버** — `POST /execute`가 정책 게이트 뒤·DP 예약 **앞**에서 같은 상한을 검사해 초과 단계를 변수명/ε과 함께
+  `422`로 거부하고 감사 로그에 `blocked`로 남긴다. 러너는 서버 환경을 상속하므로 엔진에서 한 번 더 검사된다
+- **컴파일러** — `xazz_compiler::with_dp_requests(&Program) -> Vec<WithDpRequest>` 공개: 프로그램의 모든
+  `withDp` 요청(문장 인덱스·바인딩 변수·인자)을 소스 순서로 반환
+- 테스트: 엔진 단위 2종(파싱·경계), 통합 1종(`tests/dp_budget.rs` — 초과 거부·마커 미출력, `ε == cap` 통과,
+  2컬럼 `k·ε`은 상한과 무관, 비정상값 무시), 컴파일러 1종, 서버 2종. 문서: `dp-spec.md`, `SERVER.md`
+
+### Docs — burn-cuda 실기 acceptance 통과 기록과 런타임 요구사항 정정 (issue #236, #103)
+
+- `docs/design/gpu-backend-acceptance.md` §4 — Windows 11 / RTX 4070, `windows-gnu` 툴체인 그대로
+  `cuda_matches_cpu_losses` **통과**(13.52s)와 `XAZZ_DEVICE=cuda:0` 실기 학습(RTX 4070 사용 확인,
+  콜드 83.5s → 웜 17.4s) 기록. 드라이버만으로는 두 단계로 실패했고(cudarc의 NVRTC 동적 로드 panic →
+  NVRTC `cannot open source file "cuda_runtime.h"`), NVIDIA pip 재배포본(`nvidia-cuda-nvrtc`,
+  `nvidia-cuda-runtime`)을 사용자 폴더에 풀어 `PATH`·`CUDA_PATH`만 잡으면 Toolkit 설치·관리자 권한
+  없이 해결됨을 확인. §6.2 CUDA 항목 완료, §6.1에 요구사항·probe 진단 개선 제안 추가
+- `docs/GPU_BACKENDS.md` — "드라이버만 있으면 됨" 표기를 **드라이버 + NVRTC 라이브러리 + CUDA 헤더**로
+   정정하고 pip 재배포본 확보 절차 수록. `docs/ROADMAP.md` D1 CUDA 실기 항목 완료 처리
+
+### Added — visual-ide 정책 이력 커서 페이지네이션 (issue C2)
+
+- `PolicyPackPanel`의 정책 팩 변경 이력이 첫 페이지(20건)만 보여주던 것을
+  `next_cursor` 기반 페이지네이션으로 전환했다. `loadPolicyHistory(cursor)`가
+  `GET /security/policy/history?cursor=...`를 호출하고, 정책 이력 타임라인 아래에
+  Previous/`Page n`/Next 컨트롤(신규 i18n `gov.policy.historyPage`)을 둔다.
+  페이지 상태는 커서 스택(`historyPath`)으로 관리해 Previous가 이전 커서로
+  되돌아가고, 팩 설치/제거 후에는 1페이지로 리셋된다
+- 검증: `test:contract`/`test:stdout`/`test:contrast`/`test:e2e`(68, 신규
+  `policy change history pages by id cursor and returns to page one` 포함) 통과
+
+### Changed — Monitor 리소스 패널을 실제 `GET /runs/{id}/resources`에 연결 (issue #128 후속)
+
+- `visual-ide`가 더 이상 `src/mock/telemetry-proposed.json`(엔드포인트 부재를
+  표방하던 UI 제안)을 렌더하지 않는다. `api.js`에 `getRunResources(id)`를 추가하고
+  Workspace가 `/execute`가 돌려준 `run_id`로 조회(세션 복원 시 포함)해 Monitor의
+  Resource 패널에 전달한다. 패널은 측정 상태(`duration_ms`/`cpu_user_ms`+`cpu_sys_ms`/
+  `max_rss_kb`→MB/`source`, contract `measured`)와 기록 없음 상태(`available: false`의
+  `reason`, contract `implemented`·Beta)를 구분하며, 계약에 없는 per-stage·GPU 수치는
+  표시하지 않는다. mock 삭제 + 사용처가 사라진 CSS(`monitor-panel--proposed`/
+  `monitor-bars__fill--proposed`/`monitor-endpoint`) 정리
+- 검증: `test:contract`/`test:stdout`/`test:contrast`/`test:e2e`(67, 신규
+  `tests/resources.spec.mjs` measured·`available:false` 2종 포함) 통과
+
+### Added — predict 진단의 서버 `/execute` 노출 (`prediction`) (issue D3)
+
+- `xazz-server`의 `parse_stdout_markers`가 `[xazz:predict]` 마커를 파싱해
+  `ExecuteResponse.prediction`으로 노출한다(기존 `training`과 대칭). 이로써
+  임베딩 입력 진단(`embedding_out_of_range`/`embedding_non_integer`)이 CLI
+  `--json`·러너 stdout에만 머물지 않고 `/execute` 응답에서도 기계 판독 가능하다.
+  마커가 없거나 깨진 경우 필드는 생략된다
+- 검증: `parse_stdout_markers` predict 마커 파싱/부재/오류 단위 테스트 1종
+
+### Added — 서버 환경변수 레퍼런스 `docs/SERVER.md` (issue C2)
+
+- `xazz-server`가 읽는 환경변수를 한 문서로 정리: 인증
+  (`XAZZ_SERVER_TOKEN` / `XAZZ_TENANT_TOKENS` / `XAZZ_ADMIN_TOKEN` /
+  `XAZZ_ADMIN_ACTORS`), 바인드·경로(`XAZZ_BIND` / `XAZZ_WEB_DIR` /
+  `XAZZ_EXEC_PATH` / `XAZZ_EXEC_TIMEOUT_SECS`), DP 예산
+  (`XAZZ_TENANT_DP_BUDGET` / `..._DELTA_BUDGET` / `..._WINDOW_SECS` /
+  `XAZZ_DP_RESERVATION_TTL_SECS` / `XAZZ_TENANT_DP_WINDOW_HISTORY_MAX`),
+  정책 이력 보존(`XAZZ_TENANT_POLICY_HISTORY_MAX` / `..._TTL_SECS` /
+  `XAZZ_TENANT_POLICY_TTL_HISTORY_MAX` / `XAZZ_POLICY_HISTORY_SWEEP_SECS`).
+  docs book `SUMMARY`/`README`와 README(+kr) 기능 표에서 링크
+- 검증: `mdbook build` exit 0
+
+### Added — 관리자 토큰↔actor 바인딩(`XAZZ_ADMIN_ACTORS`) (issue C2)
+
+- `XAZZ_ADMIN_ACTORS=token:actor,token:actor`(쉼표 구분)로 관리자 자격 증명에
+  감사 주체를 고정한다. 이 목록의 토큰으로 인증하면 관리자로 인가되되
+  `X-Xazz-Actor` 헤더를 무시하고 바인딩된 actor로 기록되므로, 토큰 소지자가
+  다른 주체를 위장할 수 없다. 토큰은 마지막 `:` 기준으로 분리해 자격 증명 자체에
+  `:`가 있어도 동작한다. `XAZZ_ADMIN_TOKEN`(미바인딩)은 기존처럼 헤더/기본
+  `admin`을 사용하며 하위호환이다
+- 검증: 바인딩 파싱/인가/actor 고정 단위 테스트 2종 (xazz-server 112 tests)
+
+### Added — 관리자 토큰 회전(다중 `XAZZ_ADMIN_TOKEN`) (issue C2)
+
+- `XAZZ_ADMIN_TOKEN`이 쉼표로 구분된 목록을 받아 관리자 자격 증명을 무중단으로
+  교체(회전)할 수 있다. 목록 중 하나와 일치하는 `Authorization: Bearer <token>`이면
+  관리자로 인증되며, `X-Xazz-Actor`로 관리자별 변경 주체를 기록하는 동작은 그대로다.
+  빈 항목은 무시되고 값이 없으면 관리자 모드는 꺼진 채다(하위호환)
+- 검증: 토큰 목록 파싱/인가 단위 테스트 2종 (xazz-server 110 tests)
+
+### Added — predict 경로 임베딩 입력 진단의 구조화 노출 (`[xazz:predict]`/`--json`) (issue D3)
+
+- `prepare_inference_input`이 버려지던 임베딩 진단을 반환하고, `predict`/
+  `predict_with_model`/`predict_on`(및 ONNX `predict_with_session`)이 프레임과 함께
+  반환한다. 러너는 `[xazz:predict]` 단일 라인 JSON(`predict_stmt` +
+  `embedding_out_of_range`/`embedding_non_integer`)을 출력하고, CLI `xazz run --json`은
+  이를 `"prediction"` 필드로 재조립한다. 기존 `predict`(프레임 전용) 시그니처는
+  유지(`predict_with_diagnostics` 추가)
+- 검증: 임베딩 E2E에서 `predict_with_diagnostics` 반환/직렬화 값 검증(xazz-exec 94
+  tests), CLI 마커 파싱 테스트 1종(xazz 63 tests)
+
+### Added — 임베딩 입력 진단의 구조화 노출 (`TrainReport`/`--json`) (issue D3)
+
+- **`TrainReport`**에 `embedding_out_of_range`·`embedding_non_integer` 필드 추가.
+  기존 stderr 경고 전용이던 범위 밖(클램프)·비정수(절단) 임베딩 입력 카운트를
+  `[xazz:train]` JSON 리포트에도 기계 판독 가능하게 노출한다(`#[serde(default)]`,
+  하위호환). 기존 경고와 동일한 값을 공유한다
+- **`SweepCombo`**에도 동일한 `embedding_out_of_range`·`embedding_non_integer`를
+  추가해 조합별 리포트/JSON이 우승 리포트와 같은 진단을 담는다. 사람용 학습 표
+  (`print_train_report`)와 스윕 표(`print_sweep_report`)는 값이 0이 아니면 임베딩
+  진단 줄을 표시한다
+- 검증: `check_embedding_indices` 반환 진단 단위 테스트 + 임베딩 E2E에서 리포트/
+  직렬화 값 검증, 스윕 조합 전달 E2E 테스트 1종 (xazz-exec)
+
+### Added — DP 예산 리셋 이력 커서 페이지네이션 (`GET /dp/budget/history`) (issue C2)
+
+- **`GET /dp/budget/history`**가 `?limit=&offset=`와 `?cursor=<id>`(이전 페이지의
+  `next_cursor`)를 지원하고 응답에 `limit`/`offset`/`cursor`/`next_cursor`를 노출한다.
+  기존 고정 50건 제한 대신 정책/DP window 이력과 동일한 `PolicyHistoryQuery` 기본값
+  (limit 100, 최대 500)을 사용하며, 커서 지정 시 `OFFSET`을 건너뛰고 `id < cursor`로
+  안정적으로 페이징한다
+- **`xazz dp reset-history`**에 `--cursor`/`--limit` 추가(서버 쿼리로 전달), 요약에
+  `limit/offset`·`next_cursor` 표시
+- 검증: 서버 커서 페이지네이션 테스트 1종(xazz-server 108 tests), CLI 페이지 쿼리
+  전송 E2E 1종(xazz 62 tests)
+
+### Added — `xazz dp reset` / `xazz dp reset-history` 테넌트 DP 예산 리셋 CLI (issue C2)
+
+- **`xazz dp reset --tenant T`** — 실행 중인 서버의 `POST /dp/budget/reset`으로 테넌트의
+  누적 DP 소비(`spent_*`)를 초기화하고 예산 윈도를 재기준한다. 관리자 대리 `--actor`는
+  리셋 감사 로그에 기록되고(issue #124), 응답의 `reset_by`/`reset_at`·리셋 전 소비량을
+  요약으로 보여준다. `--json`은 서버 본문을 그대로 출력한다
+- **`xazz dp reset-history --tenant T`** — `GET /dp/budget/history`의 append-only 리셋
+  이력을 조회한다(`--json`은 본문 그대로). 테넌트 스코프(`X-Xazz-Tenant`)이며 읽기
+  전용이라 `--actor`를 보내지 않는다. 토큰은 `--token` → `XAZZ_ADMIN_TOKEN` →
+  `XAZZ_SERVER_TOKEN` 순으로 해석한다
+- **`src/http.rs`** — body 없는 `POST`용 `post_json` 추가
+- 검증: 가짜 서버 E2E(reset POST 경로·actor, reset-history GET 경로·actor 미전송), 오류
+  상태, 로컬 검증, endpoint/비JSON 폴백 단위 테스트 (xazz 61 tests)
+
+### Added — `xazz dp budget` 테넌트 DP 예산 상태 조회 CLI (issue C2)
+
+- **`xazz dp budget --tenant T`** — 실행 중인 서버의 `GET /dp/budget`으로 테넌트의
+  현재 DP 소비(`spent_epsilon`/`spent_delta`), 진행 중 예약분(`reserved_*`/`in_flight`),
+  잔여 엔벨로프(`remaining_*`), 유효 윈도(`window_secs`/`window_source`/`resets_at`)를
+  조회한다. `--json`은 서버 본문을 그대로 출력하고(기본은 요약), 테넌트 스코프
+  (`X-Xazz-Tenant`)이며 읽기 전용이라 `--actor`를 보내지 않는다. 토큰은 `--token` →
+  `XAZZ_ADMIN_TOKEN` → `XAZZ_SERVER_TOKEN` 순으로 해석한다
+- 검증: 가짜 서버 E2E(GET 경로·헤더·actor 미전송), 오류 상태, 로컬 검증,
+  endpoint/비JSON 폴백 단위 테스트 (xazz 58 tests)
+
+### Added — `xazz dp window` 테넌트 DP 예산 윈도 CLI (issue C2)
+
+- **`xazz dp window set --window-secs N --tenant T`** — 실행 중인 서버의
+  `PUT /dp/budget/window`로 테넌트별 DP 예산 슬라이딩 윈도 override를 저장한다
+  (`--window-secs 0`은 "누적, 윈도 없음" 명시). **`xazz dp window clear --tenant T`**는
+  `DELETE /dp/budget/window`로 override를 제거해 전역 `XAZZ_TENANT_DP_WINDOW_SECS`로
+  폴백한다. **`xazz dp window history`**는 `GET /dp/budget/window/history`의 append-only
+  변경 이력을 `--cursor`/`--limit`/`--json`으로 조회한다
+- 모든 하위 명령은 테넌트 스코프(`X-Xazz-Tenant`)이며 관리자 대리 `--actor`를 지원한다.
+  토큰은 `--token` → `XAZZ_ADMIN_TOKEN` → `XAZZ_SERVER_TOKEN` 순으로 해석한다
+- **`src/dp_window.rs`** 신규 — std-only `http` 클라이언트로 기존 `policy-ttl` 패턴을 따른다
+- 검증: 가짜 서버 E2E(PUT/DELETE/history 경로·헤더·본문), 오류 상태, 로컬 검증,
+  endpoint/paging 단위 테스트 (xazz 56 tests)
+
+### Changed — 정책 이력 TTL 변경 이력 전용 보존 상한 (issue C2)
+
+- **`XAZZ_TENANT_POLICY_TTL_HISTORY_MAX`** — `tenant_policy_history_config_history`의
+  개수 상한을 정책 이력과 공유하던 `XAZZ_TENANT_POLICY_HISTORY_MAX`에서 분리했다.
+  미설정/무효/`0`은 기본 1000으로 폴백한다. 셋/클리어 prune과 정기 정책 이력 스윕 모두
+  이 전용 상한을 적용한다
+- 검증: resolver 단위 테스트 1종 + cap 독립성 store 테스트 1종(정책 cap 1·TTL 변경 이력 cap 3)
+
+### Changed — DP window 감사 이력 전용 보존 상한 (issue C2)
+
+- **`XAZZ_TENANT_DP_WINDOW_HISTORY_MAX`** — `tenant_dp_config_history`의 개수 상한을
+  정책 이력과 공유하던 `XAZZ_TENANT_POLICY_HISTORY_MAX`에서 분리했다. 미설정/무효/`0`은
+  기본 1000으로 폴백한다. 정기 정책 이력 스윕도 DP window 이력에 이 전용 상한을 적용한다
+- 검증: resolver 단위 테스트 1종 + cap 독립성 store 테스트 1종(정책 cap 1·DP cap 3)
+
+### Added — DP window override 변경 감사 + 관리자 대리 actor (issue C2)
+
+- **`tenant_dp_config_history`** — `PUT`/`DELETE /dp/budget/window`가 이제 이전/새
+  `window_secs`와 `changed_by`(자기 테넌트 또는 관리자 actor)를 append-only로 기록한다.
+  셋/클리어와 같은 트랜잭션으로 커밋되고, 전용 개수 상한
+  (`XAZZ_TENANT_DP_WINDOW_HISTORY_MAX`, 기본 1000)으로 prune되며, 정기 정책 이력 스윕도
+  이 테이블을 포함한다
+- **`GET /dp/budget/window/history?limit=&offset=&cursor=`** — 테넌트 스코프 변경 이력
+  (최신순, 응답의 `next_cursor`로 커서 페이지네이션)
+- **관리자 대리** — `XAZZ_ADMIN_TOKEN` + `X-Xazz-Actor`(기본 `admin`)로 다른 테넌트
+  override를 변경하면 `changed_by`에 actor가 기록된다. 대상 테넌트 미지정 시 400
+- 검증: store 회귀 테스트 1종(테넌트 격리·old/new·커서), 엔드포인트/actor 테스트 2종
+  (xazz-server 101 tests)
+
+### Added — `xazz policy-ttl` 테넌트 정책 이력 보존 윈도 설정/해제 CLI (issue C2)
+
+- **`xazz policy-ttl set --ttl-secs N --tenant T`** — 실행 중인 서버의
+  `PUT /security/policy/history/ttl`로 테넌트의 정책 이력 보존 윈도 override를
+  저장한다(`--ttl-secs 0`은 "영구 보존"). **`xazz policy-ttl clear --tenant T`**는
+  `DELETE /security/policy/history/ttl`로 override를 제거해 전역 기본값으로
+  폴백한다. 두 명령 모두 tenant 스코프(`X-Xazz-Tenant`)이며
+  `--server`/`--token`(미지정 시 `XAZZ_ADMIN_TOKEN`→`XAZZ_SERVER_TOKEN`)·
+  `--actor`(관리자 대리 변경 감사) 지원. 응답의 유효 윈도(`ttl_secs`/`ttl_source`) 출력
+- **`src/policy_query.rs`** — 읽기 전용 `ttl_endpoint`를 `policy-ttl`과 공유
+- 검증: `set`/`clear` 단위 테스트 6종(PUT JSON 본문·DELETE·헤더 E2E, 비2xx, 로컬 검증, actor 공백)
+
+### Added — `xazz registry undeploy` 테넌트 정책 팩 삭제 CLI (issue C2)
+
+- **`xazz registry undeploy --tenant T`** — 실행 중인 서버의
+  `DELETE /security/policy`로 대상 테넌트 네임스페이스에 저장된 정책 팩을
+  제거한다. 이후 그 테넌트는 전역/내장 정책으로 폴백한다.
+  `--server`/`--tenant`/`--token`(미지정 시 `XAZZ_ADMIN_TOKEN`→`XAZZ_SERVER_TOKEN`)·
+  `--actor`(관리자 대리 변경 감사) 지원
+- **`src/http.rs`** — `delete_json` 추가(기존 `request` 재사용)
+- 검증: `undeploy` 단위 테스트 3종(테넌트/토큰 로컬 검증, DELETE 엔드포인트·헤더
+  E2E, 비2xx 오류)
+
+### Added — `xazz run --json`에 리소스 텔레메트리(`resources`) 노출 (#128 후속)
+
+- **`resources` 필드** — `xazz run --json` 요약에 러너 프로세스 트리 리소스 사용량을
+  담는다: `duration_ms`, `cpu_user_ms`, `cpu_sys_ms`, `max_rss_kb`, `source`
+  (`runner-process-tree`, 카운터 부재 시 `wall-clock-only`). 서버가 `[xazz:resources]`
+  마커로 받는 것과 동일한 객체를 CLI 로컬 JSON에도 싣는다
+- 마커 출력(서버 릴레이)과 JSON 필드가 같은 `resources_json` 빌더를 공유
+- 검증: `resources_json` 단위 테스트 2종(카운터 있음/없음)
+
+### Added — 벤치마크 회귀 CI (issue #147)
+
+- **`.github/workflows/bench.yml`** — 릴리스 바이너리를 빌드해 **합성 데이터**(LFS 원본
+  불필요)로 README 벤치마크를 `--quick` 실행하고, pandas 대비 xazz speedup 비율을
+  커밋된 기준선과 비교한다. workflow_dispatch·주간 스케줄·`ci/bench-regression` 브랜치에서
+  동작하며 결과 JSON을 아티팩트로 업로드한다
+- **`benches/bench_regression.py`** — 절대 지연(머신 의존) 대신 같은 실행의
+  pandas/xazz speedup 비율을 비교해 `--tol`(기본 35%) 넘게 하락하면 실패한다
+- **`benches/bench_regression_baseline.json`** — 합성 데이터 기준 speedup 1.58x
+- **`benches/make_scale_data.py --synthetic`** — 고정 시드 합성 데이터 생성(CI용)
+- **`benches/run_readme_benchmark.py --out PATH`** — 결과 출력 경로 지정
+
+### Added — `xazz policy-status` 테넌트 정책 조회 CLI (issue C2)
+
+- **`xazz policy-status <history|ttl|ttl-history>`** — 실행 중인 서버에서 테넌트의
+  읽기 전용 정책 상태를 조회한다: 정책 팩 변경 이력(`GET /security/policy/history`),
+  유효 정책 이력 보존 윈도(`.../history/ttl`), 보존 윈도 변경 이력
+  (`.../history/ttl/history`). `--server`/`--tenant`/`--token`(미지정 시
+  `XAZZ_ADMIN_TOKEN`→`XAZZ_SERVER_TOKEN`)·`--cursor`/`--limit`·`--json` 지원.
+  기본은 사람용 요약, `--json`은 서버 JSON 본문을 그대로 출력
+- **`src/http.rs`** — `get_json` 추가(기존 `put_json`과 공용 `request`로 리팩터)
+- 검증: 엔드포인트 조인/페이징 단위 테스트 + 가짜 서버 E2E(GET 경로·헤더·페이징·비2xx·검증)
+
+### Changed — D1 CUDA provider를 burn-tch에서 burn-cuda(네이티브 CubeCL)로 교체 (issue #62)
+
+- **`xazz-exec`** — `--features cuda`가 `burn-tch`(LibTorch) 대신 `burn-cuda`
+  (native CubeCL)를 사용한다. 순수 Rust라 LibTorch/시스템 SDK/MSVC 툴체인이
+  필요 없고, `burn-wgpu`와 동일한 CubeCL 스택을 공유해 Burn 0.22의 CUDA 방향
+  (CubeCL CUDA · graph replay · LLVM GPU 백엔드)과 정렬된다. 런타임에는 NVIDIA
+  드라이버만 필요하며, 장치가 없으면 probe 후 CPU로 폴백한다(`CudaBackend::new`)
+- **`build.rs`** — windows-gnu MSVC 가드를 ONNX 전용으로 축소. `cuda`는 이제
+  GNU/MSVC 양쪽에서 빌드된다. `onnx*`는 여전히 `ort-sys` prebuilt 부재로 MSVC 전용
+- `burn-tch`/`tch` 의존 제거. 비활성 선택적 백엔드 항목(burn-candle/rocm/flex 등)은
+  `Cargo.lock`에 남아 있을 수 있으나 빌드 그래프에는 포함되지 않는다(`cargo tree`로 확인)
+
+### Direction — Burn 0.22 대응: ONNX export 위임 예정, emitter parity 동결
+
+- **ONNX (D2 #63)** — Burn 0.22의 `burn-onnx`(graph capture 기반 export)가
+  손으로 작성한 `dl::onnx_export`(`ModelProto` 빌더)를 대체한다. `ort` 추론은
+  유지하고, 0.22 안정화 시 exporter와 `rlx-onnx-proto`/`protobuf` 의존을 제거한다.
+  현 exporter에는 더 투자하지 않는다
+- **emitter** — `emit rust`의 Burn 코드 생성은 "reference emit" 지원 등급으로
+  두고, 런타임(`xazz-exec`)과의 기능별 parity 추가 투자를 동결한다. 드리프트
+  비용을 상한으로 묶기 위함(후속은 런타임에 집중)
+
+### Tests — 다중 컬럼 DP 소비 개수 통합 회귀 테스트 (issue #119)
+
+- **`xazz-exec/tests/dp_budget.rs`** — 실제 `.xzz`를 엔진 바이너리로 실행해 `[xazz:dp]` 마커
+  (서버 원장과 `xazz run --json`이 읽는 값)로 소스→런타임→원장 경로를 고정한다:
+  2컬럼 `agg([...]) |> withDp(ε)`가 `query_count=2`·`budget_spent=2ε`로 청구되는지,
+  1컬럼 대조군, 예산 경계(`XAZZ_DP_BUDGET`가 정확히 `k·ε`면 통과·그 아래면 실행 전 거부
+  + 거부 메시지에 컬럼 배수 `× 2` 반영 + 마커 미출력), 두 `withDp` 단계의 순차 조성
+  (2.0 → 2.5, 3 mechanisms)과 누적 초과 거부. 프로세스별 env로 예산을 주므로 병렬 테스트와
+  간섭이 없다
+
+### Added — `xazz run --json`에 DP 소비량·잔량 노출 (issue #117)
+
+- **`dp` 배열** — `--json` 요약에 `withDp` 단계마다 한 항목씩 `[xazz:dp]` 마커를 실행
+  순서대로 담는다. 각 항목은 DpReport(`mechanism`, `epsilon`, `delta`, `sensitivity`,
+  `noise_param`, `noised_columns`, `seed`)에 세션 예산 `budget_spent`/`budget_total`/
+  `budget_remaining`(+ `_delta` 3종)과 `query_count`를 더한 값이다. 대시보드·CI가 stderr
+  텍스트를 긁지 않고 ε/δ 소비량을 읽을 수 있다
+- **`training` 필드** — 같은 경로에서 버려지던 `[xazz:train]` 마커(TrainReport/SweepReport)를
+  `--json`에 그대로 싣는다. DP는 `withDp` 파이프라인 단계의 속성이라 TrainReport 자체에는
+  DP 필드를 넣지 않는다(학습 리포트와 DP 감사 정보는 별 항목으로 병렬 제공)
+- **엔진 마커 확장** — `[xazz:dp]`에 `budget_remaining`·`budget_remaining_delta`를 추가
+  (`PrivacyBudget::remaining_delta` 신설). 기존 필드와 stderr 텍스트는 그대로다. 옛 엔진의
+  마커에는 CLI가 `total − spent`로 잔량을 채워 넣어 소비자 입장에서 항상 존재한다
+- 서버 `parse_stdout_markers`와 동일한 형태(단일 행 + 레거시 2행)를 CLI도 받아들인다
+- 검증: CLI 마커 파서 단위 테스트 6종(순서·잔량 보정·0 하한·레거시·train/diagnostics·
+  깨진 마커), `PrivacyBudget::remaining_delta` 단위 테스트
+
 ### Security — 클라이언트 연결이 끊겨도 런 회계·감사·DP 정산 완료 (GHSA-wxqx-r7f6-qq3p)
 
 - **`xazz-server`** — `/execute` 핸들러가 실행과 후처리(런 기록·감사 체인 추가·DP 예약 정산)를
@@ -18,6 +313,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
   런·감사 레코드가 기록되는지 검증
 - 테스트 격리 — `test_state()`가 호출마다 별도 SQLite 파일을 사용해 병렬 실행 시
   `database is locked`로 실패하던 플레이크를 제거
+- 후속 — 연결이 끊긴 동안에도 테넌트 실행 락과 동시성 permit을 러너 종료까지 보유하도록
+  `ExecutionSlot`(`OwnedSemaphorePermit` + `OwnedMutexGuard`)을 blocking 태스크로 이동.
+  핸들러 future가 드롭돼도 같은 테넌트 동시 실행이 차단되고 용량 상한이 유지된다.
+  회귀 테스트 `disconnected_execute_holds_slot_until_runner_exits` 추가
 
 ### Docs — GPU/ONNX 백엔드 빌드·실행 가이드 (issue #151)
 
@@ -760,6 +1059,34 @@ Versioning: [Semantic Versioning](https://semver.org/)
   `type` 블록 + `load` 구문 생성, CSV와 동일한 프로젝트 root·중복 검사 로직 공유
 - 통합 테스트: Parquet/Arrow save→load 왕복 (Schema cast 경유), streaming 엔진의
   벤치 파이프라인(벤치마크 shape) 실행·네이티브 연산 지원 검증, 컬럼형 스키마 추론 왕복
+
+### Known limitations — v0.4 공개 게이트 (issue #262)
+
+릴리스 노트 "알려진 한계"와 README "한계 & 비목표"에 함께 반영되는, 이 릴리스에서
+**검증되지 않은** 항목. 기능 완성도와 별개로 공개 시 정직하게 명시한다.
+
+- **GPU/ONNX 실기 미검증** — `burn-wgpu`는 Windows 11 / RTX 4070 Laptop + Intel Arc
+  iGPU 실기 통과(2026-09-25)했으나, `burn-cuda`는 CUDA 드라이버 호스트 부재로 gated
+  parity 미실행. ONNX Runtime은 `ort-sys`가 `*-windows-msvc` 사전 빌드만 제공해
+  Windows GNU 툴체인에서 실패, macOS `coreml`도 대기. CPU가 기본이자 유일한 완전 검증 경로
+- **PyO3 네이티브 확장 보류** — `import xazz`는 CLI 서브프로세스 어댑터(동일 진단,
+  경계 비용 지불). NumPy/Pandas→Arrow 핸드오프도 보류 (Track C4)
+- **emitter parity 미완** — `xazz emit rust`는 참조용 emitter. 단일 실행
+  `validation_split`/조기 종료, per-epoch 스윕 열 등 런타임과의 파리티 갭. 신규 기능은
+  `xazz-exec` 우선
+- **컨테이너 이미지/클린 호스트 스모크 미기록** — GHCR 멀티아키 이미지는 `v*` 태그에서만
+  게시되며, 게시된 태그에 대한 스모크 체크리스트 기록이 아직 없음 (issue #176)
+- **벤치 단일 호스트·프로비넌스 미기록** — 커밋된 수치는 개발 호스트 1대 측정이고
+  프로비넌스 캡처 이전 값. `run_readme_benchmark.py`가 이제 호스트 메타를 기록
+
+### Docs — 공개 게이트 사전 준비 (issue #262)
+
+- README(+kr)에 **한계 & 비목표** 섹션과 **"왜 DuckDB/Polars 대신 DSL인가"** 반박 단락
+  추가. 성능 섹션에 **측정 프로비넌스** 안내 추가
+- `docs/RELEASING.md` 릴리스 노트 템플릿·체크리스트에 **Known limitations** 섹션 추가
+- `benches/run_readme_benchmark.py`가 `benchmark_results.json`에 `provenance` 블록
+  (플랫폼/OS/CPU/코어/RAM/버전)을 기록
+- `docs/DOCKER.md` 클린 호스트 스모크 체크리스트에 기록 양식 보강
 
 ---
 
