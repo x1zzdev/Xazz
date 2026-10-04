@@ -80,6 +80,26 @@ pub fn series_to_f32(col: &Column) -> Vec<f32> {
     }
 }
 
+/// Class identifiers must survive the model's f32 boundary without rounding.
+/// Round-trip in the original dtype so large integer labels are checked exactly.
+pub(crate) fn validate_class_label_precision(column: &Column) -> Result<(), String> {
+    let restored = column
+        .cast(&DataType::Float32)
+        .and_then(|values| values.cast(column.dtype()))
+        .map_err(|error| format!("class label conversion failed: {error}"))?;
+    for row in 0..column.len() {
+        let original = column.get(row).map_err(|error| error.to_string())?;
+        let round_trip = restored.get(row).map_err(|error| error.to_string())?;
+        if original != round_trip {
+            return Err(format!(
+                "class label at row {} cannot be represented exactly as f32; encode labels as small integers before training",
+                row + 1
+            ));
+        }
+    }
+    Ok(())
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // feature/target extraction (training path)
 // ─────────────────────────────────────────────────────────────────────────────

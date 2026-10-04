@@ -18,6 +18,7 @@ pub mod lower;
 pub mod runtime;
 pub mod sanitize;
 pub mod schema_infer;
+pub mod split;
 pub mod tensor_bridge;
 
 pub use runtime::run_pipeline;

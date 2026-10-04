@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast::{
     AggFn, AggSpec, BinOpKind, ChartConfig, DpArgs, EmbeddingVocab, Expr, FillNullValue, JoinHow,
-    LayerKind, PipelineOp, PipelineSource, Program, Stmt, StructField, TrainConfig,
+    LayerKind, PipelineOp, PipelineSource, Program, SplitStrategy, Stmt, StructField, TrainConfig,
 };
 use crate::error::{CompileError, ErrorKind};
 use crate::ir;
@@ -474,6 +474,31 @@ impl Analyzer {
     /// warns instead of failing. Fully non-sweep configs with no such options are
     /// a no-op.
     fn validate_train_sweep(&mut self, model_name: &str, config: &TrainConfig) {
+        if config.time_column.is_some() && config.split_strategy != SplitStrategy::Sequential {
+            self.error(
+                ErrorKind::Other("incompatible validation split".into()),
+                Some(model_name),
+                "time_column requires split: sequential; random/stratified can leak future rows",
+            );
+        }
+        // Issue #162: split strategy / time column only take effect with a
+        // validation split; warn instead of silently ignoring them.
+        if config.validation_split.is_none()
+            && (config.split_strategy != SplitStrategy::Sequential || config.time_column.is_some())
+        {
+            self.warning(
+                Some(model_name),
+                if is_korean() {
+                    format!(
+                        "train({model_name}): validation_split 이 없어 split/time_column 옵션이 무시됩니다."
+                    )
+                } else {
+                    format!(
+                        "train({model_name}): split/time_column is ignored without validation_split."
+                    )
+                },
+            );
+        }
         if !config.is_sweep() {
             let mut ignored: Vec<&str> = Vec::new();
             if config.sweep_metric_explicit && !config.sweep_metric.is_classification() {
@@ -2000,6 +2025,23 @@ mod tests {
              v pred = data |> predict(trained, as: \"pred\");",
         );
         assert!(r.is_ok(), "오류: {:?}", r.errors);
+    }
+
+    #[test]
+    fn time_column_rejects_shuffled_and_stratified_splits() {
+        for split in ["random", "stratified"] {
+            let r = check(&format!(
+                "type X = {{ t: float, y: float }}; model M {{ Dense(1) }}
+                 v data = load(\"x.csv\") :: X;
+                 v trained = data |> train(M, target: \"y\", validation_split: 0.5,
+                     split: \"{split}\", time_column: \"t\");"
+            ));
+            assert!(
+                r.errors
+                    .iter()
+                    .any(|e| e.message.contains("time_column requires"))
+            );
+        }
     }
 
     // ── D3 hyperparameter sweep validation ─────────────────────────────────────
