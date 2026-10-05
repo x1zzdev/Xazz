@@ -1,0 +1,416 @@
+{
+  "small": {
+    "rows": 227760,
+    "pandas": {
+      "latency_ms": 50.5,
+      "peak_mb": 145.9,
+      "runs": [
+        {
+          "latency_ms": 50.5883,
+          "peak_mb": 146.03125
+        },
+        {
+          "latency_ms": 49.7892,
+          "peak_mb": 145.84375
+        },
+        {
+          "latency_ms": 50.5265,
+          "peak_mb": 145.9375
+        }
+      ]
+    },
+    "xazz_streaming_on": {
+      "latency_ms": 15.0,
+      "peak_mb": 72.4,
+      "runs": [
+        {
+          "latency_ms": 14.992292,
+          "peak_mb": 74.5625,
+          "fallback_to_wallclock": false
+        },
+        {
+          "latency_ms": 14.920167,
+          "peak_mb": 72.375,
+          "fallback_to_wallclock": false
+        },
+        {
+          "latency_ms": 15.637958000000001,
+          "peak_mb": 72.40625,
+          "fallback_to_wallclock": false
+        }
+      ]
+    },
+    "xazz_streaming_off": {
+      "latency_ms": 16.0,
+      "peak_mb": 73.1,
+      "runs": [
+        {
+          "latency_ms": 16.125500000000002,
+          "peak_mb": 72.59375,
+          "fallback_to_wallclock": false
+        },
+        {
+          "latency_ms": 15.634833,
+          "peak_mb": 73.125,
+          "fallback_to_wallclock": false
+        },
+        {
+          "latency_ms": 16.007125000000002,
+          "peak_mb": 73.921875,
+          "fallback_to_wallclock": false
+        }
+      ]
+    }
+  },
+  "medium": {
+    "rows": 911662,
+    "pandas": {
+      "latency_ms": 194.7,
+      "peak_mb": 338.0,
+      "runs": [
+        {
+          "latency_ms": 194.7,
+          "peak_mb": 338.046875
+        },
+        {
+          "latency_ms": 215.1357,
+          "peak_mb": 338.234375
+        },
+        {
+          "latency_ms": 194.4895,
+          "peak_mb": 336.078125
+        }
+      ]
+    },
+    "xazz_streaming_on": {
+      "latency_ms": 43.8,
+      "peak_mb": 190.0,
+      "runs": [
+        {
+          "latency_ms": 43.327999999999996,
+          "peak_mb": 158.65625,
+          "fallback_to_wallclock": false
+        },
+        {
+          "latency_ms": 43.776416999999995,
+          "peak_mb": 190.046875,
+          "fallback_to_wallclock": false
+        },
+        {
+          "latency_ms": 43.969083999999995,
+          "peak_mb": 190.78125,
+          "fallback_to_wallclock": false
+        }
+      ]
+    },
+    "xazz_streaming_off": {
+      "latency_ms": 44.6,
+      "peak_mb": 196.4,
+      "runs": [
+        {
+          "latency_ms": 45.245542,
+          "peak_mb": 196.4375,
+          "fallback_to_wallclock": false
+        },
+        {
+          "latency_ms": 44.636959,
+          "peak_mb": 196.703125,
+          "fallback_to_wallclock": false
+        },
+        {
+          "latency_ms": 43.950250000000004,
+          "peak_mb": 161.4375,
+          "fallback_to_wallclock": false
+        }
+      ]
+    }
+  },
+  "large": {
+    "rows": 4089216,
+    "pandas": {
+      "latency_ms": 881.7,
+      "peak_mb": 1242.0,
+      "runs": [
+        {
+          "latency_ms": 881.657,
+          "peak_mb": 1241.984375
+        },
+        {
+          "latency_ms": 875.0756,
+          "peak_mb": 1242.046875
+        },
+        {
+          "latency_ms": 884.0782,
+          "peak_mb": 1241.796875
+        }
+      ]
+    },
+    "xazz_streaming_on": {
+      "latency_ms": 377.0,
+      "peak_mb": 561.4,
+      "runs": [
+        {
+          "latency_ms": 371.64687499999997,
+          "peak_mb": 562.65625,
+          "fallback_to_wallclock": false
+        },
+        {
+          "latency_ms": 378.129375,
+          "peak_mb": 561.421875,
+          "fallback_to_wallclock": false
+        },
+        {
+          "latency_ms": 377.046375,
+          "peak_mb": 557.609375,
+          "fallback_to_wallclock": false
+        }
+      ]
+    },
+    "xazz_streaming_off": {
+      "latency_ms": 403.4,
+      "peak_mb": 697.8,
+      "runs": [
+        {
+          "latency_ms": 409.31775,
+          "peak_mb": 697.75,
+          "fallback_to_wallclock": false
+        },
+        {
+          "latency_ms": 403.371333,
+          "peak_mb": 699.53125,
+          "fallback_to_wallclock": false
+        },
+        {
+          "latency_ms": 397.781792,
+          "peak_mb": 692.84375,
+          "fallback_to_wallclock": false
+        }
+      ]
+    }
+  },
+  "provenance": {
+    "recorded": true,
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "system": "Darwin",
+    "release": "25.6.0",
+    "machine": "arm64",
+    "processor": "arm",
+    "cpu_model": "Apple M5",
+    "cpu_physical_cores": 10,
+    "cpu_logical_cores": 10,
+    "total_ram_gb": 16.0,
+    "python": "3.9.6",
+    "pandas": "2.3.3",
+    "polars": null,
+    "numpy": "2.0.2",
+    "xazz": "xazz 0.3.1",
+    "xazz_version_verified": true,
+    "xazz_binary": "xazz (별도 Cargo target 디렉터리의 release 빌드)",
+    "binary_sha256": {
+      "xazz": "bf32d1eb8ed2b89e8d67860683e3be08864c4a774140cf509533f44c3e30e51c",
+      "xazz-runner": "617e84ec803a084fd526e2dc24ae98bc6e8554f49271e5751204838c010f7def",
+      "xazz-exec": "76efd698887eb552f0a001dce4de53bd09019fb6c76bd50fcb588dd6c7bab287"
+    },
+    "streaming_requested_modes": [
+      "on",
+      "off"
+    ],
+    "streaming_actual_engine_verified": false,
+    "streaming_note": "스트리밍 요청 실패 시 런타임이 메모리 엔진으로 전환할 수 있어 실제 엔진은 이 측정기로 확인할 수 없습니다.",
+    "rss_method": "프로세스 트리 RSS 합계의 3ms 폴링 최댓값(MiB)",
+    "latency_method": "각 엔진 내부 파이프라인 실행시간; wall-clock 대체 금지",
+    "recorded_at_utc": "2026-10-05T13:16:11.564170+00:00",
+    "git_head": "7f8e987c0e7097ba942c8d8ade2bb9b614bd4fcb",
+    "benchmark_script_sha256": "7361fd944c2a38cc9377bc85f23cec87d1d05c5a32ece47b8e1ccd8cc6276341",
+    "pipeline_template_sha256": "53b10ea100df9dae94f2aba87f45400821f78a340b5dc3a9a8a790846ba197e6",
+    "pandas_pipeline_sha256": "b8fb8c6135eb73f66be11f3bf915feab16c9a13ab73674713a3aa0b88b1b4df4",
+    "summary_latency_resolution_ms": 0.1,
+    "warmup_runs": 1,
+    "measured_runs": 3,
+    "timeout_seconds": 120.0,
+    "max_memory_mb": 2048.0,
+    "raw_logs": "target/qa-166/macos-cpu-results-logs-hhzcbb5m",
+    "inputs": {
+      "small": {
+        "file": "scale_small.csv",
+        "rows": 227760,
+        "bytes": 7357329,
+        "sha256": "97798b9ce37584f36b9d94c10fdac94b50e3bbffd61e3bb381d6db56243fafc9"
+      },
+      "medium": {
+        "file": "scale_medium.csv",
+        "rows": 911662,
+        "bytes": 29572815,
+        "sha256": "ccbd994082967e33e034e643a1d3cf11c85e1ccaefa4e0831dc9639cfa710fee"
+      },
+      "large": {
+        "file": "scale_large.csv",
+        "rows": 4089216,
+        "bytes": 132764264,
+        "sha256": "fa64aeb438facff214f46e78659a9648a9fbcfa17b2c8140c085c9af0846f5ac"
+      }
+    },
+    "raw_logs_published": false,
+    "build_command": "cargo build --release --locked -p xazz -p xazz-runner -p xazz-exec",
+    "rustc": "1.99.0",
+    "macos_sdk": "26.5",
+    "cargo_build_jobs": 2,
+    "generator_sha256": "f5b93944c167cd75330c3ca40491be52de8cc56242db365bc8be9807e75c1e45",
+    "benchmark_scripts_modified_from_git_head": true,
+    "note": "git_head는 Rust 실행 파일의 소스 기준점이다. 수정된 Python 측정·생성 코드는 각각의 SHA-256으로 구분한다."
+  },
+  "verification": {
+    "method": "Python 표준 csv 및 정수 계수로 전체 입력을 다시 계산",
+    "scales": {
+      "small": {
+        "input_rows": 227760,
+        "stage_rows": {
+          "p2": 151346,
+          "p3": 26,
+          "p4": 10,
+          "p7": 5
+        },
+        "p7_counts": {
+          "평균": 1270,
+          "강남구": 1178,
+          "강동구": 1400,
+          "강북구": 1330,
+          "강서구": 1648,
+          "관악구": 1298,
+          "광진구": 1085,
+          "구로구": 1565,
+          "노원구": 1311,
+          "도봉구": 1126,
+          "동대문구": 1249,
+          "동작구": 1429,
+          "마포구": 957,
+          "서대문구": 1103,
+          "서초구": 1355,
+          "성동구": 1359,
+          "성북구": 1486,
+          "용산구": 1170,
+          "종로구": 1120,
+          "중구": 987,
+          "중랑구": 1204,
+          "송파구": 1274,
+          "양천구": 1400,
+          "은평구": 1204,
+          "금천구": 1134,
+          "영등포구": 1128
+        },
+        "checked_runs_including_warmup": 12
+      },
+      "medium": {
+        "input_rows": 911662,
+        "stage_rows": {
+          "p2": 619170,
+          "p3": 26,
+          "p4": 10,
+          "p7": 5
+        },
+        "p7_counts": {
+          "서대문구": 5836,
+          "성동구": 6157,
+          "종로구": 6329,
+          "노원구": 6270,
+          "강동구": 6934,
+          "강북구": 6879,
+          "도봉구": 5743,
+          "중랑구": 6029,
+          "평균": 6403,
+          "광진구": 5795,
+          "동대문구": 6134,
+          "성북구": 7126,
+          "강남구": 5710,
+          "강서구": 7864,
+          "관악구": 6427,
+          "금천구": 5928,
+          "동작구": 7166,
+          "마포구": 5058,
+          "서초구": 7693,
+          "송파구": 6365,
+          "양천구": 7223,
+          "영등포구": 5750,
+          "용산구": 6273,
+          "중구": 5789,
+          "구로구": 7472,
+          "은평구": 6170
+        },
+        "checked_runs_including_warmup": 12
+      },
+      "large": {
+        "input_rows": 4089216,
+        "stage_rows": {
+          "p2": 2983785,
+          "p3": 26,
+          "p4": 10,
+          "p7": 5
+        },
+        "p7_counts": {
+          "평균": 43404,
+          "강남구": 42471,
+          "강동구": 45001,
+          "강북구": 39842,
+          "강서구": 47130,
+          "관악구": 45866,
+          "광진구": 40552,
+          "구로구": 46688,
+          "금천구": 40527,
+          "노원구": 40692,
+          "도봉구": 38860,
+          "동대문구": 42151,
+          "동작구": 41932,
+          "마포구": 43214,
+          "서대문구": 41872,
+          "서초구": 47966,
+          "성동구": 45121,
+          "성북구": 40716,
+          "송파구": 41294,
+          "양천구": 44240,
+          "영등포구": 46060,
+          "용산구": 40097,
+          "은평구": 41136,
+          "종로구": 41339,
+          "중구": 38905,
+          "중랑구": 41738
+        },
+        "checked_runs_including_warmup": 12
+      }
+    },
+    "mutation_check": true,
+    "python_tests_per_environment": 48,
+    "release_fixture_cases": 16
+  },
+  "host_context": {
+    "before": {
+      "time_epoch": 1791206156.068244,
+      "available_ram_bytes": 5785665536,
+      "swap_used_bytes": 6945243136,
+      "swap_in_bytes": 429853163520,
+      "swap_out_bytes": 5026512896,
+      "cpu_percent": 6.5
+    },
+    "inherited_environment": {
+      "POLARS_MAX_THREADS": null,
+      "RAYON_NUM_THREADS": null,
+      "OMP_NUM_THREADS": null,
+      "OPENBLAS_NUM_THREADS": null,
+      "VECLIB_MAXIMUM_THREADS": null,
+      "POLARS_VERBOSE": null
+    },
+    "after": {
+      "time_epoch": 1791206171.595854,
+      "available_ram_bytes": 6249283584,
+      "swap_used_bytes": 6936854528,
+      "swap_in_bytes": 429862862848,
+      "swap_out_bytes": 5027217408,
+      "cpu_percent": 6.2
+    }
+  },
+  "scope": {
+    "status": "preliminary_cpu_measurement",
+    "xlarge_measured": false,
+    "xlarge_rows": 200371584,
+    "streaming_fallback_resolved": false
+  }
+}
