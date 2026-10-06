@@ -15,12 +15,14 @@
 | **cuda** (burn-cuda) acceptance | `cargo test --release -p xazz-exec --features cuda -- --ignored` | **통과** (2026-10-01) — `cuda_matches_cpu_losses` 1 passed (13.52s), windows-gnu 그대로. 단 **NVRTC DLL + CUDA 헤더 필요** (§4.1) |
 | **cuda** `XAZZ_DEVICE=cuda:0` | `xazz run` (학습·예측) | **통과** — RTX 4070 사용을 GPU 엔진 카운터·nvidia-smi로 확인 (§4.2) |
 | **cuda** (burn-tch, historical) | 동일 명령 (2026-09-25 이전 provider) | **실패 (툴체인)** — LibTorch MSVC ABI. burn-cuda로 교체돼 역사 기록만 남김 (§4.3) |
-| **onnx** (ort) | `cargo test --release -p xazz-exec --features onnx -- --ignored` | **실패 (툴체인)** — `x86_64-pc-windows-gnu` 타깃용 prebuilt ONNX Runtime 없음 |
+| **onnx** CPU EP (MSVC) | `cargo +stable-x86_64-pc-windows-msvc test --release --locked -p xazz-exec --features onnx -- --ignored` | **통과** (2026-10-06) — acceptance 1개, 일반 검사 99개 통과 (§5.1) |
+| **onnx-cuda** CUDA EP (MSVC) | 같은 툴체인, `--features onnx-cuda --lib`, `XAZZ_ORT_EP=cuda` | **통과** (2026-10-06) — acceptance 1개, 명시적 EP 실패 시 오류 반환 확인. provider DLL 배치·cuBLAS 필요 (§5.1) |
 | **onnx-coreml** (macOS M5) | — | 미실시 (별도 기기, 후속) |
 
-한 줄 결론: **wgpu와 cuda(burn-cuda) 경로는 실제 RTX 4070에서 동작하고, wgpu는 Intel Arc iGPU까지
-`XAZZ_DEVICE` 어댑터 선택이 정확하다.** ONNX만 이 호스트의 `x86_64-pc-windows-gnu` 툴체인에서 빌드가
-막혀 MSVC 환경이 필요하다(§5·§6). burn-cuda는 MSVC·LibTorch·CUDA Toolkit 설치 없이 돌았지만
+**wgpu와 cuda(burn-cuda)는 RTX 4070에서 동작하고, wgpu는 Intel Arc iGPU 선택도 확인했다.**
+ONNX CPU·CUDA EP는 2026-10-06 MSVC 환경에서 acceptance를 통과했다. GNU 타깃의 제약과
+최초 DLL 실패는 §5와 [후속 기록](../windows-onnx-acceptance-2026-10-06.md)에 보존했다.
+burn-cuda는 MSVC·LibTorch·CUDA Toolkit 설치 없이 돌았지만
 **"드라이버만 있으면 된다"는 것은 부정확**하다 — NVRTC 공유 라이브러리와 CUDA 런타임 헤더가 실행 시점에
 추가로 필요하며, 둘 다 NVIDIA의 pip 재배포 패키지로 사용자 권한만으로 확보할 수 있다(§4.1).
 
@@ -44,9 +46,9 @@
 | dGPU | NVIDIA GeForce RTX 4070 Laptop GPU, 8GB — driver 591.44 (CUDA 13.1 지원) |
 | iGPU | Intel Arc Graphics (Meteor Lake) — driver 32.0.101.8424 |
 | CUDA Toolkit | 미설치 (드라이버만 존재). CUDA 실측(§4)에는 pip 재배포 패키지 `nvidia-cuda-nvrtc` 13.1.115 + `nvidia-cuda-runtime` 13.1.80을 사용자 폴더에 압축 해제해 사용 (설치·관리자 권한 없음) |
-| Rust | 1.98.0, `stable-x86_64-pc-windows-gnu` — MSVC Build Tools 미설치 |
-| C/C++ | gcc 16.1.0 (WinLibs UCRT POSIX, MinGW-w64) |
-| 저장소 | wgpu/onnx: main `466a424` (2026-09-24) · cuda(burn-cuda): main `2b2737a` (2026-10-01) |
+| Rust | 1.98.0. 기존 wgpu·burn-cuda는 GNU, 2026-10-06 ONNX는 MSVC + Build Tools 2022 17.14.41 + SDK 10.0.26100.0 |
+| C/C++ | 기존 GNU: gcc 16.1.0 (WinLibs UCRT POSIX, MinGW-w64). 2026-10-06 ONNX: MSVC 14.44.35207 |
+| 저장소 | wgpu/ONNX 최초: main `466a424` (2026-09-24) · burn-cuda: main `2b2737a` (2026-10-01) · ONNX MSVC: main `7f8e987` (2026-10-06) |
 | 실행 파일 | `target/release/{xazz,xazz-runner,xazz-exec}.exe`, xazz-exec는 `--features wgpu` (§3) / `--features cuda` (§4) |
 
 ---
@@ -240,7 +242,7 @@ GNU 툴체인은 LibTorch prebuilt(MSVC ABI)와 근본적으로 호환되지 않
 
 ---
 
-## 5. ONNX Runtime (ort) — 실패, 툴체인
+## 5. ONNX Runtime (ort) — GNU 최초 실패와 MSVC 후속 검증
 
 ```
 cargo test --release -p xazz-exec --features onnx -- --ignored --nocapture
@@ -258,7 +260,15 @@ error: build script logged errors
 `ORT_LIB_LOCATION`으로 직접 빌드한 런타임을 지정하는 우회가 있지만 그 빌드 역시 MSVC가 필요해
 실효성이 없다.
 
-**결론.** `--features onnx` / `onnx-cuda`도 CUDA와 같은 이유로 Windows에서는 MSVC 툴체인이 필수다.
+**결론.** `--features onnx` / `onnx-cuda`는 Windows에서 MSVC 툴체인이 필요하다. 위 GNU 실패 기록은 유지하고, 후속 MSVC 결과를 아래에 추가한다.
+
+### 5.1 Windows MSVC CPU·CUDA EP — 통과 (2026-10-06, #236)
+
+main `7f8e987`에서 ONNX CPU·CUDA EP acceptance가 각각 1개 통과했고, 각 빌드의 일반 라이브러리 검사는 99개 통과했다. 일반 검사에서 제외된 하드웨어 검사 1개는 별도 acceptance로 실제 실행했다. ONNX 학습은 CPU에서 수행하며 이번 비교는 같은 체크포인트의 CPU·ORT 추론 정합성(`< 1e-3`)이다.
+
+CUDA 첫 실행은 `release/deps`에 provider DLL이 없어 종료 101이었다. 배포본의 provider DLL 두 개를 테스트 실행 파일 옆에 배치하고 cuBLAS 13.1.1.3을 프로세스 PATH에 추가한 뒤 같은 acceptance가 통과했다. 미컴파일 CUDA 요청과 `cuda:999` 지정도 각각 종료 101로 거부돼 명시적 EP 설정 실패가 CPU 대체로 숨겨지지 않음을 확인했다. CLI 전체 종료 코드·개별 노드의 GPU 배치·성능 측정은 이 검사의 범위가 아니다.
+
+환경, 원래 실패, 보완 명령, 로그·해시는 [Windows ONNX 검증 기록](../windows-onnx-acceptance-2026-10-06.md)에 있다.
 
 ---
 
@@ -287,7 +297,7 @@ error: build script logged errors
 ### 6.2 남은 검증
 
 - [x] **CUDA 실기** — burn-cuda, windows-gnu 그대로 통과 (2026-10-01, §4.2). MSVC 불필요; NVRTC DLL + CUDA 헤더 필요 (§4.1)
-- [ ] **ONNX 실기 (Windows)** — VS Build Tools + `stable-x86_64-pc-windows-msvc` 환경에서 `--features onnx` 및 `onnx-cuda`(`XAZZ_ORT_EP=cuda` fail-closed 경로 포함)
+- [x] **ONNX 실기 (Windows)** — 2026-10-06 MSVC에서 CPU·CUDA EP acceptance 통과. 명시적 EP 설정 실패의 오류 반환 확인. provider DLL 배치·cuBLAS 요구사항과 원시 근거는 §5.1 및 [후속 기록](../windows-onnx-acceptance-2026-10-06.md) 참조
 - [ ] **ONNX coreml (macOS M5)** — `cargo test -p xazz-exec --features onnx-coreml -- --ignored`, `XAZZ_BACKEND=onnx XAZZ_DEVICE=coreml:0`
 - [ ] **chunk/cache 튜닝 A/B** — `XAZZ_INFER_CHUNK`, `XAZZ_INFER_CACHE_SLOTS` (선택)
 - [ ] 3종(dGPU/iGPU/CPU) 동일 워크로드 완주 비교 — 20 epoch 축약본으로 CPU·iGPU 완주 후 epoch당 시간 정식 기록
@@ -317,6 +327,8 @@ cargo test --release -p xazz-exec --features cuda -- --ignored --nocapture
 cargo build --release -p xazz-exec --features cuda
 $env:XAZZ_BACKEND="cuda"; $env:XAZZ_DEVICE="cuda:0"; .\target\release\xazz.exe run examples/deep_learning/air_pipeline.xzz
 
-# ONNX (gnu 툴체인에서는 §5의 오류로 종료 — MSVC 필요)
-cargo test --release -p xazz-exec --features onnx -- --ignored --nocapture
+# ONNX: MSVC x64 개발 환경과 DLL 준비는 §5.1의 후속 기록 참조
+Remove-Item Env:XAZZ_DEVICE -ErrorAction SilentlyContinue
+$env:XAZZ_ORT_EP="cpu"
+cargo +stable-x86_64-pc-windows-msvc test --release --locked -p xazz-exec --features onnx -- --ignored --nocapture
 ```

@@ -29,6 +29,7 @@ uploads/
 
 # Finder archive artifacts
 *.zip
+!docs/evidence/windows-onnx-2026-10-06.zip
 !benches/results/windows-cpu-2026-10-06-evidence.zip
 !benches/results/windows-cpu-followup-2026-10-06-evidence.zip
 
