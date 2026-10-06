@@ -1,0 +1,790 @@
+{
+  "small": {
+    "rows": 227760,
+    "pandas": {
+      "latency_ms": 115.9,
+      "peak_mb": 102.0,
+      "runs": [
+        {
+          "latency_ms": 117.9838,
+          "peak_mb": 101.5546875
+        },
+        {
+          "latency_ms": 115.8549,
+          "peak_mb": 102.10546875
+        },
+        {
+          "latency_ms": 114.7135,
+          "peak_mb": 102.0234375
+        }
+      ]
+    },
+    "xazz_streaming_on": {
+      "latency_ms": 59.2,
+      "peak_mb": 65.1,
+      "runs": [
+        {
+          "latency_ms": 57.6823,
+          "peak_mb": 65.1328125,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 59.1968,
+          "peak_mb": 59.58984375,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 59.4813,
+          "peak_mb": 66.79296875,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            }
+          ]
+        }
+      ],
+      "collection_diagnostics_verified": true,
+      "warmup_collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ]
+    },
+    "xazz_streaming_off": {
+      "latency_ms": 63.4,
+      "peak_mb": 61.2,
+      "runs": [
+        {
+          "latency_ms": 63.2118,
+          "peak_mb": 61.25,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 63.6292,
+          "peak_mb": 62.703125,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 63.351000000000006,
+          "peak_mb": 59.87890625,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            }
+          ]
+        }
+      ],
+      "collection_diagnostics_verified": true,
+      "warmup_collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ]
+    }
+  },
+  "medium": {
+    "rows": 911662,
+    "pandas": {
+      "latency_ms": 416.1,
+      "peak_mb": 197.7,
+      "runs": [
+        {
+          "latency_ms": 437.6491,
+          "peak_mb": 200.0390625
+        },
+        {
+          "latency_ms": 416.1193,
+          "peak_mb": 197.73046875
+        },
+        {
+          "latency_ms": 412.2085,
+          "peak_mb": 197.109375
+        }
+      ]
+    },
+    "xazz_streaming_on": {
+      "latency_ms": 123.9,
+      "peak_mb": 125.7,
+      "runs": [
+        {
+          "latency_ms": 125.7162,
+          "peak_mb": 123.40625,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 123.8624,
+          "peak_mb": 133.8203125,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 116.8004,
+          "peak_mb": 125.73828125,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            }
+          ]
+        }
+      ],
+      "collection_diagnostics_verified": true,
+      "warmup_collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ]
+    },
+    "xazz_streaming_off": {
+      "latency_ms": 133.3,
+      "peak_mb": 140.4,
+      "runs": [
+        {
+          "latency_ms": 134.1944,
+          "peak_mb": 145.05859375,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 133.3413,
+          "peak_mb": 139.4921875,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 129.2216,
+          "peak_mb": 140.35546875,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            }
+          ]
+        }
+      ],
+      "collection_diagnostics_verified": true,
+      "warmup_collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ]
+    }
+  },
+  "large": {
+    "rows": 4089216,
+    "pandas": {
+      "latency_ms": 1849.0,
+      "peak_mb": 639.8,
+      "runs": [
+        {
+          "latency_ms": 1848.9545,
+          "peak_mb": 643.2890625
+        },
+        {
+          "latency_ms": 1851.7901,
+          "peak_mb": 637.22265625
+        },
+        {
+          "latency_ms": 1832.8829,
+          "peak_mb": 639.80078125
+        }
+      ]
+    },
+    "xazz_streaming_on": {
+      "latency_ms": 936.1,
+      "peak_mb": 403.8,
+      "runs": [
+        {
+          "latency_ms": 936.0511,
+          "peak_mb": 403.83203125,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 929.682,
+          "peak_mb": 410.8671875,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 941.4808999999999,
+          "peak_mb": 401.7109375,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            }
+          ]
+        }
+      ],
+      "collection_diagnostics_verified": true,
+      "warmup_collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ]
+    },
+    "xazz_streaming_off": {
+      "latency_ms": 1050.5,
+      "peak_mb": 481.4,
+      "runs": [
+        {
+          "latency_ms": 1052.1985,
+          "peak_mb": 462.625,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 1043.6167,
+          "peak_mb": 481.40234375,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 1050.4925,
+          "peak_mb": 481.6484375,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            }
+          ]
+        }
+      ],
+      "collection_diagnostics_verified": true,
+      "warmup_collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ]
+    }
+  },
+  "provenance": {
+    "recorded": true,
+    "platform": "Windows-11-10.0.26200-SP0",
+    "system": "Windows",
+    "release": "11",
+    "machine": "AMD64",
+    "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+    "cpu_model": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+    "cpu_physical_cores": 16,
+    "cpu_logical_cores": 22,
+    "total_ram_gb": 63.5,
+    "python": "3.12.12",
+    "pandas": "2.3.3",
+    "polars": null,
+    "numpy": "2.3.5",
+    "xazz": "xazz 0.3.1",
+    "xazz_version_verified": true,
+    "xazz_binary": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\release\\xazz.exe",
+    "binary_sha256": {
+      "xazz.exe": "967baba47fe85d81ad8f2548888ea5ff5a844264e625e23d11d26b4886d61e35",
+      "xazz-runner.exe": "5234c55735ad6130fe3bb473d84157bd60f77bb975c27d93754d899332de42c1",
+      "xazz-exec.exe": "5f972f83cd4f9dc425917a58fbf6d26050df25237a3eba70796ba00f594c1690"
+    },
+    "streaming_requested_modes": [
+      "on",
+      "off"
+    ],
+    "streaming_actual_engine_verified": false,
+    "streaming_note": "각 실행의 네 수집 완료 마커로 런타임이 선택한 Polars 수집 API를 검증합니다. Polars 내부 모든 노드의 스트리밍 실행이나 메모리 상한을 보증하지 않습니다.",
+    "rss_method": "프로세스 트리 RSS 합계의 3ms 폴링 최댓값(MiB)",
+    "latency_method": "각 엔진 내부 파이프라인 실행시간; wall-clock 대체 금지",
+    "recorded_at_utc": "2026-10-06T01:26:18.412746+00:00",
+    "git_head": "a3ec9a91d2f7874b8adf9fd7112abacaa04df35a",
+    "git_worktree_status": "M .gitignore\n M benches/run_readme_benchmark.py\n M benches/test_run_readme_benchmark.py\n M xazz-exec/src/runtime.rs\n M xazz-exec/tests/dp_budget.rs\n?? benches/test_verify_benchmark_results.py\n?? benches/verify_benchmark_results.py\n?? docs/benchmark-scale-166-windows-2026-10-06.md\n?? xazz-exec/tests/runtime_errors.rs",
+    "runtime_source_sha256": "8953d0d9017b96cbde9d2917f8d9499fcedadad3c82e5e3d920f6f784c027995",
+    "benchmark_script_sha256": "481dd8c3a113bb65b336878385c49ae934f34b188ec6f5e0f73e6c448e5d0807",
+    "pipeline_template_sha256": "c877ce70b9716b19e1a0a07458d065b0f93d922c83c9aa05587945ae47507e47",
+    "pandas_pipeline_sha256": "f1a52693e63d73a0130a5783d29e7e9063c4f353a7d6ae6548cc0d0653e18bf3",
+    "summary_latency_resolution_ms": 0.1,
+    "warmup_runs": 1,
+    "measured_runs": 3,
+    "timeout_seconds": 120.0,
+    "max_memory_mb": 4096.0,
+    "raw_logs": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf",
+    "inputs": {
+      "small": {
+        "file": "scale_small.csv",
+        "rows": 227760,
+        "bytes": 7357329,
+        "sha256": "97798b9ce37584f36b9d94c10fdac94b50e3bbffd61e3bb381d6db56243fafc9"
+      },
+      "medium": {
+        "file": "scale_medium.csv",
+        "rows": 911662,
+        "bytes": 29572815,
+        "sha256": "ccbd994082967e33e034e643a1d3cf11c85e1ccaefa4e0831dc9639cfa710fee"
+      },
+      "large": {
+        "file": "scale_large.csv",
+        "rows": 4089216,
+        "bytes": 132764264,
+        "sha256": "fa64aeb438facff214f46e78659a9648a9fbcfa17b2c8140c085c9af0846f5ac"
+      }
+    }
+  }
+}

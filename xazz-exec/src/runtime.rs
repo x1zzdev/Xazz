@@ -352,15 +352,40 @@ pub fn run_pipeline(
 
     // ── [xazz:timing] marker — pipeline execution latency (ms) for benchmarks/monitoring ──
     let pipeline_ms = timing_start.elapsed().as_secs_f64() * 1000.0;
+
+    // 계산 시간은 위에서 확정한다. 필수 출력 저장·직렬화가 실패하면 성공 마커를 내보내지 않는다.
+    let final_result = if let Some(ref name) = last_var_name
+        && let Some(df) = symbol_table.get(name)
+    {
+        let api_df = df.head(Some(df.height().min(500)));
+        let api_rows = df_to_json_array(&api_df)?;
+        let api_schema: Vec<serde_json::Value> = df
+            .columns()
+            .iter()
+            .map(|column| {
+                serde_json::json!({
+                    "name": column.name().to_string(),
+                    "type": column.dtype().to_string(),
+                })
+            })
+            .collect();
+        let result_json =
+            serde_json::to_string(&serde_json::json!({ "rows": api_rows, "schema": api_schema }))?;
+        if let Some(csv_path) = output_csv {
+            save_df_as_csv(df, csv_path)?;
+        }
+        Some((name, df, result_json))
+    } else {
+        None
+    };
+
     println!(
         "[xazz:timing] {}",
         serde_json::json!({ "pipeline_ms": pipeline_ms })
     );
 
     // ── STEP 6: Automatic final DataFrame output (Top 5) ───────────────────
-    if let Some(ref name) = last_var_name
-        && let Some(df) = symbol_table.get(name)
-    {
+    if let Some((name, df, result_json)) = final_result {
         let row_count = df.height().min(5);
         let top5 = df.head(Some(row_count));
         println!();
@@ -372,37 +397,12 @@ pub fn run_pipeline(
         println!("{}", top5);
 
         // ── [xazz:result] JSON marker ──────────────────────────────────────
-        let api_limit = df.height().min(500);
-        let api_df = df.head(Some(api_limit));
-        let api_rows = df_to_json_array(&api_df).unwrap_or(serde_json::Value::Array(vec![]));
-        let api_schema: Vec<serde_json::Value> = df
-            .get_column_names()
-            .iter()
-            .map(|n| {
-                let dtype_str = df
-                    .column(n)
-                    .map(|s| format!("{}", s.dtype()))
-                    .unwrap_or_default();
-                serde_json::json!({ "name": n.to_string(), "type": dtype_str })
-            })
-            .collect();
-        let result_json = serde_json::json!({ "rows": api_rows, "schema": api_schema });
-        println!(
-            "[xazz:result] {}",
-            serde_json::to_string(&result_json).unwrap_or_default()
-        );
+        println!("[xazz:result] {result_json}");
 
-        // ── STEP 7: CSV Export (--output flag) ──────────────────────────
+        // CSV는 성공 마커를 출력하기 전에 저장을 완료했다.
         if let Some(csv_path) = output_csv {
-            match save_df_as_csv(df, csv_path) {
-                Ok(_) => {
-                    println!();
-                    println!("💾 [xazz] CSV {}: {}", tr("saved", "저장 완료"), csv_path);
-                }
-                Err(e) => {
-                    eprintln!("[xazz] ⚠️  CSV {}: {}", tr("save failed", "저장 실패"), e);
-                }
-            }
+            println!();
+            println!("💾 [xazz] CSV {}: {}", tr("saved", "저장 완료"), csv_path);
         }
     }
 
@@ -1251,30 +1251,122 @@ fn source_is_small(file_path: &str) -> bool {
         .unwrap_or(true)
 }
 
-/// Collects a LazyFrame with the streaming engine when the source is large,
-/// falling back to the in-memory engine for unsupported plans (issue #53).
-/// Small pipelines (tests/ML/DP) use the in-memory engine to avoid scheduler
-/// overhead on trivial queries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StreamingMode {
+    Auto,
+    On,
+    Off,
+}
+
+impl StreamingMode {
+    fn parse(value: Option<&str>) -> Result<Self, Box<dyn std::error::Error>> {
+        match value {
+            None => Ok(Self::Auto),
+            Some(v) if v.eq_ignore_ascii_case("auto") => Ok(Self::Auto),
+            Some(v) if v == "1" || v.eq_ignore_ascii_case("true") => Ok(Self::On),
+            Some(v) if v == "0" || v.eq_ignore_ascii_case("false") => Ok(Self::Off),
+            Some(v) => Err(format!(
+                "invalid XAZZ_STREAMING value {v:?}; expected 1, true, 0, false, or auto"
+            )
+            .into()),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::On => "on",
+            Self::Off => "off",
+        }
+    }
+}
+
+/// 한 번 선택한 수집 경로의 오류는 그대로 반환하고 다른 엔진으로 재시도하지 않는다.
+/// 성공 마커는 런타임이 완료한 collect 호출만 나타낸다. Polars 내부의 모든
+/// 연산 노드가 스트리밍으로 실행되었거나 메모리 상한이 보장된다는 뜻은 아니다.
+fn collect_selected<T, E>(
+    requested: StreamingMode,
+    source_is_large: bool,
+    collect: impl FnOnce(bool) -> Result<T, E>,
+    emit_success: impl FnOnce(serde_json::Value),
+) -> Result<T, E> {
+    let streaming = match requested {
+        StreamingMode::Auto => source_is_large,
+        StreamingMode::On => true,
+        StreamingMode::Off => false,
+    };
+    let output = collect(streaming)?;
+    emit_success(serde_json::json!({
+        "requested": requested.as_str(),
+        "engine": if streaming { "streaming" } else { "in-memory" },
+        "status": "ok",
+    }));
+    Ok(output)
+}
+
+fn collect_lazy_with_mode(
+    lf: polars::prelude::LazyFrame,
+    source_is_large: bool,
+    requested: StreamingMode,
+    emit_success: impl FnOnce(serde_json::Value),
+) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    use polars::lazy::dsl::Engine;
+
+    collect_selected(
+        requested,
+        source_is_large,
+        |streaming| {
+            if streaming {
+                lf.collect_with_engine(Engine::Streaming)
+            } else {
+                lf.collect()
+            }
+            .map_err(Into::into)
+        },
+        emit_success,
+    )
+}
+
+fn validate_polars_streaming_overrides(
+    auto: Option<&std::ffi::OsStr>,
+    force: Option<&std::ffi::OsStr>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for (name, value) in [
+        ("POLARS_AUTO_NEW_STREAMING", auto),
+        ("POLARS_FORCE_NEW_STREAMING", force),
+    ] {
+        if value == Some(std::ffi::OsStr::new("1")) {
+            return Err(format!(
+                "{name}=1 overrides XAZZ_STREAMING engine selection; unset {name} before collecting"
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
+/// 자동 모드에서는 큰 입력에 스트리밍을, 작은 입력에 기본 메모리 수집을 사용한다.
 fn collect_lazy(
     lf: polars::prelude::LazyFrame,
     source_is_large: bool,
 ) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
-    use polars::lazy::dsl::Engine;
-
-    let use_streaming = match std::env::var("XAZZ_STREAMING") {
-        Ok(v) => v == "1" || v.eq_ignore_ascii_case("true"),
-        Err(_) => source_is_large,
+    // Polars의 별도 환경 설정은 명시한 엔진을 우회하거나 내부 재시도를 허용한다.
+    // 값을 조용히 지우지 않고 수집 전에 충돌을 보고한다.
+    validate_polars_streaming_overrides(
+        std::env::var_os("POLARS_AUTO_NEW_STREAMING").as_deref(),
+        std::env::var_os("POLARS_FORCE_NEW_STREAMING").as_deref(),
+    )?;
+    let requested = match std::env::var("XAZZ_STREAMING") {
+        Ok(v) => StreamingMode::parse(Some(&v))?,
+        Err(std::env::VarError::NotPresent) => StreamingMode::Auto,
+        Err(e) => return Err(format!("invalid XAZZ_STREAMING: {e}").into()),
     };
-
-    if use_streaming {
-        match lf.clone().collect_with_engine(Engine::Streaming) {
-            Ok(df) => Ok(df),
-            // Unsupported nodes fall back to the in-memory engine.
-            Err(_) => lf.collect().map_err(Into::into),
+    let diagnostics = std::env::var("XAZZ_COLLECT_DIAGNOSTICS").as_deref() == Ok("1");
+    collect_lazy_with_mode(lf, source_is_large, requested, |marker| {
+        if diagnostics {
+            println!("[xazz:collect] {marker}");
         }
-    } else {
-        lf.collect().map_err(Into::into)
-    }
+    })
 }
 
 // ── CSV loader (automatic encoding handling + dirty-data null normalization) ──
@@ -1930,17 +2022,105 @@ fn emit_policy_marker(report: &xazz_compiler::PolicyReport) {
 
 #[cfg(test)]
 mod streaming_tests {
-    use polars::lazy::dsl::Engine;
+    use super::{
+        StreamingMode, collect_lazy_with_mode, collect_selected,
+        validate_polars_streaming_overrides,
+    };
     use polars::prelude::{IntoLazy, df};
 
-    /// Proves the streaming engine (Engine::Streaming) natively supports the
-    /// benchmark operator set — filter/group_by/agg/sort/limit — WITHOUT the
-    /// in-memory fallback. This is what makes the 200M-row out-of-core bench valid.
+    #[test]
+    fn streaming_mode_parsing_rejects_invalid_values() {
+        assert_eq!(StreamingMode::parse(None).unwrap(), StreamingMode::Auto);
+        for (value, expected) in [
+            ("auto", StreamingMode::Auto),
+            ("AUTO", StreamingMode::Auto),
+            ("1", StreamingMode::On),
+            ("true", StreamingMode::On),
+            ("TRUE", StreamingMode::On),
+            ("0", StreamingMode::Off),
+            ("false", StreamingMode::Off),
+            ("FALSE", StreamingMode::Off),
+        ] {
+            assert_eq!(StreamingMode::parse(Some(value)).unwrap(), expected);
+        }
+        for value in ["", "on", "off", "ture", " 1 ", "yes"] {
+            let error = StreamingMode::parse(Some(value)).unwrap_err();
+            assert!(error.to_string().contains("XAZZ_STREAMING"));
+        }
+    }
+
+    #[test]
+    fn polars_streaming_overrides_are_rejected() {
+        use std::ffi::OsStr;
+
+        let enabled = Some(OsStr::new("1"));
+        for (auto, force, expected_name) in [
+            (enabled, None, "POLARS_AUTO_NEW_STREAMING"),
+            (None, enabled, "POLARS_FORCE_NEW_STREAMING"),
+            (enabled, enabled, "POLARS_AUTO_NEW_STREAMING"),
+        ] {
+            let error = validate_polars_streaming_overrides(auto, force).unwrap_err();
+            assert!(error.to_string().contains(expected_name));
+        }
+        for inactive in [None, Some(OsStr::new("0")), Some(OsStr::new("true"))] {
+            validate_polars_streaming_overrides(inactive, inactive).unwrap();
+        }
+    }
+
+    #[test]
+    fn streaming_failure_does_not_retry_or_emit_success() {
+        for (requested, source_is_large) in
+            [(StreamingMode::On, false), (StreamingMode::Auto, true)]
+        {
+            let mut calls = Vec::new();
+            let mut markers = Vec::new();
+            let error = collect_selected(
+                requested,
+                source_is_large,
+                |streaming| {
+                    calls.push(streaming);
+                    if streaming {
+                        Err("original streaming failure")
+                    } else {
+                        // 메모리 수집은 성공하는 상황이어도 스트리밍 실패를 숨기면 안 된다.
+                        Ok(())
+                    }
+                },
+                |marker| markers.push(marker),
+            )
+            .unwrap_err();
+            assert_eq!(error, "original streaming failure");
+            assert_eq!(calls, [true]);
+            assert!(markers.is_empty());
+        }
+    }
+
+    #[test]
+    fn polars_streaming_error_is_preserved_without_success_marker() {
+        for requested in [StreamingMode::On, StreamingMode::Auto] {
+            let lf = df!("v" => [1i64])
+                .unwrap()
+                .lazy()
+                .select([polars::prelude::col("missing_column")]);
+            let mut markers = Vec::new();
+            let error = collect_lazy_with_mode(lf, true, requested, |marker| markers.push(marker))
+                .unwrap_err();
+            assert!(
+                error
+                    .downcast_ref::<polars::prelude::PolarsError>()
+                    .is_some()
+            );
+            assert!(error.to_string().contains("missing_column"));
+            assert!(markers.is_empty());
+        }
+    }
+
+    // 작은 입력으로 수집 경로와 결과를 검증한다. 2억 행의 메모리 사용 증거는 아니다.
     #[test]
     fn streaming_engine_supports_benchmark_operators() {
         let frame = df!(
             "g" => ["a", "a", "b", "b", "c"],
-            "v" => [1i64, 5, 10, 20, 30],
+            "v" => [1i64, 5, 10, 20, 40],
         )
         .unwrap();
 
@@ -1956,10 +2136,35 @@ mod streaming_tests {
             )
             .limit(2);
 
-        let out = lf
-            .collect_with_engine(Engine::Streaming)
-            .expect("streaming 엔진이 벤치 연산(filter/group_by/sum/sort/limit)을 지원해야 함");
-        assert_eq!(out.height(), 2);
+        for (requested, source_is_large, engine) in [
+            (StreamingMode::On, false, "streaming"),
+            (StreamingMode::Off, true, "in-memory"),
+            (StreamingMode::Auto, false, "in-memory"),
+            (StreamingMode::Auto, true, "streaming"),
+        ] {
+            let mut markers = Vec::new();
+            let out = collect_lazy_with_mode(lf.clone(), source_is_large, requested, |marker| {
+                markers.push(marker)
+            })
+            .expect("선택한 수집 경로에서 벤치 연산이 성공해야 함");
+            assert_eq!(out.height(), 2);
+            let sums: Vec<_> = out
+                .column("s")
+                .unwrap()
+                .i64()
+                .unwrap()
+                .into_no_null_iter()
+                .collect();
+            assert_eq!(sums, [40, 30]);
+            assert_eq!(
+                markers,
+                [serde_json::json!({
+                    "requested": requested.as_str(),
+                    "engine": engine,
+                    "status": "ok",
+                })]
+            );
+        }
     }
 }
 

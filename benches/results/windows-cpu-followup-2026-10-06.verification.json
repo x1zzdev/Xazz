@@ -1,0 +1,4133 @@
+{
+  "status": "ok",
+  "xazz_exec": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+  "raw_logs": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk",
+  "fixtures": {
+    "null-boundaries": {
+      "csv_sha256": "6213092a68783ecf5f92a4b41df77f87083bb75d38a18a735083f5851b6eae94",
+      "input_rows": 12,
+      "oracle": {
+        "p2": [
+          {
+            "date": "d1",
+            "station": "A",
+            "pm10": 60,
+            "pm25": 20
+          },
+          {
+            "date": "d3",
+            "station": "B",
+            "pm10": 40,
+            "pm25": 15
+          },
+          {
+            "date": "d5",
+            "station": "C",
+            "pm10": 75,
+            "pm25": 12
+          },
+          {
+            "date": "d8",
+            "station": "B",
+            "pm10": 50,
+            "pm25": 15
+          },
+          {
+            "date": "d11",
+            "station": "B",
+            "pm10": 90,
+            "pm25": 20
+          },
+          {
+            "date": "d12",
+            "station": "A",
+            "pm10": 100,
+            "pm25": 20
+          }
+        ],
+        "p3": [
+          {
+            "station": "A",
+            "pm10": 160.0
+          },
+          {
+            "station": "B",
+            "pm10": 180.0
+          },
+          {
+            "station": "C",
+            "pm10": 75.0
+          }
+        ],
+        "p4": [
+          {
+            "station": "A",
+            "pm10": 80.0
+          },
+          {
+            "station": "C",
+            "pm10": 75.0
+          },
+          {
+            "station": "B",
+            "pm10": 60.0
+          }
+        ],
+        "p7": [
+          {
+            "station": "A",
+            "pm25": 4
+          },
+          {
+            "station": "C",
+            "pm25": 3
+          },
+          {
+            "station": "B",
+            "pm25": 2
+          }
+        ]
+      },
+      "pandas": {
+        "p2": {
+          "rows": [
+            {
+              "date": "d1",
+              "station": "A",
+              "pm10": 60.0,
+              "pm25": 20.0
+            },
+            {
+              "date": "d3",
+              "station": "B",
+              "pm10": 40.0,
+              "pm25": 15.0
+            },
+            {
+              "date": "d5",
+              "station": "C",
+              "pm10": 75.0,
+              "pm25": 12.0
+            },
+            {
+              "date": "d8",
+              "station": "B",
+              "pm10": 50.0,
+              "pm25": 15.0
+            },
+            {
+              "date": "d11",
+              "station": "B",
+              "pm10": 90.0,
+              "pm25": 20.0
+            },
+            {
+              "date": "d12",
+              "station": "A",
+              "pm10": 100.0,
+              "pm25": 20.0
+            }
+          ],
+          "schema": [
+            {
+              "name": "date",
+              "type": "object"
+            },
+            {
+              "name": "station",
+              "type": "object"
+            },
+            {
+              "name": "pm10",
+              "type": "float64"
+            },
+            {
+              "name": "pm25",
+              "type": "float64"
+            }
+          ]
+        },
+        "p3": {
+          "rows": [
+            {
+              "station": "A",
+              "pm10": 160.0
+            },
+            {
+              "station": "B",
+              "pm10": 180.0
+            },
+            {
+              "station": "C",
+              "pm10": 75.0
+            }
+          ],
+          "schema": [
+            {
+              "name": "station",
+              "type": "object"
+            },
+            {
+              "name": "pm10",
+              "type": "float64"
+            }
+          ]
+        },
+        "p4": {
+          "rows": [
+            {
+              "station": "A",
+              "pm10": 80.0
+            },
+            {
+              "station": "C",
+              "pm10": 75.0
+            },
+            {
+              "station": "B",
+              "pm10": 60.0
+            }
+          ],
+          "schema": [
+            {
+              "name": "station",
+              "type": "object"
+            },
+            {
+              "name": "pm10",
+              "type": "float64"
+            }
+          ]
+        },
+        "p7": {
+          "rows": [
+            {
+              "station": "A",
+              "pm25": 4
+            },
+            {
+              "station": "C",
+              "pm25": 3
+            },
+            {
+              "station": "B",
+              "pm25": 2
+            }
+          ],
+          "schema": [
+            {
+              "name": "station",
+              "type": "object"
+            },
+            {
+              "name": "pm25",
+              "type": "int64"
+            }
+          ]
+        }
+      }
+    },
+    "literal-na-null": {
+      "csv_sha256": "2f7e1ec7628b41165e31d8fe8b6df3c69ccab118421bdc5fcd400b7274cca16e",
+      "input_rows": 2,
+      "oracle": {
+        "p2": [
+          {
+            "date": "NA",
+            "station": "NA",
+            "pm10": 80,
+            "pm25": 20
+          }
+        ],
+        "p3": [
+          {
+            "station": "NA",
+            "pm10": 80.0
+          }
+        ],
+        "p4": [
+          {
+            "station": "NA",
+            "pm10": 80.0
+          }
+        ],
+        "p7": [
+          {
+            "station": "NA",
+            "pm25": 1
+          },
+          {
+            "station": "NULL",
+            "pm25": 1
+          }
+        ]
+      },
+      "pandas": {
+        "p2": {
+          "rows": [
+            {
+              "date": "NA",
+              "station": "NA",
+              "pm10": 80.0,
+              "pm25": 20.0
+            }
+          ],
+          "schema": [
+            {
+              "name": "date",
+              "type": "object"
+            },
+            {
+              "name": "station",
+              "type": "object"
+            },
+            {
+              "name": "pm10",
+              "type": "float64"
+            },
+            {
+              "name": "pm25",
+              "type": "float64"
+            }
+          ]
+        },
+        "p3": {
+          "rows": [
+            {
+              "station": "NA",
+              "pm10": 80.0
+            }
+          ],
+          "schema": [
+            {
+              "name": "station",
+              "type": "object"
+            },
+            {
+              "name": "pm10",
+              "type": "float64"
+            }
+          ]
+        },
+        "p4": {
+          "rows": [
+            {
+              "station": "NA",
+              "pm10": 80.0
+            }
+          ],
+          "schema": [
+            {
+              "name": "station",
+              "type": "object"
+            },
+            {
+              "name": "pm10",
+              "type": "float64"
+            }
+          ]
+        },
+        "p7": {
+          "rows": [
+            {
+              "station": "NA",
+              "pm25": 1
+            },
+            {
+              "station": "NULL",
+              "pm25": 1
+            }
+          ],
+          "schema": [
+            {
+              "name": "station",
+              "type": "object"
+            },
+            {
+              "name": "pm25",
+              "type": "int64"
+            }
+          ]
+        }
+      }
+    },
+    "topk-cutoffs": {
+      "csv_sha256": "992ecfffa8b3cdda16d47f4e19eb9eb33e1c73c759b805e15b2f955ac5b94f92",
+      "input_rows": 78,
+      "oracle": {
+        "p2": [
+          {
+            "date": "d01-01",
+            "station": "S01",
+            "pm10": 61.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d02-01",
+            "station": "S02",
+            "pm10": 62.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d02-02",
+            "station": "S02",
+            "pm10": 62.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d03-01",
+            "station": "S03",
+            "pm10": 63.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d03-02",
+            "station": "S03",
+            "pm10": 63.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d03-03",
+            "station": "S03",
+            "pm10": 63.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d04-01",
+            "station": "S04",
+            "pm10": 64.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d04-02",
+            "station": "S04",
+            "pm10": 64.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d04-03",
+            "station": "S04",
+            "pm10": 64.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d04-04",
+            "station": "S04",
+            "pm10": 64.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d05-01",
+            "station": "S05",
+            "pm10": 65.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d05-02",
+            "station": "S05",
+            "pm10": 65.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d05-03",
+            "station": "S05",
+            "pm10": 65.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d05-04",
+            "station": "S05",
+            "pm10": 65.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d05-05",
+            "station": "S05",
+            "pm10": 65.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d06-01",
+            "station": "S06",
+            "pm10": 66.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d06-02",
+            "station": "S06",
+            "pm10": 66.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d06-03",
+            "station": "S06",
+            "pm10": 66.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d06-04",
+            "station": "S06",
+            "pm10": 66.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d06-05",
+            "station": "S06",
+            "pm10": 66.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d06-06",
+            "station": "S06",
+            "pm10": 66.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d07-01",
+            "station": "S07",
+            "pm10": 67.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d07-02",
+            "station": "S07",
+            "pm10": 67.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d07-03",
+            "station": "S07",
+            "pm10": 67.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d07-04",
+            "station": "S07",
+            "pm10": 67.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d07-05",
+            "station": "S07",
+            "pm10": 67.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d07-06",
+            "station": "S07",
+            "pm10": 67.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d07-07",
+            "station": "S07",
+            "pm10": 67.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d08-01",
+            "station": "S08",
+            "pm10": 68.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d08-02",
+            "station": "S08",
+            "pm10": 68.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d08-03",
+            "station": "S08",
+            "pm10": 68.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d08-04",
+            "station": "S08",
+            "pm10": 68.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d08-05",
+            "station": "S08",
+            "pm10": 68.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d08-06",
+            "station": "S08",
+            "pm10": 68.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d08-07",
+            "station": "S08",
+            "pm10": 68.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d08-08",
+            "station": "S08",
+            "pm10": 68.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d09-01",
+            "station": "S09",
+            "pm10": 69.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d09-02",
+            "station": "S09",
+            "pm10": 69.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d09-03",
+            "station": "S09",
+            "pm10": 69.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d09-04",
+            "station": "S09",
+            "pm10": 69.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d09-05",
+            "station": "S09",
+            "pm10": 69.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d09-06",
+            "station": "S09",
+            "pm10": 69.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d09-07",
+            "station": "S09",
+            "pm10": 69.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d09-08",
+            "station": "S09",
+            "pm10": 69.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d09-09",
+            "station": "S09",
+            "pm10": 69.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d10-01",
+            "station": "S10",
+            "pm10": 70.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d10-02",
+            "station": "S10",
+            "pm10": 70.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d10-03",
+            "station": "S10",
+            "pm10": 70.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d10-04",
+            "station": "S10",
+            "pm10": 70.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d10-05",
+            "station": "S10",
+            "pm10": 70.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d10-06",
+            "station": "S10",
+            "pm10": 70.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d10-07",
+            "station": "S10",
+            "pm10": 70.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d10-08",
+            "station": "S10",
+            "pm10": 70.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d10-09",
+            "station": "S10",
+            "pm10": 70.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d10-10",
+            "station": "S10",
+            "pm10": 70.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d11-01",
+            "station": "S11",
+            "pm10": 71.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d11-02",
+            "station": "S11",
+            "pm10": 71.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d11-03",
+            "station": "S11",
+            "pm10": 71.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d11-04",
+            "station": "S11",
+            "pm10": 71.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d11-05",
+            "station": "S11",
+            "pm10": 71.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d11-06",
+            "station": "S11",
+            "pm10": 71.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d11-07",
+            "station": "S11",
+            "pm10": 71.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d11-08",
+            "station": "S11",
+            "pm10": 71.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d11-09",
+            "station": "S11",
+            "pm10": 71.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d11-10",
+            "station": "S11",
+            "pm10": 71.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d11-11",
+            "station": "S11",
+            "pm10": 71.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d12-01",
+            "station": "S12",
+            "pm10": 72.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d12-02",
+            "station": "S12",
+            "pm10": 72.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d12-03",
+            "station": "S12",
+            "pm10": 72.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d12-04",
+            "station": "S12",
+            "pm10": 72.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d12-05",
+            "station": "S12",
+            "pm10": 72.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d12-06",
+            "station": "S12",
+            "pm10": 72.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d12-07",
+            "station": "S12",
+            "pm10": 72.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d12-08",
+            "station": "S12",
+            "pm10": 72.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d12-09",
+            "station": "S12",
+            "pm10": 72.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d12-10",
+            "station": "S12",
+            "pm10": 72.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d12-11",
+            "station": "S12",
+            "pm10": 72.25,
+            "pm25": 10.5
+          },
+          {
+            "date": "d12-12",
+            "station": "S12",
+            "pm10": 72.25,
+            "pm25": 10.5
+          }
+        ],
+        "p3": [
+          {
+            "station": "S01",
+            "pm10": 61.25
+          },
+          {
+            "station": "S02",
+            "pm10": 124.5
+          },
+          {
+            "station": "S03",
+            "pm10": 189.75
+          },
+          {
+            "station": "S04",
+            "pm10": 257.0
+          },
+          {
+            "station": "S05",
+            "pm10": 326.25
+          },
+          {
+            "station": "S06",
+            "pm10": 397.5
+          },
+          {
+            "station": "S07",
+            "pm10": 470.75
+          },
+          {
+            "station": "S08",
+            "pm10": 546.0
+          },
+          {
+            "station": "S09",
+            "pm10": 623.25
+          },
+          {
+            "station": "S10",
+            "pm10": 702.5
+          },
+          {
+            "station": "S11",
+            "pm10": 783.75
+          },
+          {
+            "station": "S12",
+            "pm10": 867.0
+          }
+        ],
+        "p4": [
+          {
+            "station": "S12",
+            "pm10": 72.25
+          },
+          {
+            "station": "S11",
+            "pm10": 71.25
+          },
+          {
+            "station": "S10",
+            "pm10": 70.25
+          },
+          {
+            "station": "S09",
+            "pm10": 69.25
+          },
+          {
+            "station": "S08",
+            "pm10": 68.25
+          },
+          {
+            "station": "S07",
+            "pm10": 67.25
+          },
+          {
+            "station": "S06",
+            "pm10": 66.25
+          },
+          {
+            "station": "S05",
+            "pm10": 65.25
+          },
+          {
+            "station": "S04",
+            "pm10": 64.25
+          },
+          {
+            "station": "S03",
+            "pm10": 63.25
+          }
+        ],
+        "p7": [
+          {
+            "station": "S12",
+            "pm25": 12
+          },
+          {
+            "station": "S11",
+            "pm25": 11
+          },
+          {
+            "station": "S10",
+            "pm25": 10
+          },
+          {
+            "station": "S09",
+            "pm25": 9
+          },
+          {
+            "station": "S08",
+            "pm25": 8
+          }
+        ]
+      },
+      "pandas": {
+        "p2": {
+          "rows": [
+            {
+              "date": "d01-01",
+              "station": "S01",
+              "pm10": 61.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d02-01",
+              "station": "S02",
+              "pm10": 62.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d02-02",
+              "station": "S02",
+              "pm10": 62.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d03-01",
+              "station": "S03",
+              "pm10": 63.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d03-02",
+              "station": "S03",
+              "pm10": 63.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d03-03",
+              "station": "S03",
+              "pm10": 63.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d04-01",
+              "station": "S04",
+              "pm10": 64.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d04-02",
+              "station": "S04",
+              "pm10": 64.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d04-03",
+              "station": "S04",
+              "pm10": 64.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d04-04",
+              "station": "S04",
+              "pm10": 64.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d05-01",
+              "station": "S05",
+              "pm10": 65.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d05-02",
+              "station": "S05",
+              "pm10": 65.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d05-03",
+              "station": "S05",
+              "pm10": 65.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d05-04",
+              "station": "S05",
+              "pm10": 65.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d05-05",
+              "station": "S05",
+              "pm10": 65.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d06-01",
+              "station": "S06",
+              "pm10": 66.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d06-02",
+              "station": "S06",
+              "pm10": 66.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d06-03",
+              "station": "S06",
+              "pm10": 66.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d06-04",
+              "station": "S06",
+              "pm10": 66.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d06-05",
+              "station": "S06",
+              "pm10": 66.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d06-06",
+              "station": "S06",
+              "pm10": 66.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d07-01",
+              "station": "S07",
+              "pm10": 67.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d07-02",
+              "station": "S07",
+              "pm10": 67.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d07-03",
+              "station": "S07",
+              "pm10": 67.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d07-04",
+              "station": "S07",
+              "pm10": 67.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d07-05",
+              "station": "S07",
+              "pm10": 67.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d07-06",
+              "station": "S07",
+              "pm10": 67.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d07-07",
+              "station": "S07",
+              "pm10": 67.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d08-01",
+              "station": "S08",
+              "pm10": 68.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d08-02",
+              "station": "S08",
+              "pm10": 68.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d08-03",
+              "station": "S08",
+              "pm10": 68.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d08-04",
+              "station": "S08",
+              "pm10": 68.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d08-05",
+              "station": "S08",
+              "pm10": 68.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d08-06",
+              "station": "S08",
+              "pm10": 68.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d08-07",
+              "station": "S08",
+              "pm10": 68.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d08-08",
+              "station": "S08",
+              "pm10": 68.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d09-01",
+              "station": "S09",
+              "pm10": 69.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d09-02",
+              "station": "S09",
+              "pm10": 69.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d09-03",
+              "station": "S09",
+              "pm10": 69.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d09-04",
+              "station": "S09",
+              "pm10": 69.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d09-05",
+              "station": "S09",
+              "pm10": 69.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d09-06",
+              "station": "S09",
+              "pm10": 69.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d09-07",
+              "station": "S09",
+              "pm10": 69.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d09-08",
+              "station": "S09",
+              "pm10": 69.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d09-09",
+              "station": "S09",
+              "pm10": 69.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d10-01",
+              "station": "S10",
+              "pm10": 70.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d10-02",
+              "station": "S10",
+              "pm10": 70.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d10-03",
+              "station": "S10",
+              "pm10": 70.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d10-04",
+              "station": "S10",
+              "pm10": 70.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d10-05",
+              "station": "S10",
+              "pm10": 70.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d10-06",
+              "station": "S10",
+              "pm10": 70.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d10-07",
+              "station": "S10",
+              "pm10": 70.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d10-08",
+              "station": "S10",
+              "pm10": 70.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d10-09",
+              "station": "S10",
+              "pm10": 70.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d10-10",
+              "station": "S10",
+              "pm10": 70.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d11-01",
+              "station": "S11",
+              "pm10": 71.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d11-02",
+              "station": "S11",
+              "pm10": 71.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d11-03",
+              "station": "S11",
+              "pm10": 71.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d11-04",
+              "station": "S11",
+              "pm10": 71.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d11-05",
+              "station": "S11",
+              "pm10": 71.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d11-06",
+              "station": "S11",
+              "pm10": 71.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d11-07",
+              "station": "S11",
+              "pm10": 71.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d11-08",
+              "station": "S11",
+              "pm10": 71.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d11-09",
+              "station": "S11",
+              "pm10": 71.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d11-10",
+              "station": "S11",
+              "pm10": 71.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d11-11",
+              "station": "S11",
+              "pm10": 71.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d12-01",
+              "station": "S12",
+              "pm10": 72.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d12-02",
+              "station": "S12",
+              "pm10": 72.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d12-03",
+              "station": "S12",
+              "pm10": 72.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d12-04",
+              "station": "S12",
+              "pm10": 72.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d12-05",
+              "station": "S12",
+              "pm10": 72.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d12-06",
+              "station": "S12",
+              "pm10": 72.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d12-07",
+              "station": "S12",
+              "pm10": 72.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d12-08",
+              "station": "S12",
+              "pm10": 72.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d12-09",
+              "station": "S12",
+              "pm10": 72.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d12-10",
+              "station": "S12",
+              "pm10": 72.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d12-11",
+              "station": "S12",
+              "pm10": 72.25,
+              "pm25": 10.5
+            },
+            {
+              "date": "d12-12",
+              "station": "S12",
+              "pm10": 72.25,
+              "pm25": 10.5
+            }
+          ],
+          "schema": [
+            {
+              "name": "date",
+              "type": "object"
+            },
+            {
+              "name": "station",
+              "type": "object"
+            },
+            {
+              "name": "pm10",
+              "type": "float64"
+            },
+            {
+              "name": "pm25",
+              "type": "float64"
+            }
+          ]
+        },
+        "p3": {
+          "rows": [
+            {
+              "station": "S01",
+              "pm10": 61.25
+            },
+            {
+              "station": "S02",
+              "pm10": 124.5
+            },
+            {
+              "station": "S03",
+              "pm10": 189.75
+            },
+            {
+              "station": "S04",
+              "pm10": 257.0
+            },
+            {
+              "station": "S05",
+              "pm10": 326.25
+            },
+            {
+              "station": "S06",
+              "pm10": 397.5
+            },
+            {
+              "station": "S07",
+              "pm10": 470.75
+            },
+            {
+              "station": "S08",
+              "pm10": 546.0
+            },
+            {
+              "station": "S09",
+              "pm10": 623.25
+            },
+            {
+              "station": "S10",
+              "pm10": 702.5
+            },
+            {
+              "station": "S11",
+              "pm10": 783.75
+            },
+            {
+              "station": "S12",
+              "pm10": 867.0
+            }
+          ],
+          "schema": [
+            {
+              "name": "station",
+              "type": "object"
+            },
+            {
+              "name": "pm10",
+              "type": "float64"
+            }
+          ]
+        },
+        "p4": {
+          "rows": [
+            {
+              "station": "S12",
+              "pm10": 72.25
+            },
+            {
+              "station": "S11",
+              "pm10": 71.25
+            },
+            {
+              "station": "S10",
+              "pm10": 70.25
+            },
+            {
+              "station": "S09",
+              "pm10": 69.25
+            },
+            {
+              "station": "S08",
+              "pm10": 68.25
+            },
+            {
+              "station": "S07",
+              "pm10": 67.25
+            },
+            {
+              "station": "S06",
+              "pm10": 66.25
+            },
+            {
+              "station": "S05",
+              "pm10": 65.25
+            },
+            {
+              "station": "S04",
+              "pm10": 64.25
+            },
+            {
+              "station": "S03",
+              "pm10": 63.25
+            }
+          ],
+          "schema": [
+            {
+              "name": "station",
+              "type": "object"
+            },
+            {
+              "name": "pm10",
+              "type": "float64"
+            }
+          ]
+        },
+        "p7": {
+          "rows": [
+            {
+              "station": "S12",
+              "pm25": 12
+            },
+            {
+              "station": "S11",
+              "pm25": 11
+            },
+            {
+              "station": "S10",
+              "pm25": 10
+            },
+            {
+              "station": "S09",
+              "pm25": 9
+            },
+            {
+              "station": "S08",
+              "pm25": 8
+            }
+          ],
+          "schema": [
+            {
+              "name": "station",
+              "type": "object"
+            },
+            {
+              "name": "pm25",
+              "type": "int64"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "runs": [
+    {
+      "case": "null-boundaries",
+      "mode": "on",
+      "stage": "p2",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "null-boundaries-on-p2.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-on-p2.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-on-p2.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "1"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-on-p2.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "date": "d1",
+          "pm10": 60.0,
+          "pm25": 20.0,
+          "station": "A"
+        },
+        {
+          "date": "d3",
+          "pm10": 40.0,
+          "pm25": 15.0,
+          "station": "B"
+        },
+        {
+          "date": "d5",
+          "pm10": 75.0,
+          "pm25": 12.0,
+          "station": "C"
+        },
+        {
+          "date": "d8",
+          "pm10": 50.0,
+          "pm25": 15.0,
+          "station": "B"
+        },
+        {
+          "date": "d11",
+          "pm10": 90.0,
+          "pm25": 20.0,
+          "station": "B"
+        },
+        {
+          "date": "d12",
+          "pm10": 100.0,
+          "pm25": 20.0,
+          "station": "A"
+        }
+      ],
+      "schema": [
+        {
+          "name": "date",
+          "type": "str"
+        },
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        },
+        {
+          "name": "pm25",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 49.2787
+    },
+    {
+      "case": "null-boundaries",
+      "mode": "on",
+      "stage": "p3",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "null-boundaries-on-p3.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-on-p3.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-on-p3.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "1"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-on-p3.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm10": 180.0,
+          "station": "B"
+        },
+        {
+          "pm10": 160.0,
+          "station": "A"
+        },
+        {
+          "pm10": 75.0,
+          "station": "C"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 55.6406
+    },
+    {
+      "case": "null-boundaries",
+      "mode": "on",
+      "stage": "p4",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "null-boundaries-on-p4.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-on-p4.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-on-p4.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "1"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-on-p4.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm10": 80.0,
+          "station": "A"
+        },
+        {
+          "pm10": 75.0,
+          "station": "C"
+        },
+        {
+          "pm10": 60.0,
+          "station": "B"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 64.9272
+    },
+    {
+      "case": "null-boundaries",
+      "mode": "on",
+      "stage": "p7",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "null-boundaries-on-p7.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-on-p7.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-on-p7.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "1"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-on-p7.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm25": 4,
+          "station": "A"
+        },
+        {
+          "pm25": 3,
+          "station": "C"
+        },
+        {
+          "pm25": 2,
+          "station": "B"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm25",
+          "type": "u32"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 73.6306
+    },
+    {
+      "case": "null-boundaries",
+      "mode": "off",
+      "stage": "p2",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "null-boundaries-off-p2.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-off-p2.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-off-p2.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "0"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-off-p2.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "date": "d1",
+          "pm10": 60.0,
+          "pm25": 20.0,
+          "station": "A"
+        },
+        {
+          "date": "d3",
+          "pm10": 40.0,
+          "pm25": 15.0,
+          "station": "B"
+        },
+        {
+          "date": "d5",
+          "pm10": 75.0,
+          "pm25": 12.0,
+          "station": "C"
+        },
+        {
+          "date": "d8",
+          "pm10": 50.0,
+          "pm25": 15.0,
+          "station": "B"
+        },
+        {
+          "date": "d11",
+          "pm10": 90.0,
+          "pm25": 20.0,
+          "station": "B"
+        },
+        {
+          "date": "d12",
+          "pm10": 100.0,
+          "pm25": 20.0,
+          "station": "A"
+        }
+      ],
+      "schema": [
+        {
+          "name": "date",
+          "type": "str"
+        },
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        },
+        {
+          "name": "pm25",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 30.9111
+    },
+    {
+      "case": "null-boundaries",
+      "mode": "off",
+      "stage": "p3",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "null-boundaries-off-p3.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-off-p3.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-off-p3.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "0"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-off-p3.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm10": 75.0,
+          "station": "C"
+        },
+        {
+          "pm10": 180.0,
+          "station": "B"
+        },
+        {
+          "pm10": 160.0,
+          "station": "A"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 32.868
+    },
+    {
+      "case": "null-boundaries",
+      "mode": "off",
+      "stage": "p4",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "null-boundaries-off-p4.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-off-p4.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-off-p4.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "0"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-off-p4.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm10": 80.0,
+          "station": "A"
+        },
+        {
+          "pm10": 75.0,
+          "station": "C"
+        },
+        {
+          "pm10": 60.0,
+          "station": "B"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 36.3153
+    },
+    {
+      "case": "null-boundaries",
+      "mode": "off",
+      "stage": "p7",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "null-boundaries-off-p7.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-off-p7.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-off-p7.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "0"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\null-boundaries-off-p7.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm25": 4,
+          "station": "A"
+        },
+        {
+          "pm25": 3,
+          "station": "C"
+        },
+        {
+          "pm25": 2,
+          "station": "B"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm25",
+          "type": "u32"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 43.99079999999999
+    },
+    {
+      "case": "literal-na-null",
+      "mode": "on",
+      "stage": "p2",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "literal-na-null-on-p2.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-on-p2.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-on-p2.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "1"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-on-p2.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "date": "NA",
+          "pm10": 80.0,
+          "pm25": 20.0,
+          "station": "NA"
+        }
+      ],
+      "schema": [
+        {
+          "name": "date",
+          "type": "str"
+        },
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        },
+        {
+          "name": "pm25",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 52.4638
+    },
+    {
+      "case": "literal-na-null",
+      "mode": "on",
+      "stage": "p3",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "literal-na-null-on-p3.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-on-p3.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-on-p3.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "1"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-on-p3.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm10": 80.0,
+          "station": "NA"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 56.9561
+    },
+    {
+      "case": "literal-na-null",
+      "mode": "on",
+      "stage": "p4",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "literal-na-null-on-p4.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-on-p4.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-on-p4.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "1"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-on-p4.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm10": 80.0,
+          "station": "NA"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 63.06249999999999
+    },
+    {
+      "case": "literal-na-null",
+      "mode": "on",
+      "stage": "p7",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "literal-na-null-on-p7.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-on-p7.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-on-p7.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "1"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-on-p7.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm25": 1,
+          "station": "NULL"
+        },
+        {
+          "pm25": 1,
+          "station": "NA"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm25",
+          "type": "u32"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 74.4378
+    },
+    {
+      "case": "literal-na-null",
+      "mode": "off",
+      "stage": "p2",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "literal-na-null-off-p2.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-off-p2.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-off-p2.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "0"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-off-p2.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "date": "NA",
+          "pm10": 80.0,
+          "pm25": 20.0,
+          "station": "NA"
+        }
+      ],
+      "schema": [
+        {
+          "name": "date",
+          "type": "str"
+        },
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        },
+        {
+          "name": "pm25",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 26.261699999999998
+    },
+    {
+      "case": "literal-na-null",
+      "mode": "off",
+      "stage": "p3",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "literal-na-null-off-p3.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-off-p3.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-off-p3.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "0"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-off-p3.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm10": 80.0,
+          "station": "NA"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 31.9826
+    },
+    {
+      "case": "literal-na-null",
+      "mode": "off",
+      "stage": "p4",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "literal-na-null-off-p4.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-off-p4.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-off-p4.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "0"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-off-p4.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm10": 80.0,
+          "station": "NA"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 33.0744
+    },
+    {
+      "case": "literal-na-null",
+      "mode": "off",
+      "stage": "p7",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "literal-na-null-off-p7.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-off-p7.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-off-p7.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "0"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\literal-na-null-off-p7.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm25": 1,
+          "station": "NULL"
+        },
+        {
+          "pm25": 1,
+          "station": "NA"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm25",
+          "type": "u32"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 38.7609
+    },
+    {
+      "case": "topk-cutoffs",
+      "mode": "on",
+      "stage": "p2",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "topk-cutoffs-on-p2.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-on-p2.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-on-p2.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "1"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-on-p2.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "date": "d01-01",
+          "pm10": 61.25,
+          "pm25": 10.5,
+          "station": "S01"
+        },
+        {
+          "date": "d02-01",
+          "pm10": 62.25,
+          "pm25": 10.5,
+          "station": "S02"
+        },
+        {
+          "date": "d02-02",
+          "pm10": 62.25,
+          "pm25": 10.5,
+          "station": "S02"
+        },
+        {
+          "date": "d03-01",
+          "pm10": 63.25,
+          "pm25": 10.5,
+          "station": "S03"
+        },
+        {
+          "date": "d03-02",
+          "pm10": 63.25,
+          "pm25": 10.5,
+          "station": "S03"
+        },
+        {
+          "date": "d03-03",
+          "pm10": 63.25,
+          "pm25": 10.5,
+          "station": "S03"
+        },
+        {
+          "date": "d04-01",
+          "pm10": 64.25,
+          "pm25": 10.5,
+          "station": "S04"
+        },
+        {
+          "date": "d04-02",
+          "pm10": 64.25,
+          "pm25": 10.5,
+          "station": "S04"
+        },
+        {
+          "date": "d04-03",
+          "pm10": 64.25,
+          "pm25": 10.5,
+          "station": "S04"
+        },
+        {
+          "date": "d04-04",
+          "pm10": 64.25,
+          "pm25": 10.5,
+          "station": "S04"
+        },
+        {
+          "date": "d05-01",
+          "pm10": 65.25,
+          "pm25": 10.5,
+          "station": "S05"
+        },
+        {
+          "date": "d05-02",
+          "pm10": 65.25,
+          "pm25": 10.5,
+          "station": "S05"
+        },
+        {
+          "date": "d05-03",
+          "pm10": 65.25,
+          "pm25": 10.5,
+          "station": "S05"
+        },
+        {
+          "date": "d05-04",
+          "pm10": 65.25,
+          "pm25": 10.5,
+          "station": "S05"
+        },
+        {
+          "date": "d05-05",
+          "pm10": 65.25,
+          "pm25": 10.5,
+          "station": "S05"
+        },
+        {
+          "date": "d06-01",
+          "pm10": 66.25,
+          "pm25": 10.5,
+          "station": "S06"
+        },
+        {
+          "date": "d06-02",
+          "pm10": 66.25,
+          "pm25": 10.5,
+          "station": "S06"
+        },
+        {
+          "date": "d06-03",
+          "pm10": 66.25,
+          "pm25": 10.5,
+          "station": "S06"
+        },
+        {
+          "date": "d06-04",
+          "pm10": 66.25,
+          "pm25": 10.5,
+          "station": "S06"
+        },
+        {
+          "date": "d06-05",
+          "pm10": 66.25,
+          "pm25": 10.5,
+          "station": "S06"
+        },
+        {
+          "date": "d06-06",
+          "pm10": 66.25,
+          "pm25": 10.5,
+          "station": "S06"
+        },
+        {
+          "date": "d07-01",
+          "pm10": 67.25,
+          "pm25": 10.5,
+          "station": "S07"
+        },
+        {
+          "date": "d07-02",
+          "pm10": 67.25,
+          "pm25": 10.5,
+          "station": "S07"
+        },
+        {
+          "date": "d07-03",
+          "pm10": 67.25,
+          "pm25": 10.5,
+          "station": "S07"
+        },
+        {
+          "date": "d07-04",
+          "pm10": 67.25,
+          "pm25": 10.5,
+          "station": "S07"
+        },
+        {
+          "date": "d07-05",
+          "pm10": 67.25,
+          "pm25": 10.5,
+          "station": "S07"
+        },
+        {
+          "date": "d07-06",
+          "pm10": 67.25,
+          "pm25": 10.5,
+          "station": "S07"
+        },
+        {
+          "date": "d07-07",
+          "pm10": 67.25,
+          "pm25": 10.5,
+          "station": "S07"
+        },
+        {
+          "date": "d08-01",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d08-02",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d08-03",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d08-04",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d08-05",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d08-06",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d08-07",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d08-08",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d09-01",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-02",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-03",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-04",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-05",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-06",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-07",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-08",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-09",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d10-01",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-02",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-03",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-04",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-05",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-06",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-07",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-08",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-09",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-10",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d11-01",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-02",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-03",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-04",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-05",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-06",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-07",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-08",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-09",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-10",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-11",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d12-01",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-02",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-03",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-04",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-05",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-06",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-07",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-08",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-09",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-10",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-11",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-12",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        }
+      ],
+      "schema": [
+        {
+          "name": "date",
+          "type": "str"
+        },
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        },
+        {
+          "name": "pm25",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 50.531800000000004
+    },
+    {
+      "case": "topk-cutoffs",
+      "mode": "on",
+      "stage": "p3",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "topk-cutoffs-on-p3.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-on-p3.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-on-p3.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "1"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-on-p3.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm10": 702.5,
+          "station": "S10"
+        },
+        {
+          "pm10": 397.5,
+          "station": "S06"
+        },
+        {
+          "pm10": 623.25,
+          "station": "S09"
+        },
+        {
+          "pm10": 470.75,
+          "station": "S07"
+        },
+        {
+          "pm10": 867.0,
+          "station": "S12"
+        },
+        {
+          "pm10": 326.25,
+          "station": "S05"
+        },
+        {
+          "pm10": 61.25,
+          "station": "S01"
+        },
+        {
+          "pm10": 783.75,
+          "station": "S11"
+        },
+        {
+          "pm10": 189.75,
+          "station": "S03"
+        },
+        {
+          "pm10": 257.0,
+          "station": "S04"
+        },
+        {
+          "pm10": 124.5,
+          "station": "S02"
+        },
+        {
+          "pm10": 546.0,
+          "station": "S08"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 61.0146
+    },
+    {
+      "case": "topk-cutoffs",
+      "mode": "on",
+      "stage": "p4",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "topk-cutoffs-on-p4.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-on-p4.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-on-p4.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "1"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-on-p4.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm10": 72.25,
+          "station": "S12"
+        },
+        {
+          "pm10": 71.25,
+          "station": "S11"
+        },
+        {
+          "pm10": 70.25,
+          "station": "S10"
+        },
+        {
+          "pm10": 69.25,
+          "station": "S09"
+        },
+        {
+          "pm10": 68.25,
+          "station": "S08"
+        },
+        {
+          "pm10": 67.25,
+          "station": "S07"
+        },
+        {
+          "pm10": 66.25,
+          "station": "S06"
+        },
+        {
+          "pm10": 65.25,
+          "station": "S05"
+        },
+        {
+          "pm10": 64.25,
+          "station": "S04"
+        },
+        {
+          "pm10": 63.25,
+          "station": "S03"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 69.0586
+    },
+    {
+      "case": "topk-cutoffs",
+      "mode": "on",
+      "stage": "p7",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "topk-cutoffs-on-p7.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-on-p7.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-on-p7.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "1"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-on-p7.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm25": 12,
+          "station": "S12"
+        },
+        {
+          "pm25": 11,
+          "station": "S11"
+        },
+        {
+          "pm25": 10,
+          "station": "S10"
+        },
+        {
+          "pm25": 9,
+          "station": "S09"
+        },
+        {
+          "pm25": 8,
+          "station": "S08"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm25",
+          "type": "u32"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 80.9208
+    },
+    {
+      "case": "topk-cutoffs",
+      "mode": "off",
+      "stage": "p2",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "topk-cutoffs-off-p2.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-off-p2.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-off-p2.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "0"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-off-p2.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "date": "d01-01",
+          "pm10": 61.25,
+          "pm25": 10.5,
+          "station": "S01"
+        },
+        {
+          "date": "d02-01",
+          "pm10": 62.25,
+          "pm25": 10.5,
+          "station": "S02"
+        },
+        {
+          "date": "d02-02",
+          "pm10": 62.25,
+          "pm25": 10.5,
+          "station": "S02"
+        },
+        {
+          "date": "d03-01",
+          "pm10": 63.25,
+          "pm25": 10.5,
+          "station": "S03"
+        },
+        {
+          "date": "d03-02",
+          "pm10": 63.25,
+          "pm25": 10.5,
+          "station": "S03"
+        },
+        {
+          "date": "d03-03",
+          "pm10": 63.25,
+          "pm25": 10.5,
+          "station": "S03"
+        },
+        {
+          "date": "d04-01",
+          "pm10": 64.25,
+          "pm25": 10.5,
+          "station": "S04"
+        },
+        {
+          "date": "d04-02",
+          "pm10": 64.25,
+          "pm25": 10.5,
+          "station": "S04"
+        },
+        {
+          "date": "d04-03",
+          "pm10": 64.25,
+          "pm25": 10.5,
+          "station": "S04"
+        },
+        {
+          "date": "d04-04",
+          "pm10": 64.25,
+          "pm25": 10.5,
+          "station": "S04"
+        },
+        {
+          "date": "d05-01",
+          "pm10": 65.25,
+          "pm25": 10.5,
+          "station": "S05"
+        },
+        {
+          "date": "d05-02",
+          "pm10": 65.25,
+          "pm25": 10.5,
+          "station": "S05"
+        },
+        {
+          "date": "d05-03",
+          "pm10": 65.25,
+          "pm25": 10.5,
+          "station": "S05"
+        },
+        {
+          "date": "d05-04",
+          "pm10": 65.25,
+          "pm25": 10.5,
+          "station": "S05"
+        },
+        {
+          "date": "d05-05",
+          "pm10": 65.25,
+          "pm25": 10.5,
+          "station": "S05"
+        },
+        {
+          "date": "d06-01",
+          "pm10": 66.25,
+          "pm25": 10.5,
+          "station": "S06"
+        },
+        {
+          "date": "d06-02",
+          "pm10": 66.25,
+          "pm25": 10.5,
+          "station": "S06"
+        },
+        {
+          "date": "d06-03",
+          "pm10": 66.25,
+          "pm25": 10.5,
+          "station": "S06"
+        },
+        {
+          "date": "d06-04",
+          "pm10": 66.25,
+          "pm25": 10.5,
+          "station": "S06"
+        },
+        {
+          "date": "d06-05",
+          "pm10": 66.25,
+          "pm25": 10.5,
+          "station": "S06"
+        },
+        {
+          "date": "d06-06",
+          "pm10": 66.25,
+          "pm25": 10.5,
+          "station": "S06"
+        },
+        {
+          "date": "d07-01",
+          "pm10": 67.25,
+          "pm25": 10.5,
+          "station": "S07"
+        },
+        {
+          "date": "d07-02",
+          "pm10": 67.25,
+          "pm25": 10.5,
+          "station": "S07"
+        },
+        {
+          "date": "d07-03",
+          "pm10": 67.25,
+          "pm25": 10.5,
+          "station": "S07"
+        },
+        {
+          "date": "d07-04",
+          "pm10": 67.25,
+          "pm25": 10.5,
+          "station": "S07"
+        },
+        {
+          "date": "d07-05",
+          "pm10": 67.25,
+          "pm25": 10.5,
+          "station": "S07"
+        },
+        {
+          "date": "d07-06",
+          "pm10": 67.25,
+          "pm25": 10.5,
+          "station": "S07"
+        },
+        {
+          "date": "d07-07",
+          "pm10": 67.25,
+          "pm25": 10.5,
+          "station": "S07"
+        },
+        {
+          "date": "d08-01",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d08-02",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d08-03",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d08-04",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d08-05",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d08-06",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d08-07",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d08-08",
+          "pm10": 68.25,
+          "pm25": 10.5,
+          "station": "S08"
+        },
+        {
+          "date": "d09-01",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-02",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-03",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-04",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-05",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-06",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-07",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-08",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d09-09",
+          "pm10": 69.25,
+          "pm25": 10.5,
+          "station": "S09"
+        },
+        {
+          "date": "d10-01",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-02",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-03",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-04",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-05",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-06",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-07",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-08",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-09",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d10-10",
+          "pm10": 70.25,
+          "pm25": 10.5,
+          "station": "S10"
+        },
+        {
+          "date": "d11-01",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-02",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-03",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-04",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-05",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-06",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-07",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-08",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-09",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-10",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d11-11",
+          "pm10": 71.25,
+          "pm25": 10.5,
+          "station": "S11"
+        },
+        {
+          "date": "d12-01",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-02",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-03",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-04",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-05",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-06",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-07",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-08",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-09",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-10",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-11",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        },
+        {
+          "date": "d12-12",
+          "pm10": 72.25,
+          "pm25": 10.5,
+          "station": "S12"
+        }
+      ],
+      "schema": [
+        {
+          "name": "date",
+          "type": "str"
+        },
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        },
+        {
+          "name": "pm25",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 33.2293
+    },
+    {
+      "case": "topk-cutoffs",
+      "mode": "off",
+      "stage": "p3",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "topk-cutoffs-off-p3.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-off-p3.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-off-p3.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "0"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-off-p3.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm10": 124.5,
+          "station": "S02"
+        },
+        {
+          "pm10": 326.25,
+          "station": "S05"
+        },
+        {
+          "pm10": 867.0,
+          "station": "S12"
+        },
+        {
+          "pm10": 397.5,
+          "station": "S06"
+        },
+        {
+          "pm10": 623.25,
+          "station": "S09"
+        },
+        {
+          "pm10": 470.75,
+          "station": "S07"
+        },
+        {
+          "pm10": 189.75,
+          "station": "S03"
+        },
+        {
+          "pm10": 546.0,
+          "station": "S08"
+        },
+        {
+          "pm10": 702.5,
+          "station": "S10"
+        },
+        {
+          "pm10": 783.75,
+          "station": "S11"
+        },
+        {
+          "pm10": 61.25,
+          "station": "S01"
+        },
+        {
+          "pm10": 257.0,
+          "station": "S04"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 67.2925
+    },
+    {
+      "case": "topk-cutoffs",
+      "mode": "off",
+      "stage": "p4",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "topk-cutoffs-off-p4.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-off-p4.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-off-p4.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "0"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-off-p4.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm10": 72.25,
+          "station": "S12"
+        },
+        {
+          "pm10": 71.25,
+          "station": "S11"
+        },
+        {
+          "pm10": 70.25,
+          "station": "S10"
+        },
+        {
+          "pm10": 69.25,
+          "station": "S09"
+        },
+        {
+          "pm10": 68.25,
+          "station": "S08"
+        },
+        {
+          "pm10": 67.25,
+          "station": "S07"
+        },
+        {
+          "pm10": 66.25,
+          "station": "S06"
+        },
+        {
+          "pm10": 65.25,
+          "station": "S05"
+        },
+        {
+          "pm10": 64.25,
+          "station": "S04"
+        },
+        {
+          "pm10": 63.25,
+          "station": "S03"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm10",
+          "type": "f64"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 76.99849999999999
+    },
+    {
+      "case": "topk-cutoffs",
+      "mode": "off",
+      "stage": "p7",
+      "status": "ok",
+      "command": [
+        "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\debug\\xazz-exec.exe",
+        "topk-cutoffs-off-p7.xzz"
+      ],
+      "stdout": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-off-p7.stdout.log",
+      "stderr": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-off-p7.stderr.log",
+      "env_overrides": {
+        "XAZZ_BACKEND": "cpu",
+        "XAZZ_COLLECT_DIAGNOSTICS": "1",
+        "XAZZ_LANG": "en",
+        "XAZZ_STREAMING": "0"
+      },
+      "measurement": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166-followup\\semantics-topk-final-logs-3a1nyvvk\\topk-cutoffs-off-p7.measurement.json",
+      "exit_code": 0,
+      "rows": [
+        {
+          "pm25": 12,
+          "station": "S12"
+        },
+        {
+          "pm25": 11,
+          "station": "S11"
+        },
+        {
+          "pm25": 10,
+          "station": "S10"
+        },
+        {
+          "pm25": 9,
+          "station": "S09"
+        },
+        {
+          "pm25": 8,
+          "station": "S08"
+        }
+      ],
+      "schema": [
+        {
+          "name": "station",
+          "type": "str"
+        },
+        {
+          "name": "pm25",
+          "type": "u32"
+        }
+      ],
+      "collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ],
+      "pipeline_ms": 80.66669999999999
+    }
+  ],
+  "expected_runs": 24,
+  "limitations": [
+    "작은 고정 입력의 모든 셀을 비교하며, 기존 대용량 실행의 출력되지 않은 셀을 사후 검증하지 않습니다.",
+    "수집 마커는 요청한 API 선택·완료의 증거이며 Polars 내부 모든 노드의 실행 엔진을 보증하지 않습니다."
+  ],
+  "numeric_tolerance": {
+    "relative": 1e-12,
+    "absolute": 1e-12
+  },
+  "binary_sha256": "2a2c81976da76b20ae9477418b8c8197a39f99c866d95c860106e28a54c9fffe",
+  "source_sha256": {
+    "verify_benchmark_semantics.py": "420aa8b4ec9070cf978017c2644d9b4d74e45eecb68e4c737fb6af32d6d3c5ac",
+    "benchmark_semantics.py": "55b2fdf58d793d6d45f4c6a7e70e809f5c03280afed6e1f3547a2b7f5d0eff12",
+    "pandas_pipeline.py": "f1a52693e63d73a0130a5783d29e7e9063c4f353a7d6ae6548cc0d0653e18bf3",
+    "bench_scale_small.xzz": "c877ce70b9716b19e1a0a07458d065b0f93d922c83c9aa05587945ae47507e47"
+  }
+}

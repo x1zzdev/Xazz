@@ -31,7 +31,7 @@ entries are comma-separated.
 |---|---|---|
 | `XAZZ_BIND` | `127.0.0.1:8005` | Listen address. Set `0.0.0.0:8005` in a container to reach the service from outside. |
 | `XAZZ_WEB_DIR` | `web/` next to the executable | Directory served as the static Visual IDE (must contain `index.html`). |
-| `XAZZ_EXEC_PATH` | `xazz` next to the server | Absolute path to the `xazz` CLI the server spawns to run pipelines. Pinning it is the deployment-hardening path (see [Security model](design/security-model.md)). |
+| `XAZZ_EXEC_PATH` | `xazz` next to the server | Absolute path to the `xazz` CLI the server spawns to run pipelines. 이 서버 전용 경로 설정은 자식 프로세스 환경에서 제거된다. 러너가 같은 디렉터리의 `xazz-exec`를 찾으므로 CLI·러너·엔진을 함께 배치해야 한다. Pinning it is the deployment-hardening path (see [Security model](design/security-model.md)). |
 | `XAZZ_EXEC_TIMEOUT_SECS` | runner default (`300`) | Hard timeout for one run, passed through to the runner. Values `<= 0` are ignored. Long `train`/sweep runs may need a higher value. |
 
 ## Differential-privacy budget

@@ -101,7 +101,7 @@ fn filename_to_var_name(path: &str) -> std::string::String {
 
     // When there is an underscore, use the last segment; otherwise the whole
     let segments: Vec<&str> = stem.split('_').collect();
-    if segments.len() >= 2 {
+    let name = if segments.len() >= 2 {
         // If the last segment is too short or numeric, use the second-to-last
         let last = *segments.last().unwrap_or(&stem);
         if last.len() >= 2 && last.parse::<u64>().is_err() {
@@ -113,6 +113,27 @@ fn filename_to_var_name(path: &str) -> std::string::String {
         }
     } else {
         stem.to_lowercase()
+    };
+
+    // Consult the lexer so newly added DSL keywords cannot silently become
+    // generated variable names (e.g. sample.csv used to emit `v sample = ...`).
+    // Sanitize separators before checking; ordinary names keep their spelling.
+    let name: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let mut lexer = xazz_compiler::Lexer::new(&name);
+    if matches!(lexer.next_token(), Ok(token) if matches!(token.kind, xazz_compiler::TokenKind::Ident(ref ident) if ident == &name))
+    {
+        name
+    } else {
+        format!("data_{name}")
     }
 }
 
@@ -369,7 +390,7 @@ mod tests {
         let generated = infer_fixture(b"id,name,amount,active\n1,Ada,2.5,true\n2,Bob,,false\n");
         assert_eq!(
             generated,
-            "type Sample = {\n    id: int,\n    name: string,\n    amount: Option<float>,\n    active: bool\n};\n\nv sample = load(\"sample.csv\") :: Sample"
+            "type Sample = {\n    id: int,\n    name: string,\n    amount: Option<float>,\n    active: bool\n};\n\nv data_sample = load(\"sample.csv\") :: Sample"
         );
     }
 
@@ -380,7 +401,7 @@ mod tests {
         let generated = infer_fixture(&bytes);
         assert_eq!(
             generated,
-            "type Sample = {\n    이름: string,\n    나이: int\n};\n\nv sample = load(\"sample.csv\") :: Sample"
+            "type Sample = {\n    이름: string,\n    나이: int\n};\n\nv data_sample = load(\"sample.csv\") :: Sample"
         );
     }
 
@@ -389,7 +410,31 @@ mod tests {
         let generated = infer_fixture(b"\xef\xbb\xbfid,value\n1,3.5\n");
         assert_eq!(
             generated,
-            "type Sample = {\n    id: int,\n    value: float\n};\n\nv sample = load(\"sample.csv\") :: Sample"
+            "type Sample = {\n    id: int,\n    value: float\n};\n\nv data_sample = load(\"sample.csv\") :: Sample"
         );
+    }
+
+    #[test]
+    fn imported_variable_names_are_identifiers() {
+        for file in [
+            "sample.csv",
+            "train.csv",
+            "type.csv",
+            "load.csv",
+            "true.csv",
+            "air_sample.csv",
+            "air-data.csv",
+            "2026.csv",
+        ] {
+            let name = filename_to_var_name(file);
+            let source = format!("type Row = {{ id: int }}\nv {name} = load(\"data.csv\") :: Row");
+            let tokens = xazz_compiler::Lexer::new(&source).tokenize().unwrap();
+            assert!(
+                xazz_compiler::Parser::new(tokens).parse().is_ok(),
+                "{file}: {source}"
+            );
+        }
+        assert_eq!(filename_to_var_name("seoul_air.csv"), "air");
+        assert_eq!(filename_to_var_name("population.csv"), "population");
     }
 }

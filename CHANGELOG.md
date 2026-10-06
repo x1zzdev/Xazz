@@ -9,6 +9,27 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — predict 진단의 run 이력 영속화 `GET /runs/{id}/prediction` (issue D3)
+
+- `POST /execute` 응답에만 노출되던 `[xazz:predict]` 임베딩 진단을 `runs` 테이블
+  (`prediction` 컬럼, 기존 DB용 `ALTER TABLE` 마이그레이션 포함)에 저장하고,
+  `GET /runs/{id}/prediction`으로 조회할 수 있게 했다. 응답은 리소스 텔레메트리
+  엔드포인트와 같은 형태로, 기록이 있으면 `available: true` + `prediction`, 없으면
+  (구버전 run 또는 predict 미실행 스크립트) `available: false` + `reason`, 테넌트
+  불일치·미존재 id는 404를 돌려준다. `GET /runs`/`GET /runs/{id}` 목록 응답은
+  그대로 두어 페이로드 비대화를 피했다
+- 테스트: store 영속·테넌트 스코프 1종, 핸들러 available/empty/404 1종,
+  `run_execution_job`의 `[xazz:predict]` 저장 경로 1종
+
+### Fixed — Windows smoke findings (issue #167)
+
+- CSV import avoids reserved DSL variable names such as `sample`, so the
+  generated Quick Start source passes `xazz check`.
+- Audit-log readers take a shared file lock before reading, preventing Windows
+  lock errors and partial JSONL reads during concurrent appends.
+- Release builds fetch Git LFS objects and reject archives that still contain
+  LFS pointers instead of example CSV data.
+
 ### Added — 쿼리별 ε 런타임 상한 `XAZZ_DP_MAX_EPSILON` (issue #118)
 
 - **엔진** — `dp::apply_dp`가 opt-in 환경변수 `XAZZ_DP_MAX_EPSILON`을 읽어 ε이 상한을 넘는 `withDp`를

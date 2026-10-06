@@ -211,6 +211,7 @@ debug and GPU runs are impractically slow there.
 |---------|--------|
 | CPU | Reference implementation — always available |
 | `wgpu` | **Verified** on Windows 11 / RTX 4070 (dGPU) and Intel Arc (iGPU); `XAZZ_DEVICE` adapter pinning confirmed |
-| `cuda` | Native CubeCL (`burn-cuda`) — implementation complete; real-hardware acceptance pending a CUDA-driver host ([#103](https://github.com/x1zzdev/Xazz/issues/103), [#236](https://github.com/x1zzdev/Xazz/issues/236)) |
-| `onnx` (CPU EP) | Implementation complete; real-hardware acceptance pending a standard (MSVC) toolchain ([#103](https://github.com/x1zzdev/Xazz/issues/103)) |
+| `cuda` | **검증 완료** — 2026-10-01 Windows GNU / RTX 4070, NVRTC·CUDA 헤더 요구사항과 결과는 [실기 기록 §4](design/gpu-backend-acceptance.md#4-cuda) 참조 |
+| `onnx` (CPU EP) | **검증 완료** — 2026-10-06 Windows MSVC, [acceptance·일반 검사 근거](windows-onnx-acceptance-2026-10-06.md) |
+| `onnx-cuda` (CUDA EP) | **검증 완료** — 같은 MSVC 호스트에서 명시적 CUDA EP acceptance·설정 실패 시 오류 반환 확인. 테스트 실행 파일 옆 provider DLL과 cuBLAS 13 필요. [재현·실패 근거](windows-onnx-acceptance-2026-10-06.md) |
 | `onnx-coreml` | Pending macOS hardware |
