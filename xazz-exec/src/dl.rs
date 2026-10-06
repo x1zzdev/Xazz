@@ -32,6 +32,8 @@ use polars::prelude::{Column, DataFrame};
 use xazz_compiler::ast::{LayerKind, SweepMetric, SweepSort, TrainConfig};
 use xazz_core::i18n::{is_korean, tr};
 
+pub use crate::split::select_split_indices;
+use crate::split::{SplitReport, time_order_by_column};
 use crate::tensor_bridge::{extract_data, series_to_f32};
 
 /// ONNX export + inference path (D2 #63), enabled by the `onnx` feature. A child
@@ -455,6 +457,7 @@ pub struct TrainReport {
     pub predictions: Vec<f64>,
     pub targets: Vec<f64>,
     pub checkpoint_path: String,
+    pub validation: SplitReport,
     /// Xazz checkpoint format version written with this artifact (D3).
     #[serde(default)]
     pub checkpoint_format_version: u32,
@@ -1142,12 +1145,47 @@ where
         return Err(tr("Training data is empty.", "학습 데이터가 비어 있습니다.").into());
     }
 
+    // ── train / validation split (issue #162) ───────────────────────────────
+    let val_split = config.validation_split.unwrap_or(0.0);
+    if !val_split.is_finite() || !(0.0..=MAX_VALIDATION_SPLIT).contains(&val_split) {
+        return Err("validation_split must be finite and between 0 and 0.9".into());
+    }
+    if config.time_column.is_some()
+        && config.split_strategy != xazz_core::ast::SplitStrategy::Sequential
+    {
+        return Err(
+            "time_column requires split: sequential; random/stratified can leak future rows".into(),
+        );
+    }
+    if config.split_strategy == xazz_core::ast::SplitStrategy::Stratified {
+        let target_column = df
+            .column(&config.target)
+            .map_err(|error| error.to_string())?;
+        crate::tensor_bridge::validate_class_label_precision(target_column)?;
+    }
+    let time_order = match config.time_column.as_deref() {
+        Some(col) if val_split > 0.0 => Some(time_order_by_column(df, col)?),
+        _ => None,
+    };
+    let (train_idx, val_idx) = select_split_indices(
+        n,
+        val_split,
+        config.split_strategy,
+        &targets,
+        time_order.as_deref(),
+    )?;
+    let train_n = train_idx.len();
+    if let Some(column) = config.time_column.as_deref().filter(|_| val_split > 0.0) {
+        crate::split::validate_time_boundary(df, column, &train_idx, &val_idx)?;
+    }
+    let validation = SplitReport::new(config, &train_idx, &val_idx, &targets);
+
     // ── Feature standardization statistics (NaN → mean imputation) ────────────────
     let mut fmean = vec![0f64; input_dim];
     let mut fstd = vec![1f64; input_dim];
     for (j, mean) in fmean.iter_mut().enumerate().take(input_dim) {
         let (mut s, mut c) = (0f64, 0usize);
-        for i in 0..n {
+        for &i in &train_idx {
             if let Some(v) = features.get(i).and_then(|row| row.get(j)) {
                 let v = *v as f64;
                 if v.is_finite() {
@@ -1160,7 +1198,7 @@ where
     }
     for j in 0..input_dim {
         let (mut s, mut c) = (0f64, 0usize);
-        for i in 0..n {
+        for &i in &train_idx {
             if let Some(v) = features.get(i).and_then(|row| row.get(j)) {
                 let d = *v as f64 - fmean[j];
                 if d.is_finite() {
@@ -1196,7 +1234,8 @@ where
 
     let tmean: f64 = {
         let (mut s, mut c) = (0f64, 0usize);
-        for &t in &targets {
+        for &i in &train_idx {
+            let t = targets[i];
             if t.is_finite() {
                 s += t as f64;
                 c += 1;
@@ -1208,15 +1247,6 @@ where
         .iter()
         .map(|&t| if t.is_finite() { t } else { tmean as f32 })
         .collect();
-
-    // ── train / validation split ────────────────────────────────────────────
-    let val_split = config
-        .validation_split
-        .unwrap_or(0.0)
-        .clamp(0.0, MAX_VALIDATION_SPLIT);
-    let val_n = (n as f64 * val_split) as usize;
-    let train_n = n - val_n;
-    let val_idx: Vec<usize> = (train_n..n).collect();
 
     let device_autodiff: Device<Autodiff<B>> = device.clone();
     let mut model = build_mlp::<Autodiff<B>>(layers, input_dim, &device_autodiff)?;
@@ -1275,7 +1305,7 @@ where
 
     for epoch in 0..config.epochs {
         // Deterministic shuffle (epoch seed)
-        let mut order: Vec<usize> = (0..train_n).collect();
+        let mut order: Vec<usize> = train_idx.clone();
         let mut seed = epoch as u64 + 1;
         for i in (1..order.len()).rev() {
             seed = seed
@@ -1317,7 +1347,9 @@ where
         if !val_idx.is_empty()
             && let Some((xv, yv)) = make_batch(&val_idx)
         {
+            model.training = false;
             let vout = model.forward(xv);
+            model.training = true;
             let vloss = ((vout - yv).powf_scalar(2.0)).mean();
             final_val_loss = vloss.into_data().to_vec::<f32>().map(|v| v[0] as f64).ok();
         }
@@ -1386,7 +1418,9 @@ where
     let all_preds = valid_model.forward(xall_t).into_data().to_vec::<f32>();
     let (final_train_mae, final_train_r2, final_val_mae, final_val_r2) = match all_preds {
         Ok(all_preds) if all_preds.len() == n => {
-            let (train_mae, train_r2) = regression_metrics(&all_preds[..train_n], &ys[..train_n]);
+            let tp: Vec<f32> = train_idx.iter().map(|&i| all_preds[i]).collect();
+            let tt: Vec<f32> = train_idx.iter().map(|&i| ys[i]).collect();
+            let (train_mae, train_r2) = regression_metrics(&tp, &tt);
             if val_idx.is_empty() {
                 (train_mae, train_r2, None, None)
             } else {
@@ -1442,6 +1476,7 @@ where
         predictions,
         targets: targets_out,
         checkpoint_path: format!("{ckpt}.json"),
+        validation,
         checkpoint_format_version: CHECKPOINT_FORMAT_VERSION,
         stopped_early,
         best_epoch,
@@ -1734,6 +1769,210 @@ pub type ModelRegistry = HashMap<String, Vec<LayerKind>>;
 mod tests {
     use super::*;
     use xazz_compiler::ast::EmbeddingVocab;
+
+    #[test]
+    fn stratified_rejects_labels_changed_by_float_conversion() {
+        use polars::prelude::*;
+        let columns = [
+            Column::new("y".into(), [16_777_216i64, 16_777_217, 0, 0]),
+            Column::new("y".into(), [u64::MAX, u64::MAX - 1, 0, 0]),
+            Column::new("y".into(), [1.00000001f64, 1., 0., 0.]),
+        ];
+        for column in columns {
+            let frame =
+                DataFrame::new(4, vec![Column::new("x".into(), [0., 1., 2., 3.]), column]).unwrap();
+            let config = TrainConfig {
+                target: "y".into(),
+                epochs: 1,
+                validation_split: Some(0.5),
+                split_strategy: xazz_core::ast::SplitStrategy::Stratified,
+                ..Default::default()
+            };
+            let error = train_impl::<Plain>(
+                &frame,
+                "invalid_label_precision",
+                &[LayerKind::Dense(1)],
+                &config,
+                &Default::default(),
+                false,
+            )
+            .err()
+            .expect("rounded class labels must fail");
+            assert!(error.contains("exactly as f32"), "{error}");
+        }
+    }
+
+    #[test]
+    fn zero_validation_rejects_nonsequential_time_column() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0., 1., 2., 3.], "y" => [0., 1., 0., 1.]).unwrap();
+        for validation_split in [None, Some(0.0)] {
+            for strategy in [
+                xazz_core::ast::SplitStrategy::Random,
+                xazz_core::ast::SplitStrategy::Stratified,
+            ] {
+                let config = TrainConfig {
+                    target: "y".into(),
+                    epochs: 1,
+                    validation_split,
+                    split_strategy: strategy,
+                    time_column: Some("x".into()),
+                    ..Default::default()
+                };
+                let error = train_impl::<Plain>(
+                    &frame,
+                    "invalid_time_strategy",
+                    &[LayerKind::Dense(1)],
+                    &config,
+                    &Default::default(),
+                    false,
+                )
+                .err()
+                .expect("time-column conflict must fail even without validation rows");
+                assert!(
+                    error.contains("time_column requires split: sequential"),
+                    "{error}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn stratified_zero_validation_checks_labels_and_retains_all_rows() {
+        use polars::prelude::*;
+        for validation_split in [None, Some(0.0)] {
+            let config = TrainConfig {
+                target: "y".into(),
+                epochs: 1,
+                validation_split,
+                split_strategy: xazz_core::ast::SplitStrategy::Stratified,
+                ..Default::default()
+            };
+            for labels in [[0., 1., 0.5, 1.], [0., 1., f64::NAN, 1.]] {
+                let frame = df!("x" => [0., 1., 2., 3.], "y" => labels).unwrap();
+                assert!(
+                    train_impl::<Plain>(
+                        &frame,
+                        "invalid_zero_validation_labels",
+                        &[LayerKind::Dense(1)],
+                        &config,
+                        &Default::default(),
+                        false,
+                    )
+                    .is_err()
+                );
+            }
+            let frame = df!("x" => [0., 1., 2., 3.], "y" => [0., 1., 0., 1.]).unwrap();
+            let trained = train_impl::<Plain>(
+                &frame,
+                "valid_zero_validation_labels",
+                &[LayerKind::Dense(1)],
+                &config,
+                &Default::default(),
+                false,
+            )
+            .unwrap();
+            assert_eq!(trained.report.validation.train_rows, 4);
+            assert_eq!(trained.report.validation.validation_rows, 0);
+            assert_eq!(trained.report.validation.classes.len(), 2);
+        }
+    }
+
+    #[test]
+    fn invalid_validation_fractions_are_rejected_without_clamping() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0.,1.,2.,3.], "y" => [0.,1.,0.,1.]).unwrap();
+        for fraction in [-0.1, 0.95, f64::NAN, f64::INFINITY, 0.01] {
+            let config = TrainConfig {
+                target: "y".into(),
+                epochs: 1,
+                validation_split: Some(fraction),
+                ..Default::default()
+            };
+            let result = train_impl::<Plain>(
+                &frame,
+                "invalid_fraction",
+                &[LayerKind::Dense(1)],
+                &config,
+                &Default::default(),
+                false,
+            );
+            assert!(result.is_err(), "must reject validation_split={fraction}");
+        }
+    }
+
+    #[test]
+    fn validation_loss_matches_returned_model_with_dropout_disabled() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0.,1.,2.,3.], "y" => [0.,1.,0.,1.]).unwrap();
+        let config = TrainConfig {
+            target: "y".into(),
+            epochs: 2,
+            validation_split: Some(0.5),
+            ..Default::default()
+        };
+        let trained = train_impl::<Plain>(
+            &frame,
+            "dropout_validation_oracle",
+            &[
+                LayerKind::Dense(16),
+                LayerKind::Dropout(0.75),
+                LayerKind::Dense(1),
+            ],
+            &config,
+            &Default::default(),
+            false,
+        )
+        .unwrap();
+        let input: Vec<f32> = [2., 3.]
+            .iter()
+            .map(|x| ((x - trained.fmean[0]) / trained.fstd[0]) as f32)
+            .collect();
+        let tensor =
+            Tensor::<Plain, 2>::from_data(TensorData::new(input, [2, 1]), &Default::default());
+        let prediction = trained
+            .model
+            .forward(tensor)
+            .into_data()
+            .to_vec::<f32>()
+            .unwrap();
+        let expected =
+            (prediction[0] as f64).powi(2) / 2.0 + (prediction[1] as f64 - 1.0).powi(2) / 2.0;
+        assert!(
+            (trained.report.final_val_loss.unwrap() - expected).abs() < 1e-5 * expected.max(1.0),
+            "reported={:?}, independently recomputed={expected}",
+            trained.report.final_val_loss
+        );
+    }
+
+    #[test]
+    fn validation_rows_do_not_fit_training_standardization() {
+        use polars::prelude::*;
+        let frame =
+            df!("x" => [0.0, 2.0, 1000.0, 2000.0], "y" => [1.0, 3.0, 100.0, 200.0]).unwrap();
+        let config = TrainConfig {
+            target: "y".into(),
+            epochs: 1,
+            validation_split: Some(0.5),
+            ..Default::default()
+        };
+        let trained = train_impl::<Plain>(
+            &frame,
+            "SplitStats",
+            &[LayerKind::Dense(1)],
+            &config,
+            &Default::default(),
+            false,
+        )
+        .unwrap();
+        assert_eq!(trained.fmean, vec![1.0]);
+        assert!((trained.fstd[0] - 2.0f64.sqrt()).abs() < 1e-10);
+        assert_eq!(trained.report.validation.train_rows, 2);
+        assert_eq!(trained.report.validation.validation_rows, 2);
+        let json = serde_json::to_value(&trained.report).unwrap();
+        assert_eq!(json["validation"]["strategy"], "sequential");
+        assert!(trained.report.final_val_loss.unwrap().is_finite());
+    }
 
     fn embedding_layer(vocab: EmbeddingVocab) -> LayerKind {
         LayerKind::Embedding {
@@ -2081,6 +2320,7 @@ mod tests {
             predictions: vec![1.0],
             targets: vec![1.0],
             checkpoint_path: "checkpoints/ManifestMlp.json".to_string(),
+            validation: SplitReport::default(),
             checkpoint_format_version: CHECKPOINT_FORMAT_VERSION,
             stopped_early: false,
             best_epoch: 0,

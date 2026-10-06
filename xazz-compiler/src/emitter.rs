@@ -110,6 +110,21 @@ fn generate_rust_src(
     program: &Program,
     source_path: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    let unsupported = |config: &TrainConfig| {
+        config.split_strategy != crate::ast::SplitStrategy::Sequential
+            || config.time_column.is_some()
+    };
+    if program.stmts.iter().any(|stmt| match stmt {
+        Stmt::TrainStmt { config, .. } => unsupported(config),
+        Stmt::VarDecl { ops, .. } => ops.iter().any(|op| match op {
+            PipelineOp::Train { config, .. } => unsupported(config),
+            _ => false,
+        }),
+        _ => false,
+    }) {
+        return Err("Reference Rust emission supports sequential holdout only. Use xazz run for random, stratified or time_column validation.".into());
+    }
+
     // ── build the global schema map ──────────────────────────────────────────────────
     let mut schema_map: HashMap<String, Vec<StructField>> = HashMap::new();
     for stmt in &program.stmts {
@@ -1235,6 +1250,9 @@ fn emit_dl_train_call(
     let epochs = config.epochs.max(1);
     let lr = config.learning_rate;
     let batch_size = config.batch_size.unwrap_or(DEFAULT_BATCH_SIZE).max(1);
+    // TODO(#162): emit parity for `split: stratified|random` and `time_column:`.
+    // The runtime draws these splits in `xazz-exec::dl::select_split_indices`;
+    // the standalone emitter still emits the sequential tail split.
     let val_split = config
         .validation_split
         .unwrap_or(0.0)
@@ -2002,6 +2020,23 @@ mod tests {
     fn emit(src: &str) -> String {
         let program = parse(src);
         generate_rust_src(&program, "test.xzz").unwrap()
+    }
+
+    #[test]
+    fn unsupported_validation_is_not_silently_emitted_as_sequential() {
+        for option in [
+            "split: \"random\"",
+            "split: \"stratified\"",
+            "time_column: \"x\"",
+        ] {
+            for prefix in ["v trained =", "run"] {
+                let source = format!(
+                    "type S = {{ x: float, y: float }}; model M {{ Dense(1) }} v data = load(\"x.csv\") :: S; {prefix} data |> train(M, target: \"y\", validation_split: 0.2, {option});"
+                );
+                let error = generate_rust_src(&parse(&source), "test.xzz").unwrap_err();
+                assert!(error.to_string().contains("sequential holdout only"));
+            }
+        }
     }
 
     #[test]

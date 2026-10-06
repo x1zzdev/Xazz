@@ -80,6 +80,26 @@ pub fn series_to_f32(col: &Column) -> Vec<f32> {
     }
 }
 
+/// Class identifiers must survive the model's f32 boundary without rounding.
+/// Round-trip in the original dtype so large integer labels are checked exactly.
+pub(crate) fn validate_class_label_precision(column: &Column) -> Result<(), String> {
+    let restored = column
+        .cast(&DataType::Float32)
+        .and_then(|values| values.cast(column.dtype()))
+        .map_err(|error| format!("class label conversion failed: {error}"))?;
+    for row in 0..column.len() {
+        let original = column.get(row).map_err(|error| error.to_string())?;
+        let round_trip = restored.get(row).map_err(|error| error.to_string())?;
+        if original != round_trip {
+            return Err(format!(
+                "class label at row {} cannot be represented exactly as f32; encode labels as small integers before training",
+                row + 1
+            ));
+        }
+    }
+    Ok(())
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // feature/target extraction (training path)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -318,6 +338,18 @@ mod tests {
         assert_eq!(data.shape, [3, 2].into());
         let vals = data.to_vec::<f32>().unwrap();
         assert_eq!(vals, vec![1.0, 10.0, 2.0, 20.0, 3.0, 30.0]);
+    }
+
+    #[test]
+    fn class_label_precision_accepts_exact_integer_boundaries() {
+        let columns = [
+            Column::new("y".into(), [16_777_216i64, 16_777_218, -16_777_216, 0]),
+            Column::new("y".into(), [1u64 << 63, 1u64 << 24, 1, 0]),
+            Column::new("y".into(), [16_777_216f64, -16_777_216., 1., -0.]),
+        ];
+        for column in columns {
+            assert!(validate_class_label_precision(&column).is_ok());
+        }
     }
 
     #[test]

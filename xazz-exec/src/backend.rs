@@ -1086,6 +1086,8 @@ mod tests {
             sweep_sort_explicit: false,
             sweep_tiebreak: Vec::new(),
             sweep_top: None,
+            split_strategy: Default::default(),
+            time_column: None,
         };
         (df, layers, config)
     }
@@ -1307,6 +1309,8 @@ mod tests {
             sweep_sort_explicit: false,
             sweep_tiebreak: Vec::new(),
             sweep_top: None,
+            split_strategy: Default::default(),
+            time_column: None,
         };
 
         let (backend, warning) = resolve(None);
@@ -1383,6 +1387,8 @@ mod tests {
             sweep_sort_explicit: false,
             sweep_tiebreak: Vec::new(),
             sweep_top: None,
+            split_strategy: Default::default(),
+            time_column: None,
         };
 
         let (backend, warning) = resolve(None);
@@ -1438,6 +1444,8 @@ mod tests {
             sweep_sort_explicit: false,
             sweep_tiebreak: Vec::new(),
             sweep_top: None,
+            split_strategy: Default::default(),
+            time_column: None,
         };
 
         let (backend, warning) = resolve(None);
@@ -1497,6 +1505,8 @@ mod tests {
             sweep_sort_explicit: false,
             sweep_tiebreak: Vec::new(),
             sweep_top: None,
+            split_strategy: Default::default(),
+            time_column: None,
         };
 
         let (backend, warning) = resolve(None);
@@ -1566,6 +1576,8 @@ mod tests {
             sweep_sort_explicit: false,
             sweep_tiebreak: Vec::new(),
             sweep_top: None,
+            split_strategy: Default::default(),
+            time_column: None,
         };
         config.sweep.learning_rate = vec![0.05, 0.01];
         assert!(config.is_sweep());
@@ -1626,6 +1638,8 @@ mod tests {
             sweep_sort_explicit: false,
             sweep_tiebreak: Vec::new(),
             sweep_top: None,
+            split_strategy: Default::default(),
+            time_column: None,
         };
 
         let (backend, warning) = resolve(None);
