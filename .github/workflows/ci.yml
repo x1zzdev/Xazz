@@ -60,27 +60,6 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
-  benchmark-regression-tests:
-    name: Benchmark regression contract · ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    env:
-      PYTHONIOENCODING: utf-8
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Test benchmark regression contract
-        run: python -m unittest discover -s benches -p "test_bench_regression.py" -v
-
   # ── 프런트엔드 (Visual IDE) — Vite 빌드 + 컨트랙트/stdout/대비/E2E 테스트 ─────
   frontend:
     name: Frontend · Visual IDE
@@ -129,6 +108,27 @@ jobs:
           name: playwright-test-results
           path: visual-ide/test-results/
           retention-days: 7
+
+  benchmark-regression-tests:
+    name: Benchmark regression contract · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Test benchmark regression contract
+        run: python -m unittest discover -s benches -p "test_bench_regression.py" -v
 
   # ── 라이선스 · 의존성 정책 (deny.toml) ──────────────────────────────────────
   licenses:
