@@ -158,9 +158,13 @@ fn budget_boundary_uses_multiplied_charge() {
 
     // Budget 1.999 < 2.0: would pass if the runtime under-counted (charged ε once).
     //
-    // 거부는 런타임 오류와 실패 종료 코드로 드러나며 성공 마커를 남기지 않는다.
+    // 예산 초과는 오류 메시지뿐 아니라 실패 종료 코드로도 전달되어야 한다.
     let rejected = run_script(&two_column_script("1.0"), &[("XAZZ_DP_BUDGET", "1.999")]);
-    assert!(!rejected.status.success(), "예산 초과는 실패로 종료해야 함");
+    assert_eq!(
+        rejected.status.code(),
+        Some(1),
+        "runtime errors must fail the process"
+    );
     let err = stderr_of(&rejected);
     assert!(
         err.contains("[xazz RUNTIME ERROR]") && err.contains("XAZZ_DP_BUDGET"),

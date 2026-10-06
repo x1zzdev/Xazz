@@ -270,17 +270,18 @@ fn read_all(file_path: &std::path::Path) -> Result<Vec<AuditRecord>, String> {
 
     let mut file = match std::fs::File::open(file_path) {
         Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(format!("failed to open audit log: {error}")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("failed to open audit log: {e}")),
     };
-    // 쓰기 핸들의 독점 잠금이 풀린 뒤 같은 읽기 핸들에서 완전한 스냅샷을 읽는다.
-    // Windows에서는 잠금 없이 읽으면 ERROR_LOCK_VIOLATION(33)이 발생한다.
+    // Pair with append's exclusive lock. Reading through this same handle
+    // waits for a complete JSONL record and avoids Windows lock violations.
     fs2::FileExt::lock_shared(&file)
         .map_err(|e| format!("failed to lock audit log for reading: {e}"))?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)
         .map_err(|e| format!("failed to read audit log: {e}"))?;
-    // 파싱 오류를 포함한 모든 반환 경로에서 핸들 종료와 함께 잠금이 해제된다.
+    // Closing the handle releases the lock before parsing the snapshot.
+    drop(file);
     parse_records(&contents)
 }
 

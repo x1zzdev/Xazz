@@ -69,4 +69,6 @@ cargo test --locked --workspace -j 8
 
 테스트는 실행 권한이 없는 엔진을 흉내 낼 때 임시 경로의 문자열과 비교했지만, 실제 측정기는 `resolve()`한 경로로 접근 권한을 검사했다. 임시 디렉터리가 Windows junction을 거치면 같은 파일을 다르게 판단했다. 저장소의 `target/qa-166-ci/temp-alias`를 `temp-real`로 연결하고 해당 별칭을 `TEMP`·`TMP`로 지정해 같은 실패를 재현했다. 수정 전에는 `bench_pandas`가 호출돼 사전 중단 단언이 실패했다.
 
-테스트에서 예상 엔진 경로도 `resolve()`해 비교하도록 수정했다. 실제 실행 코드·권한 검사·실패 단언은 유지했다. 수정 후 일반 경로와 junction 경로에서 전체 69개 검사를 각각 실행했고 두 실행 모두 68개 통과·실패 0개·기존 POSIX 제외 1개였다. 이 변경은 테스트만 수정하므로 대용량 성능을 다시 측정하지 않았다. 기존 근거 ZIP의 테스트 소스 해시는 수정 전 기록으로 유지한다. 수정 전후 로컬 로그는 `target/qa-166-ci/windows-temp-alias-before.log`, `windows-normal-after.log`, `windows-temp-alias-after.log`에 보존했다. 최신 커밋의 원격 재검사 결과는 PR에서 별도로 확인한다.
+테스트에서 예상 엔진 경로도 `resolve()`해 비교하도록 수정했다. 실제 실행 코드·권한 검사·실패 단언은 유지했다. 수정 후 일반 경로와 junction 경로에서 전체 69개 검사를 각각 실행했고 두 실행 모두 68개 통과·실패 0개·기존 POSIX 제외 1개였다. 이 변경은 테스트만 수정하므로 대용량 성능을 다시 측정하지 않았다. 기존 근거 ZIP의 소스 해시는 보관 시점 기록으로 유지한다. 수정 전후 로컬 로그는 `target/qa-166-ci/windows-temp-alias-before.log`, `windows-normal-after.log`, `windows-temp-alias-after.log`에 보존했다. `8ad8f04`의 Linux·Windows Python CI는 통과했으며, 최신 커밋의 전체 원격 검사 결과는 PR에서 별도로 확인한다.
+
+PR #282와 함께 병합하는 경우를 미리 검사해 `dp_budget.rs`와 `audit_log.rs`의 충돌을 확인했다. 겹치는 DP 종료 코드 단언을 정확한 코드 1 검사로 맞추고, 감사로그는 완전한 내용을 읽은 뒤 핸들을 닫고 파싱하는 동일한 구현으로 맞췄다. 공유 잠금·오류 전파와 각 PR의 추가 검사는 유지한다. 변경 후 포맷·엄격한 Clippy, 서버 118개·DP 통합 5개 검사가 통과했다. 검증 결과와 병합 사전 검사 로그는 `target/qa-166-ci/overlap-*`, `pr282-pr285-merge-preview*.log`에 보존한다.
