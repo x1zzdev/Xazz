@@ -236,20 +236,27 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ github.ref_name }}"
+          NOTES_FILE=".github/release-notes/${VERSION}.md"
           PREV=$(git tag --sort=-version:refname \
             | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
             | grep -v "^${VERSION}$" \
             | head -1 || true)
 
           {
-            echo "## What's Changed"
-            echo ""
-            if [ -n "${PREV}" ]; then
-              git log --pretty=format:"- %s (%h)" "${PREV}..HEAD"
+            if [ -f "${NOTES_FILE}" ]; then
+              # Curated release notes committed for this tag (issue #177).
+              echo "<!-- source: ${NOTES_FILE} -->"
+              cat "${NOTES_FILE}"
             else
-              git log --pretty=format:"- %s (%h)" HEAD
+              echo "## What's Changed"
+              echo ""
+              if [ -n "${PREV}" ]; then
+                git log --pretty=format:"- %s (%h)" "${PREV}..HEAD"
+              else
+                git log --pretty=format:"- %s (%h)" HEAD
+              fi
+              echo ""
             fi
-            echo ""
             echo ""
             echo "---"
             echo ""
