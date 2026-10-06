@@ -338,8 +338,10 @@ class OrchestrationTests(unittest.TestCase):
 
     def test_nonexecutable_engine_fails_before_measurement(self):
         # Windows chmod는 실행 권한을 제거하지 못하므로 접근 검사 결과를 명시한다.
+        # main은 실행 경로를 resolve한다. 임시 폴더가 junction인 환경도 같은 파일로 비교한다.
+        engine = self.engine.resolve()
         if os.name == "nt":
-            access = patch.object(benchmark.os, "access", side_effect=lambda path, mode: path != self.engine)
+            access = patch.object(benchmark.os, "access", side_effect=lambda path, mode: path != engine)
         else:
             self.engine.chmod(0o644)
             access = contextlib.nullcontext()
@@ -347,7 +349,7 @@ class OrchestrationTests(unittest.TestCase):
             self.assertEqual(self.call(self.arguments), 1)
             pandas.assert_not_called()
             if mocked_access is not None:
-                mocked_access.assert_any_call(self.engine, os.X_OK)
+                mocked_access.assert_any_call(engine, os.X_OK)
         self.assertFalse(self.output.exists())
 
     def test_polars_engine_overrides_fail_without_measurement_or_environment_changes(self):

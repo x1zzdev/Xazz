@@ -62,3 +62,11 @@ cargo test --locked --workspace -j 8
 ```
 
 필수 24회는 입력·모드·단계 수에서 계산하며 하나라도 누락되면 실패한다. 이 재현에는 대용량 CSV나 LFS 다운로드가 필요하지 않다. 보고서의 절대경로는 실행 당시 근거로 보존했다. 새로운 결과는 별도 파일에 기록해 과거 실패를 덮어쓰지 않는다.
+
+## PR 게시 후 Windows CI 경로 검사 수정
+
+`4decabf`를 게시한 뒤 [Windows Python CI](https://github.com/x1zzdev/Xazz/actions/runs/37413649534/job/112107389503)의 `test_nonexecutable_engine_fails_before_measurement`가 실패했다. 69개 중 실패 1개, 기존 POSIX 제외 1개였다. Linux Python 검사는 통과했다.
+
+테스트는 실행 권한이 없는 엔진을 흉내 낼 때 임시 경로의 문자열과 비교했지만, 실제 측정기는 `resolve()`한 경로로 접근 권한을 검사했다. 임시 디렉터리가 Windows junction을 거치면 같은 파일을 다르게 판단했다. 저장소의 `target/qa-166-ci/temp-alias`를 `temp-real`로 연결하고 해당 별칭을 `TEMP`·`TMP`로 지정해 같은 실패를 재현했다. 수정 전에는 `bench_pandas`가 호출돼 사전 중단 단언이 실패했다.
+
+테스트에서 예상 엔진 경로도 `resolve()`해 비교하도록 수정했다. 실제 실행 코드·권한 검사·실패 단언은 유지했다. 수정 후 일반 경로와 junction 경로에서 전체 69개 검사를 각각 실행했고 두 실행 모두 68개 통과·실패 0개·기존 POSIX 제외 1개였다. 이 변경은 테스트만 수정하므로 대용량 성능을 다시 측정하지 않았다. 기존 근거 ZIP의 테스트 소스 해시는 수정 전 기록으로 유지한다. 수정 전후 로컬 로그는 `target/qa-166-ci/windows-temp-alias-before.log`, `windows-normal-after.log`, `windows-temp-alias-after.log`에 보존했다. 최신 커밋의 원격 재검사 결과는 PR에서 별도로 확인한다.
