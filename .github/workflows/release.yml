@@ -37,6 +37,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          lfs: true
+
+      - name: Test release data validation
+        run: python -m unittest discover -s scripts -p test_check_release_data.py
 
       - name: Install Rust stable
         shell: bash
@@ -165,6 +170,10 @@ jobs:
             exit 1
           fi
           echo "Archive ready: ${files[*]}"
+
+      - name: Validate bundled example data
+        shell: bash
+        run: python scripts/check_release_data.py "${{ env.ARCHIVE }}"
 
       - name: Upload archive artifact
         uses: actions/upload-artifact@v7

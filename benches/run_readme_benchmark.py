@@ -1,31 +1,25 @@
-"""
-benches/run_readme_benchmark.py — README 벤치마크 오케스트레이터
-===============================================================
-동일한 4단계 파이프라인(P2 정리·필터 → P3 그룹합계 → P4 Top-10 평균 → P7 fill+count)을
-Python Pandas(eager)와 Xazz(Rust + Polars LazyFrame)로 실행해 측정한다.
+"""동일한 CPU 파이프라인의 pandas·Xazz 지연 및 프로세스 트리 RSS를 측정한다.
 
-측정 방법 (공평성):
-  - 각 엔진 × 스케일 조합마다 워밍업 1회 + 측정 3회 실행, 중앙값(median) 보고
-  - 지연 시간: **파이프라인 실행만** 측정 — 인터프리터 부팅은 제외
-      * pandas: 스크립트가 내부에서 잰 total_latency_ms (부팅·import 제외)
-      * xazz:   런타임의 [xazz:timing] 마커의 pipeline_ms (프로세스 부팅 제외)
-  - 피크 RSS: **동일 기준** — 양쪽 모두 프로세스 트리(xazz는 xazz-runner 포함)를
-    3ms 주기 폴링
-  - 결과는 benches/benchmark_results.json 으로 저장 (`--out PATH`로 변경 가능)
-  - 최상위 `provenance` 키에 측정 호스트 스펙(플랫폼/OS/CPU/코어/RAM/툴체인 버전)을
-    기록한다 — 공개 벤치 수치를 머신에 귀속시키기 위함 (이슈 #262)
-
-사용법:
-    python benches/run_readme_benchmark.py [--quick] [--out PATH]
+기본 실행은 기존 small/medium/large 및 pandas/xazz 결과 형태를 유지한다.
+--quick은 small만, --scale은 지정한 스케일만 측정한다. --xlarge는 200M 행
+파일을 추가 요청하며, 파일이 없으면 실패한다. 내부 실행시간 마커가 없는 실행은
+wall-clock으로 대체하지 않는다. 원시 로그와 실패 기록은 출력 파일 옆에 보존한다.
 """
 from __future__ import annotations
 
+import argparse
+import csv as csv_module
+from datetime import datetime, timezone
+import hashlib
 import json
+import math
 import os
 import platform
+import signal
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -34,153 +28,296 @@ import psutil
 ROOT = Path(__file__).parent.parent.resolve()
 DATA = ROOT / "benches" / "data"
 PANDAS_SCRIPT = ROOT / "benches" / "pandas_pipeline.py"
-XAZZ_BIN = ROOT / "target" / "release" / "xazz"
+XAZZ_BIN = ROOT / "target" / "release" / ("xazz.exe" if os.name == "nt" else "xazz")
 TEMPLATE = ROOT / "benches" / "bench_scale_small.xzz"
 RESULTS_PATH = ROOT / "benches" / "benchmark_results.json"
-
 SCALES = ["small", "medium", "large"]
 RUNS = 3
 POLL_MS = 3
-STDERR_TAIL_LINES = 20  # 서브프로세스 실패 시 예외에 싣는 stderr 꼬리 줄 수
+STDERR_TAIL_LINES = 20
 
 
-def arg_value(flag: str, default: str) -> str:
-    """`--flag VALUE` 형태의 값을 읽는다 (없으면 default)."""
-    if flag in sys.argv:
-        i = sys.argv.index(flag)
-        if i + 1 < len(sys.argv):
-            return sys.argv[i + 1]
-    return default
+def positive_number(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        raise argparse.ArgumentTypeError("유한한 양수여야 합니다")
+    return number
+
+
+def positive_integer(value: str) -> int:
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("1 이상의 정수여야 합니다")
+    return number
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--quick", action="store_true", help="small만 측정")
+    selection.add_argument("--scale", action="append", choices=[*SCALES, "xlarge"],
+                           help="측정 스케일 선택; 여러 번 지정 가능")
+    parser.add_argument("--xlarge", action="store_true", help="선택 목록에 xlarge 추가")
+    parser.add_argument("--data-dir", type=Path, default=DATA)
+    parser.add_argument("--xazz-bin", type=Path, default=XAZZ_BIN)
+    parser.add_argument("--out", type=Path, default=RESULTS_PATH)
+    parser.add_argument("--streaming", choices=["auto", "on", "off", "both"], default="auto",
+                        help="CPU 스트리밍 요청 모드; 기본 auto는 기존 결과 형태 유지")
+    parser.add_argument("--runs", type=positive_integer, default=RUNS)
+    parser.add_argument("--timeout-seconds", type=positive_number, default=120.0,
+                        help="워밍업을 포함한 개별 실행 제한시간; 기본 120초")
+    parser.add_argument("--max-memory-mb", type=positive_number, default=4096.0,
+                        help="개별 프로세스 트리 RSS 제한(MiB); 기본 4096")
+    args = parser.parse_args(argv)
+    args.scales = list(dict.fromkeys(args.scale or (["small"] if args.quick else SCALES)))
+    if args.xlarge and "xlarge" not in args.scales:
+        args.scales.append("xlarge")
+    args.streaming_modes = ["on", "off"] if args.streaming == "both" else [args.streaming]
+    return args
+
+
+def _stop_tree(proc: subprocess.Popen, parent: psutil.Process | None,
+               observed_children: dict) -> None:
+    """동일 프로세스 그룹과 관측한 분리 세션 자식을 종료하고 회수한다.
+
+    관측되기 전에 완전히 세션을 분리하고 부모까지 종료한 임의의 프로세스는
+    폴링만으로 추적할 수 없다. 측정 대상은 사전 확인한 Xazz 번들이다.
+    """
+    children = dict(observed_children)
+    try:
+        if parent is not None:
+            children.update((child.pid, child) for child in parent.children(recursive=True))
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        pass
+    if os.name == "posix":
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    for child in children.values():
+        try:
+            child.kill()
+        except psutil.NoSuchProcess:
+            pass
+    if proc.poll() is None:
+        proc.kill()
+    proc.wait(timeout=10)
+    psutil.wait_procs(list(children.values()), timeout=2)
+
+
+def _group_remains(pid: int) -> bool:
+    if os.name != "posix":
+        return False
+    try:
+        os.killpg(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 def measure_tree(
-    cmd: list[str], cwd: Path, capture: bool = False, env: dict | None = None
+    cmd: list[str], cwd: Path, capture: bool = False, env: dict | None = None,
+    *, timeout_seconds: float = 120.0, max_memory_mb: float = 4096.0,
+    log_dir: Path | None = None, log_name: str = "run",
+    failure_markers: tuple[str, ...] = (),
 ) -> tuple[float, float, str]:
-    """서브프로세스 트리 전체의 wall-clock 지연과 피크 RSS(MB)를 측정한다.
+    """두 엔진 모두 3ms 주기로 동일한 프로세스 트리 RSS를 측정한다.
 
-    capture=True 면 stdout 을 돌려받는다 — [xazz:timing] 마커 파싱용.
+    stdout/stderr는 파이프 대신 파일로 배출해 출력량에 따른 교착을 방지한다.
+    반환 wall-clock은 진단값이며 파이프라인 지연의 대체값으로 사용하지 않는다.
     """
+    if log_dir is None:
+        log_dir = Path(tempfile.mkdtemp(prefix="xazz-benchmark-"))
+    log_dir.mkdir(parents=True, exist_ok=True)
+    stdout_path, stderr_path = log_dir / f"{log_name}.stdout.log", log_dir / f"{log_name}.stderr.log"
     proc_env = os.environ.copy()
-    if env:
-        proc_env.update(env)
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
-        # stderr 는 실패 진단용으로만 보관한다 — 성공 시 버려지고, 실패 시 꼬리를
-        # 예외 메시지에 싣는다 (CI 로그에 exit code 만 남아 원인을 못 보던 문제, #147).
-        stderr=subprocess.PIPE,
-        cwd=cwd,
-        env=proc_env,
-    )
-    parent = psutil.Process(proc.pid)
+    for key, value in (env or {}).items():
+        if value is None:
+            proc_env.pop(key, None)
+        else:
+            proc_env[key] = value
+    record = {"command": cmd, "cwd": str(cwd), "status": "failed",
+              "timeout_seconds": timeout_seconds, "max_memory_mb": max_memory_mb,
+              "stdout": str(stdout_path), "stderr": str(stderr_path), "env_overrides": env or {}}
+    proc = parent = None
+    observed_children = {}
     peak_mb = 0.0
     t0 = time.perf_counter()
-    while proc.poll() is None:
-        total = 0.0
-        try:
-            for p in [parent, *parent.children(recursive=True)]:
+    try:
+        with stdout_path.open("wb") as stdout_log, stderr_path.open("wb") as stderr_log:
+            proc = subprocess.Popen(cmd, stdout=stdout_log, stderr=stderr_log, cwd=cwd,
+                                    env=proc_env, start_new_session=os.name == "posix")
+            parent = psutil.Process(proc.pid)
+            while proc.poll() is None:
+                total = 0
                 try:
-                    total += p.memory_info().rss
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-            peak_mb = max(peak_mb, total / 1_048_576)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-        time.sleep(POLL_MS / 1000.0)
-    wall_ms = (time.perf_counter() - t0) * 1000.0
-    stdout, stderr = proc.communicate()
-    if proc.returncode != 0:
-        tail = "\n".join(stderr.decode(errors="replace").splitlines()[-STDERR_TAIL_LINES:])
-        raise RuntimeError(
-            f"exit={proc.returncode}: {' '.join(cmd)}\n--- stderr (last {STDERR_TAIL_LINES} lines) ---\n{tail}"
-        )
-    return wall_ms, peak_mb, stdout.decode(errors="replace") if capture else ""
-
-
-def parse_xazz_timing(stdout: str) -> float | None:
-    """[xazz:timing] {"pipeline_ms": N} 마커에서 파이프라인 실행 지연을 추출한다."""
-    for line in stdout.splitlines():
-        if line.startswith("[xazz:timing] "):
+                    children = parent.children(recursive=True)
+                    observed_children.update((child.pid, child) for child in children)
+                    processes = [parent, *children]
+                except psutil.NoSuchProcess:
+                    processes = []
+                for process in processes:
+                    try:
+                        total += process.memory_info().rss
+                    except psutil.NoSuchProcess:
+                        pass
+                peak_mb = max(peak_mb, total / 1_048_576)
+                if peak_mb > max_memory_mb:
+                    raise RuntimeError(f"프로세스 트리 RSS 제한 초과: {peak_mb:.1f} > {max_memory_mb:.1f} MiB")
+                if time.perf_counter() - t0 > timeout_seconds:
+                    raise RuntimeError(f"실행 제한시간 초과: {timeout_seconds:g}초")
+                time.sleep(POLL_MS / 1000.0)
+            proc.wait()
+        for child in observed_children.values():
             try:
-                return float(json.loads(line[len("[xazz:timing] ") :])["pipeline_ms"])
-            except (json.JSONDecodeError, KeyError, TypeError):
-                return None
-    return None
+                if child.is_running() and child.status() != psutil.STATUS_ZOMBIE:
+                    raise RuntimeError(f"주프로세스 종료 후 자식 프로세스가 남았습니다: pid={child.pid}")
+            except psutil.NoSuchProcess:
+                pass
+        if _group_remains(proc.pid):
+            raise RuntimeError("주프로세스 종료 후 같은 프로세스 그룹의 자식이 남았습니다")
+        if proc.returncode != 0:
+            tail = "\n".join(stderr_path.read_text(encoding="utf-8", errors="replace").splitlines()[-STDERR_TAIL_LINES:])
+            raise RuntimeError(f"exit={proc.returncode}: {' '.join(cmd)}\n{tail}")
+        for log in [stdout_path, stderr_path]:
+            with log.open(encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    if any(marker in line for marker in failure_markers):
+                        raise RuntimeError(f"성공 종료 코드와 함께 실행 오류가 출력됐습니다: {line.strip()}")
+        if peak_mb <= 0:
+            raise RuntimeError("프로세스 트리 RSS 표본을 얻지 못했습니다")
+        record["status"] = "ok"
+    except BaseException as error:
+        record["error"] = str(error)
+        if proc is not None:
+            _stop_tree(proc, parent, observed_children)
+        raise
+    finally:
+        wall_ms = (time.perf_counter() - t0) * 1000.0
+        record.update(wall_ms=wall_ms, peak_mb=peak_mb,
+                      exit_code=proc.returncode if proc is not None else None)
+        (log_dir / f"{log_name}.measurement.json").write_text(
+            json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    return wall_ms, peak_mb, stdout_path.read_text(encoding="utf-8", errors="strict") if capture else ""
 
 
-def bench_pandas(csv: Path) -> dict:
-    """pandas 베이스라인: 워밍업 1회 + 측정 3회.
-
-    지연은 스크립트가 내부에서 측정한 total_latency_ms (인터프리터 부팅·import 제외).
-    RSS 는 프로세스 트리 기준 (pandas 는 자식이 없어 부모와 동일).
-    """
-    runs = []
-    for i in range(RUNS + 1):
-        _, peak, stdout = measure_tree(
-            [sys.executable, str(PANDAS_SCRIPT), str(csv)],
-            ROOT,
-            capture=True,
-        )
-        metrics = json.loads(stdout.strip().splitlines()[-1])
-        if i == 0:
-            continue  # 워밍업
-        runs.append({
-            "latency_ms": round(metrics["total_latency_ms"], 1),
-            "peak_mb": round(peak, 1),
-        })
-    return summarize(runs)
+def _latency(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise RuntimeError(f"{name}는 숫자여야 합니다: {value!r}")
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        raise RuntimeError(f"{name}는 유한한 양수여야 합니다: {value!r}")
+    return number
 
 
-def bench_xazz(csv: Path) -> dict:
-    """Xazz 정품 바이너리: 워밍업 1회 + 측정 3회.
+def _unique_object(pairs: list[tuple]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"JSON 중복 키는 허용하지 않습니다: {key}")
+        result[key] = value
+    return result
 
-    지연은 [xazz:timing] 마커의 pipeline_ms (프로세스 부팅 제외). 마커가 없으면
-    wall-clock 으로 폴백하고 note 를 남긴다 (호환성 방어).
 
-    NOTE: Policy-as-Code 가드레일이 절대경로 load() 를 차단하므로 스크립트가 놓인
-    디렉토리를 기준으로 한 **상대경로**를 템플릿에 넣는다. 스크립트는
-    benches/_bench_<scale>.xzz, 데이터는 benches/data/scale_<scale>.csv 이므로
-    스크립트 기준 경로는 `data/scale_<scale>.csv` 다.
-    """
-    script = ROOT / "benches" / f"_bench_{csv.stem}.xzz"
-    # ROOT 기준 상대경로 → policy 가드레일의 절대경로 차단을 회피하면서 데이터를 찾는다.
-    rel_csv = os.path.relpath(csv, ROOT).replace("\\", "/")
-    script.write_text(TEMPLATE.read_text(encoding="utf-8").replace("SCALE_CSV", rel_csv), encoding="utf-8")
-    # cmd 도 ROOT 상대경로 (cwd=ROOT)
-    cmd = [str(XAZZ_BIN), "run", os.path.join("benches", f"_bench_{csv.stem}.xzz")]
-    runs = []
-    for i in range(RUNS + 1):
-        wall_ms, peak, stdout = measure_tree(cmd, ROOT, capture=True)
-        if i == 0:
-            continue  # 워밍업
-        pipeline_ms = parse_xazz_timing(stdout)
-        runs.append({
-            # 우선 파이프라인 실행만 사용 (부팅 제외). 마커가 없으면 wall-clock 폴백.
-            "latency_ms": round(pipeline_ms if pipeline_ms is not None else wall_ms, 1),
-            "peak_mb": round(peak, 1),
-            "fallback_to_wallclock": pipeline_ms is None,
-        })
-    script.unlink(missing_ok=True)
-    return summarize(runs)
+def parse_xazz_timing(stdout: str) -> float:
+    markers = [line[len("[xazz:timing] "):] for line in stdout.splitlines()
+               if line.startswith("[xazz:timing] ")]
+    if len(markers) != 1:
+        raise RuntimeError(f"정확히 1개의 [xazz:timing] 마커가 필요합니다; 발견={len(markers)}")
+    try:
+        value = json.loads(markers[0], object_pairs_hook=_unique_object)["pipeline_ms"]
+    except (ValueError, KeyError, TypeError) as error:
+        raise RuntimeError("[xazz:timing] pipeline_ms 마커가 올바르지 않습니다") from error
+    return _latency(value, "pipeline_ms")
 
 
 def summarize(runs: list[dict]) -> dict:
-    return {
-        "latency_ms": round(statistics.median(r["latency_ms"] for r in runs), 1),
-        "peak_mb": round(statistics.median(r["peak_mb"] for r in runs), 1),
-        "runs": runs,
-    }
+    latency = round(statistics.median(run["latency_ms"] for run in runs), 1)
+    if latency <= 0:
+        raise RuntimeError("지연 중앙값을 기존 0.1ms 결과 해상도로 표현할 수 없습니다")
+    return {"latency_ms": latency,
+            "peak_mb": round(statistics.median(run["peak_mb"] for run in runs), 1), "runs": runs}
+
+
+def parse_xazz_collections(stdout: str, streaming: str) -> list[dict]:
+    """네 단계의 런타임 수집 완료를 검사한다. Polars 내부 실행 노드는 보증하지 않는다."""
+    markers = [line[len("[xazz:collect] "):] for line in stdout.splitlines()
+               if line.startswith("[xazz:collect] ")]
+    if len(markers) != 4:
+        raise RuntimeError(f"정확히 4개의 [xazz:collect] 마커가 필요합니다; 발견={len(markers)}")
+    allowed_engines = {"on": {"streaming"}, "off": {"in-memory"},
+                       "auto": {"streaming", "in-memory"}}[streaming]
+    collections = []
+    for marker in markers:
+        try:
+            record = json.loads(marker, object_pairs_hook=_unique_object)
+            if (not isinstance(record, dict) or record.get("requested") != streaming
+                    or record.get("engine") not in allowed_engines or record.get("status") != "ok"):
+                raise ValueError("요청 모드·엔진·완료 상태 불일치")
+        except (ValueError, TypeError) as error:
+            raise RuntimeError(f"[xazz:collect] 마커가 올바르지 않습니다: {marker}") from error
+        collections.append(record)
+    return collections
+
+
+def bench_pandas(csv: Path, *, runs: int = RUNS, **measurement) -> dict:
+    samples = []
+    for index in range(runs + 1):
+        _, peak, stdout = measure_tree([sys.executable, str(PANDAS_SCRIPT), str(csv)], ROOT,
+            capture=True, env={"PYTHONIOENCODING": "utf-8"},
+            log_name=f"{csv.stem}-pandas-{index}", **measurement)
+        try:
+            metrics = json.loads(stdout.strip().splitlines()[-1], object_pairs_hook=_unique_object)
+            latency = _latency(metrics["total_latency_ms"], "pandas total_latency_ms")
+        except (IndexError, KeyError, ValueError, TypeError) as error:
+            raise RuntimeError("pandas 내부 실행시간 결과가 올바르지 않습니다") from error
+        if index:
+            samples.append({"latency_ms": latency, "peak_mb": peak})
+    return summarize(samples)
+
+
+def bench_xazz(csv: Path, *, xazz_bin: Path = XAZZ_BIN, streaming: str = "auto",
+               runs: int = RUNS, **measurement) -> dict:
+    """기존 xazz 키는 auto, 명시 모드는 별도 키로 저장한다."""
+    with tempfile.NamedTemporaryFile(prefix="_bench_", suffix=".xzz", dir=csv.parent,
+                                     mode="w", encoding="utf-8", delete=False) as handle:
+        script = Path(handle.name)
+        handle.write(TEMPLATE.read_text(encoding="utf-8").replace("SCALE_CSV", csv.name))
+    samples = []
+    warmup_collections = []
+    try:
+        for index in range(runs + 1):
+            _, peak, stdout = measure_tree([str(xazz_bin), "run", script.name], csv.parent,
+                capture=True, env={"XAZZ_BACKEND": "cpu", "XAZZ_STREAMING":
+                                   {"auto": None, "on": "1", "off": "0"}[streaming],
+                                   "XAZZ_COLLECT_DIAGNOSTICS": "1",
+                                   "XAZZ_RUNNER_PATH": str(xazz_bin.with_name("xazz-runner" + (".exe" if os.name == "nt" else ""))),
+                                   "XAZZ_EXEC_PATH": str(xazz_bin.with_name("xazz-exec" + (".exe" if os.name == "nt" else ""))),
+                                   "XAZZ_EXEC_TIMEOUT_SECS": str(math.ceil(measurement.get("timeout_seconds", 120.0)) + 1)},
+                failure_markers=("[xazz RUNTIME ERROR]",),
+                log_name=f"{csv.stem}-xazz-{streaming}-{index}", **measurement)
+            latency = parse_xazz_timing(stdout)
+            collections = parse_xazz_collections(stdout, streaming)
+            if index:
+                samples.append({"latency_ms": latency, "peak_mb": peak,
+                                "fallback_to_wallclock": False, "collections": collections})
+            else:
+                warmup_collections = collections
+    finally:
+        script.unlink(missing_ok=True)
+    result = summarize(samples)
+    result.update(collection_diagnostics_verified=True, warmup_collections=warmup_collections)
+    return result
 
 
 def _cmd_stdout(cmd: list[str]) -> str | None:
     try:
-        return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL).strip()
-    except (OSError, subprocess.CalledProcessError):
+        return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL, timeout=10).strip()
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return None
 
 
 def _cpu_model() -> str | None:
-    """CPU 모델명 — 프로비넌스 캡션에 필요 (이슈 #262)."""
     if sys.platform.startswith("linux"):
         try:
             for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
@@ -199,87 +336,121 @@ def _pkg_version(name: str) -> str | None:
     try:
         module = __import__(name)
         return getattr(module, "__version__", None)
-    except Exception:
+    except ImportError:
         return None
 
 
-def _xazz_version() -> str | None:
-    out = _cmd_stdout([str(XAZZ_BIN), "--version"])
-    if out:
-        parts = out.split()
-        return parts[-1] if parts else out
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def collect_provenance(xazz_bin: Path = XAZZ_BIN, *, streaming_modes: list[str] | None = None) -> dict:
+    version = _cmd_stdout([str(xazz_bin), "--version"])
+    siblings = {path.name: _sha256(path) for path in _bundle_paths(xazz_bin).values() if path.is_file()}
+    return {"recorded": True, "platform": platform.platform(), "system": platform.system(),
+        "release": platform.release(), "machine": platform.machine(),
+        "processor": platform.processor() or None, "cpu_model": _cpu_model(),
+        "cpu_physical_cores": psutil.cpu_count(logical=False), "cpu_logical_cores": psutil.cpu_count(),
+        "total_ram_gb": round(psutil.virtual_memory().total / 1_073_741_824, 1),
+        "python": platform.python_version(), "pandas": _pkg_version("pandas"),
+        "polars": _pkg_version("polars"), "numpy": _pkg_version("numpy"),
+        "xazz": version, "xazz_version_verified": bool(version),
+        "xazz_binary": str(xazz_bin), "binary_sha256": siblings,
+        "streaming_requested_modes": streaming_modes or ["auto"],
+        "streaming_actual_engine_verified": False,
+        "streaming_note": "각 실행의 네 수집 완료 마커로 런타임이 선택한 Polars 수집 API를 검증합니다. Polars 내부 모든 노드의 스트리밍 실행이나 메모리 상한을 보증하지 않습니다.",
+        "rss_method": "프로세스 트리 RSS 합계의 3ms 폴링 최댓값(MiB)",
+        "latency_method": "각 엔진 내부 파이프라인 실행시간; wall-clock 대체 금지",
+        "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
+        "git_head": _cmd_stdout(["git", "-C", str(ROOT), "rev-parse", "HEAD"]),
+        "git_worktree_status": _cmd_stdout(["git", "-C", str(ROOT), "status", "--short"]),
+        "runtime_source_sha256": _sha256(ROOT / "xazz-exec" / "src" / "runtime.rs"),
+        "benchmark_script_sha256": _sha256(Path(__file__)),
+        "pipeline_template_sha256": _sha256(TEMPLATE),
+        "pandas_pipeline_sha256": _sha256(PANDAS_SCRIPT),
+        "summary_latency_resolution_ms": 0.1}
+
+
+def _bundle_paths(binary: Path) -> dict[str, Path]:
+    suffix = ".exe" if os.name == "nt" else ""
+    return {"xazz": binary, "xazz-runner": binary.with_name("xazz-runner" + suffix),
+            "xazz-exec": binary.with_name("xazz-exec" + suffix)}
+
+
+def _input_metadata(path: Path) -> dict:
+    columns = ("date", "station", "pm10", "pm25")
+    count = 0
     try:
-        for line in (ROOT / "Cargo.toml").read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if stripped.startswith("version") and "=" in stripped:
-                return stripped.split("=", 1)[1].strip().strip('"')
-    except OSError:
-        pass
-    return None
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv_module.reader(handle, strict=True)
+            header = next(reader, None)
+            if header is None or tuple(header) != columns:
+                raise RuntimeError(f"{path}: 헤더와 순서가 {list(columns)}여야 합니다: {header}")
+            for record in reader:
+                if len(record) != len(columns):
+                    raise RuntimeError(
+                        f"{path}: CSV {reader.line_num}번째 줄의 열 개수 {len(record)}가 헤더 {len(columns)}와 다릅니다"
+                    )
+                count += 1
+    except (UnicodeError, csv_module.Error) as error:
+        raise RuntimeError(f"{path}: 올바른 UTF-8 CSV가 아닙니다: {error}") from error
+    if count <= 0:
+        raise RuntimeError(f"측정할 데이터 행이 없습니다: {path}")
+    return {"file": path.name, "rows": count, "bytes": path.stat().st_size,
+            "sha256": _sha256(path)}
 
 
-def collect_provenance() -> dict:
-    """측정 호스트/툴체인 메타데이터.
-
-    README 벤치 수치를 머신 스펙에 귀속시키기 위해 `benchmark_results.json`의
-    최상위 `provenance` 키로 기록한다 (이슈 #262 공개 게이트: 측정 머신 스펙·프로비넌스 명시).
-    """
-    vm = psutil.virtual_memory()
-    return {
-        "recorded": True,
-        "platform": platform.platform(),
-        "system": platform.system(),
-        "release": platform.release(),
-        "machine": platform.machine(),
-        "processor": platform.processor() or None,
-        "cpu_model": _cpu_model(),
-        "cpu_physical_cores": psutil.cpu_count(logical=False),
-        "cpu_logical_cores": psutil.cpu_count(logical=True),
-        "total_ram_gb": round(vm.total / 1_073_741_824, 1),
-        "python": platform.python_version(),
-        "pandas": _pkg_version("pandas"),
-        "polars": _pkg_version("polars"),
-        "numpy": _pkg_version("numpy"),
-        "xazz": _xazz_version(),
-    }
-
-
-def main() -> None:
-    quick = "--quick" in sys.argv
-    out_path = arg_value("--out", str(RESULTS_PATH))
-    scales = ["small"] if quick else SCALES
-    # 200M 행 스케일은 선택 — make_scale_data.py --xlarge 로 데이터 생성 후 --xlarge 로 측정
-    if "--xlarge" in sys.argv and DATA.joinpath("scale_xlarge.csv").exists():
-        scales = scales + ["xlarge"]
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    data_dir, binary, out = args.data_dir.resolve(), args.xazz_bin.resolve(), args.out.resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    logs = Path(tempfile.mkdtemp(prefix=out.stem + "-logs-", dir=out.parent))
     results: dict = {}
-    for scale in scales:
-        csv = DATA / f"scale_{scale}.csv"
-        if not csv.exists():
-            raise SystemExit(f"{csv} 없음 — 먼저 make_scale_data.py 를 실행하세요")
-        rows = sum(1 for _ in csv.open("rb")) - 1
-        print(f"\n──── scale = {scale.upper()} ({rows:,} rows, {csv.stat().st_size/1_048_576:.1f} MB)")
-        print("  [pandas] …", flush=True)
-        results.setdefault(scale, {})["pandas"] = bench_pandas(csv)
-        p = results[scale]["pandas"]
-        print(f"  [pandas] median latency = {p['latency_ms']:>10,.1f} ms | peak RSS = {p['peak_mb']:,.1f} MB", flush=True)
-        print("  [xazz] …", flush=True)
-        results.setdefault(scale, {})["xazz"] = bench_xazz(csv)
-        x = results[scale]["xazz"]
-        print(f"  [xazz] median latency = {x['latency_ms']:>10,.1f} ms | peak RSS = {x['peak_mb']:,.1f} MB", flush=True)
-        results[scale]["rows"] = rows
-
-    results["provenance"] = collect_provenance()
-    Path(out_path).write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"\n결과 저장 → {out_path}")
-    prov = results["provenance"]
-    print(
-        "  host: "
-        f"{prov['cpu_model']} | {prov['cpu_physical_cores']}c/{prov['cpu_logical_cores']}t"
-        f" | {prov['total_ram_gb']} GB | {prov['system']} {prov['release']}"
-    )
-    lg = results[scales[-1]]
-    print(f"Speedup (last scale): {lg['pandas']['latency_ms'] / lg['xazz']['latency_ms']:.2f}x")
+    try:
+        for name in ("POLARS_AUTO_NEW_STREAMING", "POLARS_FORCE_NEW_STREAMING"):
+            if os.environ.get(name) == "1":
+                raise RuntimeError(f"{name}=1은 요청 엔진을 우회할 수 있어 측정할 수 없습니다. 명시적으로 해제한 뒤 다시 실행하세요")
+        files = {scale: data_dir / f"scale_{scale}.csv" for scale in args.scales}
+        for csv in files.values():
+            if not csv.is_file():
+                raise RuntimeError(f"요청한 데이터 파일이 없습니다: {csv}")
+        for name, path in _bundle_paths(binary).items():
+            if not path.is_file() or not os.access(path, os.X_OK):
+                raise RuntimeError(f"실행 가능한 {name} 바이너리가 없습니다: {path}")
+        inputs = {scale: _input_metadata(csv) for scale, csv in files.items()}
+        measurement = {"timeout_seconds": args.timeout_seconds, "max_memory_mb": args.max_memory_mb,
+                       "log_dir": logs}
+        for scale, csv in files.items():
+            rows = inputs[scale]["rows"]
+            print(f"\n{scale}: {rows:,}행, {csv.stat().st_size / 1_048_576:.1f} MiB", flush=True)
+            entry = {"rows": rows, "pandas": bench_pandas(csv, runs=args.runs, **measurement)}
+            for mode in args.streaming_modes:
+                key = "xazz" if mode == "auto" else f"xazz_streaming_{mode}"
+                entry[key] = bench_xazz(csv, xazz_bin=binary, streaming=mode, runs=args.runs, **measurement)
+                print(f"  {key}: {entry[key]['latency_ms']:.1f} ms, {entry[key]['peak_mb']:.1f} MiB", flush=True)
+            results[scale] = entry
+        results["provenance"] = collect_provenance(binary, streaming_modes=args.streaming_modes)
+        results["provenance"].update(warmup_runs=1, measured_runs=args.runs,
+            timeout_seconds=args.timeout_seconds, max_memory_mb=args.max_memory_mb,
+            raw_logs=str(logs), inputs=inputs)
+        with tempfile.NamedTemporaryFile(mode="w", dir=out.parent, encoding="utf-8", delete=False) as handle:
+            temporary = Path(handle.name)
+            json.dump(results, handle, ensure_ascii=False, indent=2, allow_nan=False)
+        temporary.replace(out)
+        print(f"결과 저장: {out}\n원시 로그: {logs}")
+        return 0
+    except (Exception, KeyboardInterrupt) as error:
+        failure = {"status": "failed", "error": str(error), "requested_scales": args.scales,
+            "streaming_requested_modes": args.streaming_modes, "completed_scales": list(results),
+            "success_output_updated": False, "raw_logs": str(logs)}
+        (logs / "failure.json").write_text(json.dumps(failure, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"측정 실패: {error}\n성공 결과는 갱신하지 않았습니다. 실패 근거: {logs}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
