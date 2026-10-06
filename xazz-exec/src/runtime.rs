@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fs;
 
 use crate::chart::{build_chart_spec, df_to_json_array, write_chart_html};
-use xazz_compiler::ast::{LayerKind, LoadOptions, SaveFormat, SweepMetric};
+use xazz_compiler::ast::{LayerKind, LoadOptions, SaveFormat};
 use xazz_compiler::ir::{ColType, MLOp, PipelineNode, Schema, SideOp, Source, Step as IrStep};
 use xazz_compiler::{Lexer, Parser};
 use xazz_core::i18n::{is_korean, tr};
@@ -1850,10 +1850,11 @@ fn print_sweep_report(report: &crate::dl::SweepReport) {
             .final_val_loss
             .map(|v| format!("{v:.6}"))
             .unwrap_or_else(|| "-".to_string());
-        let metric_value = match report.metric {
-            SweepMetric::Mse => c.final_val_loss.unwrap_or(c.final_train_loss),
-            SweepMetric::Mae => c.val_mae.unwrap_or(c.train_mae),
-            SweepMetric::R2 => c.val_r2.unwrap_or(c.train_r2),
+        let score = crate::dl::SweepReport::score(c, report.metric);
+        let metric_value = if report.metric.lower_is_better() {
+            score
+        } else {
+            -score
         };
         let mark = if i == report.best_index { " ★" } else { "" };
         println!(
@@ -1910,33 +1911,54 @@ fn print_train_report(trained: &crate::dl::TrainedModel) {
         tr("parameters", "파라미터 수"),
         report.num_params
     );
-    println!(
-        "  {} : {:.6}",
-        tr("final loss (MSE)", "최종 손실(MSE)"),
-        report.final_train_loss
-    );
-    if let Some(v) = report.final_val_loss {
+    if let Some(metrics) = &report.classification {
+        println!("  cross-entropy (train): {:.6}", report.final_train_loss);
+        if let Some(loss) = report.final_val_loss {
+            println!("  cross-entropy (val): {loss:.6}");
+        }
+        for (partition, metrics) in std::iter::once(("train", metrics)).chain(
+            report
+                .validation_classification
+                .as_ref()
+                .map(|m| ("val", m)),
+        ) {
+            println!(
+                "  {partition}: accuracy={:.6}, precision={:.6}, recall={:.6}, F1={:.6}",
+                metrics.accuracy, metrics.precision, metrics.recall, metrics.f1
+            );
+            if let Some(auc) = metrics.auc {
+                println!("  AUC ({partition}): {auc:.6}");
+            }
+        }
+    } else {
         println!(
             "  {} : {:.6}",
-            tr("validation loss (MSE)", "검증 손실(MSE)"),
-            v
+            tr("final loss (MSE)", "최종 손실(MSE)"),
+            report.final_train_loss
         );
-    }
-    println!(
-        "  {} : {:.6}",
-        tr("final MAE (train)", "최종 MAE(학습)"),
-        report.final_train_mae
-    );
-    if let Some(v) = report.final_val_mae {
-        println!("  {} : {:.6}", tr("MAE (val)", "MAE(검증)"), v);
-    }
-    println!(
-        "  {} : {:.6}",
-        tr("final R² (train)", "최종 R²(학습)"),
-        report.final_train_r2
-    );
-    if let Some(v) = report.final_val_r2 {
-        println!("  {} : {:.6}", tr("R² (val)", "R²(검증)"), v);
+        if let Some(v) = report.final_val_loss {
+            println!(
+                "  {} : {:.6}",
+                tr("validation loss (MSE)", "검증 손실(MSE)"),
+                v
+            );
+        }
+        println!(
+            "  {} : {:.6}",
+            tr("final MAE (train)", "최종 MAE(학습)"),
+            report.final_train_mae
+        );
+        if let Some(v) = report.final_val_mae {
+            println!("  {} : {:.6}", tr("MAE (val)", "MAE(검증)"), v);
+        }
+        println!(
+            "  {} : {:.6}",
+            tr("final R² (train)", "최종 R²(학습)"),
+            report.final_train_r2
+        );
+        if let Some(v) = report.final_val_r2 {
+            println!("  {} : {:.6}", tr("R² (val)", "R²(검증)"), v);
+        }
     }
     if report.embedding_out_of_range > 0 {
         println!(

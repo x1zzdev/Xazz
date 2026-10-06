@@ -551,7 +551,7 @@ impl Parser {
                         CompileError::new(
                             ErrorKind::UnexpectedToken(raw.clone()),
                             self.current_span(),
-                            format!("알 수 없는 스윕 지표: '{}'. 지원: mse, mae, r2", raw),
+                            format!("알 수 없는 스윕 지표: '{}'. 지원: mse, mae, r2, cross_entropy, accuracy, precision, recall, f1, auc", raw),
                         )
                     })?;
                 }

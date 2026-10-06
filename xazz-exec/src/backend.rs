@@ -107,7 +107,7 @@ pub trait ComputeBackend: Send + Sync {
         config: &TrainConfig,
     ) -> Result<(TrainedModel, SweepReport), String> {
         let combos = config.expand_sweep();
-        let metric: SweepMetric = config.sweep_metric;
+        let mut metric: SweepMetric = config.sweep_metric;
         let mut best: Option<(usize, TrainedModel)> = None;
         let mut entries: Vec<SweepCombo> = Vec::with_capacity(combos.len());
 
@@ -116,6 +116,9 @@ pub trait ComputeBackend: Send + Sync {
             // provider does not write a checkpoint per combination (issue D1/D3).
             let trained = self.train_unpersisted(df, model_name, layers, combo)?;
             let report = &trained.report;
+            if !config.sweep_metric_explicit && report.classification.is_some() {
+                metric = SweepMetric::CrossEntropy;
+            }
             let entry = SweepCombo {
                 epochs: report.epochs,
                 batch_size: report.batch_size,
@@ -130,6 +133,8 @@ pub trait ComputeBackend: Send + Sync {
                 val_r2: report.final_val_r2,
                 embedding_out_of_range: report.embedding_out_of_range,
                 embedding_non_integer: report.embedding_non_integer,
+                classification: report.classification.clone(),
+                validation_classification: report.validation_classification.clone(),
                 selected: false,
             };
             let is_better = match &best {
@@ -1351,6 +1356,193 @@ mod tests {
             .train(&df, "backend_unit_bad_dim", &layers, &config)
             .expect_err("multi-output model must be rejected");
         assert!(err.contains("Dense(1)"), "오류 메시지에 안내가 없음: {err}");
+    }
+
+    #[test]
+    fn classification_sweep_rejects_explicit_regression_metrics() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0.,1.,2.,3.], "y" => [0.,1.,0.,1.]).unwrap();
+        for metric in [SweepMetric::Mse, SweepMetric::Mae, SweepMetric::R2] {
+            let mut config = TrainConfig {
+                target: "y".into(),
+                epochs: 1,
+                sweep_metric: metric,
+                sweep_metric_explicit: true,
+                ..Default::default()
+            };
+            config.sweep.learning_rate = vec![0.01, 0.02];
+            let (backend, _) = resolve(Some("cpu"));
+            let error = backend
+                .sweep(
+                    &frame,
+                    "invalid_classification_metric",
+                    &[LayerKind::Dense(2)],
+                    &config,
+                )
+                .unwrap_err();
+            assert!(error.contains("for classification"), "{error}");
+        }
+    }
+
+    #[test]
+    fn cpu_classification_trains_predicts_and_selects_sweep_by_f1() {
+        use polars::prelude::*;
+        let frame = df!("x" => [-2.,2.,-1.,1.,-3.,3.,1000.,1001.],
+            "y" => [-3.,7.,-3.,7.,-3.,7.,-3.,7.])
+        .unwrap();
+        let layers = vec![LayerKind::Dense(4), LayerKind::ReLU, LayerKind::Dense(2)];
+        let mut config = TrainConfig {
+            target: "y".into(),
+            epochs: 3,
+            validation_split: Some(0.25),
+            sweep_metric: SweepMetric::F1,
+            sweep_metric_explicit: true,
+            ..Default::default()
+        };
+        config.sweep.learning_rate = vec![0.01, 0.05];
+        let (backend, _) = resolve(Some("cpu"));
+        let (trained, sweep) = backend
+            .sweep(&frame, "classification_cpu_f1", &layers, &config)
+            .unwrap();
+        assert_eq!(
+            trained.fmean,
+            vec![0.0],
+            "validation must not affect preprocessing"
+        );
+        assert_eq!(trained.report.class_labels, vec![-3., 7.]);
+        assert_eq!(trained.report.output_dim, 2);
+        assert!(trained.report.final_train_loss.is_finite());
+        assert!(trained.report.final_val_loss.unwrap().is_finite());
+        assert_eq!(
+            trained
+                .report
+                .classification
+                .as_ref()
+                .unwrap()
+                .confusion_matrix
+                .iter()
+                .sum::<usize>(),
+            6
+        );
+        assert_eq!(
+            trained
+                .report
+                .validation_classification
+                .as_ref()
+                .unwrap()
+                .confusion_matrix
+                .iter()
+                .sum::<usize>(),
+            2
+        );
+        assert_eq!(sweep.metric, SweepMetric::F1);
+        let score = SweepReport::score(&sweep.combos[sweep.best_index], sweep.metric);
+        assert!(
+            sweep
+                .combos
+                .iter()
+                .all(|c| score <= SweepReport::score(c, sweep.metric))
+        );
+        let pred = backend
+            .predict(&trained, &frame, Some("prediction"))
+            .unwrap();
+        assert_eq!(pred.height(), 8);
+        assert!(
+            pred.column("prediction")
+                .unwrap()
+                .f64()
+                .unwrap()
+                .into_no_null_iter()
+                .all(|v| v == -3. || v == 7.)
+        );
+        let json = serde_json::to_value(&trained.report).unwrap();
+        assert!(json["classification"]["auc"].is_number());
+        assert!(json["validation_classification"]["f1"].is_number());
+        let manifest = crate::dl::load_checkpoint_manifest(&trained.report.checkpoint_path)
+            .unwrap()
+            .unwrap();
+        assert_eq!(manifest.class_labels, vec![-3., 7.]);
+        cleanup(&trained.report.checkpoint_path);
+    }
+
+    #[test]
+    fn cpu_multiclass_defaults_to_cross_entropy_and_preserves_labels() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0.,1.,2.,0.,1.,2.,0.,1.,2.],
+            "y" => [10.,20.,30.,10.,20.,30.,10.,20.,30.])
+        .unwrap();
+        let layers = vec![LayerKind::Dense(3)];
+        let mut config = TrainConfig {
+            target: "y".into(),
+            epochs: 2,
+            validation_split: Some(0.34),
+            ..Default::default()
+        };
+        config.sweep.learning_rate = vec![0.01, 0.02];
+        let (backend, _) = resolve(Some("cpu"));
+        let (trained, sweep) = backend
+            .sweep(&frame, "classification_multiclass", &layers, &config)
+            .unwrap();
+        assert_eq!(sweep.metric, SweepMetric::CrossEntropy);
+        assert_eq!(serde_json::to_value(sweep.metric).unwrap(), "cross_entropy");
+        assert_eq!(trained.report.class_labels, vec![10., 20., 30.]);
+        assert!(
+            trained
+                .report
+                .classification
+                .as_ref()
+                .unwrap()
+                .auc
+                .is_none()
+        );
+        assert!(
+            trained
+                .report
+                .validation_classification
+                .as_ref()
+                .unwrap()
+                .auc
+                .is_none()
+        );
+        let predictions = backend
+            .predict(&trained, &frame, Some("prediction"))
+            .unwrap();
+        assert!(
+            predictions
+                .column("prediction")
+                .unwrap()
+                .f64()
+                .unwrap()
+                .into_no_null_iter()
+                .all(|label| [10., 20., 30.].contains(&label))
+        );
+        cleanup(&trained.report.checkpoint_path);
+    }
+
+    #[test]
+    fn cpu_auc_selection_rejects_single_class_validation() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0.,1.,2.,3.], "y" => [0.,1.,0.,0.]).unwrap();
+        let config = TrainConfig {
+            target: "y".into(),
+            epochs: 1,
+            validation_split: Some(0.5),
+            sweep_metric: SweepMetric::Auc,
+            sweep_metric_explicit: true,
+            ..Default::default()
+        };
+        let (backend, _) = resolve(Some("cpu"));
+        let error = backend
+            .train(&frame, "undefined_auc", &[LayerKind::Dense(2)], &config)
+            .unwrap_err();
+        assert!(
+            error.contains("both classes in the evaluation partition"),
+            "{error}"
+        );
+        let error = backend
+            .train(&frame, "regression_auc", &[LayerKind::Dense(1)], &config)
+            .unwrap_err();
+        assert!(error.contains("Classification metrics require"), "{error}");
     }
 
     /// D3 Embedding: an Embedding -> ReLU -> Dense model trains and predicts end-to-end on CPU.

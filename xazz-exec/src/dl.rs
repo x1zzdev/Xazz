@@ -12,6 +12,8 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
+use crate::classification::decode_logits;
+use burn::nn::loss::CrossEntropyLossConfig;
 use burn::{
     backend::Autodiff,
     module::{AutodiffModule, Module},
@@ -487,7 +489,19 @@ pub struct TrainReport {
     /// in the forward pass) — structured mirror of the stderr warning (issue D3).
     #[serde(default)]
     pub embedding_non_integer: usize,
+    /// Classification metrics when the target is categorical (issue #163).
+    /// `None` for regression runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classification: Option<ClassificationMetrics>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation_classification: Option<ClassificationMetrics>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub class_labels: Vec<f32>,
 }
+
+pub use crate::classification::{
+    ClassificationMetrics, classification_metrics, detect_classification,
+};
 
 /// Trained model — also holds the standardization statistics needed for predict().
 #[derive(Debug, Clone)]
@@ -539,6 +553,10 @@ pub struct SweepCombo {
     /// in the forward pass) — per-combination mirror of [`TrainReport`] (D3).
     #[serde(default)]
     pub embedding_non_integer: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classification: Option<ClassificationMetrics>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation_classification: Option<ClassificationMetrics>,
     /// Whether this combination was selected as the sweep winner.
     pub selected: bool,
 }
@@ -577,9 +595,28 @@ impl SweepReport {
     /// metrics rank last.
     pub fn score(combo: &SweepCombo, metric: SweepMetric) -> f64 {
         let (primary, fallback) = match metric {
-            SweepMetric::Mse => (combo.final_val_loss, combo.final_train_loss),
+            SweepMetric::Mse | SweepMetric::CrossEntropy => {
+                (combo.final_val_loss, combo.final_train_loss)
+            }
             SweepMetric::Mae => (combo.val_mae, combo.train_mae),
             SweepMetric::R2 => (combo.val_r2, combo.train_r2),
+            metric => {
+                let metrics = combo
+                    .validation_classification
+                    .as_ref()
+                    .or(combo.classification.as_ref());
+                let value = metrics.and_then(|m| match metric {
+                    SweepMetric::Accuracy => Some(m.accuracy),
+                    SweepMetric::Precision => Some(m.precision),
+                    SweepMetric::Recall => Some(m.recall),
+                    SweepMetric::F1 => Some(m.f1),
+                    SweepMetric::Auc => m.auc,
+                    _ => None,
+                });
+                return value
+                    .filter(|v| v.is_finite())
+                    .map_or(f64::INFINITY, |v| -v);
+            }
         };
         let value = match primary {
             Some(v) if v.is_finite() => v,
@@ -668,6 +705,8 @@ pub fn save_checkpoint(model: &Mlp<Plain>, path: &str) -> Result<(), String> {
 /// be detected instead of silently misread.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CheckpointManifest {
+    #[serde(default)]
+    pub class_labels: Vec<f32>,
     pub format_version: u32,
     pub xazz_version: String,
     pub model_name: String,
@@ -690,6 +729,7 @@ impl CheckpointManifest {
     /// Builds a manifest from a training report and the declared layer graph.
     pub fn from_report(report: &TrainReport, layers: &[LayerKind]) -> Self {
         Self {
+            class_labels: report.class_labels.clone(),
             format_version: CHECKPOINT_FORMAT_VERSION,
             xazz_version: env!("CARGO_PKG_VERSION").to_string(),
             model_name: report.model_name.clone(),
@@ -1157,7 +1197,9 @@ where
             "time_column requires split: sequential; random/stratified can leak future rows".into(),
         );
     }
-    if config.split_strategy == xazz_core::ast::SplitStrategy::Stratified {
+    if config.split_strategy == xazz_core::ast::SplitStrategy::Stratified
+        || matches!(layers.last(), Some(LayerKind::Dense(width)) if *width > 1)
+    {
         let target_column = df
             .column(&config.target)
             .map_err(|error| error.to_string())?;
@@ -1250,23 +1292,34 @@ where
 
     let device_autodiff: Device<Autodiff<B>> = device.clone();
     let mut model = build_mlp::<Autodiff<B>>(layers, input_dim, &device_autodiff)?;
-    // A regression target is a single scalar; a model that ends in Conv1d/Embedding
-    // (or a multi-unit Dense without a final Dense(1)) produces several outputs.
-    // Fail closed instead of silently broadcasting the target (which then breaks
-    // predict() with a column-length error).
-    if model.out_dim != 1 {
-        return Err(if is_korean() {
-            format!(
-                "모델 '{model_name}' 의 출력 차원이 {} 입니다. 회귀 타겟은 스칼라 하나여야 합니다. 마지막에 Dense(1) 을 추가하세요.",
-                model.out_dim
-            )
-        } else {
-            format!(
-                "Model '{model_name}' outputs {} values; a regression target must be a single scalar. Add a final Dense(1).",
-                model.out_dim
-            )
-        });
+    let class_labels = if model.out_dim > 1 {
+        let classes = detect_classification(&targets, 1024).ok_or(
+            "A regression target must be scalar (Dense(1)); classification requires finite integer labels and Dense(number_of_classes)."
+        )?;
+        if model.out_dim != classes.len() || !matches!(layers.last(), Some(LayerKind::Dense(_))) {
+            return Err(
+                "Classification requires a final Dense(number_of_classes) producing raw logits. Use Dense(1) for regression."
+                    .into(),
+            );
+        }
+        classes
+    } else {
+        Vec::new()
+    };
+    let is_classification = !class_labels.is_empty();
+    if config.sweep_metric.is_classification() && !is_classification {
+        return Err(
+            "Classification metrics require a multi-class Dense output and integer targets".into(),
+        );
     }
+    if is_classification && config.sweep_metric_explicit && !config.sweep_metric.is_classification()
+    {
+        return Err(
+            "Choose cross_entropy, accuracy, precision, recall, f1 or auc for classification"
+                .into(),
+        );
+    }
+    let classification_loss = CrossEntropyLossConfig::new().init::<Autodiff<B>>(&device_autodiff);
 
     let batch_size = config.batch_size.unwrap_or(train_n.max(1));
     let lr = config.learning_rate;
@@ -1283,7 +1336,14 @@ where
             for j in 0..input_dim {
                 xv.push(xs[i * input_dim + j]);
             }
-            yv.push(ys[i]);
+            yv.push(if is_classification {
+                class_labels
+                    .iter()
+                    .position(|&c| c == ys[i])
+                    .expect("validated class") as f32
+            } else {
+                ys[i]
+            });
         }
         let x = Tensor::<Autodiff<B>, 2>::from_data(
             TensorData::new(xv, [b, input_dim]),
@@ -1323,13 +1383,22 @@ where
                 None => continue,
             };
             let out = model.forward(x);
-            let loss = ((out - y).powf_scalar(2.0)).mean();
+            let loss = if is_classification {
+                classification_loss.forward(out, y.squeeze_dims::<1>(&[1]).int())
+            } else {
+                ((out - y).powf_scalar(2.0)).mean()
+            };
             let loss_val = loss
                 .clone()
                 .into_data()
                 .to_vec::<f32>()
-                .map(|v| v[0] as f64)
-                .unwrap_or(f64::NAN);
+                .map_err(|error| format!("training loss conversion failed: {error:?}"))?
+                .first()
+                .copied()
+                .ok_or("training loss tensor is empty")? as f64;
+            if !loss_val.is_finite() {
+                return Err("training loss is not finite".into());
+            }
 
             let grads = loss.backward();
             let grads = GradientsParams::from_grads(grads, &model);
@@ -1350,8 +1419,22 @@ where
             model.training = false;
             let vout = model.forward(xv);
             model.training = true;
-            let vloss = ((vout - yv).powf_scalar(2.0)).mean();
-            final_val_loss = vloss.into_data().to_vec::<f32>().map(|v| v[0] as f64).ok();
+            let vloss = if is_classification {
+                classification_loss.forward(vout, yv.squeeze_dims::<1>(&[1]).int())
+            } else {
+                ((vout - yv).powf_scalar(2.0)).mean()
+            };
+            let value = vloss
+                .into_data()
+                .to_vec::<f32>()
+                .map_err(|error| format!("validation loss conversion failed: {error:?}"))?
+                .first()
+                .copied()
+                .ok_or("validation loss tensor is empty")? as f64;
+            if !value.is_finite() {
+                return Err("validation loss is not finite".into());
+            }
+            final_val_loss = Some(value);
         }
 
         // Early stopping: track the best validation loss and count epochs
@@ -1401,13 +1484,20 @@ where
     let mut valid_model: Mlp<B> = model.valid();
     valid_model.training = false;
     let pred_t = valid_model.forward(xp);
-    let preds = pred_t.into_data().to_vec::<f32>().unwrap_or_default();
+    let preds = pred_t
+        .into_data()
+        .to_vec::<f32>()
+        .map_err(|error| format!("sample prediction conversion failed: {error:?}"))?;
+    let preds = if is_classification {
+        decode_logits(&preds, &class_labels)?.0
+    } else {
+        preds
+    };
     let predictions: Vec<f64> = preds.iter().map(|&v| v as f64).collect();
     let targets_out: Vec<f64> = (0..n_pred).map(|i| ys[i] as f64).collect();
 
-    // ── Full-set regression metrics (D3 sweep metrics) ──────────────────────
-    // MAE/R² are evaluated over every row (not just the sample above) so a sweep
-    // can select its winner by a metric other than MSE.
+    // Evaluate the returned model over every row, then select the exact
+    // training/validation indices for losses and regression/classification metrics.
     let mut xall = Vec::with_capacity(n * input_dim);
     for i in 0..n {
         for j in 0..input_dim {
@@ -1415,22 +1505,111 @@ where
         }
     }
     let xall_t = Tensor::<B, 2>::from_data(TensorData::new(xall, [n, input_dim]), &device_plain);
-    let all_preds = valid_model.forward(xall_t).into_data().to_vec::<f32>();
-    let (final_train_mae, final_train_r2, final_val_mae, final_val_r2) = match all_preds {
-        Ok(all_preds) if all_preds.len() == n => {
-            let tp: Vec<f32> = train_idx.iter().map(|&i| all_preds[i]).collect();
-            let tt: Vec<f32> = train_idx.iter().map(|&i| ys[i]).collect();
-            let (train_mae, train_r2) = regression_metrics(&tp, &tt);
-            if val_idx.is_empty() {
-                (train_mae, train_r2, None, None)
-            } else {
-                let vp: Vec<f32> = val_idx.iter().map(|&i| all_preds[i]).collect();
-                let vt: Vec<f32> = val_idx.iter().map(|&i| ys[i]).collect();
-                let (val_mae, val_r2) = regression_metrics(&vp, &vt);
-                (train_mae, train_r2, Some(val_mae), Some(val_r2))
-            }
+    let all_output = valid_model.forward(xall_t);
+    let all_preds = all_output
+        .clone()
+        .into_data()
+        .to_vec::<f32>()
+        .map_err(|error| format!("evaluation output conversion failed: {error:?}"))?;
+    if all_preds.len() != n * model.out_dim || all_preds.iter().any(|value| !value.is_finite()) {
+        return Err("evaluation output must contain finite predictions for every row".into());
+    }
+    let (classification, validation_classification) = if is_classification {
+        let logits = &all_preds;
+        let (labels, scores) = decode_logits(logits, &class_labels)?;
+        // 최종 보고서와 스윕은 같은 반환 모델의 평가 모드 손실을 사용한다.
+        let encoded: Vec<i64> = ys
+            .iter()
+            .map(|target| {
+                class_labels
+                    .iter()
+                    .position(|class| class == target)
+                    .expect("validated class") as i64
+            })
+            .collect();
+        let encoded = Tensor::<B, 1, burn::tensor::Int>::from_data(
+            TensorData::new(encoded, [n]),
+            &device_plain,
+        );
+        let evaluation_loss = CrossEntropyLossConfig::new().init::<B>(&device_plain);
+        let evaluate_partition =
+            |indices: &[usize]| -> Result<(f64, ClassificationMetrics), String> {
+                let index_tensor = Tensor::<B, 1, burn::tensor::Int>::from_data(
+                    TensorData::new(
+                        indices.iter().map(|&i| i as i64).collect::<Vec<_>>(),
+                        [indices.len()],
+                    ),
+                    &device_plain,
+                );
+                let loss = evaluation_loss
+                    .forward(
+                        all_output.clone().select(0, index_tensor.clone()),
+                        encoded.clone().select(0, index_tensor),
+                    )
+                    .into_data()
+                    .to_vec::<f32>()
+                    .map_err(|e| format!("classification loss: {e:?}"))?
+                    .first()
+                    .copied()
+                    .ok_or("evaluation loss tensor is empty")? as f64;
+                if !loss.is_finite() {
+                    return Err("evaluation loss is not finite".into());
+                }
+                let predictions: Vec<_> = indices.iter().map(|&i| labels[i]).collect();
+                let targets: Vec<_> = indices.iter().map(|&i| ys[i]).collect();
+                let probabilities = scores
+                    .as_ref()
+                    .map(|values| indices.iter().map(|&i| values[i]).collect::<Vec<_>>());
+                let metrics = classification_metrics(
+                    &predictions,
+                    &targets,
+                    &class_labels,
+                    probabilities.as_deref(),
+                )?;
+                Ok((loss, metrics))
+            };
+        let (train_loss, train) = evaluate_partition(&train_idx)?;
+        final_train_loss = train_loss;
+        let val = if val_idx.is_empty() {
+            final_val_loss = None;
+            None
+        } else {
+            let (loss, metrics) = evaluate_partition(&val_idx)?;
+            final_val_loss = Some(loss);
+            Some(metrics)
+        };
+        if config.sweep_metric == SweepMetric::Auc && val.as_ref().unwrap_or(&train).auc.is_none() {
+            return Err("AUC selection requires binary classes with both classes in the evaluation partition".into());
         }
-        _ => (f64::NAN, f64::NAN, None, None),
+        (Some(train), val)
+    } else {
+        (None, None)
+    };
+    let (final_train_mae, final_train_r2, final_val_mae, final_val_r2) = if !is_classification {
+        let tp: Vec<f32> = train_idx.iter().map(|&i| all_preds[i]).collect();
+        let tt: Vec<f32> = train_idx.iter().map(|&i| ys[i]).collect();
+        let mse = |predictions: &[f32], targets: &[f32]| {
+            predictions
+                .iter()
+                .zip(targets)
+                .map(|(&prediction, &target)| (prediction as f64 - target as f64).powi(2))
+                .sum::<f64>()
+                / predictions.len() as f64
+        };
+        final_train_loss = mse(&tp, &tt);
+        let (train_mae, train_r2) = regression_metrics(&tp, &tt);
+        if val_idx.is_empty() {
+            final_val_loss = None;
+            (train_mae, train_r2, None, None)
+        } else {
+            let vp: Vec<f32> = val_idx.iter().map(|&i| all_preds[i]).collect();
+            let vt: Vec<f32> = val_idx.iter().map(|&i| ys[i]).collect();
+            final_val_loss = Some(mse(&vp, &vt));
+            let (val_mae, val_r2) = regression_metrics(&vp, &vt);
+            (train_mae, train_r2, Some(val_mae), Some(val_r2))
+        }
+    } else {
+        (f64::NAN, f64::NAN, None, None)
     };
 
     let num_params = model.num_params();
@@ -1484,6 +1663,9 @@ where
         final_val_mae,
         final_train_r2,
         final_val_r2,
+        classification,
+        validation_classification,
+        class_labels,
         embedding_out_of_range: embedding_diagnostics.out_of_range,
         embedding_non_integer: embedding_diagnostics.non_integer,
     };
@@ -1566,6 +1748,13 @@ fn attach_prediction(
     preds: &[f32],
     as_col: Option<&str>,
 ) -> Result<DataFrame, String> {
+    let decoded;
+    let preds = if trained.report.class_labels.is_empty() {
+        preds
+    } else {
+        decoded = decode_logits(preds, &trained.report.class_labels)?.0;
+        &decoded
+    };
     let out_col = match as_col {
         Some(c) => c.to_string(),
         None => format!("{}_pred", trained.target),
@@ -1811,28 +2000,30 @@ mod tests {
                 xazz_core::ast::SplitStrategy::Random,
                 xazz_core::ast::SplitStrategy::Stratified,
             ] {
-                let config = TrainConfig {
-                    target: "y".into(),
-                    epochs: 1,
-                    validation_split,
-                    split_strategy: strategy,
-                    time_column: Some("x".into()),
-                    ..Default::default()
-                };
-                let error = train_impl::<Plain>(
-                    &frame,
-                    "invalid_time_strategy",
-                    &[LayerKind::Dense(1)],
-                    &config,
-                    &Default::default(),
-                    false,
-                )
-                .err()
-                .expect("time-column conflict must fail even without validation rows");
-                assert!(
-                    error.contains("time_column requires split: sequential"),
-                    "{error}"
-                );
+                for width in [1, 2] {
+                    let config = TrainConfig {
+                        target: "y".into(),
+                        epochs: 1,
+                        validation_split,
+                        split_strategy: strategy,
+                        time_column: Some("x".into()),
+                        ..Default::default()
+                    };
+                    let error = train_impl::<Plain>(
+                        &frame,
+                        "invalid_time_strategy",
+                        &[LayerKind::Dense(width)],
+                        &config,
+                        &Default::default(),
+                        false,
+                    )
+                    .err()
+                    .expect("time-column conflict must fail even without validation rows");
+                    assert!(
+                        error.contains("time_column requires split: sequential"),
+                        "{error}"
+                    );
+                }
             }
         }
     }
@@ -1982,6 +2173,413 @@ mod tests {
     }
 
     #[test]
+    fn classification_losses_match_returned_logits_and_not_training_batches() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0.,1.,2.,3.], "y" => [0.,1.,0.,1.]).unwrap();
+        let config = TrainConfig {
+            target: "y".into(),
+            epochs: 2,
+            batch_size: Some(1),
+            validation_split: Some(0.5),
+            ..Default::default()
+        };
+        let trained = train_impl::<Plain>(
+            &frame,
+            "classification_loss_oracle",
+            &[
+                LayerKind::Dense(16),
+                LayerKind::Dropout(0.75),
+                LayerKind::Dense(2),
+            ],
+            &config,
+            &Default::default(),
+            false,
+        )
+        .unwrap();
+        let input: Vec<f32> = [0., 1., 2., 3.]
+            .iter()
+            .map(|x| ((x - trained.fmean[0]) / trained.fstd[0]) as f32)
+            .collect();
+        let tensor =
+            Tensor::<Plain, 2>::from_data(TensorData::new(input, [4, 1]), &Default::default());
+        let logits = trained
+            .model
+            .forward(tensor)
+            .into_data()
+            .to_vec::<f32>()
+            .unwrap();
+        let losses: Vec<f64> = logits
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .enumerate()
+            .map(|(i, row)| {
+                let max = row.iter().copied().fold(f32::NEG_INFINITY, f32::max) as f64;
+                max + row
+                    .iter()
+                    .map(|&v| (v as f64 - max).exp())
+                    .sum::<f64>()
+                    .ln()
+                    - row[i % 2] as f64
+            })
+            .collect();
+        let expected_val = (losses[2] + losses[3]) / 2.0;
+        let expected_train = (losses[0] + losses[1]) / 2.0;
+        assert!(
+            (trained.report.final_val_loss.unwrap() - expected_val).abs()
+                < 1e-5 * expected_val.max(1.0),
+            "reported val={:?}, oracle={expected_val}",
+            trained.report.final_val_loss
+        );
+        assert!(
+            (trained.report.final_train_loss - expected_train).abs()
+                < 1e-5 * expected_train.max(1.0),
+            "reported train={}, oracle={expected_train}",
+            trained.report.final_train_loss
+        );
+    }
+
+    fn assert_close(actual: f64, expected: f64, context: &str) {
+        assert!(
+            (actual - expected).abs() < 1e-5 * expected.abs().max(1.0),
+            "{context}: actual={actual}, expected={expected}"
+        );
+    }
+
+    #[test]
+    fn classification_partitions_match_independent_model_oracle() {
+        use polars::prelude::*;
+        use xazz_core::ast::SplitStrategy;
+        let x = [1., 2., 3., 4., 5., 6., 7., 8.];
+        let time = [8., 1., 7., 2., 6., 3., 5., 4.];
+        let y = [7., -3., 7., 7., -3., -3., 7., -3.];
+        let frame = df!("x" => x, "time" => time, "y" => y).unwrap();
+        // Fixed expected partitions deliberately differ from a prefix/suffix split.
+        let cases = [
+            (
+                SplitStrategy::Random,
+                None,
+                vec![5, 7, 4, 6],
+                vec![3, 1, 2, 0],
+            ),
+            (
+                SplitStrategy::Stratified,
+                None,
+                vec![0, 1, 2, 4],
+                vec![3, 5, 6, 7],
+            ),
+            (
+                SplitStrategy::Sequential,
+                Some("time"),
+                vec![1, 3, 5, 7],
+                vec![6, 4, 2, 0],
+            ),
+        ];
+        for (strategy, time_column, train, validation) in cases {
+            let config = TrainConfig {
+                target: "y".into(),
+                epochs: 2,
+                batch_size: Some(1),
+                validation_split: Some(0.5),
+                split_strategy: strategy,
+                time_column: time_column.map(Into::into),
+                ..Default::default()
+            };
+            let trained = train_impl::<Plain>(
+                &frame,
+                "combined_partition_oracle",
+                &[
+                    LayerKind::Dense(8),
+                    LayerKind::Dropout(0.7),
+                    LayerKind::Dense(2),
+                ],
+                &config,
+                &Default::default(),
+                false,
+            )
+            .unwrap();
+            for (j, values) in [x, time].iter().enumerate() {
+                let mean = train.iter().map(|&i| values[i]).sum::<f64>() / train.len() as f64;
+                let std = (train
+                    .iter()
+                    .map(|&i| (values[i] - mean).powi(2))
+                    .sum::<f64>()
+                    / (train.len() - 1) as f64)
+                    .sqrt();
+                assert_close(trained.fmean[j], mean, "training-only mean");
+                assert_close(trained.fstd[j], std, "training-only standard deviation");
+            }
+            let input: Vec<f32> = (0..x.len())
+                .flat_map(|i| {
+                    [
+                        ((x[i] - trained.fmean[0]) / trained.fstd[0]) as f32,
+                        ((time[i] - trained.fmean[1]) / trained.fstd[1]) as f32,
+                    ]
+                })
+                .collect();
+            let logits = trained
+                .model
+                .forward(Tensor::<Plain, 2>::from_data(
+                    TensorData::new(input, [8, 2]),
+                    &Default::default(),
+                ))
+                .into_data()
+                .to_vec::<f32>()
+                .unwrap();
+            for (indices, metrics, reported_loss) in [
+                (
+                    &train,
+                    trained.report.classification.as_ref().unwrap(),
+                    trained.report.final_train_loss,
+                ),
+                (
+                    &validation,
+                    trained.report.validation_classification.as_ref().unwrap(),
+                    trained.report.final_val_loss.unwrap(),
+                ),
+            ] {
+                let mut cm = [0usize; 4];
+                let mut loss = 0.0;
+                for &i in indices {
+                    let row = &logits[i * 2..i * 2 + 2];
+                    let actual = usize::from(y[i] == 7.0);
+                    let predicted = usize::from(row[1] > row[0]);
+                    cm[actual * 2 + predicted] += 1;
+                    let max = row[0].max(row[1]) as f64;
+                    loss += max
+                        + row
+                            .iter()
+                            .map(|&v| (v as f64 - max).exp())
+                            .sum::<f64>()
+                            .ln()
+                        - row[actual] as f64;
+                }
+                assert_eq!(metrics.confusion_matrix, cm);
+                assert_close(
+                    reported_loss,
+                    loss / indices.len() as f64,
+                    "returned-model cross entropy",
+                );
+                assert_close(
+                    metrics.accuracy,
+                    (cm[0] + cm[3]) as f64 / indices.len() as f64,
+                    "accuracy",
+                );
+                let (mut precision, mut recall, mut f1) = (0.0, 0.0, 0.0);
+                for class in 0..2 {
+                    let tp = cm[class * 2 + class] as f64;
+                    let actual = (cm[class * 2] + cm[class * 2 + 1]) as f64;
+                    let predicted = (cm[class] + cm[2 + class]) as f64;
+                    if predicted > 0.0 {
+                        precision += tp / predicted / 2.0;
+                    }
+                    if actual > 0.0 {
+                        recall += tp / actual / 2.0;
+                    }
+                    if actual + predicted > 0.0 {
+                        f1 += 2.0 * tp / (actual + predicted) / 2.0;
+                    }
+                }
+                assert_close(metrics.precision, precision, "macro precision");
+                assert_close(metrics.recall, recall, "macro recall");
+                assert_close(metrics.f1, f1, "macro f1");
+                let mut concordance = 0.0;
+                let mut pairs = 0;
+                for &positive in indices.iter().filter(|&&i| y[i] == 7.0) {
+                    for &negative in indices.iter().filter(|&&i| y[i] == -3.0) {
+                        let score = |i: usize| logits[2 * i + 1] as f64 - logits[2 * i] as f64;
+                        concordance += match score(positive).total_cmp(&score(negative)) {
+                            std::cmp::Ordering::Greater => 1.0,
+                            std::cmp::Ordering::Equal => 0.5,
+                            std::cmp::Ordering::Less => 0.0,
+                        };
+                        pairs += 1;
+                    }
+                }
+                assert_close(
+                    metrics.auc.unwrap(),
+                    concordance / pairs as f64,
+                    "pairwise AUC",
+                );
+            }
+            assert_eq!(trained.report.validation.train_rows, 4);
+            assert_eq!(trained.report.validation.validation_rows, 4);
+            let json = serde_json::to_value(&trained.report).unwrap();
+            assert_eq!(
+                json["validation"]["strategy"],
+                serde_json::to_value(strategy).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn regression_partitions_report_returned_model_mse() {
+        use polars::prelude::*;
+        use xazz_core::ast::SplitStrategy;
+        let x = [1., 2., 3., 4., 5., 6., 7., 8.];
+        let y = [7., -3., 7., 7., -3., -3., 7., -3.];
+        let frame = df!("x" => x, "y" => y).unwrap();
+        for (strategy, train, validation) in [
+            (
+                SplitStrategy::Sequential,
+                vec![0, 1, 2, 3],
+                vec![4, 5, 6, 7],
+            ),
+            (SplitStrategy::Random, vec![5, 7, 4, 6], vec![3, 1, 2, 0]),
+            (
+                SplitStrategy::Stratified,
+                vec![0, 1, 2, 4],
+                vec![3, 5, 6, 7],
+            ),
+        ] {
+            let config = TrainConfig {
+                target: "y".into(),
+                epochs: 2,
+                batch_size: Some(3),
+                validation_split: Some(0.5),
+                split_strategy: strategy,
+                ..Default::default()
+            };
+            let trained = train_impl::<Plain>(
+                &frame,
+                "regression_partition_oracle",
+                &[
+                    LayerKind::Dense(8),
+                    LayerKind::Dropout(0.7),
+                    LayerKind::Dense(1),
+                ],
+                &config,
+                &Default::default(),
+                false,
+            )
+            .unwrap();
+            let input = x
+                .iter()
+                .map(|&v| ((v - trained.fmean[0]) / trained.fstd[0]) as f32)
+                .collect::<Vec<_>>();
+            let prediction = trained
+                .model
+                .forward(Tensor::<Plain, 2>::from_data(
+                    TensorData::new(input, [8, 1]),
+                    &Default::default(),
+                ))
+                .into_data()
+                .to_vec::<f32>()
+                .unwrap();
+            for (indices, actual) in [
+                (&train, trained.report.final_train_loss),
+                (&validation, trained.report.final_val_loss.unwrap()),
+            ] {
+                let expected = indices
+                    .iter()
+                    .map(|&i| (prediction[i] as f64 - y[i]).powi(2))
+                    .sum::<f64>()
+                    / indices.len() as f64;
+                assert_close(actual, expected, "returned-model regression MSE");
+            }
+        }
+    }
+
+    #[test]
+    fn stratified_classification_retains_singletons_and_rejects_excess_validation() {
+        use polars::prelude::*;
+        let frame =
+            df!("x" => [0.,1.,2.,3.,4.,5.,6.], "y" => [10.,10.,10.,20.,20.,20.,99.]).unwrap();
+        let mut config = TrainConfig {
+            target: "y".into(),
+            epochs: 1,
+            validation_split: Some(0.5),
+            split_strategy: xazz_core::ast::SplitStrategy::Stratified,
+            ..Default::default()
+        };
+        let train = |config: &TrainConfig| {
+            train_impl::<Plain>(
+                &frame,
+                "rare_class_oracle",
+                &[LayerKind::Dense(3)],
+                config,
+                &Default::default(),
+                false,
+            )
+        };
+        let trained = train(&config).unwrap();
+        let rare = trained
+            .report
+            .validation
+            .classes
+            .iter()
+            .find(|c| c.label == 99.)
+            .unwrap();
+        assert_eq!((rare.train_rows, rare.validation_rows), (1, 0));
+        assert_eq!(
+            trained
+                .report
+                .classification
+                .as_ref()
+                .unwrap()
+                .confusion_matrix[6..9]
+                .iter()
+                .sum::<usize>(),
+            1
+        );
+        assert_eq!(
+            trained
+                .report
+                .validation_classification
+                .as_ref()
+                .unwrap()
+                .confusion_matrix[6..9]
+                .iter()
+                .sum::<usize>(),
+            0
+        );
+        config.validation_split = Some(0.9);
+        assert!(
+            train(&config)
+                .err()
+                .expect("excess validation must fail")
+                .contains("retain every class")
+        );
+    }
+
+    #[test]
+    fn classification_rejects_labels_changed_by_float_conversion() {
+        use polars::prelude::*;
+        let columns = [
+            Column::new("y".into(), [16_777_216i64, 16_777_217, 0, 0]),
+            Column::new("y".into(), [u64::MAX, u64::MAX - 1, 0, 0]),
+            Column::new("y".into(), [1.00000001f64, 1., 0., 0.]),
+        ];
+        for column in columns {
+            let frame =
+                DataFrame::new(4, vec![Column::new("x".into(), [0., 1., 2., 3.]), column]).unwrap();
+            for (strategy, width) in [
+                (xazz_core::ast::SplitStrategy::Sequential, 2),
+                (xazz_core::ast::SplitStrategy::Stratified, 1),
+            ] {
+                let config = TrainConfig {
+                    target: "y".into(),
+                    epochs: 1,
+                    validation_split: Some(0.5),
+                    split_strategy: strategy,
+                    ..Default::default()
+                };
+                let error = train_impl::<Plain>(
+                    &frame,
+                    "invalid_label_precision",
+                    &[LayerKind::Dense(width)],
+                    &config,
+                    &Default::default(),
+                    false,
+                )
+                .err()
+                .expect("rounded class labels must fail");
+                assert!(error.contains("exactly as f32"), "{error}");
+            }
+        }
+    }
+
+    #[test]
     fn chunk_ranges_splits_and_handles_edges() {
         // Exact multiple, remainder, single chunk, and disabled (0).
         assert_eq!(chunk_ranges(6, 2), vec![(0, 2), (2, 4), (4, 6)]);
@@ -2042,6 +2640,38 @@ mod tests {
     }
 
     #[test]
+    fn detect_classification_accepts_integer_classes() {
+        let classes =
+            detect_classification(&[0.0, 1.0, 2.0, 1.0, 2.0], 10).expect("classification");
+        assert_eq!(classes, vec![0.0, 1.0, 2.0]);
+    }
+
+    #[test]
+    fn detect_classification_rejects_continuous_target() {
+        assert!(detect_classification(&[0.0, 0.5, 1.0], 10).is_none());
+    }
+
+    #[test]
+    fn detect_classification_rejects_single_class() {
+        assert!(detect_classification(&[1.0, 1.0, 1.0], 10).is_none());
+    }
+
+    /// Expected accuracy and confusion matrix for a three-class example.
+    #[test]
+    fn classification_metrics_confusion_matrix() {
+        let classes = [0.0f32, 1.0, 2.0];
+        let targets = [0.0f32, 0.0, 1.0, 1.0, 2.0, 2.0];
+        let preds = [0.0f32, 1.0, 1.0, 1.0, 2.0, 0.0];
+        let m = classification_metrics(&preds, &targets, &classes, None).unwrap();
+        assert_eq!(m.num_classes, 3);
+        assert!((m.accuracy - 4.0 / 6.0).abs() < 1e-12);
+        // Row-major (actual * 3 + predicted): class0→{0:1,1:1}, class1→{1:2},
+        // class2→{2:1,0:1}.
+        assert_eq!(m.confusion_matrix, vec![1, 1, 0, 0, 2, 0, 1, 0, 1]);
+        assert!(m.precision.is_finite() && m.recall.is_finite() && m.f1.is_finite());
+    }
+
+    #[test]
     fn sweep_score_respects_selected_metric() {
         let mk = |val_loss: f64,
                   train_loss: f64,
@@ -2062,6 +2692,8 @@ mod tests {
             val_r2,
             embedding_out_of_range: 0,
             embedding_non_integer: 0,
+            classification: None,
+            validation_classification: None,
             selected: false,
         };
 
@@ -2109,6 +2741,8 @@ mod tests {
             val_r2: Some(0.0),
             embedding_out_of_range: 0,
             embedding_non_integer: 0,
+            classification: None,
+            validation_classification: None,
             selected: false,
         };
         let a = mk(3, 8, 0.05, 0.10);
@@ -2157,6 +2791,8 @@ mod tests {
             val_r2: Some(0.0),
             embedding_out_of_range: 0,
             embedding_non_integer: 0,
+            classification: None,
+            validation_classification: None,
             selected: false,
         };
         // Same metric (tie) but different axis values.
@@ -2328,6 +2964,9 @@ mod tests {
             final_val_mae: Some(0.5),
             final_train_r2: 0.9,
             final_val_r2: Some(0.85),
+            classification: None,
+            validation_classification: None,
+            class_labels: Vec::new(),
             embedding_out_of_range: 0,
             embedding_non_integer: 0,
         }

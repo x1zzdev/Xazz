@@ -501,7 +501,7 @@ impl Analyzer {
         }
         if !config.is_sweep() {
             let mut ignored: Vec<&str> = Vec::new();
-            if config.sweep_metric_explicit {
+            if config.sweep_metric_explicit && !config.sweep_metric.is_classification() {
                 ignored.push("metric:");
             }
             if config.sweep_sort_explicit {
@@ -876,11 +876,9 @@ impl Analyzer {
         }
     }
 
-    /// Warns when a model's output dimension does not match the scalar target.
-    ///
-    /// Training feeds a single target column and compares it against the model
-    /// output, so any model whose final width is not 1 (e.g. Conv1d/Embedding
-    /// without a final Dense(1)) broadcasts the target and later fails at predict().
+    /// Warns for unsupported output shapes. A scalar output is regression;
+    /// a final Dense(k > 1) declares classification logits, whose integer labels
+    /// and exact class count are checked after loading the training data.
     fn warn_model_output_dim(
         &mut self,
         model_name: &str,
@@ -901,7 +899,11 @@ impl Analyzer {
             Some(layers) => model_output_dim(layers, input_dim),
             None => return,
         };
-        if dim == 1 {
+        if dim == 1
+            || self.models.get(model_name).is_some_and(
+                |layers| matches!(layers.last(), Some(LayerKind::Dense(width)) if *width > 1),
+            )
+        {
             return;
         }
         self.warning(Some(model_name), if is_korean() {
@@ -2043,6 +2045,17 @@ mod tests {
     }
 
     // ── D3 hyperparameter sweep validation ─────────────────────────────────────
+    #[test]
+    fn classification_logits_and_metric_do_not_emit_regression_warnings() {
+        let r = check(
+            "type S = { x: float, y: float }; model M { Dense(2) }
+            v data = load(\"x.csv\") :: S;
+            v trained = data |> train(M, target: \"y\", metric: \"f1\");",
+        );
+        assert!(r.is_ok(), "{:?}", r.errors);
+        assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+    }
+
     #[test]
     fn valid_train_sweep_no_error() {
         let r = check(

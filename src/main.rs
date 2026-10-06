@@ -115,6 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "schema": markers.schema,
                     "diagnostics": markers.diagnostics,
                     "training": markers.training,
+                    "sweep": markers.sweep,
                     "prediction": markers.prediction,
                     "dp": markers.dp,
                     "resources": resources,
@@ -713,6 +714,8 @@ pub(crate) struct RunMarkers {
     pub diagnostics: Option<serde_json::Value>,
     /// `[xazz:train]` — Burn training report (last `train` in the script).
     pub training: Option<serde_json::Value>,
+    /// `[xazz:sweep]` — combinations, metrics and winner of the last sweep.
+    pub sweep: Option<serde_json::Value>,
     /// `[xazz:predict]` — embedding-input diagnostics of the last `predict` (D3).
     pub prediction: Option<serde_json::Value>,
     /// `[xazz:dp]` — one entry per `withDp` step, in execution order (issue #117).
@@ -758,6 +761,11 @@ pub(crate) fn parse_run_markers(stdout: &str) -> RunMarkers {
             && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
         {
             markers.training = Some(parsed);
+        }
+        if let Some(json_part) = trimmed.strip_prefix("[xazz:sweep] ")
+            && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
+        {
+            markers.sweep = Some(parsed);
         }
         if let Some(json_part) = trimmed.strip_prefix("[xazz:predict] ")
             && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_part)
@@ -859,6 +867,20 @@ mod run_marker_tests {
         assert_eq!(m.dp.len(), 1);
         assert_eq!(m.dp[0]["budget_remaining"], 3.0);
         assert_eq!(m.rows, json!([]));
+    }
+
+    #[test]
+    fn sweep_json_preserves_metrics_and_last_valid_report() {
+        let stdout = r#"[xazz:sweep] {"report":{"metric":"mse"}}
+[xazz:sweep] {"report":{"metric":"f1","best_index":1,"combos":[{"classification":{"f1":0.5}},{"classification":{"f1":0.8}}]}}
+[xazz:sweep] invalid json
+"#;
+        let markers = parse_run_markers(stdout);
+        let report = &markers.sweep.unwrap()["report"];
+        assert_eq!(report["metric"], "f1");
+        assert_eq!(report["best_index"], 1);
+        assert_eq!(report["combos"][1]["classification"]["f1"], 0.8);
+        assert!(parse_run_markers("").sweep.is_none());
     }
 
     #[test]

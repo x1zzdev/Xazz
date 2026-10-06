@@ -10,6 +10,7 @@
 ///   xazz-runner  → xazz-exec → Polars        ✓ (separate binary)
 pub mod backend;
 pub mod chart;
+pub mod classification;
 pub mod dl;
 pub mod dp;
 pub mod logging;

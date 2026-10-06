@@ -110,6 +110,25 @@ fn generate_rust_src(
     program: &Program,
     source_path: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    let unsupported = |model_name: &str, config: &TrainConfig| {
+        config.sweep_metric.is_classification()
+            || find_model_layers(program, model_name).is_some_and(
+                |layers| matches!(layers.last(), Some(LayerKind::Dense(width)) if *width > 1),
+            )
+    };
+    if program.stmts.iter().any(|stmt| match stmt {
+        Stmt::TrainStmt {
+            model_name, config, ..
+        } => unsupported(model_name, config),
+        Stmt::VarDecl { ops, .. } => ops.iter().any(|op| match op {
+            PipelineOp::Train { model_name, config } => unsupported(model_name, config),
+            _ => false,
+        }),
+        _ => false,
+    }) {
+        return Err("Reference Rust emission does not support classification. Use xazz run for cross-entropy training and classification metrics.".into());
+    }
+
     let unsupported = |config: &TrainConfig| {
         config.split_strategy != crate::ast::SplitStrategy::Sequential
             || config.time_column.is_some()
@@ -2020,6 +2039,24 @@ mod tests {
     fn emit(src: &str) -> String {
         let program = parse(src);
         generate_rust_src(&program, "test.xzz").unwrap()
+    }
+
+    #[test]
+    fn classification_emission_is_rejected_in_both_train_forms() {
+        for train in [
+            "v trained = data |> train(M, target: \"y\", metric: \"f1\");",
+            "run data |> train(M, target: \"y\");",
+        ] {
+            let source = format!(
+                "type S = {{ x: float, y: float }}; model M {{ Dense(2) }} v data = load(\"x.csv\") :: S; {train}"
+            );
+            let error = generate_rust_src(&parse(&source), "test.xzz").unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("does not support classification")
+            );
+        }
     }
 
     #[test]
