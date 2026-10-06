@@ -1103,13 +1103,15 @@ async fn handle_execute(
         _permit: permit,
         _tenant_guard: tenant_guard,
     };
+    let mut command = Command::new(exe_path);
+    command.arg("run");
 
     Ok(Json(
         run_execution_job(
             state.clone(),
             payload.code.clone(),
             tenant.clone(),
-            exe_path,
+            command,
             tmp,
             reservation,
             slot,
@@ -1134,7 +1136,7 @@ async fn run_execution_job(
     state: AppState,
     code: String,
     tenant: String,
-    exe_path: PathBuf,
+    mut command: Command,
     tmp: tempfile::NamedTempFile,
     reservation: store::DpReservation,
     slot: ExecutionSlot,
@@ -1149,9 +1151,12 @@ async fn run_execution_job(
         // while the (possibly-dropped) handler future is alive.
         let _slot = slot;
         let tmp_path = tmp.path().to_path_buf();
-        let output = Command::new(&exe_path)
-            .arg("run")
+        let output = command
             .arg(&tmp_path)
+            // The server interprets this override as the CLI path, while the
+            // runner interprets it as the engine path. Do not pass the CLI
+            // override to the runner; it resolves its sibling xazz-exec.
+            .env_remove("XAZZ_EXEC_PATH")
             .env("XAZZ_DP_BUDGET", remaining_eps.to_string())
             .env("XAZZ_DP_DELTA_BUDGET", remaining_delta.to_string())
             // Ask the CLI to relay resource telemetry as a `[xazz:resources]` marker
@@ -1159,13 +1164,27 @@ async fn run_execution_job(
             .env("XAZZ_RESOURCE_TELEMETRY", "1")
             .output();
 
-        let (success, stdout, stderr) = match output {
-            Ok(output) => (
-                output.status.success(),
-                String::from_utf8_lossy(&output.stdout).to_string(),
-                String::from_utf8_lossy(&output.stderr).to_string(),
-            ),
-            Err(e) => (false, String::new(), format!("xazz.exe 실행 실패: {}", e)),
+        let (success, stdout, stderr, err_msg_opt) = match output {
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                let error = (!output.status.success()).then(|| {
+                    let message = stderr.lines().rev().find(|line| !line.trim().is_empty());
+                    match message {
+                        Some(message) => format!("{message} ({})", output.status),
+                        None => format!("xazz 실행 실패 ({})", output.status),
+                    }
+                });
+                (
+                    output.status.success(),
+                    String::from_utf8_lossy(&output.stdout).to_string(),
+                    stderr,
+                    error,
+                )
+            }
+            Err(e) => {
+                let error = format!("xazz 실행 실패: {e}");
+                (false, String::new(), error.clone(), Some(error))
+            }
         };
 
         // 4. Parse stdout: extract [xazz:result], [xazz:chart], [xazz:train], [xazz:predict], [xazz:dp] markers
@@ -1204,11 +1223,6 @@ async fn run_execution_job(
 
         // 5b. Persist the run to history (issue C1) — survives restart.
         let rows_count = rows.as_array().map(|a| a.len() as i64).unwrap_or(0);
-        let err_msg_opt = if success {
-            None
-        } else {
-            Some(stderr.lines().last().unwrap_or("실행 실패").to_string())
-        };
         let run_id = record_run_in_store(
             &state,
             &code,
@@ -1689,7 +1703,9 @@ async fn handle_audit_lookup(
 
 async fn handle_audit_chain() -> Result<Json<Value>, (StatusCode, String)> {
     let valid = audit_log::verify_chain().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    let count = audit_log::all().map(|r| r.len()).unwrap_or(0);
+    let count = audit_log::all()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .len();
     Ok(Json(json!({ "intact": valid, "records": count })))
 }
 
@@ -2220,7 +2236,8 @@ async fn handle_inference_check(
     )
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    let chain_valid = audit_log::verify_chain().unwrap_or(false);
+    let chain_valid =
+        audit_log::verify_chain().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     Ok(Json(InferenceCheckResponse {
         safe_to_emit,
@@ -4864,74 +4881,96 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert_eq!(guardrail::runner_invocations(), before);
     }
 
-    /// A fake `xazz-runner` shell script for the disconnect tests: it touches a
-    /// start marker, sleeps, then prints one result row. The script and marker are
-    /// removed when the value is dropped.
+    /// An interpreter-driven fixture with an explicit completion handshake.
+    /// Generating executable scripts for every test triggers macOS policy scans;
+    /// invoke the system interpreter and pass the fixture as data instead.
     #[cfg(unix)]
     struct FakeRunner {
-        script: std::path::PathBuf,
+        _dir: tempfile::TempDir,
         started: std::path::PathBuf,
+        input: std::os::unix::net::UnixStream,
+        release: std::os::unix::net::UnixStream,
     }
 
     #[cfg(unix)]
     impl FakeRunner {
-        fn new(prefix: &str, sleep_secs: f64) -> Self {
-            use std::io::Write;
-            use std::os::unix::fs::PermissionsExt;
-
-            let nonce = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos();
-            let script =
-                std::env::temp_dir().join(format!("{prefix}_{}_{nonce}.sh", std::process::id()));
-            let started = std::env::temp_dir()
-                .join(format!("{prefix}_{}_{nonce}.started", std::process::id()));
-            {
-                let mut f = std::fs::File::create(&script).expect("create fake runner");
-                writeln!(f, "#!/bin/sh").unwrap();
-                writeln!(f, "touch '{}'", started.display()).unwrap();
-                writeln!(f, "sleep {sleep_secs}").unwrap();
-                writeln!(f, "echo '[xazz:result] {{\"rows\":[1],\"schema\":[]}}'").unwrap();
-                f.flush().unwrap();
+        fn new() -> Self {
+            let dir = tempfile::tempdir().expect("runner fixture directory");
+            let started = dir.path().join("started");
+            let (input, release) = std::os::unix::net::UnixStream::pair().expect("runner pipe");
+            Self {
+                _dir: dir,
+                started,
+                input,
+                release,
             }
-            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
-                .expect("chmod fake runner");
-            Self { script, started }
         }
 
-        /// Waits (up to ~5s) until the fake runner has signalled it started.
-        async fn wait_started(&self) {
+        fn command(&self) -> Command {
+            use std::os::fd::OwnedFd;
+            use std::process::Stdio;
+
+            let mut command = Command::new("/bin/sh");
+            command
+                .arg("-c")
+                .arg(
+                    ": > \"$1\"\n\
+                     IFS= read -r release || exit 70\n\
+                     printf '%s\\n' '[xazz:result] {\"rows\":[1],\"schema\":[]}'",
+                )
+                .arg("xazz-test-runner")
+                .arg(&self.started)
+                .stdin(Stdio::from(OwnedFd::from(
+                    self.input.try_clone().expect("clone runner input"),
+                )));
+            command
+        }
+
+        fn finish(&self) {
+            (&self.release)
+                .write_all(b"finish\n")
+                .expect("release runner");
+        }
+
+        /// A bounded failure guard, not the synchronization mechanism.
+        async fn wait_started(&self, task: &mut tokio::task::JoinHandle<ExecuteResponse>) {
             for _ in 0..50 {
                 if self.started.exists() {
                     return;
                 }
+                if task.is_finished() {
+                    let response = task.await.expect("runner task failed");
+                    panic!(
+                        "runner exited before start: success={}, error={:?}, stdout={:?}",
+                        response.success, response.error, response.stdout
+                    );
+                }
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
-            panic!("fake runner never started");
+            panic!("runner start marker absent after 5s; job still running");
         }
     }
 
     #[cfg(unix)]
     impl Drop for FakeRunner {
         fn drop(&mut self) {
-            let _ = std::fs::remove_file(&self.script);
-            let _ = std::fs::remove_file(&self.started);
+            // Even when an assertion panics, unblock read so Tokio's blocking
+            // task can finish and runtime shutdown cannot wait forever.
+            let _ = self.release.shutdown(std::net::Shutdown::Write);
         }
     }
 
-    /// Sets up a run exactly as `handle_execute` does — a temp `.xzz`, a granted DP
-    /// reservation, and an owned execution slot — then spawns `run_execution_job`,
-    /// waits for the fake runner to start, and aborts the caller future (what axum
-    /// does when the client disconnects). Returns the state's tenant lock so callers
-    /// can assert it stays held until the runner exits.
+    /// Sets up the same reservation and execution slot as `handle_execute`.
     #[cfg(unix)]
-    async fn spawn_disconnected_run(
+    async fn spawn_test_run(
         state: &AppState,
         code: &str,
         tenant: &str,
-        runner: &FakeRunner,
-    ) -> Arc<tokio::sync::Mutex<()>> {
+        command: Command,
+    ) -> (
+        Arc<tokio::sync::Mutex<()>>,
+        tokio::task::JoinHandle<ExecuteResponse>,
+    ) {
         use std::io::Write;
 
         let tmp = tempfile::Builder::new()
@@ -4963,7 +5002,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             state.clone(),
             code.to_string(),
             tenant.to_string(),
-            runner.script.clone(),
+            command,
             tmp,
             reservation,
             slot,
@@ -4973,7 +5012,18 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             None,
         ));
 
-        runner.wait_started().await;
+        (tenant_mutex, task)
+    }
+
+    #[cfg(unix)]
+    async fn spawn_disconnected_run(
+        state: &AppState,
+        code: &str,
+        tenant: &str,
+        runner: &FakeRunner,
+    ) -> Arc<tokio::sync::Mutex<()>> {
+        let (tenant_mutex, mut task) = spawn_test_run(state, code, tenant, runner.command()).await;
+        runner.wait_started(&mut task).await;
         task.abort();
         let _ = task.await;
 
@@ -4993,7 +5043,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let runner = FakeRunner::new("xazz_fake_runner", 0.3);
+        let runner = FakeRunner::new();
         let state = unique_state("disconnect");
         let tenant = String::new();
         let code = format!(
@@ -5005,6 +5055,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
 
         // Drop the handler future mid-run — exactly what axum does on client disconnect.
         let _tenant_mutex = spawn_disconnected_run(&state, &code, &tenant, &runner).await;
+        runner.finish();
 
         // The detached blocking task must finish its bookkeeping on its own.
         let mut recorded = before;
@@ -5035,7 +5086,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
     #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn disconnected_execute_holds_slot_until_runner_exits() {
-        let runner = FakeRunner::new("xazz_slot_runner", 0.6);
+        let runner = FakeRunner::new();
         let state = unique_state("slot-hold");
         let tenant = "slot-tenant".to_string();
         let code = "type P = { a: string }; v x = load(\"data/a.csv\") :: P;";
@@ -5055,6 +5106,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         );
 
         // Once the detached runner exits, both guards are released.
+        runner.finish();
         for _ in 0..50 {
             if state.exec_permits.available_permits() == 64 {
                 break;
@@ -5079,30 +5131,16 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn run_job_persists_resource_telemetry() {
         use std::io::Write;
-        use std::os::unix::fs::PermissionsExt;
 
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let script = std::env::temp_dir().join(format!(
-            "xazz_res_runner_{}_{}.sh",
-            std::process::id(),
-            nonce
-        ));
-        {
-            let mut f = std::fs::File::create(&script).expect("create fake runner");
-            writeln!(f, "#!/bin/sh").unwrap();
-            writeln!(
-                f,
-                "echo '[xazz:resources]{{\"duration_ms\":7,\"cpu_user_ms\":2,\"max_rss_kb\":1024,\"source\":\"runner-process-tree\"}}'"
-            )
-            .unwrap();
-            writeln!(f, "echo '[xazz:result] {{\"rows\":[],\"schema\":[]}}'").unwrap();
-            f.flush().unwrap();
-        }
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
-            .expect("chmod fake runner");
+        let mut command = Command::new("/bin/sh");
+        command.arg("-c").arg(
+            "printf '%s\\n' '[xazz:resources]{\"duration_ms\":7,\"cpu_user_ms\":2,\"max_rss_kb\":1024,\"source\":\"runner-process-tree\"}' \
+             '[xazz:result] {\"rows\":[],\"schema\":[]}'",
+        );
 
         let state = unique_state("resources-persist");
         let tenant = "res-tenant".to_string();
@@ -5138,7 +5176,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             state.clone(),
             code.clone(),
             tenant.clone(),
-            script.clone(),
+            command,
             tmp,
             reservation,
             slot,
@@ -5148,6 +5186,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             None,
         )
         .await;
+        assert!(response.success, "{:?}", response.error);
         let run_id = response.run_id.expect("run recorded");
 
         let recorded = state
@@ -5158,8 +5197,57 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         let json = recorded.resources_json.expect("resources persisted");
         assert!(json.contains("\"duration_ms\":7"), "{json}");
         assert!(json.contains("\"max_rss_kb\":1024"), "{json}");
+    }
 
-        let _ = std::fs::remove_file(&script);
+    /// Empty stderr must still expose the actual exit code or termination signal,
+    /// both in the response and in persisted history.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn run_job_preserves_process_failure_details() {
+        for (tag, script, expected) in [
+            ("exit-code", "exit 23", "exit status: 23"),
+            ("signal", "kill -TERM $$", "signal: 15"),
+            (
+                "stderr-exit",
+                "printf 'specific failure\\n\\n' >&2; exit 24",
+                "specific failure (exit status: 24)",
+            ),
+        ] {
+            let state = unique_state(tag);
+            let mut command = Command::new("/bin/sh");
+            command.arg("-c").arg(script);
+            let (_, task) = spawn_test_run(&state, "// process failure", tag, command).await;
+            let response = task.await.expect("runner task");
+            assert!(!response.success);
+            let error = response.error.expect("failure detail");
+            assert!(error.contains(expected), "{error}");
+            let recorded = state
+                .store
+                .get_run(response.run_id.expect("run id"), tag)
+                .expect("history")
+                .expect("recorded run");
+            assert_eq!(recorded.error.as_deref(), Some(error.as_str()));
+        }
+    }
+
+    /// A failed assertion must not leave the blocking execution task waiting on
+    /// the fixture's input and prevent test-runtime shutdown.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dropping_runner_fixture_unblocks_execution() {
+        let state = unique_state("fixture-drop");
+        let runner = FakeRunner::new();
+        let (_, mut task) =
+            spawn_test_run(&state, "// fixture drop", "fixture-drop", runner.command()).await;
+        runner.wait_started(&mut task).await;
+        drop(runner);
+        let response = tokio::time::timeout(std::time::Duration::from_secs(5), task)
+            .await
+            .expect("fixture drop left execution blocked")
+            .expect("runner task");
+        assert!(!response.success);
+        assert!(response.error.unwrap().contains("exit status: 70"));
+        assert_eq!(state.exec_permits.available_permits(), 64);
     }
 
     /// `run_execution_job` must persist the CLI's `[xazz:predict]` marker so

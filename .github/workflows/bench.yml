@@ -23,6 +23,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  PYTHONIOENCODING: utf-8
 
 jobs:
   bench:
@@ -55,6 +56,9 @@ jobs:
 
       - name: Install benchmark dependencies
         run: pip install --disable-pip-version-check pandas numpy psutil
+
+      - name: Test benchmark regression contract
+        run: python -m unittest discover -s benches -p "test_bench_regression.py" -v
 
       # `xazz run` spawns xazz-runner, which spawns xazz-exec from the same
       # directory (no PATH fallback, fail-closed). Without xazz-exec the runner

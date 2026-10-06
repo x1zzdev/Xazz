@@ -21,6 +21,15 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - 테스트: store 영속·테넌트 스코프 1종, 핸들러 available/empty/404 1종,
   `run_execution_job`의 `[xazz:predict]` 저장 경로 1종
 
+### Fixed — Windows smoke findings (issue #167)
+
+- CSV import avoids reserved DSL variable names such as `sample`, so the
+  generated Quick Start source passes `xazz check`.
+- Audit-log readers take a shared file lock before reading, preventing Windows
+  lock errors and partial JSONL reads during concurrent appends.
+- Release builds fetch Git LFS objects and reject archives that still contain
+  LFS pointers instead of example CSV data.
+
 ### Added — 쿼리별 ε 런타임 상한 `XAZZ_DP_MAX_EPSILON` (issue #118)
 
 - **엔진** — `dp::apply_dp`가 opt-in 환경변수 `XAZZ_DP_MAX_EPSILON`을 읽어 ε이 상한을 넘는 `withDp`를

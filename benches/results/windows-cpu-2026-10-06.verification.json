@@ -1,0 +1,570 @@
+{
+  "status": "ok",
+  "results": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large.json",
+  "raw_logs": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf",
+  "recorded_raw_logs": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf",
+  "limitations": [
+    "P2/P3/P4는 실제 출력 행 수를 대조했으며 전체 셀은 로그에 없어 대조하지 않았습니다.",
+    "지연·RSS·중앙값과 수집 API 마커는 이 계산 결과 대조기의 검사 대상이 아닙니다. 별도 측정기가 검사·기록합니다.",
+    "P3 합계·P4 평균 top10은 독립 계산값이며 실제 엔진 셀과 일치한다고 보증하지 않습니다.",
+    "pandas는 result_rows만 출력하므로 pandas P7 셀은 대조하지 않았습니다.",
+    "P7 5위 동점에서 선택되는 측정소와 동점끼리의 순서는 고정하지 않습니다."
+  ],
+  "scales": {
+    "small": {
+      "independent": {
+        "rows": 227760,
+        "bytes": 7357329,
+        "sha256": "97798b9ce37584f36b9d94c10fdac94b50e3bbffd61e3bb381d6db56243fafc9",
+        "result_rows": {
+          "p2": 151346,
+          "p3": 26,
+          "p4": 10,
+          "p7": 5
+        },
+        "p3_sums": {
+          "강남구": 225672.0,
+          "강동구": 237728.0,
+          "강북구": 233342.0,
+          "강서구": 251593.0,
+          "관악구": 238039.0,
+          "광진구": 222831.0,
+          "구로구": 210917.0,
+          "금천구": 213323.0,
+          "노원구": 246396.0,
+          "도봉구": 195223.0,
+          "동대문구": 224325.0,
+          "동작구": 254636.0,
+          "마포구": 207780.0,
+          "서대문구": 195081.0,
+          "서초구": 191593.0,
+          "성동구": 228531.0,
+          "성북구": 226140.0,
+          "송파구": 237441.0,
+          "양천구": 246143.0,
+          "영등포구": 227346.0,
+          "용산구": 239090.0,
+          "은평구": 206130.0,
+          "종로구": 228811.0,
+          "중구": 214166.0,
+          "중랑구": 232194.0,
+          "평균": 234932.0
+        },
+        "p4_top10": [
+          {
+            "station": "구로구",
+            "pm10": 44.96205499893413
+          },
+          {
+            "station": "강서구",
+            "pm10": 42.63565497373327
+          },
+          {
+            "station": "성동구",
+            "pm10": 41.445593035908594
+          },
+          {
+            "station": "서초구",
+            "pm10": 41.06150878696957
+          },
+          {
+            "station": "성북구",
+            "pm10": 40.83423618634886
+          },
+          {
+            "station": "강북구",
+            "pm10": 40.18980365139511
+          },
+          {
+            "station": "강동구",
+            "pm10": 40.06201550387597
+          },
+          {
+            "station": "관악구",
+            "pm10": 39.56765292553192
+          },
+          {
+            "station": "동대문구",
+            "pm10": 39.29322122963742
+          },
+          {
+            "station": "서대문구",
+            "pm10": 39.180759188592084
+          }
+        ],
+        "p7_counts": {
+          "평균": 1270,
+          "강남구": 1178,
+          "강동구": 1400,
+          "강북구": 1330,
+          "강서구": 1648,
+          "관악구": 1298,
+          "광진구": 1085,
+          "구로구": 1565,
+          "노원구": 1311,
+          "도봉구": 1126,
+          "동대문구": 1249,
+          "동작구": 1429,
+          "마포구": 957,
+          "서대문구": 1103,
+          "서초구": 1355,
+          "성동구": 1359,
+          "성북구": 1486,
+          "용산구": 1170,
+          "종로구": 1120,
+          "중구": 987,
+          "중랑구": 1204,
+          "송파구": 1274,
+          "양천구": 1400,
+          "은평구": 1204,
+          "금천구": 1134,
+          "영등포구": 1128
+        }
+      },
+      "checked_runs": [
+        {
+          "engine": "pandas",
+          "run": 0,
+          "warmup": true,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_small-pandas-0"
+        },
+        {
+          "engine": "pandas",
+          "run": 1,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_small-pandas-1"
+        },
+        {
+          "engine": "pandas",
+          "run": 2,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_small-pandas-2"
+        },
+        {
+          "engine": "pandas",
+          "run": 3,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_small-pandas-3"
+        },
+        {
+          "engine": "xazz-on",
+          "run": 0,
+          "warmup": true,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_small-xazz-on-0"
+        },
+        {
+          "engine": "xazz-on",
+          "run": 1,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_small-xazz-on-1"
+        },
+        {
+          "engine": "xazz-on",
+          "run": 2,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_small-xazz-on-2"
+        },
+        {
+          "engine": "xazz-on",
+          "run": 3,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_small-xazz-on-3"
+        },
+        {
+          "engine": "xazz-off",
+          "run": 0,
+          "warmup": true,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_small-xazz-off-0"
+        },
+        {
+          "engine": "xazz-off",
+          "run": 1,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_small-xazz-off-1"
+        },
+        {
+          "engine": "xazz-off",
+          "run": 2,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_small-xazz-off-2"
+        },
+        {
+          "engine": "xazz-off",
+          "run": 3,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_small-xazz-off-3"
+        }
+      ]
+    },
+    "medium": {
+      "independent": {
+        "rows": 911662,
+        "bytes": 29572815,
+        "sha256": "ccbd994082967e33e034e643a1d3cf11c85e1ccaefa4e0831dc9639cfa710fee",
+        "result_rows": {
+          "p2": 619170,
+          "p3": 26,
+          "p4": 10,
+          "p7": 5
+        },
+        "p3_sums": {
+          "강남구": 975664.0,
+          "강동구": 1029062.0,
+          "강북구": 1024026.0,
+          "강서구": 1064328.0,
+          "관악구": 1006420.0,
+          "광진구": 954340.0,
+          "구로구": 911033.0,
+          "금천구": 989470.0,
+          "노원구": 1023632.0,
+          "도봉구": 859788.0,
+          "동대문구": 972625.0,
+          "동작구": 1081167.0,
+          "마포구": 915280.0,
+          "서대문구": 848756.0,
+          "서초구": 949825.0,
+          "성동구": 981956.0,
+          "성북구": 935093.0,
+          "송파구": 1009931.0,
+          "양천구": 1062524.0,
+          "영등포구": 967314.0,
+          "용산구": 1016149.0,
+          "은평구": 898162.0,
+          "종로구": 1010526.0,
+          "중구": 949368.0,
+          "중랑구": 985493.0,
+          "평균": 1017536.0
+        },
+        "p4_top10": [
+          {
+            "station": "구로구",
+            "pm10": 46.25472177091795
+          },
+          {
+            "station": "서초구",
+            "pm10": 45.655883483945395
+          },
+          {
+            "station": "강서구",
+            "pm10": 43.902487315926244
+          },
+          {
+            "station": "성북구",
+            "pm10": 43.395813996658624
+          },
+          {
+            "station": "동작구",
+            "pm10": 42.18859015881687
+          },
+          {
+            "station": "양천구",
+            "pm10": 42.18206359919012
+          },
+          {
+            "station": "강동구",
+            "pm10": 42.13150460593654
+          },
+          {
+            "station": "강북구",
+            "pm10": 42.130585040730686
+          },
+          {
+            "station": "관악구",
+            "pm10": 41.840026606801366
+          },
+          {
+            "station": "송파구",
+            "pm10": 40.801995798319325
+          }
+        ],
+        "p7_counts": {
+          "서대문구": 5836,
+          "성동구": 6157,
+          "종로구": 6329,
+          "노원구": 6270,
+          "강동구": 6934,
+          "강북구": 6879,
+          "도봉구": 5743,
+          "중랑구": 6029,
+          "평균": 6403,
+          "광진구": 5795,
+          "동대문구": 6134,
+          "성북구": 7126,
+          "강남구": 5710,
+          "강서구": 7864,
+          "관악구": 6427,
+          "금천구": 5928,
+          "동작구": 7166,
+          "마포구": 5058,
+          "서초구": 7693,
+          "송파구": 6365,
+          "양천구": 7223,
+          "영등포구": 5750,
+          "용산구": 6273,
+          "중구": 5789,
+          "구로구": 7472,
+          "은평구": 6170
+        }
+      },
+      "checked_runs": [
+        {
+          "engine": "pandas",
+          "run": 0,
+          "warmup": true,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_medium-pandas-0"
+        },
+        {
+          "engine": "pandas",
+          "run": 1,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_medium-pandas-1"
+        },
+        {
+          "engine": "pandas",
+          "run": 2,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_medium-pandas-2"
+        },
+        {
+          "engine": "pandas",
+          "run": 3,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_medium-pandas-3"
+        },
+        {
+          "engine": "xazz-on",
+          "run": 0,
+          "warmup": true,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_medium-xazz-on-0"
+        },
+        {
+          "engine": "xazz-on",
+          "run": 1,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_medium-xazz-on-1"
+        },
+        {
+          "engine": "xazz-on",
+          "run": 2,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_medium-xazz-on-2"
+        },
+        {
+          "engine": "xazz-on",
+          "run": 3,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_medium-xazz-on-3"
+        },
+        {
+          "engine": "xazz-off",
+          "run": 0,
+          "warmup": true,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_medium-xazz-off-0"
+        },
+        {
+          "engine": "xazz-off",
+          "run": 1,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_medium-xazz-off-1"
+        },
+        {
+          "engine": "xazz-off",
+          "run": 2,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_medium-xazz-off-2"
+        },
+        {
+          "engine": "xazz-off",
+          "run": 3,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_medium-xazz-off-3"
+        }
+      ]
+    },
+    "large": {
+      "independent": {
+        "rows": 4089216,
+        "bytes": 132764264,
+        "sha256": "fa64aeb438facff214f46e78659a9648a9fbcfa17b2c8140c085c9af0846f5ac",
+        "result_rows": {
+          "p2": 2983785,
+          "p3": 26,
+          "p4": 10,
+          "p7": 5
+        },
+        "p3_sums": {
+          "강남구": 5265250.0,
+          "강동구": 5349594.0,
+          "강북구": 5146155.0,
+          "강서구": 5440645.0,
+          "관악구": 5471203.0,
+          "광진구": 5056013.0,
+          "구로구": 5259408.0,
+          "금천구": 5270811.0,
+          "노원구": 5195750.0,
+          "도봉구": 4861583.0,
+          "동대문구": 5219100.0,
+          "동작구": 5261200.0,
+          "마포구": 5292812.0,
+          "서대문구": 4788836.0,
+          "서초구": 5327744.0,
+          "성동구": 5362205.0,
+          "성북구": 4982908.0,
+          "송파구": 5206832.0,
+          "양천구": 5432739.0,
+          "영등포구": 5510197.0,
+          "용산구": 5254194.0,
+          "은평구": 5030277.0,
+          "종로구": 5245501.0,
+          "중구": 5115876.0,
+          "중랑구": 5163301.0,
+          "평균": 5571191.0
+        },
+        "p4_top10": [
+          {
+            "station": "서초구",
+            "pm10": 48.547460885887936
+          },
+          {
+            "station": "구로구",
+            "pm10": 48.14279699027882
+          },
+          {
+            "station": "강서구",
+            "pm10": 47.48668959257061
+          },
+          {
+            "station": "관악구",
+            "pm10": 46.885041218914424
+          },
+          {
+            "station": "강동구",
+            "pm10": 46.733997850946544
+          },
+          {
+            "station": "성동구",
+            "pm10": 46.599099686280645
+          },
+          {
+            "station": "영등포구",
+            "pm10": 46.28006416824847
+          },
+          {
+            "station": "서대문구",
+            "pm10": 45.99608121866416
+          },
+          {
+            "station": "양천구",
+            "pm10": 45.81496879743633
+          },
+          {
+            "station": "성북구",
+            "pm10": 45.71684939676132
+          }
+        ],
+        "p7_counts": {
+          "평균": 43404,
+          "강남구": 42471,
+          "강동구": 45001,
+          "강북구": 39842,
+          "강서구": 47130,
+          "관악구": 45866,
+          "광진구": 40552,
+          "구로구": 46688,
+          "금천구": 40527,
+          "노원구": 40692,
+          "도봉구": 38860,
+          "동대문구": 42151,
+          "동작구": 41932,
+          "마포구": 43214,
+          "서대문구": 41872,
+          "서초구": 47966,
+          "성동구": 45121,
+          "성북구": 40716,
+          "송파구": 41294,
+          "양천구": 44240,
+          "영등포구": 46060,
+          "용산구": 40097,
+          "은평구": 41136,
+          "종로구": 41339,
+          "중구": 38905,
+          "중랑구": 41738
+        }
+      },
+      "checked_runs": [
+        {
+          "engine": "pandas",
+          "run": 0,
+          "warmup": true,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_large-pandas-0"
+        },
+        {
+          "engine": "pandas",
+          "run": 1,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_large-pandas-1"
+        },
+        {
+          "engine": "pandas",
+          "run": 2,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_large-pandas-2"
+        },
+        {
+          "engine": "pandas",
+          "run": 3,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_large-pandas-3"
+        },
+        {
+          "engine": "xazz-on",
+          "run": 0,
+          "warmup": true,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_large-xazz-on-0"
+        },
+        {
+          "engine": "xazz-on",
+          "run": 1,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_large-xazz-on-1"
+        },
+        {
+          "engine": "xazz-on",
+          "run": 2,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_large-xazz-on-2"
+        },
+        {
+          "engine": "xazz-on",
+          "run": 3,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_large-xazz-on-3"
+        },
+        {
+          "engine": "xazz-off",
+          "run": 0,
+          "warmup": true,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_large-xazz-off-0"
+        },
+        {
+          "engine": "xazz-off",
+          "run": 1,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_large-xazz-off-1"
+        },
+        {
+          "engine": "xazz-off",
+          "run": 2,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_large-xazz-off-2"
+        },
+        {
+          "engine": "xazz-off",
+          "run": 3,
+          "warmup": false,
+          "log_base": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-small-large-logs-nd787qyf\\scale_large-xazz-off-3"
+        }
+      ]
+    }
+  }
+}
