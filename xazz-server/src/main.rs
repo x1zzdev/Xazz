@@ -22,6 +22,7 @@
 //!   GET  /runs                                → run history (SQLite, issue C1)
 //!   GET  /runs/:id                            → a single run record
 //!   GET  /runs/:id/resources                  → persisted run resource telemetry (issue #128)
+//!   GET  /runs/:id/prediction                 → persisted predict diagnostics (issue D3)
 //!   GET  /dp/budget                           → per-tenant DP spend/remaining + window
 //!   POST /dp/budget/reset                     → reset the tenant's DP spend/window (C2)
 //!   GET  /dp/budget/window/history?limit=&offset= → tenant's DP-window override change audit (C2)
@@ -152,6 +153,7 @@ fn tenant_str(tenant: &str) -> &str {
 }
 
 /// Records a run in the store, returning the new id (0 on store failure).
+#[allow(clippy::too_many_arguments)]
 fn record_run_in_store(
     state: &AppState,
     code: &str,
@@ -160,9 +162,11 @@ fn record_run_in_store(
     error: Option<&str>,
     tenant: &str,
     resources: Option<&Value>,
+    prediction: Option<&Value>,
 ) -> i64 {
     let hash = audit_log::hash_code(code);
     let resources_json = resources.map(|v| v.to_string());
+    let prediction_json = prediction.map(|v| v.to_string());
     match state.store.record_run(
         &hash,
         status,
@@ -170,6 +174,7 @@ fn record_run_in_store(
         error,
         tenant,
         resources_json.as_deref(),
+        prediction_json.as_deref(),
     ) {
         Ok(id) => id,
         Err(e) => {
@@ -541,6 +546,7 @@ async fn main() {
         .route("/runs", get(handle_runs_list))
         .route("/runs/{id}", get(handle_run_by_id))
         .route("/runs/{id}/resources", get(handle_run_resources))
+        .route("/runs/{id}/prediction", get(handle_run_prediction))
         .route("/dp/budget", get(handle_dp_budget))
         .route("/dp/budget/reset", post(handle_dp_budget_reset))
         .route("/dp/budget/history", get(handle_dp_reset_history))
@@ -1225,6 +1231,7 @@ async fn run_execution_job(
             err_msg_opt.as_deref(),
             &tenant,
             resources.as_ref(),
+            prediction.as_ref(),
         );
 
         if success {
@@ -2323,6 +2330,51 @@ async fn handle_run_resources(
     }
 }
 
+/// Returns the persisted embedding-predict diagnostics for one run — issue D3.
+///
+/// The `[xazz:predict]` report (embedding out-of-range / non-integer counts) is
+/// captured by the runner and relayed via the marker; `POST /execute` surfaces it
+/// on the response, and this endpoint serves it after a restart / from history.
+/// Runs recorded before the feature, or scripts that do not predict, report
+/// `available: false` instead of fabricated data.
+async fn handle_run_prediction(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+    Extension(tenant): Extension<String>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let tenant = tenant_str(tenant.as_str());
+    let record = state
+        .store
+        .get_run_prediction(id, tenant)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    match record {
+        None => Err((
+            StatusCode::NOT_FOUND,
+            format!("run {id} not found (or not in tenant '{tenant}')"),
+        )),
+        Some(rec) => {
+            let prediction = rec
+                .prediction_json
+                .as_deref()
+                .and_then(|s| serde_json::from_str::<Value>(s).ok());
+            Ok(Json(match prediction {
+                Some(p) => json!({
+                    "run_id": id,
+                    "tenant": tenant,
+                    "available": true,
+                    "prediction": p,
+                }),
+                None => json!({
+                    "run_id": id,
+                    "tenant": tenant,
+                    "available": false,
+                    "reason": "no predict diagnostics were recorded for this run",
+                }),
+            }))
+        }
+    }
+}
+
 // ── Per-tenant DP budget (issue C2) ──────────────────────────────────────────
 
 /// Reports the authenticated tenant's cumulative DP spend and remaining envelope.
@@ -2836,11 +2888,11 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
         let json = r#"{"duration_ms":12,"cpu_user_ms":3,"source":"runner-process-tree"}"#;
         let recorded = state
             .store
-            .record_run("h1", "success", 1, None, "acme", Some(json))
+            .record_run("h1", "success", 1, None, "acme", Some(json), None)
             .expect("insert with resources");
         let legacy = state
             .store
-            .record_run("h2", "success", 1, None, "acme", None)
+            .record_run("h2", "success", 1, None, "acme", None, None)
             .expect("insert without resources");
 
         let body = handle_run_resources(
@@ -2876,6 +2928,61 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
         // Unknown id → 404.
         let missing =
             handle_run_resources(Path(999_999), State(state), Extension("acme".to_string())).await;
+        assert!(missing.is_err());
+    }
+
+    /// The prediction endpoint returns persisted diagnostics, an honest empty state
+    /// for runs without them, and 404s across tenants (issue D3).
+    #[tokio::test]
+    async fn run_prediction_endpoint_reports_diagnostics_and_empty_state() {
+        let state = test_state();
+        let json = r#"{"model_name":"AirPredictor","report":{"embedding_out_of_range":3}}"#;
+        let recorded = state
+            .store
+            .record_run("p1", "success", 1, None, "acme", None, Some(json))
+            .expect("insert with prediction");
+        let legacy = state
+            .store
+            .record_run("p2", "success", 1, None, "acme", None, None)
+            .expect("insert without prediction");
+
+        let body = handle_run_prediction(
+            Path(recorded),
+            State(state.clone()),
+            Extension("acme".to_string()),
+        )
+        .await
+        .expect("prediction available")
+        .0;
+        assert_eq!(body["available"], json!(true));
+        assert_eq!(body["prediction"]["model_name"], json!("AirPredictor"));
+        assert_eq!(
+            body["prediction"]["report"]["embedding_out_of_range"],
+            json!(3)
+        );
+
+        let empty = handle_run_prediction(
+            Path(legacy),
+            State(state.clone()),
+            Extension("acme".to_string()),
+        )
+        .await
+        .expect("legacy run resolves")
+        .0;
+        assert_eq!(empty["available"], json!(false));
+
+        // A run belonging to another tenant is not visible.
+        let denied = handle_run_prediction(
+            Path(recorded),
+            State(state.clone()),
+            Extension("other".to_string()),
+        )
+        .await;
+        assert!(denied.is_err());
+
+        // Unknown id → 404.
+        let missing =
+            handle_run_prediction(Path(999_999), State(state), Extension("acme".to_string())).await;
         assert!(missing.is_err());
     }
 
@@ -5141,5 +5248,94 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         assert!(!response.success);
         assert!(response.error.unwrap().contains("exit status: 70"));
         assert_eq!(state.exec_permits.available_permits(), 64);
+    }
+
+    /// `run_execution_job` must persist the CLI's `[xazz:predict]` marker so
+    /// `GET /runs/:id/prediction` can serve it (issue D3).
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn run_job_persists_predict_diagnostics() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let script = std::env::temp_dir().join(format!(
+            "xazz_pred_runner_{}_{}.sh",
+            std::process::id(),
+            nonce
+        ));
+        {
+            let mut f = std::fs::File::create(&script).expect("create fake runner");
+            writeln!(f, "#!/bin/sh").unwrap();
+            writeln!(
+                f,
+                "echo '[xazz:predict] {{\"model_name\":\"AirPredictor\",\"report\":{{\"embedding_out_of_range\":3}}}}'"
+            )
+            .unwrap();
+            writeln!(f, "echo '[xazz:result] {{\"rows\":[],\"schema\":[]}}'").unwrap();
+            f.flush().unwrap();
+        }
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod fake runner");
+
+        let state = unique_state("prediction-persist");
+        let tenant = "pred-tenant".to_string();
+        let code = format!(
+            "// prediction-nonce {nonce}\n\
+             type P = {{ a: string }}; v x = load(\"data/a.csv\") :: P;"
+        );
+        let tmp = tempfile::Builder::new()
+            .suffix(".xzz")
+            .tempfile()
+            .expect("temp file");
+        {
+            let mut f = tmp.as_file();
+            f.write_all(code.as_bytes()).expect("write code");
+            f.flush().ok();
+        }
+        let reservation = state
+            .store
+            .reserve_dp_budget(&tenant, 10.0, 1e-4, 0, 3600)
+            .expect("reserve")
+            .expect("granted");
+        let permit = Arc::clone(&state.exec_permits)
+            .try_acquire_owned()
+            .expect("execution permit");
+        let tenant_mutex = state.tenant_lock(&tenant);
+        let tenant_guard = Arc::clone(&tenant_mutex).lock_owned().await;
+        let slot = ExecutionSlot {
+            _permit: permit,
+            _tenant_guard: tenant_guard,
+        };
+
+        let response = run_execution_job(
+            state.clone(),
+            code.clone(),
+            tenant.clone(),
+            script.clone(),
+            tmp,
+            reservation,
+            slot,
+            0,
+            10.0,
+            1e-4,
+            None,
+        )
+        .await;
+        let run_id = response.run_id.expect("run recorded");
+
+        let recorded = state
+            .store
+            .get_run_prediction(run_id, &tenant)
+            .expect("get prediction")
+            .expect("run exists");
+        let json = recorded.prediction_json.expect("prediction persisted");
+        assert!(json.contains("\"model_name\":\"AirPredictor\""), "{json}");
+        assert!(json.contains("\"embedding_out_of_range\":3"), "{json}");
+
+        let _ = std::fs::remove_file(&script);
     }
 }
