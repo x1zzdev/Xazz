@@ -15,8 +15,21 @@ use sha2::{Digest, Sha256};
 use std::sync::Mutex;
 
 /// JSONL file path (relative to the server's working directory)
-pub const AUDIT_LOG_DIR: &str = "audit_log";
 pub const AUDIT_LOG_FILE: &str = "audit_log/audit.jsonl";
+
+fn default_log_path() -> std::path::PathBuf {
+    #[cfg(test)]
+    {
+        // 병렬 테스트는 같은 체인을 사용하되 사용자의 운영 감사 파일은 건드리지 않는다.
+        static TEST_DIRECTORY: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+        TEST_DIRECTORY
+            .get_or_init(|| tempfile::tempdir().expect("test audit directory"))
+            .path()
+            .join(AUDIT_LOG_FILE)
+    }
+    #[cfg(not(test))]
+    std::path::PathBuf::from(AUDIT_LOG_FILE)
+}
 
 /// Global lock that serializes append's read-modify-write.
 /// Prevents the TOCTOU where concurrent appends compute the same index/prev_hash
@@ -99,10 +112,13 @@ pub fn hash_code(code: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-/// Creates the log file directory and returns its path.
-fn ensure_log_dir() -> Result<std::path::PathBuf, String> {
-    let path = std::path::PathBuf::from(AUDIT_LOG_DIR);
-    std::fs::create_dir_all(&path)
+/// Creates the log directory and returns the log file path.
+fn ensure_log_path() -> Result<std::path::PathBuf, String> {
+    let path = default_log_path();
+    let directory = path
+        .parent()
+        .ok_or_else(|| "audit-log file has no parent directory".to_string())?;
+    std::fs::create_dir_all(directory)
         .map_err(|e| format!("failed to create audit-log directory: {e}"))?;
     Ok(path)
 }
@@ -128,8 +144,7 @@ fn append_with_extras(
     response_hash: Option<&str>,
     model_fingerprint: Option<&str>,
 ) -> Result<AuditRecord, String> {
-    ensure_log_dir()?;
-    let file_path = std::path::PathBuf::from(AUDIT_LOG_FILE);
+    let file_path = ensure_log_path()?;
     let inference = match (prompt_hash, response_hash) {
         (Some(p), Some(r)) => Some((p.to_string(), r.to_string())),
         _ => None,
@@ -152,8 +167,7 @@ pub fn append_inference_call(
     model_fingerprint: Option<&str>,
     outcome: Option<&str>,
 ) -> Result<AuditRecord, String> {
-    ensure_log_dir()?;
-    let file_path = std::path::PathBuf::from(AUDIT_LOG_FILE);
+    let file_path = ensure_log_path()?;
     append_to_path(
         code,
         outcome,
@@ -248,7 +262,7 @@ fn append_to_path(
 
 /// Reads all records from the log file in order.
 pub fn all() -> Result<Vec<AuditRecord>, String> {
-    read_all(&std::path::PathBuf::from(AUDIT_LOG_FILE))
+    read_all(&default_log_path())
 }
 
 fn read_all(file_path: &std::path::Path) -> Result<Vec<AuditRecord>, String> {
@@ -293,20 +307,151 @@ pub fn lookup_by_hash(hash: &str) -> Result<Vec<AuditRecord>, String> {
 
 /// Verifies that the whole log hash chain is valid.
 pub fn verify_chain() -> Result<bool, String> {
-    let records = all()?;
+    verify_chain_at_path(&default_log_path())
+}
+
+fn verify_chain_at_path(file_path: &std::path::Path) -> Result<bool, String> {
+    let records = read_all(file_path)?;
+    Ok(records_form_valid_chain(&records))
+}
+
+fn records_form_valid_chain(records: &[AuditRecord]) -> bool {
     let mut prev = "GENESIS".to_string();
-    for r in &records {
+    for r in records {
         if r.prev_hash != prev || !r.verify() {
-            return Ok(false);
+            return false;
         }
         prev = r.record_hash.clone();
     }
-    Ok(true)
+    true
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_all_waits_for_exclusive_writer_lock() {
+        use std::sync::mpsc::{self, RecvTimeoutError};
+        use std::time::Duration;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("audit.jsonl");
+        append_to_path("first", Some("success"), None, None, &path).unwrap();
+        let writer = std::fs::OpenOptions::new()
+            .read(true)
+            .append(true)
+            .open(&path)
+            .unwrap();
+        fs2::FileExt::lock_exclusive(&writer).unwrap();
+
+        let (started_tx, started_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            result_tx.send(read_all(&path)).unwrap();
+        });
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let while_locked = result_rx.recv_timeout(Duration::from_millis(200));
+        // 실패한 기존 경로에서도 잠금을 먼저 풀고 스레드를 회수한다.
+        fs2::FileExt::unlock(&writer).unwrap();
+        let after_unlock = match &while_locked {
+            Err(RecvTimeoutError::Timeout) => {
+                Some(result_rx.recv_timeout(Duration::from_secs(5)).unwrap())
+            }
+            _ => None,
+        };
+        reader.join().unwrap();
+
+        assert!(
+            matches!(while_locked, Err(RecvTimeoutError::Timeout)),
+            "쓰기 잠금 중 읽기는 기다려야 한다. 실제 결과: {while_locked:?}"
+        );
+        let records = after_unlock.unwrap().expect("잠금 해제 뒤 읽기 성공");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].hash, hash_code("first"));
+        assert!(records[0].verify());
+    }
+
+    #[test]
+    fn missing_log_is_empty_but_io_and_parse_errors_are_preserved() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("audit.jsonl");
+        assert!(read_all(&path).unwrap().is_empty());
+        assert!(verify_chain_at_path(&path).unwrap());
+
+        // 디렉터리는 빈 로그가 아니다. 운영체제별 open/lock/read 오류를 보존한다.
+        assert!(read_all(directory.path()).is_err());
+        assert!(verify_chain_at_path(directory.path()).is_err());
+
+        std::fs::write(&path, "not JSON\n").unwrap();
+        let error = verify_chain_at_path(&path).unwrap_err();
+        assert!(error.contains("audit-log parse failure"), "{error}");
+    }
+
+    #[test]
+    fn verify_chain_distinguishes_tampering_from_read_errors() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("audit.jsonl");
+        let mut record = append_to_path("first", Some("success"), None, None, &path).unwrap();
+        assert!(verify_chain_at_path(&path).unwrap());
+
+        record.code_length += 1;
+        std::fs::write(&path, serde_json::to_string(&record).unwrap() + "\n").unwrap();
+        assert!(!verify_chain_at_path(&path).unwrap());
+        assert!(verify_chain_at_path(directory.path()).is_err());
+    }
+
+    #[test]
+    fn concurrent_append_and_read_keep_complete_valid_snapshots() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("audit.jsonl");
+        let start = std::sync::Arc::new(std::sync::Barrier::new(5));
+        let writers: Vec<_> = (0..4)
+            .map(|writer| {
+                let path = path.clone();
+                let start = start.clone();
+                std::thread::spawn(move || {
+                    start.wait();
+                    for index in 0..8 {
+                        append_to_path(
+                            &format!("writer {writer} record {index}"),
+                            Some("success"),
+                            None,
+                            None,
+                            &path,
+                        )
+                        .unwrap();
+                    }
+                })
+            })
+            .collect();
+        start.wait();
+        let snapshots: Vec<_> = (0..32).map(|_| read_all(&path)).collect();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        for snapshot in snapshots {
+            let records = snapshot.expect("동시 append 중 읽기도 성공해야 한다");
+            assert!(records_form_valid_chain(&records));
+            assert!(
+                records
+                    .iter()
+                    .enumerate()
+                    .all(|(index, record)| record.index == index as u64)
+            );
+        }
+        let records = read_all(&path).unwrap();
+        assert_eq!(records.len(), 32);
+        assert!(verify_chain_at_path(&path).unwrap());
+        let hashes: std::collections::HashSet<_> =
+            records.iter().map(|record| &record.hash).collect();
+        assert_eq!(
+            hashes.len(),
+            32,
+            "모든 append 결과를 중복 없이 보존해야 한다"
+        );
+    }
 
     /// Instead of testing with a temp log path, verifies the pure computation functions.
     #[test]
@@ -540,16 +685,10 @@ mod tests {
         };
         r2.record_hash = compute_record_hash(&r2);
         let recs = vec![r1, r2];
-        let mut prev = "GENESIS".to_string();
-        let mut ok = true;
-        for r in &recs {
-            if r.prev_hash != prev || !r.verify() {
-                ok = false;
-                break;
-            }
-            prev = r.record_hash.clone();
-        }
-        assert!(!ok, "a chain break should be detected");
+        assert!(
+            !records_form_valid_chain(&recs),
+            "a chain break should be detected"
+        );
     }
 
     /// A model fingerprint binds the call to specific weights and is covered by
