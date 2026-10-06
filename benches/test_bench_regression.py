@@ -5,6 +5,7 @@ import contextlib
 import copy
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -195,7 +196,8 @@ class CliTests(unittest.TestCase):
             return subprocess.run(
                 [sys.executable, str(SCRIPT), "--current", str(current_path),
                  "--baseline", str(baseline_path), f"--tol={tol}"],
-                text=True, capture_output=True, check=False,
+                text=True, encoding="utf-8", capture_output=True, check=False,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             )
 
     def test_actual_cli_success_and_regression_exit_codes(self):
@@ -240,7 +242,8 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             result = subprocess.run(
                 [sys.executable, str(SCRIPT), "--current", str(Path(directory) / "missing.json"),
-                 "--baseline", str(BASELINE)], text=True, capture_output=True, check=False,
+                 "--baseline", str(BASELINE)], text=True, encoding="utf-8", capture_output=True, check=False,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             )
         self.assertEqual(result.returncode, 1)
         self.assertIn("입력 오류", result.stderr)
