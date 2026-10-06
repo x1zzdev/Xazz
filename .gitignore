@@ -28,6 +28,7 @@ uploads/
 
 # Finder archive artifacts
 *.zip
+!docs/evidence/windows-onnx-2026-10-06.zip
 
 # Personal development notes (not for distribution)
 commitGuide.txt

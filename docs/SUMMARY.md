@@ -46,6 +46,7 @@
 - [ML monitoring — alternatives](design/ml-monitoring-alternatives.md)
 - [ML monitoring — journey](design/ml-monitoring-journey.md)
 - [GPU backend acceptance](design/gpu-backend-acceptance.md)
+- [Windows ONNX 검증 (2026-10-06)](windows-onnx-acceptance-2026-10-06.md)
 - [GPU backend performance log](design/gpu-backend-perf-log.md)
 - [Research — flow refs](design/research/ide-governance/flow-refs.md)
 
