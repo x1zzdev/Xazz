@@ -1,12 +1,10 @@
 """측정 입력의 엄격한 검사와 pandas를 사용하지 않는 계산 대조."""
 from __future__ import annotations
 
-from collections import Counter, defaultdict
 import contextlib
 import csv
 import io
 import json
-import math
 from pathlib import Path
 import subprocess
 import sys
@@ -17,54 +15,7 @@ import warnings
 
 import pandas_pipeline as pipeline
 
-
-FIXTURE_ROWS = [
-    ["d1", "A", 60, 20], ["d2", "A", 80, None],
-    ["d3", "B", 40, 15], ["d4", "B", 130, 30],
-    ["d5", "C", 75, 12], ["d6", "C", None, 30],
-    ["d7", "C", 120, 25], ["d8", "B", 50, 15],
-    ["d9", "A", 60, 10], ["d10", "C", 70, None],
-    ["d11", "B", 90, 20], ["d12", "A", 100, 20],
-]
-
-
-def oracle(rows: list[list]) -> dict[str, list[dict]]:
-    """DataFrame·groupby를 쓰지 않고 필터와 합계·계수로 계산한다."""
-    records = [dict(zip(pipeline.COLUMNS, row)) for row in rows]
-    p2 = [row for row in records if row["pm10"] is not None and row["pm10"] < 120
-          and row["pm25"] is not None and row["pm25"] > 10]
-    groups = defaultdict(list)
-    for row in p2:
-        groups[row["station"]].append(row["pm10"])
-    p3 = [{"station": station, "pm10": math.fsum(values)}
-          for station, values in groups.items()]
-    p4 = sorted(
-        [{"station": station, "pm10": math.fsum(values) / len(values)}
-         for station, values in groups.items()],
-        key=lambda row: -row["pm10"],
-    )[:10]
-    counts = Counter(row["station"] for row in records
-                     if row["pm10"] is not None and row["pm10"] > 50)
-    p7 = sorted([{"station": station, "pm25": count} for station, count in counts.items()],
-                key=lambda row: -row["pm25"])[:5]
-    return {"p2": p2, "p3": p3, "p4": p4, "p7": p7}
-
-
-def assert_rows_equal(actual: list[dict], expected: list[dict]) -> None:
-    """동점의 출력 순서는 계약에 없으므로 행 내용으로 대조한다."""
-    key = lambda row: (row["station"], str(row.get("date", "")))
-    actual, expected = sorted(actual, key=key), sorted(expected, key=key)
-    if len(actual) != len(expected):
-        raise AssertionError((actual, expected))
-    for left, right in zip(actual, expected):
-        if left.keys() != right.keys():
-            raise AssertionError((left, right))
-        for field in left:
-            a, b = left[field], right[field]
-            equal = (math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-12)
-                     if isinstance(a, (int, float)) and isinstance(b, (int, float)) else a == b)
-            if not equal:
-                raise AssertionError((field, left, right))
+from benchmark_semantics import FIXTURE_ROWS, assert_rows_equal, oracle
 
 
 class PipelineTests(unittest.TestCase):

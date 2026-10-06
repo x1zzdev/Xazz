@@ -1682,7 +1682,9 @@ async fn handle_audit_lookup(
 
 async fn handle_audit_chain() -> Result<Json<Value>, (StatusCode, String)> {
     let valid = audit_log::verify_chain().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    let count = audit_log::all().map(|r| r.len()).unwrap_or(0);
+    let count = audit_log::all()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .len();
     Ok(Json(json!({ "intact": valid, "records": count })))
 }
 
@@ -2213,7 +2215,8 @@ async fn handle_inference_check(
     )
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    let chain_valid = audit_log::verify_chain().unwrap_or(false);
+    let chain_valid =
+        audit_log::verify_chain().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     Ok(Json(InferenceCheckResponse {
         safe_to_emit,

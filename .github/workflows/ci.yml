@@ -60,6 +60,54 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
+      - name: Setup Python for result verification
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install verification dependencies
+        run: python -m pip install --disable-pip-version-check -r benches/requirements.txt
+
+      # cargo test에서 만든 실행 파일로 작은 입력의 모든 결과 셀을 대조한다.
+      # 실행 파일이나 마커가 없으면 실패하며 대용량 데이터/LFS는 필요하지 않다.
+      - name: Verify benchmark result cells
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python benches/verify_benchmark_semantics.py --xazz-exec "target/debug/xazz-exec${{ runner.os == 'Windows' && '.exe' || '' }}" --out target/benchmark-semantics.json
+
+      - name: Upload result verification evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-semantics-${{ matrix.os }}
+          path: target/benchmark-semantics*
+          if-no-files-found: warn
+          retention-days: 14
+
+  benchmark-tests:
+    name: Benchmark Python tests · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install benchmark test dependencies
+        run: python -m pip install --disable-pip-version-check -r benches/requirements.txt
+
+      - name: Run benchmark regression tests
+        run: python -m unittest discover -s benches -p "test_*.py" -v
+
   # ── 프런트엔드 (Visual IDE) — Vite 빌드 + 컨트랙트/stdout/대비/E2E 테스트 ─────
   frontend:
     name: Frontend · Visual IDE

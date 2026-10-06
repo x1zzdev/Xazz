@@ -1,0 +1,296 @@
+{
+  "xlarge": {
+    "rows": 200371584,
+    "pandas": {
+      "latency_ms": 91344.0,
+      "peak_mb": 27684.5,
+      "runs": [
+        {
+          "latency_ms": 87590.1971,
+          "peak_mb": 27684.48828125
+        },
+        {
+          "latency_ms": 95284.8903,
+          "peak_mb": 27681.1484375
+        },
+        {
+          "latency_ms": 91343.9895,
+          "peak_mb": 27685.84375
+        }
+      ]
+    },
+    "xazz_streaming_on": {
+      "latency_ms": 237889.2,
+      "peak_mb": 16796.2,
+      "runs": [
+        {
+          "latency_ms": 223172.95609999998,
+          "peak_mb": 16800.23046875,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 250345.4249,
+          "peak_mb": 16795.265625,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 237889.2161,
+          "peak_mb": 16796.16796875,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "on",
+              "status": "ok"
+            }
+          ]
+        }
+      ],
+      "collection_diagnostics_verified": true,
+      "warmup_collections": [
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "on",
+          "status": "ok"
+        }
+      ]
+    },
+    "xazz_streaming_off": {
+      "latency_ms": 203319.0,
+      "peak_mb": 22305.7,
+      "runs": [
+        {
+          "latency_ms": 190766.8758,
+          "peak_mb": 22299.2890625,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 203319.0128,
+          "peak_mb": 22308.36328125,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            }
+          ]
+        },
+        {
+          "latency_ms": 210267.9416,
+          "peak_mb": 22305.671875,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "off",
+              "status": "ok"
+            }
+          ]
+        }
+      ],
+      "collection_diagnostics_verified": true,
+      "warmup_collections": [
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "off",
+          "status": "ok"
+        }
+      ]
+    }
+  },
+  "provenance": {
+    "recorded": true,
+    "platform": "Windows-11-10.0.26200-SP0",
+    "system": "Windows",
+    "release": "11",
+    "machine": "AMD64",
+    "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+    "cpu_model": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+    "cpu_physical_cores": 16,
+    "cpu_logical_cores": 22,
+    "total_ram_gb": 63.5,
+    "python": "3.12.12",
+    "pandas": "2.3.3",
+    "polars": null,
+    "numpy": "2.3.5",
+    "xazz": "xazz 0.3.1",
+    "xazz_version_verified": true,
+    "xazz_binary": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\release\\xazz.exe",
+    "binary_sha256": {
+      "xazz.exe": "967baba47fe85d81ad8f2548888ea5ff5a844264e625e23d11d26b4886d61e35",
+      "xazz-runner.exe": "5234c55735ad6130fe3bb473d84157bd60f77bb975c27d93754d899332de42c1",
+      "xazz-exec.exe": "5f972f83cd4f9dc425917a58fbf6d26050df25237a3eba70796ba00f594c1690"
+    },
+    "streaming_requested_modes": [
+      "on",
+      "off"
+    ],
+    "streaming_actual_engine_verified": false,
+    "streaming_note": "각 실행의 네 수집 완료 마커로 런타임이 선택한 Polars 수집 API를 검증합니다. Polars 내부 모든 노드의 스트리밍 실행이나 메모리 상한을 보증하지 않습니다.",
+    "rss_method": "프로세스 트리 RSS 합계의 3ms 폴링 최댓값(MiB)",
+    "latency_method": "각 엔진 내부 파이프라인 실행시간; wall-clock 대체 금지",
+    "recorded_at_utc": "2026-10-06T02:18:14.662506+00:00",
+    "git_head": "a3ec9a91d2f7874b8adf9fd7112abacaa04df35a",
+    "git_worktree_status": "M .gitignore\n M benches/run_readme_benchmark.py\n M benches/test_run_readme_benchmark.py\n M docs/benchmark-scale-166-macos-2026-10-05.md\n M xazz-exec/src/runtime.rs\n M xazz-exec/tests/dp_budget.rs\n?? benches/test_verify_benchmark_results.py\n?? benches/verify_benchmark_results.py\n?? docs/benchmark-scale-166-windows-2026-10-06.md\n?? xazz-exec/tests/runtime_errors.rs",
+    "runtime_source_sha256": "8953d0d9017b96cbde9d2917f8d9499fcedadad3c82e5e3d920f6f784c027995",
+    "benchmark_script_sha256": "481dd8c3a113bb65b336878385c49ae934f34b188ec6f5e0f73e6c448e5d0807",
+    "pipeline_template_sha256": "c877ce70b9716b19e1a0a07458d065b0f93d922c83c9aa05587945ae47507e47",
+    "pandas_pipeline_sha256": "f1a52693e63d73a0130a5783d29e7e9063c4f353a7d6ae6548cc0d0653e18bf3",
+    "summary_latency_resolution_ms": 0.1,
+    "warmup_runs": 1,
+    "measured_runs": 3,
+    "timeout_seconds": 900.0,
+    "max_memory_mb": 32768.0,
+    "raw_logs": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\qa-166\\windows-cpu-200m-logs-6i8fov4i",
+    "inputs": {
+      "xlarge": {
+        "file": "scale_xlarge.csv",
+        "rows": 200371584,
+        "bytes": 6505447832,
+        "sha256": "72800d9e52cbf4d684683de2854bc48d3a2daf7313e7e0b3bf8af857afb321b2"
+      }
+    }
+  }
+}

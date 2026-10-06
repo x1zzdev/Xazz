@@ -177,10 +177,10 @@ def measure_tree(
         if _group_remains(proc.pid):
             raise RuntimeError("주프로세스 종료 후 같은 프로세스 그룹의 자식이 남았습니다")
         if proc.returncode != 0:
-            tail = "\n".join(stderr_path.read_text(errors="replace").splitlines()[-STDERR_TAIL_LINES:])
+            tail = "\n".join(stderr_path.read_text(encoding="utf-8", errors="replace").splitlines()[-STDERR_TAIL_LINES:])
             raise RuntimeError(f"exit={proc.returncode}: {' '.join(cmd)}\n{tail}")
         for log in [stdout_path, stderr_path]:
-            with log.open(errors="replace") as handle:
+            with log.open(encoding="utf-8", errors="replace") as handle:
                 for line in handle:
                     if any(marker in line for marker in failure_markers):
                         raise RuntimeError(f"성공 종료 코드와 함께 실행 오류가 출력됐습니다: {line.strip()}")
@@ -198,7 +198,7 @@ def measure_tree(
                       exit_code=proc.returncode if proc is not None else None)
         (log_dir / f"{log_name}.measurement.json").write_text(
             json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
-    return wall_ms, peak_mb, stdout_path.read_text(errors="replace") if capture else ""
+    return wall_ms, peak_mb, stdout_path.read_text(encoding="utf-8", errors="strict") if capture else ""
 
 
 def _latency(value: object, name: str) -> float:
@@ -239,11 +239,33 @@ def summarize(runs: list[dict]) -> dict:
             "peak_mb": round(statistics.median(run["peak_mb"] for run in runs), 1), "runs": runs}
 
 
+def parse_xazz_collections(stdout: str, streaming: str) -> list[dict]:
+    """네 단계의 런타임 수집 완료를 검사한다. Polars 내부 실행 노드는 보증하지 않는다."""
+    markers = [line[len("[xazz:collect] "):] for line in stdout.splitlines()
+               if line.startswith("[xazz:collect] ")]
+    if len(markers) != 4:
+        raise RuntimeError(f"정확히 4개의 [xazz:collect] 마커가 필요합니다; 발견={len(markers)}")
+    allowed_engines = {"on": {"streaming"}, "off": {"in-memory"},
+                       "auto": {"streaming", "in-memory"}}[streaming]
+    collections = []
+    for marker in markers:
+        try:
+            record = json.loads(marker, object_pairs_hook=_unique_object)
+            if (not isinstance(record, dict) or record.get("requested") != streaming
+                    or record.get("engine") not in allowed_engines or record.get("status") != "ok"):
+                raise ValueError("요청 모드·엔진·완료 상태 불일치")
+        except (ValueError, TypeError) as error:
+            raise RuntimeError(f"[xazz:collect] 마커가 올바르지 않습니다: {marker}") from error
+        collections.append(record)
+    return collections
+
+
 def bench_pandas(csv: Path, *, runs: int = RUNS, **measurement) -> dict:
     samples = []
     for index in range(runs + 1):
         _, peak, stdout = measure_tree([sys.executable, str(PANDAS_SCRIPT), str(csv)], ROOT,
-            capture=True, log_name=f"{csv.stem}-pandas-{index}", **measurement)
+            capture=True, env={"PYTHONIOENCODING": "utf-8"},
+            log_name=f"{csv.stem}-pandas-{index}", **measurement)
         try:
             metrics = json.loads(stdout.strip().splitlines()[-1], object_pairs_hook=_unique_object)
             latency = _latency(metrics["total_latency_ms"], "pandas total_latency_ms")
@@ -262,23 +284,30 @@ def bench_xazz(csv: Path, *, xazz_bin: Path = XAZZ_BIN, streaming: str = "auto",
         script = Path(handle.name)
         handle.write(TEMPLATE.read_text(encoding="utf-8").replace("SCALE_CSV", csv.name))
     samples = []
+    warmup_collections = []
     try:
         for index in range(runs + 1):
             _, peak, stdout = measure_tree([str(xazz_bin), "run", script.name], csv.parent,
                 capture=True, env={"XAZZ_BACKEND": "cpu", "XAZZ_STREAMING":
                                    {"auto": None, "on": "1", "off": "0"}[streaming],
+                                   "XAZZ_COLLECT_DIAGNOSTICS": "1",
                                    "XAZZ_RUNNER_PATH": str(xazz_bin.with_name("xazz-runner" + (".exe" if os.name == "nt" else ""))),
                                    "XAZZ_EXEC_PATH": str(xazz_bin.with_name("xazz-exec" + (".exe" if os.name == "nt" else ""))),
                                    "XAZZ_EXEC_TIMEOUT_SECS": str(math.ceil(measurement.get("timeout_seconds", 120.0)) + 1)},
                 failure_markers=("[xazz RUNTIME ERROR]",),
                 log_name=f"{csv.stem}-xazz-{streaming}-{index}", **measurement)
             latency = parse_xazz_timing(stdout)
+            collections = parse_xazz_collections(stdout, streaming)
             if index:
                 samples.append({"latency_ms": latency, "peak_mb": peak,
-                                "fallback_to_wallclock": False})
+                                "fallback_to_wallclock": False, "collections": collections})
+            else:
+                warmup_collections = collections
     finally:
         script.unlink(missing_ok=True)
-    return summarize(samples)
+    result = summarize(samples)
+    result.update(collection_diagnostics_verified=True, warmup_collections=warmup_collections)
+    return result
 
 
 def _cmd_stdout(cmd: list[str]) -> str | None:
@@ -333,11 +362,13 @@ def collect_provenance(xazz_bin: Path = XAZZ_BIN, *, streaming_modes: list[str] 
         "xazz_binary": str(xazz_bin), "binary_sha256": siblings,
         "streaming_requested_modes": streaming_modes or ["auto"],
         "streaming_actual_engine_verified": False,
-        "streaming_note": "스트리밍 요청 실패 시 런타임이 메모리 엔진으로 전환할 수 있어 실제 엔진은 이 측정기로 확인할 수 없습니다.",
+        "streaming_note": "각 실행의 네 수집 완료 마커로 런타임이 선택한 Polars 수집 API를 검증합니다. Polars 내부 모든 노드의 스트리밍 실행이나 메모리 상한을 보증하지 않습니다.",
         "rss_method": "프로세스 트리 RSS 합계의 3ms 폴링 최댓값(MiB)",
         "latency_method": "각 엔진 내부 파이프라인 실행시간; wall-clock 대체 금지",
         "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
         "git_head": _cmd_stdout(["git", "-C", str(ROOT), "rev-parse", "HEAD"]),
+        "git_worktree_status": _cmd_stdout(["git", "-C", str(ROOT), "status", "--short"]),
+        "runtime_source_sha256": _sha256(ROOT / "xazz-exec" / "src" / "runtime.rs"),
         "benchmark_script_sha256": _sha256(Path(__file__)),
         "pipeline_template_sha256": _sha256(TEMPLATE),
         "pandas_pipeline_sha256": _sha256(PANDAS_SCRIPT),
@@ -380,6 +411,9 @@ def main(argv: list[str] | None = None) -> int:
     logs = Path(tempfile.mkdtemp(prefix=out.stem + "-logs-", dir=out.parent))
     results: dict = {}
     try:
+        for name in ("POLARS_AUTO_NEW_STREAMING", "POLARS_FORCE_NEW_STREAMING"):
+            if os.environ.get(name) == "1":
+                raise RuntimeError(f"{name}=1은 요청 엔진을 우회할 수 있어 측정할 수 없습니다. 명시적으로 해제한 뒤 다시 실행하세요")
         files = {scale: data_dir / f"scale_{scale}.csv" for scale in args.scales}
         for csv in files.values():
             if not csv.is_file():

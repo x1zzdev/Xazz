@@ -158,10 +158,9 @@ fn budget_boundary_uses_multiplied_charge() {
 
     // Budget 1.999 < 2.0: would pass if the runtime under-counted (charged ε once).
     //
-    // The refusal is observable as the pipeline's runtime error plus the absence
-    // of the marker. The engine currently logs a failed pipeline and keeps going
-    // (exit code stays 0), so the exit status is deliberately not asserted here.
+    // 거부는 런타임 오류와 실패 종료 코드로 드러나며 성공 마커를 남기지 않는다.
     let rejected = run_script(&two_column_script("1.0"), &[("XAZZ_DP_BUDGET", "1.999")]);
+    assert!(!rejected.status.success(), "예산 초과는 실패로 종료해야 함");
     let err = stderr_of(&rejected);
     assert!(
         err.contains("[xazz RUNTIME ERROR]") && err.contains("XAZZ_DP_BUDGET"),
@@ -185,6 +184,10 @@ fn budget_boundary_uses_multiplied_charge() {
 fn per_query_epsilon_cap_refuses_before_spending() {
     // ε=1.0 > cap 0.5 → refused, no marker (nothing spent), reason names the cap.
     let refused = run_script(&one_column_script("1.0"), &[("XAZZ_DP_MAX_EPSILON", "0.5")]);
+    assert!(
+        !refused.status.success(),
+        "쿼리 한도 초과는 실패로 종료해야 함"
+    );
     let err = stderr_of(&refused);
     assert!(
         err.contains("[xazz RUNTIME ERROR]") && err.contains("XAZZ_DP_MAX_EPSILON"),
@@ -247,6 +250,10 @@ fn composition_across_two_with_dp_steps_accumulates_per_column() {
     // The same script is refused once the cumulative 2.5 exceeds the budget,
     // even though each step alone (2.0, 0.5) would fit.
     let rejected = run_script(script, &[("XAZZ_DP_BUDGET", "2.4")]);
+    assert!(
+        !rejected.status.success(),
+        "누적 예산 초과는 실패로 종료해야 함"
+    );
     let err = stderr_of(&rejected);
     assert!(
         err.contains("[xazz RUNTIME ERROR]") && err.contains("XAZZ_DP_BUDGET"),

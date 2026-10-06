@@ -4,6 +4,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -16,6 +17,19 @@ import psutil
 SPEC = importlib.util.spec_from_file_location("readme_benchmark", Path(__file__).with_name("run_readme_benchmark.py"))
 benchmark = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(benchmark)
+
+
+def collection_markers(requested, engines=None):
+    """P2/P3/P4/P7 수집에서 출력하는 진단 마커 네 개를 구성한다."""
+    engines = engines or ["in-memory" if requested == "off" else "streaming"] * 4
+    return [{"requested": requested, "engine": engine, "status": "ok"} for engine in engines]
+
+
+def xazz_stdout(collections, timing=True):
+    lines = ["[xazz:collect] " + json.dumps(record) for record in collections]
+    if timing:
+        lines.append('[xazz:timing] {"pipeline_ms": 2.5}')
+    return "\n".join(lines)
 
 
 class ArgumentTests(unittest.TestCase):
@@ -49,6 +63,50 @@ class MetricTests(unittest.TestCase):
             with self.subTest(output=output), self.assertRaises(RuntimeError):
                 benchmark.parse_xazz_timing(output)
 
+    def test_collect_diagnostics_match_each_requested_mode(self):
+        for mode, engines in [
+            ("on", ["streaming"] * 4),
+            ("off", ["in-memory"] * 4),
+            ("auto", ["streaming", "in-memory", "streaming", "in-memory"]),
+        ]:
+            with self.subTest(mode=mode):
+                expected = collection_markers(mode, engines)
+                self.assertEqual(benchmark.parse_xazz_collections(xazz_stdout(expected), mode), expected)
+
+    def test_collect_diagnostics_require_exactly_four_markers(self):
+        for count in [0, 1, 3, 5]:
+            with self.subTest(count=count), self.assertRaises(RuntimeError):
+                benchmark.parse_xazz_collections(xazz_stdout(collection_markers("on")[:1] * count), "on")
+
+    def test_collect_diagnostics_reject_malformed_json_and_duplicate_keys(self):
+        valid_prefix = xazz_stdout(collection_markers("on")[:3], timing=False) + "\n[xazz:collect] "
+        invalid = ["invalid", "[]", "null", "1", '"string"', "{}",
+                   '{"requested":"on","engine":"streaming","status":"ok","status":"ok"}',
+                   '{"requested":"off","requested":"on","engine":"streaming","status":"ok"}']
+        for payload in invalid:
+            with self.subTest(payload=payload), self.assertRaises(RuntimeError):
+                benchmark.parse_xazz_collections(valid_prefix + payload, "on")
+
+    def test_collect_diagnostics_reject_missing_wrong_or_failed_fields(self):
+        for field, values in {
+            "requested": [None, True, [], "auto", "off"],
+            "engine": [None, True, [], "in-memory", "unknown"],
+            "status": [None, True, [], "failed", "error"],
+        }.items():
+            for value in values:
+                with self.subTest(field=field, value=value), self.assertRaises(RuntimeError):
+                    markers = collection_markers("on")
+                    markers[-1][field] = value
+                    benchmark.parse_xazz_collections(xazz_stdout(markers), "on")
+            with self.subTest(missing=field), self.assertRaises(RuntimeError):
+                markers = collection_markers("on")
+                del markers[-1][field]
+                benchmark.parse_xazz_collections(xazz_stdout(markers), "on")
+        with self.assertRaises(RuntimeError):
+            benchmark.parse_xazz_collections(xazz_stdout(collection_markers("off", ["streaming"] * 4)), "off")
+        with self.assertRaises(RuntimeError):
+            benchmark.parse_xazz_collections(xazz_stdout(collection_markers("auto", ["unknown"] * 4)), "auto")
+
     def test_summary_rounding_matches_regression_gate_and_rejects_zero(self):
         result = benchmark.summarize([{"latency_ms": value, "peak_mb": 1.25}
                                       for value in [1.21, 1.29, 2.0]])
@@ -59,30 +117,65 @@ class MetricTests(unittest.TestCase):
     def test_warmup_timing_is_validated_and_script_is_removed(self):
         with tempfile.TemporaryDirectory() as folder:
             csv = Path(folder) / "scale_small.csv"
-            csv.write_text("x\n1\n")
+            csv.write_text("x\n1\n", encoding="utf-8")
             with patch.object(benchmark, "measure_tree", return_value=(999, 10, "no timing")) as measure:
                 with self.assertRaisesRegex(RuntimeError, "마커"):
                     benchmark.bench_xazz(csv, xazz_bin=Path(sys.executable), runs=1)
                 self.assertEqual(measure.call_count, 1)
             self.assertEqual(list(Path(folder).glob("_bench_*.xzz")), [])
 
+    def test_warmup_collect_diagnostics_are_required_before_measured_run(self):
+        with tempfile.TemporaryDirectory() as folder:
+            csv = Path(folder) / "scale_small.csv"
+            csv.write_text("x\n1\n", encoding="utf-8")
+            invalid_outputs = [
+                '[xazz:timing] {"pipeline_ms": 2.5}',
+                xazz_stdout(collection_markers("on", ["in-memory"] * 4)),
+            ]
+            for stdout in invalid_outputs:
+                with self.subTest(stdout=stdout), patch.object(
+                    benchmark, "measure_tree", return_value=(999, 10, stdout)
+                ) as measure:
+                    with self.assertRaises(RuntimeError):
+                        benchmark.bench_xazz(csv, xazz_bin=Path(sys.executable), streaming="on", runs=1)
+                    self.assertEqual(measure.call_count, 1)
+                self.assertEqual(list(Path(folder).glob("_bench_*.xzz")), [])
+
+    def test_measured_collect_failure_does_not_return_a_success_summary(self):
+        with tempfile.TemporaryDirectory() as folder:
+            csv = Path(folder) / "scale_small.csv"
+            csv.write_text("x\n1\n", encoding="utf-8")
+            outputs = [(999, 10, xazz_stdout(collection_markers("on"))),
+                       (999, 10, '[xazz:timing] {"pipeline_ms": 2.5}')]
+            with patch.object(benchmark, "measure_tree", side_effect=outputs) as measure:
+                with self.assertRaises(RuntimeError):
+                    benchmark.bench_xazz(csv, xazz_bin=Path(sys.executable), streaming="on", runs=1)
+                self.assertEqual(measure.call_count, 2)
+            self.assertEqual(list(Path(folder).glob("_bench_*.xzz")), [])
+
     def test_each_streaming_mode_pins_cpu_and_environment(self):
         with tempfile.TemporaryDirectory() as folder:
             csv = Path(folder) / "scale_small.csv"
-            csv.write_text("x\n1\n")
+            csv.write_text("x\n1\n", encoding="utf-8")
             for mode, requested in [("auto", None), ("on", "1"), ("off", "0")]:
-                with patch.object(benchmark, "measure_tree", return_value=(999, 10, '[xazz:timing] {"pipeline_ms": 2.5}')) as measure:
+                markers = collection_markers(mode)
+                with patch.object(benchmark, "measure_tree", return_value=(999, 10, xazz_stdout(markers))) as measure:
                     result = benchmark.bench_xazz(csv, xazz_bin=Path(sys.executable), streaming=mode,
                                                   runs=1, timeout_seconds=5.5)
                     self.assertEqual(result["latency_ms"], 2.5)
                     self.assertFalse(result["runs"][0]["fallback_to_wallclock"])
+                    self.assertEqual(result["runs"][0]["collections"], markers)
+                    self.assertTrue(result["collection_diagnostics_verified"])
+                    self.assertEqual(result["warmup_collections"], markers)
                     self.assertEqual(measure.call_count, 2)
                     for call in measure.call_args_list:
                         environment = call.kwargs["env"]
                         self.assertEqual(environment["XAZZ_BACKEND"], "cpu")
                         self.assertEqual(environment["XAZZ_STREAMING"], requested)
-                        self.assertEqual(environment["XAZZ_RUNNER_PATH"], str(Path(sys.executable).with_name("xazz-runner")))
-                        self.assertEqual(environment["XAZZ_EXEC_PATH"], str(Path(sys.executable).with_name("xazz-exec")))
+                        self.assertEqual(environment["XAZZ_COLLECT_DIAGNOSTICS"], "1")
+                        suffix = ".exe" if os.name == "nt" else ""
+                        self.assertEqual(environment["XAZZ_RUNNER_PATH"], str(Path(sys.executable).with_name("xazz-runner" + suffix)))
+                        self.assertEqual(environment["XAZZ_EXEC_PATH"], str(Path(sys.executable).with_name("xazz-exec" + suffix)))
                         self.assertEqual(environment["XAZZ_EXEC_TIMEOUT_SECS"], "7")
                         self.assertIn("[xazz RUNTIME ERROR]", call.kwargs["failure_markers"])
 
@@ -111,9 +204,9 @@ class ProcessMeasurementTests(unittest.TestCase):
     def test_nonzero_exit_preserves_raw_error_and_failed_measurement(self):
         with self.assertRaisesRegex(RuntimeError, "exit=7"):
             self.measure('import sys,time; time.sleep(0.05); print("failure-evidence",file=sys.stderr); sys.exit(7)')
-        record = json.loads((self.directory / "run.measurement.json").read_text())
+        record = json.loads((self.directory / "run.measurement.json").read_text(encoding="utf-8"))
         self.assertEqual(record["status"], "failed")
-        self.assertIn("failure-evidence", (self.directory / "run.stderr.log").read_text())
+        self.assertIn("failure-evidence", (self.directory / "run.stderr.log").read_text(encoding="utf-8"))
 
     def test_zero_exit_with_runtime_error_is_not_a_success(self):
         with self.assertRaisesRegex(RuntimeError, "실행 오류"):
@@ -121,8 +214,8 @@ class ProcessMeasurementTests(unittest.TestCase):
                          'print("[xazz:timing] "+json.dumps({"pipeline_ms":1})); '
                          'print("[xazz RUNTIME ERROR] failed",file=sys.stderr)',
                          failure_markers=("[xazz RUNTIME ERROR]",))
-        benchmark.parse_xazz_timing((self.directory / "run.stdout.log").read_text())
-        self.assertEqual(json.loads((self.directory / "run.measurement.json").read_text())["status"], "failed")
+        benchmark.parse_xazz_timing((self.directory / "run.stdout.log").read_text(encoding="utf-8"))
+        self.assertEqual(json.loads((self.directory / "run.measurement.json").read_text(encoding="utf-8"))["status"], "failed")
 
     def test_timeout_terminates_descendants_and_preserves_evidence(self):
         pidfile = self.directory / "child.pid"
@@ -134,13 +227,13 @@ class ProcessMeasurementTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "제한시간"):
             self.measure(source, timeout_seconds=0.5)
         self.assertTrue(pidfile.exists(), "자식 생성 전 제한시간에 도달함")
-        pid = int(pidfile.read_text())
+        pid = int(pidfile.read_text(encoding="utf-8"))
         try:
             child = psutil.Process(pid)
             self.assertEqual(child.status(), psutil.STATUS_ZOMBIE, "자식이 종료되지 않음")
         except psutil.NoSuchProcess:
             pass
-        record = json.loads((self.directory / "run.measurement.json").read_text())
+        record = json.loads((self.directory / "run.measurement.json").read_text(encoding="utf-8"))
         self.assertEqual(record["status"], "failed")
         self.assertGreater(record["wall_ms"], 0)
 
@@ -154,7 +247,7 @@ class ProcessMeasurementTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "자식 프로세스"):
             self.measure(source)
         try:
-            self.assertEqual(psutil.Process(int(pidfile.read_text())).status(), psutil.STATUS_ZOMBIE)
+            self.assertEqual(psutil.Process(int(pidfile.read_text(encoding="utf-8"))).status(), psutil.STATUS_ZOMBIE)
         except psutil.NoSuchProcess:
             pass
 
@@ -170,7 +263,7 @@ class ProcessMeasurementTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "프로세스 그룹"):
                 self.measure(source)
         try:
-            self.assertEqual(psutil.Process(int(pidfile.read_text())).status(), psutil.STATUS_ZOMBIE)
+            self.assertEqual(psutil.Process(int(pidfile.read_text(encoding="utf-8"))).status(), psutil.STATUS_ZOMBIE)
         except psutil.NoSuchProcess:
             pass
 
@@ -184,7 +277,7 @@ class ProcessMeasurementTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "제한시간"):
             self.measure(source, timeout_seconds=0.5)
         try:
-            self.assertEqual(psutil.Process(int(pidfile.read_text())).status(), psutil.STATUS_ZOMBIE)
+            self.assertEqual(psutil.Process(int(pidfile.read_text(encoding="utf-8"))).status(), psutil.STATUS_ZOMBIE)
         except psutil.NoSuchProcess:
             pass
 
@@ -192,7 +285,7 @@ class ProcessMeasurementTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "RSS 제한"):
             self.measure('import time; data=bytearray(64*1024*1024); time.sleep(30)',
                          timeout_seconds=5, max_memory_mb=32)
-        record = json.loads((self.directory / "run.measurement.json").read_text())
+        record = json.loads((self.directory / "run.measurement.json").read_text(encoding="utf-8"))
         self.assertEqual(record["status"], "failed")
         self.assertGreater(record["peak_mb"], 32)
 
@@ -208,13 +301,16 @@ class OrchestrationTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.directory = Path(self.temporary.name)
-        (self.directory / "scale_small.csv").write_text("date,station,pm10,pm25\n2026-01-01,A,50,20\n")
+        (self.directory / "scale_small.csv").write_text("date,station,pm10,pm25\n2026-01-01,A,50,20\n", encoding="utf-8")
         self.output = self.directory / "results.json"
+        suffix = ".exe" if os.name == "nt" else ""
+        self.binary = self.directory / ("xazz" + suffix)
+        self.engine = self.directory / ("xazz-exec" + suffix)
         for name in ["xazz", "xazz-runner", "xazz-exec"]:
-            path = self.directory / name
+            path = self.directory / (name + suffix)
             path.write_bytes(b"placeholder: these mocked orchestration tests do not execute this file")
             path.chmod(0o755)
-        self.arguments = ["--quick", "--data-dir", str(self.directory), "--xazz-bin", str(self.directory / "xazz"),
+        self.arguments = ["--quick", "--data-dir", str(self.directory), "--xazz-bin", str(self.binary),
                           "--out", str(self.output), "--runs", "1"]
         self.metric = {"latency_ms": 2.0, "peak_mb": 10.0, "runs": [{"latency_ms": 2.0, "peak_mb": 10.0}]}
 
@@ -231,18 +327,56 @@ class OrchestrationTests(unittest.TestCase):
             pandas.assert_not_called()
         self.assertFalse(self.output.exists())
         failure = next(self.directory.glob("results-logs-*/failure.json"))
-        self.assertIn("scale_xlarge.csv", json.loads(failure.read_text())["error"])
+        self.assertIn("scale_xlarge.csv", json.loads(failure.read_text(encoding="utf-8"))["error"])
 
-    def test_missing_or_nonexecutable_engine_fails_before_measurement(self):
-        (self.directory / "xazz-exec").chmod(0o644)
+    def test_missing_engine_fails_before_measurement(self):
+        self.engine.unlink()
         with patch.object(benchmark, "bench_pandas") as pandas:
             self.assertEqual(self.call(self.arguments), 1)
             pandas.assert_not_called()
         self.assertFalse(self.output.exists())
 
+    def test_nonexecutable_engine_fails_before_measurement(self):
+        # Windows chmod는 실행 권한을 제거하지 못하므로 접근 검사 결과를 명시한다.
+        if os.name == "nt":
+            access = patch.object(benchmark.os, "access", side_effect=lambda path, mode: path != self.engine)
+        else:
+            self.engine.chmod(0o644)
+            access = contextlib.nullcontext()
+        with access as mocked_access, patch.object(benchmark, "bench_pandas") as pandas:
+            self.assertEqual(self.call(self.arguments), 1)
+            pandas.assert_not_called()
+            if mocked_access is not None:
+                mocked_access.assert_any_call(self.engine, os.X_OK)
+        self.assertFalse(self.output.exists())
+
+    def test_polars_engine_overrides_fail_without_measurement_or_environment_changes(self):
+        previous = '{"previous": "complete"}'
+        self.output.write_text(previous, encoding="utf-8")
+        overrides = {"POLARS_AUTO_NEW_STREAMING": "0", "POLARS_FORCE_NEW_STREAMING": "0"}
+        for name in overrides:
+            with self.subTest(variable=name):
+                existing_failures = set(self.directory.glob("results-logs-*/failure.json"))
+                with patch.dict(benchmark.os.environ, {**overrides, name: "1"}), \
+                     patch.object(benchmark, "bench_pandas") as pandas, \
+                     patch.object(benchmark, "bench_xazz") as xazz:
+                    environment = dict(benchmark.os.environ)
+                    self.assertEqual(self.call(self.arguments + ["--streaming", "both"]), 1)
+                    pandas.assert_not_called()
+                    xazz.assert_not_called()
+                    self.assertEqual(dict(benchmark.os.environ), environment)
+                self.assertEqual(self.output.read_text(encoding="utf-8"), previous)
+                failures = set(self.directory.glob("results-logs-*/failure.json")) - existing_failures
+                self.assertEqual(len(failures), 1)
+                failure = json.loads(failures.pop().read_text(encoding="utf-8"))
+                self.assertIn(name, failure["error"])
+                self.assertEqual(failure["status"], "failed")
+                self.assertEqual(failure["completed_scales"], [])
+                self.assertFalse(failure["success_output_updated"])
+
     def test_input_metadata_counts_csv_records_with_embedded_newlines(self):
         path = self.directory / "multiline.csv"
-        path.write_text('date,station,pm10,pm25\n2026-01-01,"line1\nline2",50,20\n')
+        path.write_text('date,station,pm10,pm25\n2026-01-01,"line1\nline2",50,20\n', encoding="utf-8")
         metadata = benchmark._input_metadata(path)
         self.assertEqual(metadata["rows"], 1)
         self.assertEqual(metadata["bytes"], path.stat().st_size)
@@ -257,7 +391,7 @@ class OrchestrationTests(unittest.TestCase):
         ]
         for content in contents:
             with self.subTest(content=content):
-                (self.directory / "scale_small.csv").write_text(content)
+                (self.directory / "scale_small.csv").write_text(content, encoding="utf-8")
                 with patch.object(benchmark, "bench_pandas") as pandas:
                     self.assertEqual(self.call(self.arguments), 1)
                     pandas.assert_not_called()
@@ -268,7 +402,7 @@ class OrchestrationTests(unittest.TestCase):
              patch.object(benchmark, "bench_xazz", return_value=self.metric), \
              patch.object(benchmark, "collect_provenance", return_value={"recorded": True}):
             self.assertEqual(self.call(self.arguments), 0)
-        result = json.loads(self.output.read_text())
+        result = json.loads(self.output.read_text(encoding="utf-8"))
         self.assertEqual(set(result["small"]), {"rows", "pandas", "xazz"})
 
     def test_both_modes_are_stored_separately_without_xazz_alias(self):
@@ -277,16 +411,16 @@ class OrchestrationTests(unittest.TestCase):
              patch.object(benchmark, "collect_provenance", return_value={"recorded": True}):
             self.assertEqual(self.call(self.arguments + ["--streaming", "both"]), 0)
             self.assertEqual([call.kwargs["streaming"] for call in xazz.call_args_list], ["on", "off"])
-        result = json.loads(self.output.read_text())
+        result = json.loads(self.output.read_text(encoding="utf-8"))
         self.assertEqual(set(result["small"]), {"rows", "pandas", "xazz_streaming_on", "xazz_streaming_off"})
 
     def test_partial_failure_never_overwrites_success_output(self):
-        self.output.write_text('{"previous": "complete"}')
+        self.output.write_text('{"previous": "complete"}', encoding="utf-8")
         with patch.object(benchmark, "bench_pandas", return_value=self.metric), \
              patch.object(benchmark, "bench_xazz", side_effect=[self.metric, RuntimeError("off failed")]):
             self.assertEqual(self.call(self.arguments + ["--streaming", "both"]), 1)
-        self.assertEqual(json.loads(self.output.read_text()), {"previous": "complete"})
-        failure = json.loads(next(self.directory.glob("results-logs-*/failure.json")).read_text())
+        self.assertEqual(json.loads(self.output.read_text(encoding="utf-8")), {"previous": "complete"})
+        failure = json.loads(next(self.directory.glob("results-logs-*/failure.json")).read_text(encoding="utf-8"))
         self.assertFalse(failure["success_output_updated"])
         self.assertEqual(failure["status"], "failed")
 
@@ -300,6 +434,8 @@ class OrchestrationTests(unittest.TestCase):
         self.assertEqual(provenance["streaming_requested_modes"], ["on", "off"])
         self.assertEqual(len(provenance["binary_sha256"][Path(sys.executable).name]), 64)
         self.assertEqual(len(provenance["pandas_pipeline_sha256"]), 64)
+        self.assertEqual(len(provenance["runtime_source_sha256"]), 64)
+        self.assertIsNone(provenance["git_worktree_status"])
 
 
 if __name__ == "__main__":
