@@ -252,11 +252,22 @@ pub fn all() -> Result<Vec<AuditRecord>, String> {
 }
 
 fn read_all(file_path: &std::path::Path) -> Result<Vec<AuditRecord>, String> {
-    if !file_path.exists() {
-        return Ok(Vec::new());
-    }
-    let contents =
-        std::fs::read_to_string(file_path).map_err(|e| format!("failed to read audit log: {e}"))?;
+    use std::io::Read;
+
+    let mut file = match std::fs::File::open(file_path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("failed to open audit log: {e}")),
+    };
+    // Pair with append's exclusive lock. Reading through this same handle
+    // waits for a complete JSONL record and avoids Windows lock violations.
+    fs2::FileExt::lock_shared(&file)
+        .map_err(|e| format!("failed to lock audit log for reading: {e}"))?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)
+        .map_err(|e| format!("failed to read audit log: {e}"))?;
+    // Closing the handle releases the lock before parsing the snapshot.
+    drop(file);
     parse_records(&contents)
 }
 
@@ -373,6 +384,59 @@ mod tests {
         assert_eq!(recs[1].prev_hash, recs[0].record_hash);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Readers must wait for an append to finish, including across file handles.
+    /// Without a shared lock, Windows returns ERROR_LOCK_VIOLATION; Unix can
+    /// expose an incomplete JSON record while the writer holds its lock.
+    #[test]
+    fn read_all_waits_for_locked_writer() {
+        use std::io::Write;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let path = std::env::temp_dir().join(format!(
+            "xazz-audit-read-{}-{}.jsonl",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let record = append_to_path("code", Some("success"), None, None, &path).unwrap();
+        let line = serde_json::to_string(&record).unwrap() + "\n";
+        let mut writer = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        fs2::FileExt::lock_exclusive(&writer).unwrap();
+        writer.set_len(0).unwrap();
+        let split = line.len() / 2;
+        writer.write_all(&line.as_bytes()[..split]).unwrap();
+        writer.flush().unwrap();
+
+        let reader_path = path.clone();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            result_tx.send(read_all(&reader_path)).unwrap();
+        });
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let early = result_rx.recv_timeout(Duration::from_millis(100));
+        writer.write_all(&line.as_bytes()[split..]).unwrap();
+        writer.flush().unwrap();
+        fs2::FileExt::unlock(&writer).unwrap();
+        drop(writer);
+        let waited = matches!(&early, Err(mpsc::RecvTimeoutError::Timeout));
+        let result = match early {
+            Ok(result) => result,
+            Err(_) => result_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        };
+        reader.join().unwrap();
+        std::fs::remove_file(path).unwrap();
+
+        assert!(waited, "reader must wait for the writer's exclusive lock");
+        let records = result.expect("read the completed record after unlocking");
+        assert_eq!(records.len(), 1);
+        assert!(records[0].verify());
     }
 
     #[test]

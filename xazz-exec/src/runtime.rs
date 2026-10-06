@@ -334,6 +334,7 @@ pub fn run_pipeline(
                     tr("failed", "실패"),
                     e
                 );
+                return Err(e);
             }
         }
     }
