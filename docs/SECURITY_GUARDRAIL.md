@@ -395,8 +395,17 @@ xazz run <file.xzz>                       # run — auto-blocked on violation
 
 ### HTTP API
 
+Authentication, the `X-Xazz-Tenant` / `X-Xazz-Actor` headers, the single-token
+mode and CORS behavior are described in [`SERVER.md`](SERVER.md); this table is
+the route reference. Every tenant-scoped route resolves the tenant from the
+request and only ever returns that tenant's data.
+
 | Method | Path | Description |
 |---|---|---|
+| `POST` | `/execute` | Execute a `.xzz` program — **422** + report on violation |
+| `POST` | `/schema` | Multipart CSV upload (`file` field); infers and returns a schema (**413** above the size cap) |
+| `GET` | `/health` | Liveness probe: `{ status, version, timestamp }` |
+| `POST` | `/catalog` | Compile the code and return the pipeline catalog + column lineage (**422** on compile error) |
 | `GET` | `/security/policy` | Active policy + sLM config |
 | `PUT` / `DELETE` | `/security/policy` | Install / remove the authenticated tenant's policy pack |
 | `POST` | `/security/policy/check` | Inspect only, no execution (200 even on violation) |
@@ -404,12 +413,25 @@ xazz run <file.xzz>                       # run — auto-blocked on violation
 | `GET` / `PUT` / `DELETE` | `/security/policy/history/ttl` | Effective policy-history retention window (`PUT` sets a tenant override, `DELETE` clears it) |
 | `GET` | `/security/policy/history/ttl/history` | Retention-window override change history |
 | `POST` | `/security/remediate` | Remediated code + violation report |
-| `POST` | `/execute` | Execute — **422** + report on violation |
+| `POST` | `/security/audit` | Hash a code string and append it to the audit log (`{ hash, algorithm, timestamp, code_length, index, record_hash }`) |
+| `POST` | `/security/verify` | Check `sha256(code) == hash` and whether that hash is in the log (proof of audit, not of execution) |
+| `GET` | `/security/audit/log` | Entire audit log (`{ count, records }`) |
+| `GET` | `/security/audit/log/{hash}` | Records matching a code hash (**404** when none) |
+| `GET` | `/security/audit/chain` | Verify the hash-chain (`{ intact, records }`) |
+| `POST` | `/security/inference/check` | Runtime output gate: scan a generated response and record the prompt/response hashes as audit evidence |
+| `GET` | `/runs` | The tenant's recent runs, newest first (capped at 50) |
+| `GET` | `/runs/{id}` | One run by id, tenant-scoped (**404** when absent) |
+| `GET` | `/runs/{id}/resources` | Persisted resource telemetry; `{ available, resources }` or `{ available: false, reason }` |
+| `GET` | `/runs/{id}/prediction` | Persisted predict (embedding) diagnostics; `{ available, prediction }` or `{ available: false, reason }` |
 | `GET` | `/dp/budget` | Tenant ε/δ budget status: spent/remaining, in-flight reservations, effective window |
 | `POST` | `/dp/budget/reset` | Zero the tenant's accrued DP spend (audited; admins may delegate via `X-Xazz-Actor`) |
 | `GET` | `/dp/budget/history` | DP budget reset history (`?limit=` / `?offset=` / `?cursor=`) |
 | `PUT` / `DELETE` | `/dp/budget/window` | Set / clear a per-tenant rolling budget window (`window_secs`; `0` disables) |
 | `GET` | `/dp/budget/window/history` | Window-override change history (`?limit=` / `?offset=` / `?cursor=`) |
+
+> `/actor` and `/tenant` are test-only probes that assert the request extensions
+> (`Actor`, tenant) are populated; they are not registered on the production
+> router and are not part of the public API.
 
 History endpoints — `/security/policy/history`, `/security/policy/history/ttl/history`,
 `/dp/budget/history`, and `/dp/budget/window/history` — share one pagination contract.
