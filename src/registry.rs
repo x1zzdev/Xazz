@@ -9,6 +9,7 @@
 // A future remote registry can extend `ENTRIES` with a fetch step; the command
 // surface and manifest shape stay the same.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::http;
@@ -199,13 +200,81 @@ pub(crate) fn env_token() -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// Default policy file consulted by `registry deploy` when neither a registry
+/// name nor `--file` is given. This is the same path the rest of the CLI treats
+/// as the active policy.
+pub const DEFAULT_POLICY_FILE: &str = "xazz.policy.json";
+
+/// Validates a policy pack JSON string, mapping the compiler error to a message.
+fn validate_policy_source(source: &str, label: &str) -> Result<(), String> {
+    xazz_compiler::policy::Policy::from_json_str(source)
+        .map(|_| ())
+        .map_err(|err| format!("'{label}' is not a valid policy: {}", err.message))
+}
+
+/// Resolves the policy pack source for [`deploy`].
+///
+/// `name` selects an embedded registry pack; `file` reads a local JSON file, or
+/// `-` for stdin; when both are absent the default [`DEFAULT_POLICY_FILE`] is
+/// used if it exists. A local/stdin source is validated with the compiler's
+/// policy loader before any network call. `default_path` is parameterised so the
+/// fallback is testable without changing the process working directory.
+fn resolve_deploy_source(
+    name: Option<&str>,
+    file: Option<&Path>,
+    default_path: &Path,
+    stdin: &mut dyn Read,
+) -> Result<(String, String), String> {
+    match (name, file) {
+        (Some(_), Some(_)) => Err("pass either a registry name or --file, not both".to_string()),
+        (Some(name), None) => {
+            let entry = find(name).ok_or_else(|| {
+                format!(
+                    "unknown entry '{name}'\n        run `xazz registry list` to see available entries"
+                )
+            })?;
+            if entry.kind != EntryKind::PolicyPack {
+                return Err(format!(
+                    "'{}' is a {} and cannot be deployed as a tenant policy",
+                    entry.name,
+                    entry.kind.as_str()
+                ));
+            }
+            Ok((entry.name.to_string(), entry.source.to_string()))
+        }
+        (None, Some(path)) if path == Path::new("-") => {
+            let mut source = String::new();
+            stdin
+                .read_to_string(&mut source)
+                .map_err(|e| format!("cannot read policy from stdin: {e}"))?;
+            validate_policy_source(&source, "<stdin>")?;
+            Ok(("<stdin>".to_string(), source))
+        }
+        (None, Some(path)) => {
+            let source = std::fs::read_to_string(path)
+                .map_err(|e| format!("cannot read '{}': {e}", path.display()))?;
+            validate_policy_source(&source, &path.display().to_string())?;
+            Ok((path.display().to_string(), source))
+        }
+        (None, None) => {
+            if !default_path.exists() {
+                return Err("provide a registry name or --file <path>".to_string());
+            }
+            let source = std::fs::read_to_string(default_path)
+                .map_err(|e| format!("cannot read '{}': {e}", default_path.display()))?;
+            validate_policy_source(&source, &default_path.display().to_string())?;
+            Ok((default_path.display().to_string(), source))
+        }
+    }
+}
+
 /// `xazz registry deploy [name] [--file PATH] --tenant T [--server URL] [--token TOKEN] [--actor A]`
 ///
 /// Deploys a policy pack to a tenant namespace through the server's
-/// `PUT /security/policy` endpoint (issue C2). The pack source is either an
-/// embedded registry entry (`name`) or a local policy JSON file (`--file`);
-/// exactly one is required. Stdlib modules are project-local files and are
-/// rejected before any network call.
+/// `PUT /security/policy` endpoint (issue C2). The pack source is an embedded
+/// registry entry (`name`), a local policy JSON file (`--file`, or `-` for
+/// stdin), or the default [`DEFAULT_POLICY_FILE`] when neither is given. Stdlib
+/// modules are project-local files and are rejected before any network call.
 pub fn deploy(
     name: Option<&str>,
     file: Option<&Path>,
@@ -214,50 +283,15 @@ pub fn deploy(
     token: Option<&str>,
     actor: Option<&str>,
 ) -> i32 {
-    let (label, source) = match (name, file) {
-        (Some(_), Some(_)) => {
-            eprintln!("[xazz] registry: pass either a registry name or --file, not both");
-            return 1;
-        }
-        (None, None) => {
-            eprintln!("[xazz] registry: provide a registry name or --file <path>");
-            return 1;
-        }
-        (Some(name), None) => {
-            let Some(entry) = find(name) else {
-                eprintln!("[xazz] registry: unknown entry '{name}'");
-                eprintln!("        run `xazz registry list` to see available entries");
-                return 1;
-            };
-            if entry.kind != EntryKind::PolicyPack {
-                eprintln!(
-                    "[xazz] registry: '{}' is a {} and cannot be deployed as a tenant policy",
-                    entry.name,
-                    entry.kind.as_str()
-                );
+    let mut stdin = std::io::stdin();
+    let (label, source) =
+        match resolve_deploy_source(name, file, Path::new(DEFAULT_POLICY_FILE), &mut stdin) {
+            Ok(resolved) => resolved,
+            Err(message) => {
+                eprintln!("[xazz] registry: {message}");
                 return 1;
             }
-            (entry.name.to_string(), entry.source.to_string())
-        }
-        (None, Some(path)) => {
-            let source = match std::fs::read_to_string(path) {
-                Ok(source) => source,
-                Err(e) => {
-                    eprintln!("[xazz] registry: cannot read '{}': {e}", path.display());
-                    return 1;
-                }
-            };
-            if let Err(err) = xazz_compiler::policy::Policy::from_json_str(&source) {
-                eprintln!(
-                    "[xazz] registry: '{}' is not a valid policy: {}",
-                    path.display(),
-                    err.message
-                );
-                return 1;
-            }
-            (path.display().to_string(), source)
-        }
-    };
+        };
 
     let tenant = tenant.trim();
     if tenant.is_empty() {
