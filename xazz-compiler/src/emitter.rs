@@ -721,6 +721,12 @@ fn generate_rust_src(
                             && matches!(layers.first(), Some(LayerKind::Embedding { .. })))
                 });
                 warn_emit_output_dim(program, model_name);
+                if let Some(layers) = find_model_layers(program, model_name)
+                    && let Some(message) =
+                        embedding_vocab_emit_error(layers, &config.target, &col_types)
+                {
+                    return Err(message.into());
+                }
                 out.push_str(&emit_dl_train_call(
                     var_name,
                     model_name,
@@ -765,6 +771,12 @@ fn generate_rust_src(
                         && matches!(layers.first(), Some(LayerKind::Embedding { .. })))
             });
             warn_emit_output_dim(program, model_name);
+            if let Some(layers) = find_model_layers(program, model_name)
+                && let Some(col_types) = var_col_types.get(source_var.as_str())
+                && let Some(message) = embedding_vocab_emit_error(layers, &config.target, col_types)
+            {
+                return Err(message.into());
+            }
             out.push_str(&emit_dl_train_call(
                 source_var,
                 model_name,
@@ -926,6 +938,55 @@ fn warn_emit_output_dim(program: &Program, model_name: &str) {
     {
         eprintln!("[xazz] {msg}");
     }
+}
+
+/// Whether a schema field type counts as a numeric feature (`int`/`float`,
+/// including `Option<...>`). Mirrors the checker's numeric classification.
+fn is_numeric_field_type(field_type: &str) -> bool {
+    let inner = field_type
+        .strip_prefix("Option<")
+        .and_then(|t| t.strip_suffix('>'))
+        .unwrap_or(field_type);
+    matches!(inner, "int" | "float")
+}
+
+/// Emit-time check for a leading per-column `Embedding` vocab list (issue #278).
+///
+/// The checker validates the length against the pipeline schema, but `emit rust`
+/// knows the training source's column types too. When the model's first layer is
+/// `Embedding(PerColumn(vs))` and the source exposes a column type map, a
+/// `vs.len()` that differs from the numeric feature count (columns other than
+/// the target) is reported before the generated program is compiled. Returns
+/// `None` when the dimension is unknown or matches, leaving the generated
+/// `assert_eq!` as the last-resort runtime guard.
+fn embedding_vocab_emit_error(
+    layers: &[LayerKind],
+    target: &str,
+    col_types: &HashMap<String, String>,
+) -> Option<String> {
+    let Some(LayerKind::Embedding {
+        vocab: EmbeddingVocab::PerColumn(sizes),
+        ..
+    }) = layers.first()
+    else {
+        return None;
+    };
+    if col_types.is_empty() {
+        return None;
+    }
+    let feature_count = col_types
+        .iter()
+        .filter(|(name, ty)| name.as_str() != target && is_numeric_field_type(ty))
+        .count();
+    if sizes.len() == feature_count {
+        return None;
+    }
+    Some(format!(
+        "emit rust : the leading Embedding declares {} per-column vocab entr{} but the training data has {} feature column(s). Match the list length or use the shared form `Embedding(vocab, embed_dim)`.",
+        sizes.len(),
+        if sizes.len() == 1 { "y" } else { "ies" },
+        feature_count
+    ))
 }
 
 /// `model <Name> { ... }` → Burn nn module struct + new() + forward().
@@ -2295,6 +2356,36 @@ mod tests {
             out.contains("assert_eq!(embed_vocab0.len(), input_dim"),
             "길이 검증 누락: {out}"
         );
+    }
+
+    /// Issue #278: a per-column vocab whose length does not match the training
+    /// feature count fails at emit time instead of panicking in the generated
+    /// program. Both `train()` forms are checked.
+    #[test]
+    fn emit_rust_rejects_embedding_vocab_length_mismatch() {
+        for prefix in ["v trained =", "run"] {
+            let source = format!(
+                "type S = {{ a: float, b: float, y: float }};
+                 model M {{ Embedding([3, 5, 7], 2) -> Dense(1) }}
+                 v data = load(\"x.csv\") :: S;
+                 {prefix} data |> train(M, target: \"y\", epochs: 3);"
+            );
+            let error = generate_rust_src(&parse(&source), "test.xzz").unwrap_err();
+            assert!(error.to_string().contains("per-column vocab"), "{error}");
+        }
+    }
+
+    /// A matching per-column vocab still emits, with the `assert_eq!` kept as the
+    /// last-resort runtime guard.
+    #[test]
+    fn emit_rust_accepts_matching_embedding_vocab_length() {
+        let out = emit(
+            "type S = { a: float, b: float, y: float };
+             model M { Embedding([3, 5], 2) -> Dense(1) }
+             v data = load(\"x.csv\") :: S;
+             run data |> train(M, target: \"y\", epochs: 3);",
+        );
+        assert!(out.contains("vec![3, 5]"), "{out}");
     }
 
     /// D3 sweep: list-valued train args emit a cartesian grid loop + best tracking.
