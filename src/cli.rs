@@ -141,9 +141,18 @@ pub enum Commands {
     /// Read a CSV file and add the type definition and load statement to main.xzz
     ///
     /// Example: xazz import visual-ide/data/seoul_air_quality.csv
+    /// Example: xazz import data/semicolon.csv --delimiter ';' --no-header
     Import {
         /// Path to the CSV file to import
         file: String,
+
+        /// Field delimiter for CSV parsing (single ASCII character; default comma)
+        #[arg(long, value_name = "CHAR")]
+        delimiter: Option<char>,
+
+        /// Treat the first row as data instead of a header (columns become column_1..N)
+        #[arg(long)]
+        no_header: bool,
     },
 
     /// Run fine-tuning data sanitization checks (PII / duplicates / bias) (issue #72, F3)

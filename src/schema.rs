@@ -141,8 +141,15 @@ fn filename_to_var_name(path: &str) -> std::string::String {
 
 /// Read a CSV file and generate a xazz type definition + load statement.
 ///
-/// Only inspects a sample of up to 100 rows.
-pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
+/// `delimiter` overrides the field separator (default `,`); `has_header=false`
+/// treats the first row as data and names the columns `column_1..N`, matching
+/// the runtime's Polars default for headerless CSVs. Only inspects a sample of
+/// up to 100 rows.
+pub fn infer_csv_schema(
+    csv_path: &str,
+    delimiter: Option<u8>,
+    has_header: bool,
+) -> Result<std::string::String> {
     // 1) Read the file as bytes
     let mut file = fs::File::open(csv_path)
         .with_context(|| format!("failed to open CSV file '{}'.", csv_path))?;
@@ -169,15 +176,35 @@ pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
 
     // 3) Create the CSV reader in memory
     let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(true)
+        .delimiter(delimiter.unwrap_or(b','))
+        .has_headers(has_header)
         .from_reader(content.as_bytes());
 
-    let headers: Vec<std::string::String> = rdr
-        .headers()
-        .with_context(|| "CSV 헤더를 읽는 데 실패했습니다.")?
-        .iter()
-        .map(|h| h.to_owned())
-        .collect();
+    // 4) Headers + sample records. With no header the first record is data, and
+    //    the generated names must match Polars' headerless default (`column_1..N`).
+    let (headers, records): (Vec<std::string::String>, Vec<csv::StringRecord>) = if has_header {
+        let headers = rdr
+            .headers()
+            .with_context(|| "CSV 헤더를 읽는 데 실패했습니다.")?
+            .iter()
+            .map(|h| h.to_owned())
+            .collect();
+        let records = rdr
+            .records()
+            .take(SCHEMA_SAMPLE_ROWS)
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .with_context(|| "CSV 레코드 읽기 실패")?;
+        (headers, records)
+    } else {
+        let records = rdr
+            .records()
+            .take(SCHEMA_SAMPLE_ROWS)
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .with_context(|| "CSV 레코드 읽기 실패")?;
+        let col_count = records.first().map(|r| r.len()).unwrap_or(0);
+        let headers = (1..=col_count).map(|i| format!("column_{i}")).collect();
+        (headers, records)
+    };
 
     let col_count = headers.len();
 
@@ -186,9 +213,7 @@ pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
     // Whether each column is nullable
     let mut col_nullable: Vec<bool> = vec![false; col_count];
 
-    for result in rdr.records().take(SCHEMA_SAMPLE_ROWS) {
-        let record = result.with_context(|| "CSV 레코드 읽기 실패")?;
-
+    for record in &records {
         for (i, field) in record.iter().enumerate() {
             if i >= col_count {
                 break;
@@ -238,11 +263,39 @@ pub fn infer_csv_schema(csv_path: &str) -> Result<std::string::String> {
     output.push_str("};\n");
     output.push('\n');
     output.push_str(&format!(
-        "v {} = load(\"{}\") :: {}",
-        var_name, csv_path, type_name
+        "v {} = load(\"{}\"{}) :: {}",
+        var_name,
+        csv_path,
+        load_options_suffix(delimiter, has_header),
+        type_name
     ));
 
     Ok(output)
+}
+
+/// Renders the `load(...)` option suffix for non-default CSV settings, in the
+/// syntax the parser accepts (`sep: "\t"`, `header: false`).
+fn load_options_suffix(delimiter: Option<u8>, has_header: bool) -> std::string::String {
+    let mut suffix = std::string::String::new();
+    if let Some(byte) = delimiter
+        && byte != b','
+    {
+        suffix.push_str(&format!(", sep: \"{}\"", escape_delimiter(byte)));
+    }
+    if !has_header {
+        suffix.push_str(", header: false");
+    }
+    suffix
+}
+
+/// Escapes a delimiter byte for a single-byte xazz string literal.
+fn escape_delimiter(byte: u8) -> std::string::String {
+    match byte {
+        b'\t' => "\\t".to_string(),
+        b'\\' => "\\\\".to_string(),
+        b'"' => "\\\"".to_string(),
+        other => (other as char).to_string(),
+    }
 }
 
 // ─── import command ───────────────────────────────────────────────────────────
@@ -271,7 +324,7 @@ fn find_project_root(csv_path: &str) -> Option<std::path::PathBuf> {
 /// CSV is inferred natively (no Polars dependency in the CLI). Columnar
 /// formats delegate to `xazz-exec --schema <path>`, which is reached through
 /// the xazz-runner IPC bridge.
-pub fn import_file(file: &str) -> Result<()> {
+pub fn import_file(file: &str, delimiter: Option<u8>, has_header: bool) -> Result<()> {
     let ext = std::path::Path::new(file)
         .extension()
         .and_then(|e| e.to_str())
@@ -281,7 +334,7 @@ pub fn import_file(file: &str) -> Result<()> {
     let generated = if matches!(ext.as_str(), "parquet" | "pq" | "arrow" | "ipc" | "feather") {
         infer_columnar_schema_via_runner(file)?
     } else {
-        infer_csv_schema(file)?
+        infer_csv_schema(file, delimiter, has_header)?
     };
 
     // Find the project root (directory containing xazz.toml) from the CSV path,
@@ -377,7 +430,26 @@ mod tests {
         let path = dir.join("sample.csv");
         fs::write(&path, bytes).unwrap();
         let csv_path = path.to_str().unwrap();
-        let generated = infer_csv_schema(csv_path)
+        let generated = infer_csv_schema(csv_path, None, true)
+            .unwrap()
+            .replace(csv_path, "sample.csv");
+        fs::remove_file(path).unwrap();
+        fs::remove_dir(dir).unwrap();
+        generated
+    }
+
+    /// Like [`infer_fixture`], but with explicit delimiter/header options.
+    fn infer_fixture_with(bytes: &[u8], delimiter: Option<u8>, has_header: bool) -> String {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("xazz-import-{}-{nonce}", std::process::id()));
+        fs::create_dir(&dir).unwrap();
+        let path = dir.join("sample.csv");
+        fs::write(&path, bytes).unwrap();
+        let csv_path = path.to_str().unwrap();
+        let generated = infer_csv_schema(csv_path, delimiter, has_header)
             .unwrap()
             .replace(csv_path, "sample.csv");
         fs::remove_file(path).unwrap();
@@ -412,6 +484,66 @@ mod tests {
             generated,
             "type Sample = {\n    id: int,\n    value: float\n};\n\nv data_sample = load(\"sample.csv\") :: Sample"
         );
+    }
+
+    #[test]
+    fn csv_import_golden_semicolon_delimiter() {
+        let generated = infer_fixture_with(b"id;name\n1;Ada\n", Some(b';'), true);
+        assert_eq!(
+            generated,
+            "type Sample = {\n    id: int,\n    name: string\n};\n\nv data_sample = load(\"sample.csv\", sep: \";\") :: Sample"
+        );
+    }
+
+    #[test]
+    fn csv_import_golden_tab_delimiter_is_escaped() {
+        let generated = infer_fixture_with(b"id\tname\n1\tAda\n", Some(b'\t'), true);
+        assert!(
+            generated.contains("load(\"sample.csv\", sep: \"\\t\") :: Sample"),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn csv_import_golden_headerless_uses_column_names() {
+        let generated = infer_fixture_with(b"1,Ada\n2,Bob\n", None, false);
+        assert_eq!(
+            generated,
+            "type Sample = {\n    column_1: int,\n    column_2: string\n};\n\nv data_sample = load(\"sample.csv\", header: false) :: Sample"
+        );
+    }
+
+    #[test]
+    fn csv_import_headerless_includes_first_row_in_inference() {
+        // The first row is data, so its values must drive the inferred types.
+        let generated = infer_fixture_with(b"1,2.5\n3,4.5\n", None, false);
+        assert!(generated.contains("column_1: int"), "{generated}");
+        assert!(generated.contains("column_2: float"), "{generated}");
+    }
+
+    #[test]
+    fn csv_import_combines_delimiter_and_header_options() {
+        let generated = infer_fixture_with(b"1|Ada\n2|Bob\n", Some(b'|'), false);
+        assert!(
+            generated.contains("load(\"sample.csv\", sep: \"|\", header: false) :: Sample"),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn generated_load_with_options_parses() {
+        for (bytes, delimiter, has_header) in [
+            (b"id;name\n1;Ada\n".as_slice(), Some(b';'), true),
+            (b"1,Ada\n2,Bob\n".as_slice(), None, false),
+            (b"1|Ada\n".as_slice(), Some(b'|'), false),
+        ] {
+            let generated = infer_fixture_with(bytes, delimiter, has_header);
+            let tokens = xazz_compiler::Lexer::new(&generated).tokenize().unwrap();
+            assert!(
+                xazz_compiler::Parser::new(tokens).parse().is_ok(),
+                "{generated}"
+            );
+        }
     }
 
     #[test]

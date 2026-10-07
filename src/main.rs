@@ -398,8 +398,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // ── import: auto-generate schema → xazz type definition + load statement ──
-        Commands::Import { file } => {
-            if let Err(e) = schema::import_file(&file) {
+        Commands::Import {
+            file,
+            delimiter,
+            no_header,
+        } => {
+            let delimiter = match delimiter {
+                Some(c) => match u8::try_from(c) {
+                    Ok(byte) if byte == b'\t' || (0x20..=0x7e).contains(&byte) => Some(byte),
+                    _ => {
+                        eprintln!(
+                            "[xazz] import: --delimiter must be a single printable ASCII character (or a tab)."
+                        );
+                        std::process::exit(1);
+                    }
+                },
+                None => None,
+            };
+            if let Err(e) = schema::import_file(&file, delimiter, !no_header) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
