@@ -22,9 +22,9 @@ fn validate_project_name(name: &str) -> Result<()> {
     if name.starts_with('/') || name.starts_with('\\') || name.contains("..") {
         bail!(invalid_hint("경로 구분자 / .."));
     }
-    // Reject Windows drive prefixes (C:\) and URL schemes
-    if name.len() >= 2 && name.as_bytes()[1] == b':' {
-        bail!(invalid_hint("드라이브 문자 (:)"));
+    // Reject Windows drive prefixes (C:\) and URL schemes (scheme:)
+    if name.contains(':') {
+        bail!(invalid_hint("드라이브 문자/스킴 (:)"));
     }
     if name.contains('/') || name.contains('\\') {
         bail!(invalid_hint("경로 구분자"));
