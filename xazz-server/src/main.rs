@@ -5315,7 +5315,7 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
             state.clone(),
             code.clone(),
             tenant.clone(),
-            script.clone(),
+            Command::new(&script),
             tmp,
             reservation,
             slot,
