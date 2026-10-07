@@ -36,6 +36,26 @@ fn default_log_path() -> std::path::PathBuf {
 /// and break the audit chain.
 static APPEND_LOCK: Mutex<()> = Mutex::new(());
 
+/// Acquires a mutex, recovering if a previous holder panicked while holding it.
+///
+/// A poisoned `APPEND_LOCK` must not permanently disable auditing: one panic in
+/// a request would otherwise stop the hash chain for the life of the process.
+/// Recovery is safe because a completed append is already serialized by the OS
+/// file lock and flushed with `fsync`, so this guard only keeps concurrent
+/// read-modify-writes apart — it does not protect in-memory state that a panic
+/// could leave half-updated.
+fn lock_with_recovery(lock: &Mutex<()>) -> std::sync::MutexGuard<'_, ()> {
+    lock.lock().unwrap_or_else(|poisoned| {
+        lock.clear_poison();
+        poisoned.into_inner()
+    })
+}
+
+/// Acquires the process-wide append lock, recovering from poisoning.
+fn lock_append() -> std::sync::MutexGuard<'static, ()> {
+    lock_with_recovery(&APPEND_LOCK)
+}
+
 /// Audit log record — one JSON line
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditRecord {
@@ -187,9 +207,8 @@ fn append_to_path(
     file_path: &std::path::Path,
 ) -> Result<AuditRecord, String> {
     // 1) Serialize concurrent in-process append read-modify-writes. (TOCTOU prevention)
-    let _guard = APPEND_LOCK
-        .lock()
-        .map_err(|_| "failed to acquire audit-log lock (poisoned)".to_string())?;
+    //    Recovers from a poisoned lock so a single panic cannot disable auditing.
+    let _guard = lock_append();
 
     // 2) Take an OS exclusive file lock so the chain is not broken across multiple
     //    instances (multi-process). flock applies across process boundaries, so even
