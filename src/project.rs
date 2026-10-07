@@ -127,3 +127,51 @@ v result = data
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::validate_project_name;
+
+    /// Returns the error text for an invalid name (asserts the call failed).
+    fn invalid(name: &str) -> String {
+        validate_project_name(name)
+            .expect_err("expected an invalid project name")
+            .to_string()
+    }
+
+    #[test]
+    fn accepts_single_safe_segments() {
+        for name in ["my-project", "my_project", "v2"] {
+            validate_project_name(name)
+                .unwrap_or_else(|error| panic!("'{name}' should be valid: {error}"));
+        }
+    }
+
+    #[test]
+    fn rejects_empty_name() {
+        assert!(invalid("").contains("project name is empty"));
+    }
+
+    #[test]
+    fn rejects_dot_and_dotdot() {
+        for name in [".", ".."] {
+            let message = invalid(name);
+            assert!(message.contains(name), "{name}: {message}");
+            assert!(
+                message.contains("is not a valid project name"),
+                "{name}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_absolute_and_relative_path_segments() {
+        for name in ["/abs", "a/b", "a\\b", "..\\x"] {
+            let message = invalid(name);
+            assert!(
+                message.contains("경로 구분자"),
+                "{name} should be rejected as a path segment: {message}"
+            );
+        }
+    }
+}
