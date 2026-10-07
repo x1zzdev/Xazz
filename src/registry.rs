@@ -513,6 +513,50 @@ mod tests {
     }
 
     #[test]
+    fn resolve_deploy_source_reads_stdin() {
+        let pack = find("healthcare").unwrap().source;
+        let mut stdin: &[u8] = pack.as_bytes();
+        let missing = Path::new("does-not-exist-default.json");
+        let (label, source) =
+            resolve_deploy_source(None, Some(Path::new("-")), missing, &mut stdin).unwrap();
+        assert_eq!(label, "<stdin>");
+        assert_eq!(source, pack);
+    }
+
+    #[test]
+    fn resolve_deploy_source_rejects_invalid_stdin() {
+        let mut stdin: &[u8] = b"{ not a policy }";
+        let missing = Path::new("does-not-exist-default.json");
+        let error = resolve_deploy_source(None, Some(Path::new("-")), missing, &mut stdin)
+            .expect_err("invalid stdin policy must be rejected");
+        assert!(error.contains("not a valid policy"), "{error}");
+    }
+
+    #[test]
+    fn resolve_deploy_source_falls_back_to_default_file() {
+        let pack = find("healthcare").unwrap().source;
+        let path = write_temp_policy(pack);
+        let mut stdin: &[u8] = b"";
+        let (label, source) = resolve_deploy_source(None, None, &path, &mut stdin).unwrap();
+        assert_eq!(source, pack);
+        assert_eq!(label, path.display().to_string());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn resolve_deploy_source_errors_without_name_file_or_default() {
+        let missing = std::env::temp_dir().join("xazz-no-such-default-policy.json");
+        let _ = std::fs::remove_file(&missing);
+        let mut stdin: &[u8] = b"";
+        let error = resolve_deploy_source(None, None, &missing, &mut stdin)
+            .expect_err("no source must be an error");
+        assert!(
+            error.contains("provide a registry name or --file"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn deploy_rejects_invalid_local_policy_before_any_network_call() {
         let path = write_temp_policy("{ not a policy }");
         let code = deploy(
