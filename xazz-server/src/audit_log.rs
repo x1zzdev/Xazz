@@ -472,6 +472,31 @@ mod tests {
         );
     }
 
+    /// A panic while the append lock is held poisons it; the next append must
+    /// still make progress instead of failing forever (issue #120).
+    #[test]
+    fn lock_with_recovery_reuses_a_poisoned_lock() {
+        let lock = std::sync::Arc::new(Mutex::new(()));
+        let poisoner = std::sync::Arc::clone(&lock);
+        let poisoned = std::thread::spawn(move || {
+            let _guard = poisoner.lock().expect("first acquisition");
+            panic!("poison the append lock on purpose");
+        })
+        .join();
+        assert!(poisoned.is_err(), "the poisoning thread must panic");
+        assert!(
+            lock.lock().is_err(),
+            "lock should be poisoned after the panic"
+        );
+
+        // Recovery returns a usable guard and clears the poison flag.
+        drop(lock_with_recovery(&lock));
+        assert!(
+            lock.lock().is_ok(),
+            "recovery must clear the poison so later appends succeed"
+        );
+    }
+
     /// Instead of testing with a temp log path, verifies the pure computation functions.
     #[test]
     fn hash_code_is_stable() {
