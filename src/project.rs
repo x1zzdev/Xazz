@@ -174,4 +174,15 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn rejects_windows_drive_prefix_and_url_scheme() {
+        for name in ["C:\\", "scheme:"] {
+            let message = invalid(name);
+            assert!(
+                message.contains("드라이브 문자"),
+                "{name} should be rejected as a drive/scheme prefix: {message}"
+            );
+        }
+    }
 }
