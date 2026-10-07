@@ -105,7 +105,7 @@ xazz run main.xzz      # 컴파일 + 실행
 xazz run main.xzz --opt  # 선택: Typed IR 최적화 패스 활성화
 ```
 
-이게 전부입니다. `xazz import`는 CSV(EUC-KR/CP949 자동 감지)를 읽고, 컬럼 타입을 추론해 스키마 선언을 생성합니다.
+이게 전부입니다. `xazz import`는 CSV(EUC-KR/CP949 자동 감지)를 읽고, 컬럼 타입을 추론해 스키마 선언을 생성합니다. 구분자가 다르면 `--delimiter ';'`(ASCII 문자 하나)를, 첫 행이 헤더가 아니라 데이터면 `--no-header`를 넘기면 컬럼이 `column_1..N`으로 생성됩니다.
 
 `--opt`는 실행 전에 Typed IR 최적화 패스(예: 필터 재정렬)를 켭니다 — 파이프라인 의미는 그대로 유지되며, 미적용 경로와의 동등성이 테스트로 검증됩니다.
 
@@ -298,7 +298,7 @@ python benches/run_readme_benchmark.py --xlarge
 |---------|-------------|--------|
 | `xazz run` | `.xzz` 파이프라인 컴파일·실행 (`--json` 기계 판독 결과, `--opt` Typed IR 최적화 패스) | Stable |
 | `xazz check` | 정적 의미 분석 — 미선언 변수/컬럼, 중복 선언, 잘못된 cast, did-you-mean 제안, 행:열 단위 진단 | Stable |
-| `xazz import` | CSV 스키마 자동 추론 → 타입 블록 생성 (EUC-KR/CP949, Parquet, Arrow) | Stable |
+| `xazz import` | CSV 스키마 자동 추론 → 타입 블록 생성 (EUC-KR/CP949, Parquet, Arrow; CSV `--delimiter`/`--no-header`) | Stable |
 | `import "mod.xzz"` | 모듈 시스템 — `type`/`model`/`v` 파이프라인을 파일 간 공유 (사이클 fail-closed) | Stable |
 | `import "std/..."` | 내장 표준 라이브러리 — 재사용 스키마(`std/common`)와 모델(`std/math`, `std/models`) | Stable |
 | `xazz-lsp` | 언어 서버 — `xazz check` 진단 + 심볼 테이블 기반 hover/go-to-def/rename (Track B3) | Stable |

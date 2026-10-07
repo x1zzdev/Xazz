@@ -111,7 +111,7 @@ xazz run main.xzz      # compile + execute
 xazz run main.xzz --opt  # optional: enable the typed-IR optimization pass
 ```
 
-That's the whole loop. `xazz import` reads your CSV (EUC-KR/CP949 auto-detected), infers column types, and generates the schema declaration for you.
+That's the whole loop. `xazz import` reads your CSV (EUC-KR/CP949 auto-detected), infers column types, and generates the schema declaration for you. If your file uses another separator pass `--delimiter ';'` (a single ASCII character), and if the first row is data rather than a header pass `--no-header` — the columns are then named `column_1..N`.
 
 `--opt` turns on the typed-IR optimization pass (e.g. filter reordering) before execution — it preserves pipeline semantics and is equivalence-tested against the unoptimized path.
 
@@ -304,7 +304,7 @@ python benches/run_readme_benchmark.py --xlarge
 |---------|-------------|--------|
 | `xazz run` | Compile and execute `.xzz` pipelines (`--json` for machine-readable results, `--opt` for the typed-IR optimization pass) | Stable |
 | `xazz check` | Static semantic analysis — undeclared variables/columns, duplicate declarations, invalid casts, with did-you-mean hints and `line:col` spans | Stable |
-| `xazz import` | Auto-infer schema → generate `type` block (CSV EUC-KR/CP949, Parquet, Arrow) | Stable |
+| `xazz import` | Auto-infer schema → generate `type` block (CSV EUC-KR/CP949, Parquet, Arrow; CSV `--delimiter`/`--no-header`) | Stable |
 | `import "mod.xzz"` | Module system — share `type`/`model`/`v` pipelines across files (cycle-fail-closed) | Stable |
 | `import "std/..."` | Embedded standard library — reusable schemas (`std/common`) and models (`std/math`, `std/models`) | Stable |
 | `xazz-lsp` | Language server — `xazz check` diagnostics + hover/go-to-def/rename via symbol table (Track B3) | Stable |
