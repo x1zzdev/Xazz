@@ -2358,6 +2358,36 @@ mod tests {
         );
     }
 
+    /// Issue #278: a per-column vocab whose length does not match the training
+    /// feature count fails at emit time instead of panicking in the generated
+    /// program. Both `train()` forms are checked.
+    #[test]
+    fn emit_rust_rejects_embedding_vocab_length_mismatch() {
+        for prefix in ["v trained =", "run"] {
+            let source = format!(
+                "type S = {{ a: float, b: float, y: float }};
+                 model M {{ Embedding([3, 5, 7], 2) -> Dense(1) }}
+                 v data = load(\"x.csv\") :: S;
+                 {prefix} data |> train(M, target: \"y\", epochs: 3);"
+            );
+            let error = generate_rust_src(&parse(&source), "test.xzz").unwrap_err();
+            assert!(error.to_string().contains("per-column vocab"), "{error}");
+        }
+    }
+
+    /// A matching per-column vocab still emits, with the `assert_eq!` kept as the
+    /// last-resort runtime guard.
+    #[test]
+    fn emit_rust_accepts_matching_embedding_vocab_length() {
+        let out = emit(
+            "type S = { a: float, b: float, y: float };
+             model M { Embedding([3, 5], 2) -> Dense(1) }
+             v data = load(\"x.csv\") :: S;
+             run data |> train(M, target: \"y\", epochs: 3);",
+        );
+        assert!(out.contains("vec![3, 5]"), "{out}");
+    }
+
     /// D3 sweep: list-valued train args emit a cartesian grid loop + best tracking.
     #[test]
     fn emit_rust_sweep_emits_combo_loop() {
