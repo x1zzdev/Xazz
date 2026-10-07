@@ -75,9 +75,17 @@ Every `withDp` step prints one single-line stdout marker, `[xazz:dp] <JSON>`, af
 
 `xazz run --json` collects these markers into a `dp` array in execution order (issue #117), so a dashboard or CI job reads the last entry's `budget_remaining` instead of scraping the human-readable stderr line. The server's `parse_stdout_markers` reads the same marker for its per-tenant ledger. Training reports (`[xazz:train]`) are surfaced separately as `training`; DP is a property of the pipeline step, not of the model.
 
-### Session scope (important limitation)
+### Scope: in-process session vs. server ledger
 
-The ε/δ budget is scoped to **one process run** of the pipeline. The xazz CLI executes one `.xzz` file per process, so repeated `withDp` calls *within a single script* share one budget. However, **the server spawns a fresh subprocess per `/execute` request**, so a session that spans multiple requests does **not** accumulate budget across them — the "session" is effectively per-request in the server deployment. A true cross-request budget requires the server to maintain per-session budget state, which is not yet implemented.
+There are two budget scopes, and they are deliberately separate.
+
+- **In-process (`PrivacyBudget`, CLI/engine).** Within one `xazz run` process, repeated `withDp` calls in the same `.xzz` file share one budget. The CLI executes one file per process, so this budget lives only for that run.
+- **Server (per-tenant persistent ledger).** `xazz-server` keeps a tenant-scoped ledger in its store (`dp_budget`), so a tenant's ε/δ spend **does accumulate across `/execute` requests** — the "session" is the tenant, not the subprocess. Because the server still spawns a fresh subprocess per request, the ledger — not the process — is the source of truth:
+  - Before a run, `/execute` **reserves** the tenant's remaining envelope in one atomic store transaction (`reserve_dp_budget`), which also serializes concurrent runs of the same tenant across server instances. A reservation that outlives `XAZZ_DP_RESERVATION_TTL_SECS` is reclaimed, so a crashed instance cannot pin a tenant's budget forever.
+  - After the run, the actual `[xazz:dp]` spend is **settled** against the ledger (`settle_dp_reservation`) and the reservation is released. A unique reservation id means a stale or duplicate settle cannot charge the tenant twice or release a newer holder's reservation.
+  - The envelope is per tenant (`XAZZ_TENANT_DP_BUDGET` / `XAZZ_TENANT_DP_DELTA_BUDGET`) with an optional rolling window (`XAZZ_TENANT_DP_WINDOW_SECS`, overridable via `PUT /dp/budget/window`). The remaining envelope is handed to the runner as `XAZZ_DP_BUDGET` / `XAZZ_DP_DELTA_BUDGET` and re-checked inside `apply_dp`, so the ledger is authoritative for the run.
+
+**Known limitation.** The server ledger is scoped per **tenant**, not per end-user or per named session: multiple users sharing one tenant share one envelope. Per-user/session sub-budgets are not implemented.
 
 ---
 
