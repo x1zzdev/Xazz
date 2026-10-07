@@ -438,6 +438,25 @@ mod tests {
         generated
     }
 
+    /// Like [`infer_fixture`], but with explicit delimiter/header options.
+    fn infer_fixture_with(bytes: &[u8], delimiter: Option<u8>, has_header: bool) -> String {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("xazz-import-{}-{nonce}", std::process::id()));
+        fs::create_dir(&dir).unwrap();
+        let path = dir.join("sample.csv");
+        fs::write(&path, bytes).unwrap();
+        let csv_path = path.to_str().unwrap();
+        let generated = infer_csv_schema(csv_path, delimiter, has_header)
+            .unwrap()
+            .replace(csv_path, "sample.csv");
+        fs::remove_file(path).unwrap();
+        fs::remove_dir(dir).unwrap();
+        generated
+    }
+
     #[test]
     fn csv_import_golden_comma_delimiter_and_header() {
         let generated = infer_fixture(b"id,name,amount,active\n1,Ada,2.5,true\n2,Bob,,false\n");
@@ -465,6 +484,66 @@ mod tests {
             generated,
             "type Sample = {\n    id: int,\n    value: float\n};\n\nv data_sample = load(\"sample.csv\") :: Sample"
         );
+    }
+
+    #[test]
+    fn csv_import_golden_semicolon_delimiter() {
+        let generated = infer_fixture_with(b"id;name\n1;Ada\n", Some(b';'), true);
+        assert_eq!(
+            generated,
+            "type Sample = {\n    id: int,\n    name: string\n};\n\nv data_sample = load(\"sample.csv\", sep: \";\") :: Sample"
+        );
+    }
+
+    #[test]
+    fn csv_import_golden_tab_delimiter_is_escaped() {
+        let generated = infer_fixture_with(b"id\tname\n1\tAda\n", Some(b'\t'), true);
+        assert!(
+            generated.contains("load(\"sample.csv\", sep: \"\\t\") :: Sample"),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn csv_import_golden_headerless_uses_column_names() {
+        let generated = infer_fixture_with(b"1,Ada\n2,Bob\n", None, false);
+        assert_eq!(
+            generated,
+            "type Sample = {\n    column_1: int,\n    column_2: string\n};\n\nv data_sample = load(\"sample.csv\", header: false) :: Sample"
+        );
+    }
+
+    #[test]
+    fn csv_import_headerless_includes_first_row_in_inference() {
+        // The first row is data, so its values must drive the inferred types.
+        let generated = infer_fixture_with(b"1,2.5\n3,4.5\n", None, false);
+        assert!(generated.contains("column_1: int"), "{generated}");
+        assert!(generated.contains("column_2: float"), "{generated}");
+    }
+
+    #[test]
+    fn csv_import_combines_delimiter_and_header_options() {
+        let generated = infer_fixture_with(b"1|Ada\n2|Bob\n", Some(b'|'), false);
+        assert!(
+            generated.contains("load(\"sample.csv\", sep: \"|\", header: false) :: Sample"),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn generated_load_with_options_parses() {
+        for (bytes, delimiter, has_header) in [
+            (b"id;name\n1;Ada\n".as_slice(), Some(b';'), true),
+            (b"1,Ada\n2,Bob\n".as_slice(), None, false),
+            (b"1|Ada\n".as_slice(), Some(b'|'), false),
+        ] {
+            let generated = infer_fixture_with(bytes, delimiter, has_header);
+            let tokens = xazz_compiler::Lexer::new(&generated).tokenize().unwrap();
+            assert!(
+                xazz_compiler::Parser::new(tokens).parse().is_ok(),
+                "{generated}"
+            );
+        }
     }
 
     #[test]
