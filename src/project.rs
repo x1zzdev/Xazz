@@ -22,9 +22,9 @@ fn validate_project_name(name: &str) -> Result<()> {
     if name.starts_with('/') || name.starts_with('\\') || name.contains("..") {
         bail!(invalid_hint("경로 구분자 / .."));
     }
-    // Reject Windows drive prefixes (C:\) and URL schemes
-    if name.len() >= 2 && name.as_bytes()[1] == b':' {
-        bail!(invalid_hint("드라이브 문자 (:)"));
+    // Reject Windows drive prefixes (C:\) and URL schemes (scheme:)
+    if name.contains(':') {
+        bail!(invalid_hint("드라이브 문자/스킴 (:)"));
     }
     if name.contains('/') || name.contains('\\') {
         bail!(invalid_hint("경로 구분자"));
@@ -126,4 +126,63 @@ v result = data
     println!("   $ xazz run example.xzz --output result.csv");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_project_name;
+
+    /// Returns the error text for an invalid name (asserts the call failed).
+    fn invalid(name: &str) -> String {
+        validate_project_name(name)
+            .expect_err("expected an invalid project name")
+            .to_string()
+    }
+
+    #[test]
+    fn accepts_single_safe_segments() {
+        for name in ["my-project", "my_project", "v2"] {
+            validate_project_name(name)
+                .unwrap_or_else(|error| panic!("'{name}' should be valid: {error}"));
+        }
+    }
+
+    #[test]
+    fn rejects_empty_name() {
+        assert!(invalid("").contains("project name is empty"));
+    }
+
+    #[test]
+    fn rejects_dot_and_dotdot() {
+        for name in [".", ".."] {
+            let message = invalid(name);
+            assert!(message.contains(name), "{name}: {message}");
+            assert!(
+                message.contains("is not a valid project name"),
+                "{name}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_absolute_and_relative_path_segments() {
+        for name in ["/abs", "a/b", "a\\b", "..\\x"] {
+            let message = invalid(name);
+            assert!(
+                message.contains("경로 구분자"),
+                "{name} should be rejected as a path segment: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_windows_drive_prefix_and_url_scheme() {
+        for name in ["C:\\", "scheme:"] {
+            let message = invalid(name);
+            assert!(
+                message.contains("드라이브 문자"),
+                "{name} should be rejected as a drive/scheme prefix: {message}"
+            );
+        }
+    }
 }
