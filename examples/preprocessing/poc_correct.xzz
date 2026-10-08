@@ -15,7 +15,7 @@ type AirQuality = {
 };
 
 // ── 파이프라인 1: CSV 로드 + 기본 필터링 ─────────────────────────────────────
-v air_raw = load("examples/seoul_air_2008_2011.csv") :: AirQuality
+v air_raw = load("examples/data/seoul_air_2008_2011.csv") :: AirQuality
   |> filter(pm10 > 50)
   |> select([date, station, pm10, pm25]);
 
@@ -25,7 +25,7 @@ v air_filtered = air_raw
   |> count;
 
 // ── 파이프라인 3: 2026년 데이터 + 수정된 컬럼명 (p10 → pm10) ────────────────
-v air_raw2 = load("examples/seoul_air_2026.csv") :: AirQuality
+v air_raw2 = load("examples/data/seoul_air_2026.csv") :: AirQuality
   |> filter(pm10 > 20)
   |> filter(pm25 > 10)
   |> select([date, station, pm10, pm25])

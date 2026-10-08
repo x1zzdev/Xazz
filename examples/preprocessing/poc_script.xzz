@@ -24,7 +24,7 @@ type AirQuality = {
 
 // ── 파이프라인 1: CSV 로드 + 타입 캐스팅 + 기본 필터링 ──────────────────────
 // cast()는 DSL에서 명시적으로 선언한다. runtime은 pm10/pm25를 알지 못한다.
-v air_raw = load("examples/seoul_air_2008_2011.csv") :: AirQuality
+v air_raw = load("examples/data/seoul_air_2008_2011.csv") :: AirQuality
   |> cast("pm10", "float")
   |> cast("pm25", "float")
   |> filter(pm10 > 50)
@@ -37,7 +37,7 @@ v air_filtered = air_raw
   |> count;
 
 // ── 파이프라인 3: 2026년 데이터 로드 + 명시적 캐스팅 ────────────────────────
-v air_raw2 = load("examples/seoul_air_2026.csv") :: AirQuality
+v air_raw2 = load("examples/data/seoul_air_2026.csv") :: AirQuality
   |> cast("pm10", "float")
   |> cast("pm25", "float")
   |> filter(pm10 > 20)

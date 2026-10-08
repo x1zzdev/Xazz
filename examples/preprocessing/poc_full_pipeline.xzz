@@ -18,7 +18,7 @@ type AirQuality = {
 
 // ── 파이프라인 1: 기본 로드 + select ─────────────────────────────────────────
 // 변수 참조(VarRef), select, count 단독 사용 시연
-v raw = load("examples/seoul_air_2026.csv") :: AirQuality
+v raw = load("examples/data/seoul_air_2026.csv") :: AirQuality
   |> select([date, station, pm10, pm25]);
 
 // ── 파이프라인 2: col() + 불리언 + 언더스코어 ─────────────────────────────────

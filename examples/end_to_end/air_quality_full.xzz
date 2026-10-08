@@ -30,7 +30,7 @@ v station_summary = cleaned
 v top10 = station_summary
     |> take(10)
     |> chart {
-        kind:  bar,
+        type:  bar,
         x:     station,
         y:     pm10,
         title: "Top 10 Stations by PM10 Mean",
