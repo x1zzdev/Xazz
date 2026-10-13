@@ -1,128 +1,459 @@
 {
   "small": {
+    "rows": 227760,
     "pandas": {
-      "latency_ms": 172.2,
-      "peak_mb": 100.0,
+      "latency_ms": 155.1,
+      "peak_mb": 101.4,
       "runs": [
         {
-          "latency_ms": 161.4,
-          "peak_mb": 99.9
+          "latency_ms": 149.3538,
+          "peak_mb": 99.5
         },
         {
-          "latency_ms": 172.3,
-          "peak_mb": 100.4
+          "latency_ms": 155.0584,
+          "peak_mb": 105.77734375
         },
         {
-          "latency_ms": 172.2,
-          "peak_mb": 100.0
+          "latency_ms": 171.0942,
+          "peak_mb": 101.41015625
         }
       ]
     },
     "xazz": {
-      "latency_ms": 225.2,
-      "peak_mb": 90.9,
+      "latency_ms": 76.1,
+      "peak_mb": 60.8,
       "runs": [
         {
-          "latency_ms": 218.8,
-          "peak_mb": 91.4,
-          "fallback_to_wallclock": false
+          "latency_ms": 81.4703,
+          "peak_mb": 59.8359375,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            }
+          ]
         },
         {
-          "latency_ms": 225.2,
-          "peak_mb": 87.8,
-          "fallback_to_wallclock": false
+          "latency_ms": 74.3399,
+          "peak_mb": 61.0546875,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            }
+          ]
         },
         {
-          "latency_ms": 237.5,
-          "peak_mb": 90.9,
-          "fallback_to_wallclock": false
+          "latency_ms": 76.0959,
+          "peak_mb": 60.78515625,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            }
+          ]
+        }
+      ],
+      "collection_diagnostics_verified": true,
+      "warmup_collections": [
+        {
+          "engine": "in-memory",
+          "requested": "auto",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "auto",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "auto",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "auto",
+          "status": "ok"
         }
       ]
-    },
-    "rows": 227760
+    }
   },
   "medium": {
+    "rows": 911662,
     "pandas": {
-      "latency_ms": 671.3,
-      "peak_mb": 198.6,
+      "latency_ms": 548.0,
+      "peak_mb": 192.1,
       "runs": [
         {
-          "latency_ms": 654.8,
-          "peak_mb": 198.2
+          "latency_ms": 560.9774,
+          "peak_mb": 192.1328125
         },
         {
-          "latency_ms": 705.1,
-          "peak_mb": 198.6
+          "latency_ms": 524.9185,
+          "peak_mb": 193.328125
         },
         {
-          "latency_ms": 671.3,
-          "peak_mb": 199.1
+          "latency_ms": 547.9917,
+          "peak_mb": 186.0078125
         }
       ]
     },
     "xazz": {
-      "latency_ms": 466.6,
-      "peak_mb": 240.4,
+      "latency_ms": 142.8,
+      "peak_mb": 128.8,
       "runs": [
         {
-          "latency_ms": 440.4,
-          "peak_mb": 242.7,
-          "fallback_to_wallclock": false
+          "latency_ms": 142.8084,
+          "peak_mb": 128.83984375,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            }
+          ]
         },
         {
-          "latency_ms": 466.6,
-          "peak_mb": 240.4,
-          "fallback_to_wallclock": false
+          "latency_ms": 136.1128,
+          "peak_mb": 126.40234375,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            }
+          ]
         },
         {
-          "latency_ms": 476.6,
-          "peak_mb": 238.9,
-          "fallback_to_wallclock": false
+          "latency_ms": 173.52190000000002,
+          "peak_mb": 145.14453125,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            }
+          ]
+        }
+      ],
+      "collection_diagnostics_verified": true,
+      "warmup_collections": [
+        {
+          "engine": "in-memory",
+          "requested": "auto",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "auto",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "auto",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "auto",
+          "status": "ok"
         }
       ]
-    },
-    "rows": 911662
+    }
   },
   "large": {
+    "rows": 4089216,
     "pandas": {
-      "latency_ms": 3981.1,
-      "peak_mb": 655.9,
+      "latency_ms": 2456.6,
+      "peak_mb": 634.9,
       "runs": [
         {
-          "latency_ms": 3786.7,
-          "peak_mb": 655.7
+          "latency_ms": 2663.5783,
+          "peak_mb": 630.23046875
         },
         {
-          "latency_ms": 3981.1,
-          "peak_mb": 655.9
+          "latency_ms": 2432.5831,
+          "peak_mb": 634.875
         },
         {
-          "latency_ms": 5148.6,
-          "peak_mb": 655.9
+          "latency_ms": 2456.6109,
+          "peak_mb": 641.48828125
         }
       ]
     },
     "xazz": {
-      "latency_ms": 3070.4,
-      "peak_mb": 566.8,
+      "latency_ms": 1148.1,
+      "peak_mb": 404.8,
       "runs": [
         {
-          "latency_ms": 2927.7,
-          "peak_mb": 566.8,
-          "fallback_to_wallclock": false
+          "latency_ms": 1167.8485,
+          "peak_mb": 404.78515625,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "streaming",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "auto",
+              "status": "ok"
+            }
+          ]
         },
         {
-          "latency_ms": 3070.4,
-          "peak_mb": 565.4,
-          "fallback_to_wallclock": false
+          "latency_ms": 1148.1143,
+          "peak_mb": 403.3046875,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "streaming",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "auto",
+              "status": "ok"
+            }
+          ]
         },
         {
-          "latency_ms": 3195.2,
-          "peak_mb": 567.0,
-          "fallback_to_wallclock": false
+          "latency_ms": 1141.3046,
+          "peak_mb": 412.796875,
+          "fallback_to_wallclock": false,
+          "collections": [
+            {
+              "engine": "streaming",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "in-memory",
+              "requested": "auto",
+              "status": "ok"
+            },
+            {
+              "engine": "streaming",
+              "requested": "auto",
+              "status": "ok"
+            }
+          ]
+        }
+      ],
+      "collection_diagnostics_verified": true,
+      "warmup_collections": [
+        {
+          "engine": "streaming",
+          "requested": "auto",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "auto",
+          "status": "ok"
+        },
+        {
+          "engine": "in-memory",
+          "requested": "auto",
+          "status": "ok"
+        },
+        {
+          "engine": "streaming",
+          "requested": "auto",
+          "status": "ok"
         }
       ]
+    }
+  },
+  "provenance": {
+    "recorded": true,
+    "platform": "Windows-11-10.0.26200-SP0",
+    "system": "Windows",
+    "release": "11",
+    "machine": "AMD64",
+    "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+    "cpu_model": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+    "cpu_physical_cores": 16,
+    "cpu_logical_cores": 22,
+    "total_ram_gb": 63.5,
+    "python": "3.12.12",
+    "pandas": "3.0.6",
+    "polars": null,
+    "numpy": "2.5.3",
+    "xazz": "xazz 0.3.1",
+    "xazz_version_verified": true,
+    "xazz_binary": "C:\\Users\\SSAFY\\Desktop\\Xazz\\target\\release\\xazz.exe",
+    "binary_sha256": {
+      "xazz.exe": "2bda42637284c49f2b05093ea87a6e20a55322fb0c0b38d964f783c94a863de0",
+      "xazz-runner.exe": "7d69909ccb707a0081c8a7c357d7e52c5cdebfe4340f011b6981366311053850",
+      "xazz-exec.exe": "935404f17d87f0b72a9d3f8a5d400e3427bf92053f9a3c157da752fbe71afa44"
     },
-    "rows": 4089216
+    "streaming_requested_modes": [
+      "auto"
+    ],
+    "streaming_actual_engine_verified": false,
+    "streaming_note": "각 실행의 네 수집 완료 마커로 런타임이 선택한 Polars 수집 API를 검증합니다. Polars 내부 모든 노드의 스트리밍 실행이나 메모리 상한을 보증하지 않습니다.",
+    "rss_method": "프로세스 트리 RSS 합계의 3ms 폴링 최댓값(MiB)",
+    "latency_method": "각 엔진 내부 파이프라인 실행시간; wall-clock 대체 금지",
+    "recorded_at_utc": "2026-10-13T00:57:30.006522+00:00",
+    "git_head": "f1e55cb1428af26eea1c3c17db155078f4a45e38",
+    "git_worktree_status": "?? benches/benchmark_results-logs-s5int_be/",
+    "runtime_source_sha256": "5bad98bc3d0ec311ab15053b55162f2fb2af4e044142e339ca0812876603a18a",
+    "benchmark_script_sha256": "481dd8c3a113bb65b336878385c49ae934f34b188ec6f5e0f73e6c448e5d0807",
+    "pipeline_template_sha256": "c877ce70b9716b19e1a0a07458d065b0f93d922c83c9aa05587945ae47507e47",
+    "pandas_pipeline_sha256": "f1a52693e63d73a0130a5783d29e7e9063c4f353a7d6ae6548cc0d0653e18bf3",
+    "summary_latency_resolution_ms": 0.1,
+    "warmup_runs": 1,
+    "measured_runs": 3,
+    "timeout_seconds": 120.0,
+    "max_memory_mb": 4096.0,
+    "raw_logs": "C:\\Users\\SSAFY\\Desktop\\Xazz\\benches\\benchmark_results-logs-s5int_be",
+    "inputs": {
+      "small": {
+        "file": "scale_small.csv",
+        "rows": 227760,
+        "bytes": 7357329,
+        "sha256": "97798b9ce37584f36b9d94c10fdac94b50e3bbffd61e3bb381d6db56243fafc9"
+      },
+      "medium": {
+        "file": "scale_medium.csv",
+        "rows": 911662,
+        "bytes": 29572815,
+        "sha256": "ccbd994082967e33e034e643a1d3cf11c85e1ccaefa4e0831dc9639cfa710fee"
+      },
+      "large": {
+        "file": "scale_large.csv",
+        "rows": 4089216,
+        "bytes": 132764264,
+        "sha256": "fa64aeb438facff214f46e78659a9648a9fbcfa17b2c8140c085c9af0846f5ac"
+      }
+    }
   }
 }

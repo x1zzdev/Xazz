@@ -242,19 +242,19 @@ Deep details live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/WORK
 
 ## Performance
 
-Same 4-stage pipeline (drop nulls → dual filter → group-by aggregates → fill + count), executed by pandas 3.0.5 and Xazz on real Seoul air-quality data (8 source files, 2008–2026). Median of 3 runs after warmup, wall-clock timing.
+Same 4-stage pipeline (drop nulls → dual filter → group-by aggregates → fill + count), executed by pandas 3.0.6 and Xazz on real Seoul air-quality data (8 source files, 2008–2026). Median of 3 runs after warmup; each engine reports its own internal pipeline time.
 
 <div align="center">
-<img src="docs/assets/benchmark_chart.png" alt="Benchmark: latency scaling across 228K/912K/4.09M rows and speedup bars — 0.76x, 1.44x, 1.30x vs pandas" width="94%">
+<img src="docs/assets/benchmark_chart.png" alt="Benchmark: latency scaling across 228K/912K/4.09M rows and speedup bars — 2.04x, 3.84x, 2.14x vs pandas" width="94%">
 </div>
 
-- **Faster past the small file**: 1.44× vs pandas at 912K rows (467 ms vs 671 ms) and 1.30× at 4.09M rows (3,070 ms vs 3,981 ms) — with lower peak RSS at the largest scale (567 MB vs 656 MB). At 228K rows the two engines are roughly break-even (0.76×): the fixed load/filter overhead dominates a file pandas already reads in ~0.2 s.
+- **Faster at every scale**: 2.04× vs pandas at 228K rows (76 ms vs 155 ms), 3.84× at 912K rows (143 ms vs 548 ms) and 2.14× at 4.09M rows (1,148 ms vs 2,457 ms) — with lower peak RSS at every scale (405 MB vs 635 MB at 4.09M rows). The gap is widest at 912K rows and narrows again at 4.09M rows.
 - Both sides are measured as **pipeline execution only** — the Python interpreter boot (~0.3–0.7 s) is excluded from pandas, and Xazz reports its own `[xazz:timing]` pipeline marker, so the comparison is apples-to-apples. Peak RSS uses the process tree for both engines.
 - Source comes from Apache Arrow columnar memory + Polars LazyFrame query optimization + multithreaded native execution.
 - **Out-of-core execution:** `load()` now returns a lazy scan (`scan_csv`/`scan_parquet`/`scan_ipc`), so sources stay on disk until the terminal collect — no full-file materialization upfront. For very large workloads set `XAZZ_STREAMING=1` to collect through Polars' streaming engine (unsupported plans fall back to in-memory automatically). See [docs/ROADMAP.md](docs/ROADMAP.md) Track A2.
 - Honest footnote: Polars' multithreading trades higher peak RSS for latency — pandas holds more rows per thread, Polars parallelizes across them. Note the benchmark data itself is not committed (it is built from the Seoul air-quality sources).
 
-**Measurement provenance.** The committed numbers were captured on a single development host and **predate provenance capture**, so the full CPU/OS/RAM spec is not recorded — read them as directional. `benches/run_readme_benchmark.py` now writes a `provenance` block (platform, OS, CPU model, physical/logical cores, total RAM, and the pandas/polars/Python versions) into `benches/benchmark_results.json`, so the next run on a stable host is fully attributed. Reproduce it yourself:
+**Measurement provenance.** Measured 2026-10-13 on one Windows 11 host: Intel Core Ultra 9 185H (16 physical / 22 logical cores), 63.5 GiB RAM, Python 3.12.12, pandas 3.0.6, NumPy 2.5.3, release build of commit `f1e55cb`. The host spec, library versions, binary SHA-256s and input-file hashes are recorded in the `provenance` block of `benches/benchmark_results.json`, and `benches/results/windows-cpu-readme-2026-10-13.verification.json` is an independent row-by-row re-check of the same run. These figures replace the earlier 0.76×/1.44×/1.30× numbers, which came from a different, unrecorded host and an older runtime (before `load()` became a lazy scan); the input data and pipeline are unchanged. Reproduce it yourself:
 
 ```bash
 git lfs pull                                    # fetch examples/data (Git LFS)
@@ -348,7 +348,7 @@ Xazz is pre-1.0. We would rather state what is **not** verified than let you dis
 - **No native Python extension yet.** `import xazz` is a pure-Python adapter over the CLI, not a PyO3 module — it returns the same diagnostics as the CLI but pays a subprocess boundary. The PyO3 path and the NumPy/Pandas → Arrow handoff are deferred. See [docs/ROADMAP.md](docs/ROADMAP.md) Track C4.
 - **`xazz emit rust` is a reference emitter, not a second runtime.** New language features land in `xazz-exec` first; the emitted Rust can lag on some training options (e.g. single-run `validation_split` / early stopping, per-epoch sweep columns). `xazz run` is the source of truth — treat the emitted code as readable reference output.
 - **The container image and clean-host smoke are pending the next tag.** The `Dockerfile` and `docker compose up` demo work from a local build, but the GHCR multi-arch image is published only on a `v*` tag, and the [clean-host smoke checklist](docs/DOCKER.md#smoke-checklist-clean-host) has not been recorded against a published tag yet.
-- **Benchmarks are single-host and not yet provenance-stamped.** The numbers in [Performance](#performance) come from one development host and predate provenance capture — treat them as directional, not as a guarantee. `benches/run_readme_benchmark.py` now records host/OS/CPU/RAM/versions so the next run is reproducible.
+- **Benchmarks are single-host.** The numbers in [Performance](#performance) are provenance-stamped but come from one Windows laptop; they have not been reproduced on a second host or on Linux/macOS yet, so read the ratios as representative, not as a guarantee.
 - **Not a sandbox.** `xazz-runner` is process isolation with an execution timeout, not an OS-level sandbox. Policy-as-Code blocks known-bad pipeline shapes before execution; see [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md) for the `PATH`-shadowing deployment caveat.
 
 **Non-goals:** replacing pandas / Polars / DuckDB as compute engines, replacing PyTorch as a training framework, or competing on GPU kernel performance. Xazz is the compile-and-governance layer *above* those engines.
