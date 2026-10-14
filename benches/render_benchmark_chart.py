@@ -52,7 +52,7 @@ for i, (p, x) in enumerate(zip(pd_lat, xz_lat)):
     ax.annotate(f"{x:,.0f} ms", (i, x), textcoords="offset points", xytext=(0, -15),
                 ha="center", fontsize=9, color=NAVY, fontweight="bold")
 ax.set_yscale("log")
-ax.set_ylim(100, 12000)
+ax.set_ylim(40, 12000)
 ax.set_ylabel("Pipeline latency (ms, log scale)", color=INK)
 ax.set_title("End-to-end pipeline latency", fontsize=12, fontweight="bold", color=INK, pad=10)
 ax.yaxis.grid(True, color=GRID, linewidth=0.8)

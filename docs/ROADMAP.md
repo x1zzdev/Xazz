@@ -10,7 +10,7 @@
 
 Xazz is already a **correct, secure, documented** compiler+runtime: Typed IR (single-pass,
 backend-independent), 3-gate policy guardrails, (ε,δ) DP accounting, SHA-256 audit chain,
-and a 1.44×-vs-pandas benchmark (at 912K rows; 1.30× at 4.09M rows, break-even at 228K). What it is not yet is **scalable** — in four distinct senses:
+and a 2–4×-vs-pandas benchmark (2.04× at 228K, 3.84× at 912K, 2.14× at 4.09M rows). What it is not yet is **scalable** — in four distinct senses:
 
 | Sense of scale | Current ceiling | To grow past it |
 | :--- | :--- | :--- |
@@ -41,6 +41,7 @@ datasets. This track makes Xazz handle real workloads.
 - [x] Extend `benches/` scale suite to 200M rows (synthetic, `--xlarge` opt-in)
 - [x] Document peak-RSS vs latency tradeoff already noted in README
 - Measured 2026-09-28: 0.76×/1.44×/1.30× vs pandas at 228K/912K/4.09M rows; lower peak RSS at scale.
+- Measured 2026-10-13 (provenance-stamped, Windows / Core Ultra 9 185H): 2.04×/3.84×/2.14× at 228K/912K/4.09M rows; lower peak RSS at every scale. Supersedes the 2026-09-28 figures.
 
 ### A3. External source connectors — issue #54
 - [x] Embedded DuckDB source (`load("duckdb://...")`), SQL text in `.xzz` — `duckdb://:memory:?sql=...`
