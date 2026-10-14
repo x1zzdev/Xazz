@@ -612,7 +612,10 @@ mod tests {
     use protobuf::Message;
     use xazz_compiler::ast::{EmbeddingVocab, LayerKind, TrainConfig};
 
-    fn train_tiny(layers: &[LayerKind]) -> TrainedModel {
+    /// `model_name` must be unique per test: the checkpoint path derives from it
+    /// and the tests run in parallel, so a shared name lets one test's cleanup
+    /// delete another's checkpoint mid-save.
+    fn train_tiny(model_name: &str, layers: &[LayerKind]) -> TrainedModel {
         let df = df!(
             "x1" => [0.0f64, 1.0, 2.0, 3.0, 4.0, 5.0],
             "x2" => [1.0f64, 1.0, 0.0, 0.0, 1.0, 1.0],
@@ -636,15 +639,18 @@ mod tests {
             split_strategy: Default::default(),
             time_column: None,
         };
-        crate::dl::train(&df, "onnx_unit", layers, &config).expect("train")
+        crate::dl::train(&df, model_name, layers, &config).expect("train")
     }
 
     /// A Dense -> ReLU -> Dense graph exports the expected ONNX node sequence and
     /// a single input/output, parseable back as a `ModelProto`.
     #[test]
     fn dense_export_emits_gemm_relu_gemm() {
-        let trained = train_tiny(&[LayerKind::Dense(4), LayerKind::ReLU, LayerKind::Dense(1)]);
-        let path = "checkpoints/onnx_unit.onnx";
+        let trained = train_tiny(
+            "onnx_unit_dense",
+            &[LayerKind::Dense(4), LayerKind::ReLU, LayerKind::Dense(1)],
+        );
+        let path = "checkpoints/onnx_unit_dense.onnx";
         export(&trained, path).expect("export");
 
         let bytes = std::fs::read(path).expect("read onnx");
@@ -688,14 +694,17 @@ mod tests {
     /// with a rank-3 [out_ch, in_ch, kernel] weight initializer.
     #[test]
     fn conv1d_export_emits_reshape_conv_reshape() {
-        let trained = train_tiny(&[
-            LayerKind::Conv1d {
-                out_channels: 2,
-                kernel_size: 2,
-            },
-            LayerKind::ReLU,
-            LayerKind::Dense(1),
-        ]);
+        let trained = train_tiny(
+            "onnx_unit_conv",
+            &[
+                LayerKind::Conv1d {
+                    out_channels: 2,
+                    kernel_size: 2,
+                },
+                LayerKind::ReLU,
+                LayerKind::Dense(1),
+            ],
+        );
         let path = "checkpoints/onnx_conv_unit.onnx";
         let proto = export_proto(&trained, path);
 
@@ -718,7 +727,8 @@ mod tests {
             .expect("Conv1d weight initializer");
         assert_eq!(conv_w.get_dims(), &[2, 1, 2]);
 
-        // Burn splits Same padding as [floor((k-1)/2), ceil((k-1)/2)].
+        // Burn (`calculate_same_padding`) splits Same padding as
+        // [floor((k-1)/2), ceil((k-1)/2)], so kernel 2 pads [0, 1].
         let conv_node = proto
             .get_graph()
             .get_node()
@@ -730,7 +740,7 @@ mod tests {
             .iter()
             .find(|a| a.get_name() == "pads")
             .expect("Conv pads attribute");
-        assert_eq!(pads.get_ints(), &[1, 0]);
+        assert_eq!(pads.get_ints(), &[0, 1]);
 
         cleanup(&trained, path);
     }
@@ -740,13 +750,16 @@ mod tests {
     /// combined rank-2 [sum(vocab), embed_dim] weight initializer.
     #[test]
     fn embedding_export_emits_split_clip_gather() {
-        let trained = train_tiny(&[
-            LayerKind::Embedding {
-                vocab: EmbeddingVocab::Shared(6),
-                embed_dim: 2,
-            },
-            LayerKind::Dense(1),
-        ]);
+        let trained = train_tiny(
+            "onnx_unit_embed",
+            &[
+                LayerKind::Embedding {
+                    vocab: EmbeddingVocab::Shared(6),
+                    embed_dim: 2,
+                },
+                LayerKind::Dense(1),
+            ],
+        );
         let path = "checkpoints/onnx_embed_unit.onnx";
         let proto = export_proto(&trained, path);
 
