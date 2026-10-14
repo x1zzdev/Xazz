@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import sys
 import socket
 import sqlite3
 import subprocess
@@ -31,7 +32,7 @@ def main():
     def cli(*arguments, cwd=work):
         result = subprocess.run(
             [str(binaries / 'xazz'), *arguments], cwd=cwd, env=env,
-            text=True, capture_output=True, timeout=90,
+            encoding='utf-8', capture_output=True, timeout=90,
         )
         print(json.dumps({
             'command': arguments, 'exit': result.returncode,
@@ -99,7 +100,9 @@ def main():
             print(json.dumps({'resources_status': status, 'resources': resources}))
             assert status == 200 and resources['available'], resources
             counters = resources['resources']
-            assert counters['source'] == 'runner-process-tree', counters
+            # getrusage on Unix, Job Object accounting on Windows (issue #128).
+            expected_source = 'runner-job-object' if sys.platform == 'win32' else 'runner-process-tree'
+            assert counters['source'] == expected_source, counters
             assert all(counters[key] >= 0 for key in ('duration_ms', 'cpu_user_ms', 'cpu_sys_ms'))
             assert counters['max_rss_kb'] > 0, counters
             status, _ = request(f'/runs/{run_id}/resources', tenant='qa-b')
@@ -119,7 +122,7 @@ def main():
             failed = subprocess.run(
                 [str(binaries / 'xazz'), 'run', 'failure.xzz', '--json'],
                 cwd=project, env={key: value for key, value in env.items() if key != 'XAZZ_EXEC_PATH'},
-                text=True, capture_output=True, timeout=90,
+                encoding='utf-8', capture_output=True, timeout=90,
             )
             failed_json = json.loads(failed.stdout)
             assert failed.returncode == 1 and failed_json['success'] is False, failed_json
