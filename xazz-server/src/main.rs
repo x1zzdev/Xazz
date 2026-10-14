@@ -1377,7 +1377,7 @@ fn parse_stdout_markers(stdout: &str, stderr: &str) -> StdoutMarkers {
 ///
 /// Only the known non-negative integer counters are kept, so a malformed or
 /// hostile marker cannot persist arbitrary data. Returns `None` when the marker is
-/// absent (older CLI, non-Unix platform) or has no usable fields.
+/// absent (older CLI, platform without counters) or has no usable fields.
 fn parse_resources_marker(stdout: &str) -> Option<Value> {
     let payload = stdout
         .lines()
@@ -2288,10 +2288,12 @@ async fn handle_run_by_id(
 /// Returns the persisted resource telemetry for one run — issue #128.
 ///
 /// The figures are measured by the CLI around the runner subprocess (wall-clock
-/// duration and, on Unix, the aggregate CPU time / peak RSS of the runner process
-/// tree) and relayed via the `[xazz:resources]` marker. Runs recorded before the
-/// feature, or on platforms without `rusage`, report `available: false` instead of
-/// fabricated numbers.
+/// duration plus the aggregate CPU time / peak memory of the runner process tree:
+/// `getrusage(RUSAGE_CHILDREN)` on Unix, Job Object accounting on Windows) and
+/// relayed via the `[xazz:resources]` marker. `source` names the facility
+/// (`runner-process-tree` / `runner-job-object`). Runs recorded before the
+/// feature, or where neither facility was usable, report `available: false`
+/// instead of fabricated numbers.
 async fn handle_run_resources(
     Path(id): Path<i64>,
     State(state): State<AppState>,

@@ -9,6 +9,20 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — Windows 리소스 텔레메트리: Job Object 회계로 CPU·피크 메모리 기록 (issue #128)
+
+- Windows에서 `[xazz:resources]` 마커와 `xazz run --json`의 `resources`가
+  `wall-clock-only`만 내던 것을 고쳤다. CLI가 러너를 스폰하기 전에 익명 Job Object에
+  자신을 넣어 러너·xazz-exec가 상속받게 하고, 종료 후 Job 회계
+  (`TotalUserTime`/`TotalKernelTime`, `PeakProcessMemoryUsed`)를 읽는다. CLI 자신의
+  CPU 시간은 빼고, `max_rss_kb`는 트리에서 가장 큰 프로세스의 피크 커밋(Job 수준의
+  working-set 피크는 없음)이다. `source`는 `runner-job-object`
+- `ResourceScope`로 Unix `getrusage` 경로와 같은 호출 흐름(스폰 전 시작 → 대기 후
+  집계)을 공유한다. 텔레메트리를 요청하지 않은 일반 `xazz run`은 Job을 만들지 않는다.
+  Job 가입이 거부되면(중첩 금지 상위 Job 등) 기존처럼 `wall-clock-only`
+- 검증: Windows 단위 테스트 1종(스폰한 자식의 CPU·메모리가 Job에 잡힘), 미요청 시
+  카운터 없음 1종. 4,089,216행 파이프라인 실측 피크 374 MB / CPU 2.7 s(벽시계 1.5 s)
+
 ### Added — predict 진단의 run 이력 영속화 `GET /runs/{id}/prediction` (issue D3)
 
 - `POST /execute` 응답에만 노출되던 `[xazz:predict]` 임베딩 진단을 `runs` 테이블
