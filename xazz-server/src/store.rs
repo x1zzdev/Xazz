@@ -553,7 +553,7 @@ impl Store {
     ///
     /// Returns `Ok(None)` when the run does not exist for the tenant,
     /// `Ok(Some(RunResourceRecord { resources_json: None, .. }))` when the run exists
-    /// but no telemetry was recorded (legacy or platform without rusage), and
+    /// but no telemetry was recorded (legacy run or no usable counters), and
     /// `Ok(Some(.. resources_json: Some(json)))` when it was.
     pub fn get_run_resources(
         &self,

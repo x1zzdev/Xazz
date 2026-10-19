@@ -89,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Capture xazz-runner's stdout, parse the [xazz:result] / [xazz:diagnostics] /
             // [xazz:train] / [xazz:dp] markers, and reassemble into a single JSON object.
             if json {
-                let started = std::time::Instant::now();
+                let scope = ResourceScope::begin(true);
                 let output = cmd.output().map_err(|e| {
                     format!(
                         "failed to run xazz-runner: {}\n\
@@ -104,7 +104,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let markers = parse_run_markers(&stdout);
                 // Issue #128 follow-up: expose the same resource telemetry the
                 // server consumes via the `[xazz:resources]` marker.
-                let resources = resources_json(started, child_resource_usage());
+                let (started, usage) = scope.finish();
+                let resources = resources_json(started, usage);
 
                 let exit_code = output.status.code().unwrap_or(1);
                 let summary = serde_json::json!({
@@ -135,7 +136,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Measure the runner process tree while it executes. The marker is
             // emitted only when the server asks for it, so normal CLI output is
             // unchanged (issue #128).
-            let started = std::time::Instant::now();
+            let scope = ResourceScope::begin(resource_telemetry_requested());
             let status = cmd.status().map_err(|e| {
                 format!(
                     "failed to run xazz-runner: {}\n\
@@ -143,7 +144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     e
                 )
             })?;
-            emit_resource_telemetry(started);
+            emit_resource_telemetry(scope);
 
             if !status.success() {
                 std::process::exit(status.code().unwrap_or(1));
@@ -641,26 +642,42 @@ pub(crate) fn find_runner() -> Result<std::path::PathBuf, String> {
 // ── runner resource telemetry (issue #128) ────────────────────────────────────
 //
 // When the server requests it (`XAZZ_RESOURCE_TELEMETRY=1`) the CLI emits one
-// machine-readable `[xazz:resources]` stdout marker after the runner exits. The
-// numbers come from `getrusage(RUSAGE_CHILDREN)`, which aggregates the runner and
-// its waited descendants (xazz-exec) — i.e. the actual execution cost. On non-Unix
-// platforms only the wall-clock duration is available.
+// machine-readable `[xazz:resources]` stdout marker after the runner exits.
+// Nothing is sampled while the runner is alive; both platforms read kernel totals
+// once the process tree has been waited for.
+//
+// * Unix: `getrusage(RUSAGE_CHILDREN)` aggregates the runner and its waited
+//   descendants (xazz-exec) — i.e. the actual execution cost.
+// * Windows: before spawning, the CLI places itself in a Job Object. Child
+//   processes inherit the job, so the job's accounting counters cover the runner
+//   and xazz-exec. The CLI's own CPU time inside the job is subtracted; its peak
+//   memory is a few MiB and is left in. `max_rss_kb` is the job's
+//   `PeakProcessMemoryUsed` (peak commit charge of the largest process), the
+//   closest job-level analogue of `ru_maxrss` — Windows keeps no job-wide peak
+//   working set.
+//
+// When neither source is usable (job assignment refused, syscall failure) only
+// the wall-clock duration is reported and `source` says `wall-clock-only`.
+
+/// Whether the server asked for the `[xazz:resources]` marker.
+fn resource_telemetry_requested() -> bool {
+    std::env::var("XAZZ_RESOURCE_TELEMETRY").ok().as_deref() == Some("1")
+}
 
 /// Emits the `[xazz:resources]` marker when `XAZZ_RESOURCE_TELEMETRY=1`.
-fn emit_resource_telemetry(started: std::time::Instant) {
-    if std::env::var("XAZZ_RESOURCE_TELEMETRY").ok().as_deref() != Some("1") {
+fn emit_resource_telemetry(scope: ResourceScope) {
+    if !scope.wanted {
         return;
     }
-    let value = resources_json(started, child_resource_usage());
-    println!("[xazz:resources]{value}");
+    let (started, usage) = scope.finish();
+    println!("[xazz:resources]{}", resources_json(started, usage));
 }
 
 /// Builds the `[xazz:resources]`-shaped JSON object (issue #128).
 ///
 /// Shared by the stdout marker (server relay) and the `xazz run --json`
 /// `resources` field (#128 follow-up). When per-process counters are unavailable
-/// (non-Unix) the object still carries `duration_ms` and
-/// `"source":"wall-clock-only"`.
+/// the object still carries `duration_ms` and `"source":"wall-clock-only"`.
 fn resources_json(started: std::time::Instant, usage: Option<ResourceUsage>) -> serde_json::Value {
     let duration_ms = started.elapsed().as_millis() as u64;
     match usage {
@@ -669,7 +686,7 @@ fn resources_json(started: std::time::Instant, usage: Option<ResourceUsage>) -> 
             "cpu_user_ms": u.cpu_user_ms,
             "cpu_sys_ms": u.cpu_sys_ms,
             "max_rss_kb": u.max_rss_kb,
-            "source": "runner-process-tree",
+            "source": u.source,
         }),
         None => serde_json::json!({
             "duration_ms": duration_ms,
@@ -683,6 +700,56 @@ struct ResourceUsage {
     cpu_user_ms: u64,
     cpu_sys_ms: u64,
     max_rss_kb: u64,
+    /// Which kernel facility produced the counters.
+    source: &'static str,
+}
+
+/// Brackets one runner invocation: create it *before* spawning the runner, call
+/// [`ResourceScope::finish`] after the runner has been waited for.
+///
+/// `wanted == false` skips every platform setup (no Job Object is created), so a
+/// plain `xazz run` behaves exactly as before.
+struct ResourceScope {
+    started: std::time::Instant,
+    wanted: bool,
+    #[cfg(windows)]
+    job: Option<win_job::JobScope>,
+}
+
+impl ResourceScope {
+    fn begin(wanted: bool) -> Self {
+        Self {
+            started: std::time::Instant::now(),
+            wanted,
+            #[cfg(windows)]
+            job: if wanted {
+                win_job::JobScope::begin()
+            } else {
+                None
+            },
+        }
+    }
+
+    /// Returns the start instant and the tree counters, if the platform gave any.
+    fn finish(self) -> (std::time::Instant, Option<ResourceUsage>) {
+        let usage = if self.wanted { self.read_usage() } else { None };
+        (self.started, usage)
+    }
+
+    #[cfg(unix)]
+    fn read_usage(&self) -> Option<ResourceUsage> {
+        child_resource_usage()
+    }
+
+    #[cfg(windows)]
+    fn read_usage(&self) -> Option<ResourceUsage> {
+        self.job.as_ref().and_then(win_job::JobScope::usage)
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn read_usage(&self) -> Option<ResourceUsage> {
+        None
+    }
 }
 
 /// Reads `getrusage(RUSAGE_CHILDREN)` for the just-exited runner tree.
@@ -704,13 +771,137 @@ fn child_resource_usage() -> Option<ResourceUsage> {
         cpu_user_ms: ms(ru.ru_utime),
         cpu_sys_ms: ms(ru.ru_stime),
         max_rss_kb,
+        source: "runner-process-tree",
     })
 }
 
-/// Non-Unix platforms cannot read per-process counters; wall-clock only.
-#[cfg(not(unix))]
-fn child_resource_usage() -> Option<ResourceUsage> {
-    None
+/// Windows Job Object accounting for the runner tree (issue #128).
+#[cfg(windows)]
+mod win_job {
+    use super::ResourceUsage;
+    use std::mem::{size_of, zeroed};
+    use std::ptr::{null, null_mut};
+    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, HANDLE};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectBasicAccountingInformation,
+        JobObjectExtendedLimitInformation, QueryInformationJobObject,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+
+    /// One anonymous, limit-free Job Object that the CLI joined before spawning.
+    pub struct JobScope {
+        job: HANDLE,
+        /// The CLI's own CPU time when it joined the job, so it can be subtracted.
+        own_user_100ns: u64,
+        own_kernel_100ns: u64,
+    }
+
+    fn filetime_100ns(ft: FILETIME) -> u64 {
+        (u64::from(ft.dwHighDateTime) << 32) | u64::from(ft.dwLowDateTime)
+    }
+
+    /// (user, kernel) CPU time of this process in 100 ns units.
+    fn own_cpu_100ns() -> Option<(u64, u64)> {
+        // SAFETY: all four FILETIME out-params are zero-initialised and the
+        // pseudo-handle from GetCurrentProcess never needs closing.
+        unsafe {
+            let mut created: FILETIME = zeroed();
+            let mut exited: FILETIME = zeroed();
+            let mut kernel: FILETIME = zeroed();
+            let mut user: FILETIME = zeroed();
+            if GetProcessTimes(
+                GetCurrentProcess(),
+                &mut created,
+                &mut exited,
+                &mut kernel,
+                &mut user,
+            ) == 0
+            {
+                return None;
+            }
+            Some((filetime_100ns(user), filetime_100ns(kernel)))
+        }
+    }
+
+    impl JobScope {
+        /// Creates the job and assigns the current process to it, so every
+        /// process spawned afterwards inherits it. Returns `None` when the OS
+        /// refuses (e.g. an enclosing job that forbids nesting); the caller then
+        /// falls back to wall-clock-only.
+        pub fn begin() -> Option<Self> {
+            // SAFETY: a null name creates an anonymous job; the handle is checked
+            // and closed on every failure path or in Drop.
+            unsafe {
+                let job = CreateJobObjectW(null(), null());
+                if job.is_null() {
+                    return None;
+                }
+                if AssignProcessToJobObject(job, GetCurrentProcess()) == 0 {
+                    CloseHandle(job);
+                    return None;
+                }
+                let Some((own_user_100ns, own_kernel_100ns)) = own_cpu_100ns() else {
+                    CloseHandle(job);
+                    return None;
+                };
+                Some(Self {
+                    job,
+                    own_user_100ns,
+                    own_kernel_100ns,
+                })
+            }
+        }
+
+        /// Reads the job's totals after the runner tree has exited.
+        pub fn usage(&self) -> Option<ResourceUsage> {
+            // SAFETY: both out-structs are zeroed, sized exactly, and only read
+            // after the query reported success.
+            let (acct, ext) = unsafe {
+                let mut acct: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = zeroed();
+                let mut ext: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = zeroed();
+                let ok_acct = QueryInformationJobObject(
+                    self.job,
+                    JobObjectBasicAccountingInformation,
+                    (&mut acct as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
+                    size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                    null_mut(),
+                );
+                let ok_ext = QueryInformationJobObject(
+                    self.job,
+                    JobObjectExtendedLimitInformation,
+                    (&mut ext as *mut JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                    size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                    null_mut(),
+                );
+                if ok_acct == 0 || ok_ext == 0 {
+                    return None;
+                }
+                (acct, ext)
+            };
+            let (own_user_now, own_kernel_now) = own_cpu_100ns()?;
+            let own_user = own_user_now.saturating_sub(self.own_user_100ns);
+            let own_kernel = own_kernel_now.saturating_sub(self.own_kernel_100ns);
+            let total_user = u64::try_from(acct.TotalUserTime).unwrap_or(0);
+            let total_kernel = u64::try_from(acct.TotalKernelTime).unwrap_or(0);
+            Some(ResourceUsage {
+                cpu_user_ms: total_user.saturating_sub(own_user) / 10_000,
+                cpu_sys_ms: total_kernel.saturating_sub(own_kernel) / 10_000,
+                max_rss_kb: (ext.PeakProcessMemoryUsed as u64) / 1024,
+                source: "runner-job-object",
+            })
+        }
+    }
+
+    impl Drop for JobScope {
+        fn drop(&mut self) {
+            // SAFETY: the handle was returned by CreateJobObjectW and is closed once.
+            // Closing the handle does not remove the process from the job.
+            unsafe {
+                CloseHandle(self.job);
+            }
+        }
+    }
 }
 
 // ── `xazz run --json`: stdout marker extraction ───────────────────────────────
@@ -950,6 +1141,7 @@ mod run_marker_tests {
                 cpu_user_ms: 3,
                 cpu_sys_ms: 1,
                 max_rss_kb: 2048,
+                source: "runner-process-tree",
             }),
         );
         assert_eq!(v["cpu_user_ms"], 3);
@@ -957,5 +1149,40 @@ mod run_marker_tests {
         assert_eq!(v["max_rss_kb"], 2048);
         assert_eq!(v["source"], "runner-process-tree");
         assert!(v["duration_ms"].is_u64());
+    }
+
+    #[test]
+    fn resource_scope_not_wanted_reports_wall_clock_only() {
+        let scope = ResourceScope::begin(false);
+        let (_, usage) = scope.finish();
+        assert!(usage.is_none());
+    }
+
+    /// The Job Object path must see a child the CLI spawned after joining the job.
+    #[cfg(windows)]
+    #[test]
+    fn windows_job_scope_counts_a_spawned_child() {
+        let scope = ResourceScope::begin(true);
+        if scope.job.is_none() {
+            eprintln!("skipped: this process could not join a Job Object (nested job refused)");
+            return;
+        }
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "dir /s /b %SystemRoot%\\System32\\drivers > nul"])
+            .stdout(std::process::Stdio::null())
+            .status()
+            .expect("spawn cmd");
+        assert!(status.success());
+        let (_, usage) = scope.finish();
+        let u = usage.expect("job accounting readable after the child exited");
+        assert_eq!(u.source, "runner-job-object");
+        assert!(
+            u.max_rss_kb > 0,
+            "peak memory of the child tree must be recorded"
+        );
+        assert!(
+            u.cpu_user_ms + u.cpu_sys_ms > 0,
+            "the child's CPU time must be attributed to the job"
+        );
     }
 }

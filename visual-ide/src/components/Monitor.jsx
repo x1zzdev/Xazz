@@ -416,12 +416,13 @@ function PrivacyBudgetPanel({ dp }) {
 
 /**
  * Resource telemetry for one Full Run (issue #128). The server reports the whole
- * runner process tree — wall clock, CPU and peak RSS — via
+ * runner process tree — wall clock, CPU and peak memory (rusage on Unix, Job
+ * Object accounting on Windows; `source` names which) — via
  * `GET /runs/{id}/resources`, so unlike an unimplemented capability this is a
  * measured contract:
  *   - measured    : the endpoint returned `available: true` for a recorded run.
  *   - implemented : a run exists but carries no telemetry (predates the feature
- *                   or the platform has no rusage); it says so, never invents one.
+ *                   or no counter facility was usable); it says so, never invents one.
  *
  * There is no per-stage or GPU breakdown in the contract, so none is shown.
  */
