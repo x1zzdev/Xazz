@@ -76,3 +76,27 @@ test('monitor stays an honest empty resource panel when a run has none', async (
     panel.getByText('no resource telemetry was recorded for this run'),
   ).toBeVisible()
 })
+
+test('monitor says "couldn\'t load" when the resource fetch fails', async ({ page }) => {
+  await mockServer(page, {
+    'POST /execute': {
+      success: true,
+      rows: [{ pm25: 24.8 }],
+      schema: [{ name: 'pm25', type: 'f64' }],
+      logs: [],
+      stdout: '',
+      run_id: 7,
+    },
+    'GET /runs/7/resources': { http: 404, text: 'run 7 has no resource record' },
+  })
+
+  await page.goto('/?screen=workspace')
+  await fullRun(page)
+
+  const panel = page.getByRole('region', { name: 'Resource efficiency' })
+  await expect(panel.getByLabel('Maturity: Unavailable')).toBeVisible()
+  await expect(panel.getByText('runner process tree · couldn\'t load')).toBeVisible()
+  await expect(
+    panel.getByText('xazz-server answered HTTP 404 · run 7 has no resource record'),
+  ).toBeVisible()
+})

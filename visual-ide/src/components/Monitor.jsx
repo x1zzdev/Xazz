@@ -10,6 +10,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { StatusBadge } from './Common'
+import { ApiError } from '../api'
 import executeResponse from '../mock/execute-response.json'
 
 const fallbackFixture = executeResponse
@@ -423,11 +424,40 @@ function PrivacyBudgetPanel({ dp }) {
  *   - measured    : the endpoint returned `available: true` for a recorded run.
  *   - implemented : a run exists but carries no telemetry (predates the feature
  *                   or no counter facility was usable); it says so, never invents one.
+ *   - failed      : the fetch itself failed (404 / unreachable / wrong tenant);
+ *                   this is a broken request, not a run without a record.
  *
  * There is no per-stage or GPU breakdown in the contract, so none is shown.
  */
-function ResourcePanel({ resources }) {
+function ResourcePanel({ resources, error }) {
   const measured = Boolean(resources?.available === true && resources.resources)
+
+  if (!measured && error) {
+    const reason =
+      error instanceof ApiError
+        ? `xazz-server answered HTTP ${error.status} · ${error.message}`
+        : `Couldn't reach xazz-server · ${error.message}`
+    return (
+      <MonitorPanel
+        contract="implemented"
+        icon={AlertTriangle}
+        title="Resource efficiency"
+        unit="runner process tree · couldn't load"
+        maturity="Unavailable"
+        scope="Panel is implemented, but resource telemetry for this run could not be loaded."
+      >
+        <p className="monitor-gap">
+          <AlertTriangle size={13} aria-hidden="true" />
+          {reason}
+        </p>
+        <p className="monitor-caveat">
+          This is a failed request, not a run without a record. Check that
+          xazz-server is reachable and that this tenant can read the run, then
+          re-run.
+        </p>
+      </MonitorPanel>
+    )
+  }
 
   if (!measured) {
     return (
@@ -717,7 +747,7 @@ function GuardrailPanel({ policy, remediation, originalCode }) {
   )
 }
 
-export function MonitorView({ runState, training, model, dp, resources, policy, remediation, originalCode, prediction, children }) {
+export function MonitorView({ runState, training, model, dp, resources, resourcesError, policy, remediation, originalCode, prediction, children }) {
   return (
     <div className="monitor-view" aria-label="Run monitoring">
       <div className="monitor-view__rail" aria-hidden="true" />
@@ -726,7 +756,7 @@ export function MonitorView({ runState, training, model, dp, resources, policy, 
         <PredictPanel prediction={prediction} />
         <div className="monitor-view__pair">
           <PrivacyBudgetPanel dp={dp} />
-          <ResourcePanel resources={resources} />
+          <ResourcePanel resources={resources} error={resourcesError} />
         </div>
         <GuardrailPanel
           policy={policy}

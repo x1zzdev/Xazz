@@ -1512,6 +1512,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
   const [backendReachable, setBackendReachable] = useState(null)
   const [runResult, setRunResult] = useState(null)
   const [runResources, setRunResources] = useState(null)
+  const [runResourcesError, setRunResourcesError] = useState(null)
   const [execError, setExecError] = useState(null)
   const [executing, setExecuting] = useState(false)
   const [policyReport, setPolicyReport] = useState(null)
@@ -1572,22 +1573,31 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
   }
 
   // Resource telemetry lives on its own endpoint (#128), not on /execute, so it is
-  // fetched per recorded run and never blocks the result. A 404 / unreachable
-  // server leaves the panel in its honest empty state.
+  // fetched per recorded run and never blocks the result. A failed fetch is kept
+  // apart from a successful `available: false`: the panel must say "couldn't load"
+  // (404 / unreachable / wrong tenant) rather than pretend no record exists.
   const loadRunResources = (runId) => {
     if (runId == null) {
       setRunResources(null)
+      setRunResourcesError(null)
       return
     }
     getRunResources(runId)
-      .then((data) => setRunResources(data))
-      .catch(() => setRunResources(null))
+      .then((data) => {
+        setRunResources(data)
+        setRunResourcesError(null)
+      })
+      .catch((err) => {
+        setRunResources(null)
+        setRunResourcesError(err)
+      })
   }
 
   const executeFullRun = async () => {
     setExecuting(true)
     setRunResult(null)
     setRunResources(null)
+    setRunResourcesError(null)
     setExecError(null)
     setAcknowledged(false)
     setLiveMessage(`Executing on xazz-server · ${API_BASE_URL}`)
@@ -1857,6 +1867,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
                   model={runResult?.model}
                   dp={runResult?.dp}
                   resources={runResources}
+                  resourcesError={runResourcesError}
                   prediction={runResult?.prediction}
                   policy={policyExample ? exampleReport : policyReport}
                   remediation={policyExample ? null : remediation}
