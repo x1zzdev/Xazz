@@ -9,6 +9,14 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Fixed — ONNX export 파리티 테스트를 실제 `onnx` 빌드에서 통과하도록 수정 (#127, #167)
+
+- Windows MSVC `--features onnx` 빌드에서 처음 실행한 결과 3개 중 2개가 실패했다.
+  Conv1d 테스트의 `pads` 기대값 `[1, 0]`은 Burn 0.21 `calculate_same_padding`
+  (`[floor((k-1)/2), ceil((k-1)/2)]`)과 exporter 출력 `[0, 1]`에 맞게 바로잡았다
+- 세 테스트가 같은 모델 이름 `onnx_unit`을 써서 병렬 실행 중 서로의 체크포인트를
+  지우던 경합을 테스트별 고유 이름으로 없앴다. 병렬 모드 4회 연속 3/3 통과
+
 ### Added — predict 진단의 run 이력 영속화 `GET /runs/{id}/prediction` (issue D3)
 
 - `POST /execute` 응답에만 노출되던 `[xazz:predict]` 임베딩 진단을 `runs` 테이블
