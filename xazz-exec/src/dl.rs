@@ -1852,9 +1852,15 @@ pub fn predict_with_diagnostics(
     as_col: Option<&str>,
 ) -> Result<(DataFrame, EmbeddingDiagnostics), String> {
     let device: Device<Plain> = Default::default();
-    let mut infer_model = trained.model.clone();
-    infer_model.training = false;
-    predict_with_model::<Plain>(trained, &infer_model, &device, df, as_col)
+    // `TrainedModel::model` is materialised in inference mode (`training = false`)
+    // by every constructor, so borrow it directly instead of cloning the whole
+    // module just to flip the flag (issue #126). The debug assertion guards the
+    // invariant that makes the borrow sound.
+    debug_assert!(
+        !trained.model.training,
+        "trained model must be in inference mode"
+    );
+    predict_with_model::<Plain>(trained, &trained.model, &device, df, as_col)
 }
 
 /// `predict` on an arbitrary Burn backend `B`.
@@ -2133,6 +2139,39 @@ mod tests {
             (trained.report.final_val_loss.unwrap() - expected).abs() < 1e-5 * expected.max(1.0),
             "reported={:?}, independently recomputed={expected}",
             trained.report.final_val_loss
+        );
+    }
+
+    #[test]
+    fn cpu_predict_borrows_in_memory_model_in_inference_mode() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0., 1., 2., 3.], "y" => [0., 1., 0., 1.]).unwrap();
+        let config = TrainConfig {
+            target: "y".into(),
+            epochs: 2,
+            ..Default::default()
+        };
+        let trained = train_unpersisted(
+            &frame,
+            "borrowed_predict",
+            &[
+                LayerKind::Dense(4),
+                LayerKind::Dropout(0.5),
+                LayerKind::Dense(1),
+            ],
+            &config,
+        )
+        .unwrap();
+        assert!(
+            !trained.model.training,
+            "trained artifact must already be in inference mode so predict can borrow it"
+        );
+        let (first, _) = predict_with_diagnostics(&trained, &frame, Some("pred")).unwrap();
+        let (second, _) = predict_with_diagnostics(&trained, &frame, Some("pred")).unwrap();
+        assert_eq!(
+            first.column("pred").unwrap(),
+            second.column("pred").unwrap(),
+            "borrowed predict must be deterministic across calls"
         );
     }
 
