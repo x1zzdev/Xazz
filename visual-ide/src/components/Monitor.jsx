@@ -216,19 +216,51 @@ function fmtNum(value) {
 }
 
 /**
- * Predict-path embedding input diagnostics. Two honest states, never blended:
- *   - measured : a real [xazz:predict] report came back from the Full Run. The
- *                counters are shown as facts (non-fatal clamps/truncations).
- *   - implemented/empty : no predict(...) statement ran this run, so nothing was
+ * Predict-path embedding input diagnostics. Three honest states, never blended:
+ *   - measured : a real [xazz:predict] report came back for the run. The counters
+ *                are shown as facts (non-fatal clamps/truncations).
+ *   - implemented/empty : the run recorded no predict(...) statement, so nothing was
  *                measured. The panel states that instead of showing a zero.
+ *   - implemented/unavailable : the persisted diagnostics could not be fetched
+ *                (404 / unreachable / wrong tenant) — a failed request, not an
+ *                empty run. The panel says so instead of pretending none ran.
  *
- * These counters never block a run — out-of-range indices are clamped and
- * non-integer values truncated at the runtime, so the panel is diagnostic, not a
- * verdict. It borrows no success colour.
+ * The diagnostics are served by GET /runs/{id}/prediction (issue D3) as
+ * `{ available, prediction }`; the /execute response's raw `prediction` is kept as
+ * a fallback. These counters never block a run — out-of-range indices are clamped
+ * and non-integer values truncated at the runtime, so the panel is diagnostic, not
+ * a verdict. It borrows no success colour.
  */
-function PredictPanel({ prediction }) {
-  const report = prediction?.report
+function PredictPanel({ prediction, error }) {
+  const report = prediction?.prediction?.report
   const isMeasured = Boolean(report)
+
+  if (!isMeasured && error) {
+    const reason =
+      error instanceof ApiError
+        ? `xazz-server answered HTTP ${error.status} · ${error.message}`
+        : `Couldn't reach xazz-server · ${error.message}`
+    return (
+      <MonitorPanel
+        contract="implemented"
+        icon={AlertTriangle}
+        title="Predict embedding input"
+        unit="input diagnostics · couldn't load"
+        maturity="Unavailable"
+        scope="Panel is implemented, but predict diagnostics for this run could not be loaded."
+      >
+        <p className="monitor-gap">
+          <AlertTriangle size={13} aria-hidden="true" />
+          {reason}
+        </p>
+        <p className="monitor-caveat">
+          This is a failed request, not a run without a predict step. Check that
+          xazz-server is reachable and that this tenant can read the run, then
+          re-run.
+        </p>
+      </MonitorPanel>
+    )
+  }
 
   if (!isMeasured) {
     return (
@@ -242,6 +274,7 @@ function PredictPanel({ prediction }) {
       >
         <p className="monitor-gap">
           <FlaskConical size={13} aria-hidden="true" />
+          {prediction?.reason ? `${prediction.reason}. ` : ''}
           Add a predict step (e.g.{' '}
           <code>|&gt; predict(model, as: &quot;pred&quot;)</code>) to measure the
           embedding input diagnostics.
@@ -252,7 +285,7 @@ function PredictPanel({ prediction }) {
 
   const outOfRange = Number(report.embedding_out_of_range ?? 0)
   const nonInteger = Number(report.embedding_non_integer ?? 0)
-  const modelName = prediction.model_name ?? '—'
+  const modelName = prediction?.prediction?.model_name ?? '—'
 
   return (
     <MonitorPanel
@@ -747,13 +780,13 @@ function GuardrailPanel({ policy, remediation, originalCode }) {
   )
 }
 
-export function MonitorView({ runState, training, model, dp, resources, resourcesError, policy, remediation, originalCode, prediction, children }) {
+export function MonitorView({ runState, training, model, dp, resources, resourcesError, prediction, predictionError, policy, remediation, originalCode, children }) {
   return (
     <div className="monitor-view" aria-label="Run monitoring">
       <div className="monitor-view__rail" aria-hidden="true" />
       <div className="monitor-view__panels">
         <BurnPanel runState={runState} training={training} model={model} />
-        <PredictPanel prediction={prediction} />
+        <PredictPanel prediction={prediction} error={predictionError} />
         <div className="monitor-view__pair">
           <PrivacyBudgetPanel dp={dp} />
           <ResourcePanel resources={resources} error={resourcesError} />

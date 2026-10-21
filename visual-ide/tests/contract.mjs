@@ -209,6 +209,9 @@ assert.doesNotMatch(api, /\b(localStorage|sessionStorage)\.\w/, 'server access (
 // Resource telemetry is read from its real endpoint, not a mock fixture (#128).
 assert.match(api, /export const getRunResources =/, 'resource telemetry must come from GET /runs/:id/resources')
 assert.match(api, /\/runs\/\$\{encodeURIComponent\(id\)\}\/resources/)
+// Predict diagnostics are persisted per run and read from their endpoint too (D3).
+assert.match(api, /export const getRunPrediction =/, 'predict diagnostics must come from GET /runs/:id/prediction')
+assert.match(api, /\/runs\/\$\{encodeURIComponent\(id\)\}\/prediction/)
 
 const governance = await read('visual-ide/src/components/Governance.jsx')
 const runHistory = await read('visual-ide/src/components/RunHistory.jsx')

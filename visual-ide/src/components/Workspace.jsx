@@ -51,7 +51,7 @@ import { ResultCharts } from './ResultCharts'
 import { RunHistory } from './RunHistory'
 import { LocaleSwitch, localizeStep, useLanguage } from '../i18n'
 import DagEditor from './DagEditor'
-import { ApiError, checkPolicy, executeCode, checkHealth, getRunResources, remediateCode, API_BASE_URL } from '../api'
+import { ApiError, checkPolicy, executeCode, checkHealth, getRunResources, getRunPrediction, remediateCode, API_BASE_URL } from '../api'
 
 // executeCode 기본 타임아웃(ms) — api.js 와 동일한 기본값 (ML 훈련 고려 5분)
 const EXEC_TIMEOUT_MS = 5 * 60 * 1000
@@ -1513,6 +1513,8 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
   const [runResult, setRunResult] = useState(null)
   const [runResources, setRunResources] = useState(null)
   const [runResourcesError, setRunResourcesError] = useState(null)
+  const [runPrediction, setRunPrediction] = useState(null)
+  const [runPredictionError, setRunPredictionError] = useState(null)
   const [execError, setExecError] = useState(null)
   const [executing, setExecuting] = useState(false)
   const [policyReport, setPolicyReport] = useState(null)
@@ -1593,11 +1595,39 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
       })
   }
 
+  // Predict diagnostics come from their own endpoint (issue D3), like resources.
+  // The /execute response already carries `prediction` for the run it returned, so
+  // that is kept as a fallback: a failed fetch (e.g. a run that was not recorded)
+  // must not hide diagnostics the browser already holds.
+  const loadRunPrediction = (runId, fallback) => {
+    if (runId == null) {
+      setRunPrediction(fallback ? { available: true, prediction: fallback } : null)
+      setRunPredictionError(null)
+      return
+    }
+    getRunPrediction(runId)
+      .then((data) => {
+        setRunPrediction(data)
+        setRunPredictionError(null)
+      })
+      .catch((err) => {
+        if (fallback) {
+          setRunPrediction({ available: true, prediction: fallback })
+          setRunPredictionError(null)
+        } else {
+          setRunPrediction(null)
+          setRunPredictionError(err)
+        }
+      })
+  }
+
   const executeFullRun = async () => {
     setExecuting(true)
     setRunResult(null)
     setRunResources(null)
     setRunResourcesError(null)
+    setRunPrediction(null)
+    setRunPredictionError(null)
     setExecError(null)
     setAcknowledged(false)
     setLiveMessage(`Executing on xazz-server · ${API_BASE_URL}`)
@@ -1609,6 +1639,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
       if (result.run_id != null) sessionResults.set(result.run_id, result)
       setRunResult(result)
       loadRunResources(result.run_id)
+      loadRunPrediction(result.run_id, result.prediction)
       setBackendReachable(true)
       if (result.success && !result.error) {
         const rows = Array.isArray(result.rows) ? result.rows.length : 0
@@ -1669,6 +1700,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
     if (!result) return
     setRunResult(result)
     loadRunResources(runId)
+    loadRunPrediction(runId, result.prediction)
     setExecError(null)
     setLiveMessage(`Restored run #${runId} from this browser session`)
     changeState(result.success && !result.error ? 'success' : 'error')
@@ -1868,7 +1900,8 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
                   dp={runResult?.dp}
                   resources={runResources}
                   resourcesError={runResourcesError}
-                  prediction={runResult?.prediction}
+                  prediction={runPrediction}
+                  predictionError={runPredictionError}
                   policy={policyExample ? exampleReport : policyReport}
                   remediation={policyExample ? null : remediation}
                   originalCode={policyExample ? policyExamples[policyExample] : guardrailSource}
