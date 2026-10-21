@@ -147,6 +147,14 @@ export const getRun = (id) => request(`/runs/${encodeURIComponent(id)}`)
 export const getRunResources = (id) =>
   request(`/runs/${encodeURIComponent(id)}/resources`)
 
+// ── Run predict diagnostics (issue D3). Persisted `[xazz:predict]` embedding
+// diagnostics for one run: { run_id, tenant, available: true, prediction } — or
+// { available: false, reason } when the run recorded none. The /execute response
+// also carries `prediction` for the run it just returned; this endpoint serves it
+// after a restore or from history. Never fabricate.
+export const getRunPrediction = (id) =>
+  request(`/runs/${encodeURIComponent(id)}/prediction`)
+
 // ── Audit chain (#108)
 export const getAuditLog = () => request('/security/audit/log')
 export const getAuditRecords = (hash) =>
