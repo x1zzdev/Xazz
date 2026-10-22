@@ -48,6 +48,7 @@ use tokio::sync::{OwnedMutexGuard, OwnedSemaphorePermit, Semaphore};
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::ServeDir;
 
+mod audit_auth;
 mod audit_log;
 mod guardrail;
 mod slm;
@@ -484,6 +485,18 @@ struct SchemaColumn {
 
 #[tokio::main]
 async fn main() {
+    // Validate trusted audit configuration before accepting any requests.
+    match audit_log::verification() {
+        Ok(report) if report.intact => {}
+        Ok(_) => {
+            eprintln!("[xazz-server] audit authentication failed at startup");
+            std::process::exit(1);
+        }
+        Err(error) => {
+            eprintln!("[xazz-server] {error}");
+            std::process::exit(1);
+        }
+    }
     // create the uploads/ directory upfront
     let _ = std::fs::create_dir_all("uploads");
 
@@ -1151,6 +1164,7 @@ async fn run_execution_job(
         // while the (possibly-dropped) handler future is alive.
         let _slot = slot;
         let tmp_path = tmp.path().to_path_buf();
+        audit_auth::remove_child_credentials(&mut command);
         let output = command
             .arg(&tmp_path)
             // The server interprets this override as the CLI path, while the
@@ -1604,30 +1618,22 @@ struct AuditResponse {
     record_hash: Option<String>,
 }
 
-async fn handle_security_audit(Json(payload): Json<AuditRequest>) -> Json<AuditResponse> {
+async fn handle_security_audit(
+    Json(payload): Json<AuditRequest>,
+) -> Result<Json<AuditResponse>, (StatusCode, String)> {
     let hash = audit_log::hash_code(&payload.code);
 
-    // Persist to the append-only audit log (the hash is returned even on failure)
-    let stored = audit_log::append(&payload.code);
-
-    match stored {
-        Ok(record) => Json(AuditResponse {
-            hash,
-            algorithm: "SHA-256".to_string(),
-            timestamp: record.timestamp.clone(),
-            code_length: payload.code.len(),
-            index: Some(record.index),
-            record_hash: Some(record.record_hash.clone()),
-        }),
-        Err(_e) => Json(AuditResponse {
-            hash,
-            algorithm: "SHA-256".to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            code_length: payload.code.len(),
-            index: None,
-            record_hash: None,
-        }),
-    }
+    // A failed authenticated append must not look like a successful audit.
+    let record =
+        audit_log::append(&payload.code).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(AuditResponse {
+        hash,
+        algorithm: "SHA-256".to_string(),
+        timestamp: record.timestamp.clone(),
+        code_length: payload.code.len(),
+        index: Some(record.index),
+        record_hash: Some(record.record_hash.clone()),
+    }))
 }
 
 // ── POST /security/verify ────────────────────────────────────────────────────
@@ -1702,11 +1708,8 @@ async fn handle_audit_lookup(
 // ── GET /security/audit/chain ────────────────────────────────────────────────
 
 async fn handle_audit_chain() -> Result<Json<Value>, (StatusCode, String)> {
-    let valid = audit_log::verify_chain().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    let count = audit_log::all()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
-        .len();
-    Ok(Json(json!({ "intact": valid, "records": count })))
+    let report = audit_log::verification().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(json!(report)))
 }
 
 // ── GET /security/policy ─────────────────────────────────────────────────────

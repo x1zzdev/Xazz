@@ -1,4 +1,4 @@
-//! xazz-server audit_log.rs — SHA-256 audit log (append-only JSONL)
+//! SHA-256 audit log with optional server-owned HMAC-SHA256 record authentication.
 //!
 //! Persists all security audit records in a JSONL file on disk.
 //! Each record contains the SHA-256 hash of the code, a timestamp, and the hash
@@ -10,6 +10,7 @@
 //!
 //! JSONL file location: `audit_log/audit.jsonl` in the server's working directory
 
+use crate::audit_auth::{self, AuditAuth};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Mutex;
@@ -82,12 +83,16 @@ pub struct AuditRecord {
     pub model_fingerprint: Option<String>,
     /// SHA-256 hash of the previous record (forms the chain) — the first record is "GENESIS"
     pub prev_hash: String,
-    /// SHA-256 hash of this whole record (excluding prev_hash)
+    /// Legacy SHA-256 digest, including prev_hash; excludes digest/auth fields.
     pub record_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hmac_key_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hmac: Option<String>,
 }
 
 impl AuditRecord {
-    /// For hash-chain verification — recomputes record_hash and checks the prev_hash link
+    /// Checks the legacy digest only. Chain/authentication require verify_chain.
     pub fn verify(&self) -> bool {
         let computed = compute_record_hash(self);
         computed == self.record_hash
@@ -206,6 +211,24 @@ fn append_to_path(
     model_fingerprint: Option<&str>,
     file_path: &std::path::Path,
 ) -> Result<AuditRecord, String> {
+    append_authenticated(
+        code,
+        outcome,
+        inference,
+        model_fingerprint,
+        file_path,
+        audit_auth::configured()?,
+    )
+}
+
+fn append_authenticated(
+    code: &str,
+    outcome: Option<&str>,
+    inference: Option<(String, String)>,
+    model_fingerprint: Option<&str>,
+    file_path: &std::path::Path,
+    auth: &AuditAuth,
+) -> Result<AuditRecord, String> {
     // 1) Serialize concurrent in-process append read-modify-writes. (TOCTOU prevention)
     //    Recovers from a poisoned lock so a single panic cannot disable auditing.
     let _guard = lock_append();
@@ -236,6 +259,11 @@ fn append_to_path(
         .map_err(|e| format!("failed to read audit log: {e}"))?;
     let existing =
         parse_records(&contents).map_err(|e| format!("failed to read audit log: {e}"))?;
+    // Never turn a forged existing history into an authenticated history by
+    // signing a new head. Validate the SAME locked snapshot before appending.
+    if !verify_records(&existing, auth).intact {
+        return Err("audit chain or HMAC authentication failed; append refused".into());
+    }
     let index = existing.len() as u64;
     let prev_hash = existing
         .last()
@@ -253,12 +281,15 @@ fn append_to_path(
         model_fingerprint: model_fingerprint.map(|s| s.to_string()),
         prev_hash,
         record_hash: String::new(),
+        hmac_key_id: None,
+        hmac: None,
     };
     let record_hash = compute_record_hash(&record);
-    let record = AuditRecord {
+    let mut record = AuditRecord {
         record_hash,
         ..record
     };
+    auth.sign(&mut record);
 
     // append-only: the handle is opened in append mode, so the write lands at the
     // end even though we previously sought to position 0 for reading.
@@ -326,18 +357,62 @@ pub fn lookup_by_hash(hash: &str) -> Result<Vec<AuditRecord>, String> {
 
 /// Verifies that the whole log hash chain is valid.
 pub fn verify_chain() -> Result<bool, String> {
-    verify_chain_at_path(&default_log_path())
+    Ok(verification()?.intact)
 }
 
+#[cfg(test)]
 fn verify_chain_at_path(file_path: &std::path::Path) -> Result<bool, String> {
     let records = read_all(file_path)?;
-    Ok(records_form_valid_chain(&records))
+    Ok(verify_records(&records, audit_auth::configured()?).intact)
+}
+
+/// `intact` includes the configured authentication policy; `authenticated`
+/// additionally requires a nonempty chain with no unsigned legacy records.
+#[derive(Debug, Serialize)]
+pub(crate) struct Verification {
+    pub intact: bool,
+    pub records: usize,
+    pub authenticated: bool,
+    pub hmac_configured: bool,
+    pub legacy_records: usize,
+    pub warning: Option<&'static str>,
+}
+
+pub(crate) fn verification() -> Result<Verification, String> {
+    let auth = audit_auth::configured()?;
+    Ok(verify_records(&read_all(&default_log_path())?, auth))
+}
+
+fn verify_records(records: &[AuditRecord], auth: &AuditAuth) -> Verification {
+    let legacy_records = records
+        .iter()
+        .filter(|r| r.hmac.is_none() && r.hmac_key_id.is_none())
+        .count();
+    let intact = records_form_valid_chain(records)
+        && (!auth.enabled() || records.len() as u64 >= auth.required_from)
+        && records.iter().all(|r| auth.verify(r));
+    Verification {
+        intact,
+        records: records.len(),
+        authenticated: intact && auth.enabled() && !records.is_empty() && legacy_records == 0,
+        hmac_configured: auth.enabled(),
+        legacy_records,
+        warning: if !intact {
+            Some("audit chain or HMAC authentication failed")
+        } else if !auth.enabled() {
+            Some("HMAC is not configured; hash-chain integrity is not record authentication")
+        } else if legacy_records > 0 {
+            Some("legacy prefix is permitted but not authenticated")
+        } else {
+            None
+        },
+    }
 }
 
 fn records_form_valid_chain(records: &[AuditRecord]) -> bool {
     let mut prev = "GENESIS".to_string();
-    for r in records {
-        if r.prev_hash != prev || !r.verify() {
+    for (index, r) in records.iter().enumerate() {
+        if r.index != index as u64 || r.prev_hash != prev || !r.verify() {
             return false;
         }
         prev = r.record_hash.clone();
@@ -348,6 +423,206 @@ fn records_form_valid_chain(records: &[AuditRecord]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn auth(active: &str, boundary: u64) -> AuditAuth {
+        let keys = format!(
+            r#"{{"old":"{}","new":"{}","alias":"{}"}}"#,
+            "ab".repeat(32),
+            "cd".repeat(32),
+            "ab".repeat(32)
+        );
+        AuditAuth::from_settings(Some(&keys), Some(active), Some(&boundary.to_string())).unwrap()
+    }
+
+    fn rewrite_chain(records: &mut [AuditRecord]) {
+        let mut prev = "GENESIS".to_string();
+        for (index, record) in records.iter_mut().enumerate() {
+            record.index = index as u64;
+            record.prev_hash = prev;
+            record.record_hash = compute_record_hash(record);
+            prev = record.record_hash.clone();
+        }
+    }
+
+    fn signed_history(path: &std::path::Path) -> Vec<AuditRecord> {
+        let settings = auth("old", 0);
+        for code in ["one", "two", "three"] {
+            append_authenticated(
+                code,
+                Some("success"),
+                Some((hash_code("p"), hash_code("r"))),
+                Some("model"),
+                path,
+                &settings,
+            )
+            .unwrap();
+        }
+        read_all(path).unwrap()
+    }
+
+    #[test]
+    fn hmac_rejects_recomputed_forgery_and_does_not_append_to_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+        let mut records = signed_history(&path);
+        let settings = auth("old", 0);
+        assert!(verify_records(&records, &settings).authenticated);
+        records[0].outcome = Some("forged".into());
+        rewrite_chain(&mut records);
+        assert!(
+            records_form_valid_chain(&records),
+            "attack defeats hash-only verification"
+        );
+        assert!(!verify_records(&records, &settings).intact);
+        let forged = records
+            .iter()
+            .map(|r| serde_json::to_string(r).unwrap() + "\n")
+            .collect::<String>();
+        std::fs::write(&path, &forged).unwrap();
+        assert!(append_authenticated("next", None, None, None, &path, &settings).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), forged);
+    }
+
+    #[test]
+    fn hmac_binds_each_field_and_optional_field_positions() {
+        let dir = tempfile::tempdir().unwrap();
+        let records = signed_history(&dir.path().join("audit.jsonl"));
+        let settings = auth("old", 0);
+        // Even a file writer who updates *all* unkeyed hashes cannot change fields.
+        let mutations: &[fn(&mut AuditRecord)] = &[
+            |r| r.timestamp.push('x'),
+            |r| r.hash.push('x'),
+            |r| r.code_length += 1,
+            |r| r.outcome = Some("changed".into()),
+            |r| r.prompt_hash = Some("changed".into()),
+            |r| r.response_hash = Some("changed".into()),
+            |r| r.model_fingerprint = None,
+            |r| r.hmac_key_id = Some("alias".into()), // same key, different ID
+        ];
+        for mutate in mutations {
+            let mut forged = records.clone();
+            mutate(&mut forged[0]);
+            rewrite_chain(&mut forged);
+            assert!(!verify_records(&forged, &settings).intact);
+        }
+        // The legacy digest conflates some optional fields; HMAC must not.
+        let mut record = records[0].clone();
+        record.outcome = Some("x".into());
+        record.prompt_hash = None;
+        record.record_hash = compute_record_hash(&record);
+        settings.sign(&mut record);
+        record.outcome = None;
+        record.prompt_hash = Some("x".into());
+        assert!(record.verify());
+        assert!(!settings.verify(&record));
+    }
+
+    #[test]
+    fn hmac_rejects_auth_stripping_unknown_wrong_and_malformed_keys_or_tags() {
+        let dir = tempfile::tempdir().unwrap();
+        let records = signed_history(&dir.path().join("audit.jsonl"));
+        let settings = auth("old", 0);
+        for mutate in [
+            (|r: &mut AuditRecord| {
+                r.hmac = None;
+                r.hmac_key_id = None;
+            }) as fn(&mut AuditRecord),
+            |r| r.hmac = None,
+            |r| r.hmac_key_id = None,
+            |r| r.hmac_key_id = Some("unknown".into()),
+            |r| r.hmac = Some("zz".into()),
+            |r| r.hmac = Some("00".into()),
+            |r| r.hmac = Some("00".repeat(32)),
+        ] {
+            let mut forged = records.clone();
+            for r in &mut forged {
+                mutate(r);
+            }
+            assert!(!verify_records(&forged, &settings).intact);
+        }
+        assert!(!verify_records(&records, &AuditAuth::default()).intact);
+        let keys = format!(r#"{{"old":"{}"}}"#, "ef".repeat(32));
+        let wrong = AuditAuth::from_settings(Some(&keys), Some("old"), None).unwrap();
+        assert!(!verify_records(&records, &wrong).intact);
+    }
+
+    #[test]
+    fn hmac_rotation_preserves_old_records_and_requires_old_verification_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+        signed_history(&path);
+        let before = std::fs::read(&path).unwrap();
+        let rotated = auth("new", 0);
+        let next = append_authenticated("four", None, None, None, &path, &rotated).unwrap();
+        assert_eq!(next.hmac_key_id.as_deref(), Some("new"));
+        assert!(std::fs::read(&path).unwrap().starts_with(&before));
+        let records = read_all(&path).unwrap();
+        assert!(verify_records(&records, &rotated).authenticated);
+        let keys = format!(r#"{{"new":"{}"}}"#, "cd".repeat(32));
+        let missing_old = AuditAuth::from_settings(Some(&keys), Some("new"), None).unwrap();
+        assert!(!verify_records(&records, &missing_old).intact);
+        assert!(append_authenticated("five", None, None, None, &path, &missing_old).is_err());
+    }
+
+    #[test]
+    fn legacy_migration_is_explicit_and_cannot_downgrade_signed_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+        append_authenticated("legacy", None, None, None, &path, &AuditAuth::default()).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let legacy = read_all(&path).unwrap();
+        let report = verify_records(&legacy, &AuditAuth::default());
+        assert!(report.intact && !report.authenticated && report.warning.is_some());
+        assert!(!verify_records(&legacy, &auth("old", 0)).intact);
+        assert!(!verify_records(&legacy, &auth("old", 2)).intact);
+        let migration = auth("old", 1);
+        append_authenticated("signed", None, None, None, &path, &migration).unwrap();
+        assert!(std::fs::read(&path).unwrap().starts_with(&before));
+        let mut records = read_all(&path).unwrap();
+        let report = verify_records(&records, &migration);
+        assert!(report.intact && !report.authenticated);
+        assert_eq!(report.legacy_records, 1);
+        records[1].hmac = None;
+        records[1].hmac_key_id = None;
+        assert!(!verify_records(&records, &migration).intact);
+        // Removing configured keys must not silently resume unsigned append.
+        assert!(
+            append_authenticated("unsigned", None, None, None, &path, &AuditAuth::default())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn concurrent_authenticated_writes_are_verifiable_on_windows() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+        let writers: Vec<_> = (0..4)
+            .map(|i| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let settings = auth("old", 0);
+                    for j in 0..8 {
+                        append_authenticated(
+                            &format!("{i}:{j}"),
+                            None,
+                            None,
+                            None,
+                            &path,
+                            &settings,
+                        )
+                        .unwrap();
+                        assert!(verify_records(&read_all(&path).unwrap(), &settings).intact);
+                    }
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        let report = verify_records(&read_all(&path).unwrap(), &auth("old", 0));
+        assert_eq!(report.records, 32);
+        assert!(report.authenticated);
+    }
 
     #[test]
     fn read_all_waits_for_exclusive_writer_lock() {
@@ -641,6 +916,8 @@ mod tests {
             model_fingerprint: None,
             prev_hash: "GENESIS".to_string(),
             record_hash: String::new(),
+            hmac_key_id: None,
+            hmac: None,
         };
         r.record_hash = compute_record_hash(&r);
         // Golden value — pins the sha2 0.11 hex output so the chain stays stable.
@@ -712,6 +989,8 @@ mod tests {
             model_fingerprint: None,
             prev_hash: "GENESIS".into(),
             record_hash: String::new(),
+            hmac_key_id: None,
+            hmac: None,
         };
         r1.record_hash = compute_record_hash(&r1);
         // a record whose previous hash does not match
@@ -726,6 +1005,8 @@ mod tests {
             model_fingerprint: None,
             prev_hash: "WRONG".into(),
             record_hash: String::new(),
+            hmac_key_id: None,
+            hmac: None,
         };
         r2.record_hash = compute_record_hash(&r2);
         let recs = vec![r1, r2];
