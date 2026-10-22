@@ -1,5 +1,7 @@
 # Summary
 
+- [Dependency policy repair (2026-10-22)](dependency-policy-2026-10-22.md)
+
 [Introduction](README.md)
 
 # Overview

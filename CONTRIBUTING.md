@@ -88,7 +88,7 @@ Binaries are produced in `target/release/`. For `xazz run` to work, both `xazz` 
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo deny check --all-features  # requires cargo-deny locally; CI runs its action
+cargo deny --workspace --all-features --locked check  # requires cargo-deny locally
 ```
 
 CI runs the Rust checks in that order, then runs the license and dependency policy check. To test only the crate you changed, use the matching command below; run the full checks before requesting review.

@@ -1,0 +1,22 @@
+{
+  "exceptions": [
+    {
+      "id": "RUSTSEC-2025-0141",
+      "package": "bincode",
+      "version": "2.0.1",
+      "kind": "unmaintained",
+      "expires": "2026-11-21",
+      "reason": "Informational maintenance notice with no patched version. Required by Burn 0.21 and Polars 0.53. Temporary exception approved by the project owner on 2026-10-22.",
+      "removal_plan": "Review upstream serialization replacements and migrate existing model checkpoints before changing Burn. Remove the exception when both Burn and Polars dependency paths no longer require bincode."
+    },
+    {
+      "id": "RUSTSEC-2024-0436",
+      "package": "paste",
+      "version": "1.0.15",
+      "kind": "unmaintained",
+      "expires": "2026-11-21",
+      "reason": "Informational maintenance notice with no patched version. Build-time proc macro required by Burn ndarray, CubeCL and macerator. Temporary exception approved by the project owner on 2026-10-22.",
+      "removal_plan": "Adopt upstream releases replacing paste with a maintained macro implementation; validate CPU, CUDA and wgpu after the migration."
+    }
+  ]
+}

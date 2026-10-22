@@ -19,7 +19,7 @@ Closes #
 - [ ] `cargo fmt --all -- --check` passes
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes
 - [ ] `cargo test --workspace` passes
-- [ ] `cargo deny check` passes (licenses · bans · sources · advisories)
+- [ ] `cargo deny --workspace --all-features --locked check` passes (licenses · bans · sources · advisories)
 - [ ] Architecture constraints respected (`xazz` CLI has no Polars/Tokio;
       `xazz-compiler` is Polars-free — see `CONTRIBUTING.md`)
 - [ ] New behavior is covered by tests

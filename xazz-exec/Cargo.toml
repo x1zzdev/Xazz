@@ -30,7 +30,7 @@ path = "src/main.rs"
 default = []
 cuda = ["dep:burn-cuda"]
 wgpu = ["dep:burn-wgpu"]
-onnx = ["dep:ort", "dep:rlx-onnx-proto", "dep:protobuf"]
+onnx = ["dep:ort", "dep:protobuf", "dep:protobuf-codegen"]
 # ONNX GPU execution providers (D2). Each enables the matching `ort` feature, so
 # `ort`'s `download-binaries` fetches a GPU-enabled ONNX Runtime (Windows:
 # cuda13+tensorrt+nvrtx+directml, macOS: coreml) instead of the CPU build.
@@ -88,9 +88,8 @@ burn-cuda = { version = "0.21", optional = true }
 
 # ONNX provider (D2 #63) — export + inference, enabled by the `onnx` feature.
 # `ort` is the ONNX Runtime binding (its `download-binaries` default fetches a
-# prebuilt runtime, so no system install is required); `rlx-onnx-proto` provides
-# the ONNX protobuf types without a build-time `protoc`, and `protobuf` is its
-# serialization trait. `tls-rustls` is used instead of the default `tls-native`
+# prebuilt runtime, so no system install is required); the official ONNX schema is generated
+# with the patched protobuf runtime without an external `protoc`. `tls-rustls` is used instead of the default `tls-native`
 # so the download needs no system OpenSSL (`openssl-sys`).
 # Windows: MSVC toolchain only (`ort-sys` has no windows-gnu prebuilt).
 # Prerelease API changes require an explicit migration (rc.14: Environment).
@@ -101,10 +100,8 @@ ort = { version = "=2.0.0-rc.14", default-features = false, features = [
     "api-27",
     "tls-rustls",
 ], optional = true }
-rlx-onnx-proto = { version = "0.2", optional = true }
-# Must match rlx-onnx-proto's generated Message trait (protobuf 1.x). Upgrading
-# only this edge to 3.x does not upgrade its types or remove the transitive 1.x.
-protobuf = { version = "1.7", optional = true }
+# Generate the vendored official schema with the same patched runtime version.
+protobuf = { version = "=3.7.2", optional = true }
 
 # ── DuckDB 외부 소스 커넥터 (issue #56, Track A3) ─────────────────────────────
 # bundled: embeds DuckDB (no system install needed).
@@ -114,3 +111,6 @@ protobuf = { version = "1.7", optional = true }
 # enter the type surface.
 duckdb = { version = "1.10505", features = ["bundled"] }
 postgres = "0.19.14"
+
+[build-dependencies]
+protobuf-codegen = { version = "=3.7.2", optional = true }

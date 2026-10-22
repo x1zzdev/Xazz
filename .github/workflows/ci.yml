@@ -187,9 +187,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Validate temporary maintenance exceptions
+        run: python3 scripts/check_dependency_exceptions.py
+
+      - name: Test exception enforcement
+        run: python3 -m unittest discover -s scripts -p 'test_dependency_exceptions.py' -v
+
       - name: cargo-deny (licenses · bans · sources · advisories)
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
-          arguments: --all-features
+          # The root manifest is also the lightweight CLI package. Without
+          # --workspace, execution/server/GPU dependencies are never checked.
+          arguments: --workspace --all-features --locked
           manifest-path: ./Cargo.toml

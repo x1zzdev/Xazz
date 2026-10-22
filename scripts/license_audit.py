@@ -46,7 +46,12 @@ def check_cargo_deny(root: str) -> bool:
     print("=" * 70)
     print("[1] cargo deny check (licenses / bans / advisories / sources)")
     print("=" * 70)
-    proc = run(["cargo", "deny", "check"], root)
+    from check_dependency_exceptions import validate
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    validate(Path(root), datetime.now(timezone.utc).date())
+    proc = run(["cargo", "deny", "--workspace", "--all-features", "--locked", "check"], root)
     tail = (proc.stdout + proc.stderr).strip().splitlines()
     for line in tail[-6:]:
         print("   " + line)
@@ -66,7 +71,7 @@ def rust_inventory(root: str) -> list[tuple[str, str]]:
     print("=" * 70)
     print("[2] Rust 의존성 라이선스 목록 (crates.io)")
     print("=" * 70)
-    proc = run(["cargo", "metadata", "--format-version", "1"], root)
+    proc = run(["cargo", "metadata", "--all-features", "--locked", "--format-version", "1"], root)
     if proc.returncode != 0:
         print("   cargo metadata 실패:", proc.stderr.strip()[:200])
         return []

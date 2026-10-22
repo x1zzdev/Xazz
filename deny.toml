@@ -25,6 +25,14 @@ allow = [
     "Unicode-3.0",
     "Unlicense",
     "BSL-1.0",
+    # Permissive licenses present in the full engine/GPU graph. Preserve the
+    # upstream copyright/license notices when redistributing these packages.
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "ISC",
+    "Zlib",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.9
 
@@ -32,6 +40,8 @@ confidence-threshold = 0.9
 # (수정 없이 의존성으로만 사용, Apache-2.0 프로젝트와 양립)
 exceptions = [
     { allow = ["MPL-2.0"], crate = "colored" },
+    # Unmodified optional directory helper; MPL obligations remain file-scoped.
+    { allow = ["MPL-2.0"], crate = "option-ext@=0.2.0" },
 ]
 
 # ── 금지/중복 크레이트 ──────────────────────────────────────────────────────
@@ -58,4 +68,10 @@ allow-git = []
 yanked = "deny"
 unmaintained = "all"
 unsound = "all"
-ignore = []
+# Only informational maintenance notices, approved for a time-limited bridge.
+# scripts/check_dependency_exceptions.py enforces expiry in CI; vulnerabilities
+# and unsoundness have no exceptions. See docs/dependency-policy-2026-10-22.md.
+ignore = [
+    { id = "RUSTSEC-2025-0141", reason = "bincode 2.0.1 is required by Burn 0.21/Polars 0.53; checkpoint migration deferred until 2026-11-21. See dependency exception register." },
+    { id = "RUSTSEC-2024-0436", reason = "paste 1.0.15 is required by Burn/CubeCL/macerator; upstream replacement tracked until 2026-11-21. See dependency exception register." },
+]
