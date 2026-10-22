@@ -41,12 +41,39 @@ Xazz's `withDp(...)` applies **output perturbation to aggregate results**. The c
 - Gaussian: both ε and δ accumulate.
 - **Multi-column noising is charged per column.** Noising `k` columns with the same mechanism is `k` independent mechanisms, so a single `withDp` over `k` numeric columns is charged `k·ε` (and `k·δ` for Gaussian) via `spend_n`. The budget is deducted only **after** noise injection succeeds — a failed `apply_dp` (e.g. no numeric columns) does not consume budget.
 
+### Composition mode (issue #161)
+
+`XAZZ_DP_COMPOSITION` selects how the session budget is composed. The default
+`basic` is the exact linear sum above. `rdp` and `zcdp` compose the *concentration*
+parameter instead and convert to (ε, δ) only once, at the session δ budget — so
+composing many Gaussian mechanisms grows ≈√k instead of k.
+
+- **zCDP.** A Gaussian mechanism calibrated to (εᵢ, δᵢ) — noise
+  `σ = Δf·√(2 ln(1.25/δᵢ)) / εᵢ` — has `ρᵢ = Δf²/(2σᵢ²) = εᵢ² / (4 ln(1.25/δᵢ))`
+  (the sensitivity cancels). zCDP composes additively: `ρ = Σρᵢ`, and
+  `ε(δ) = ρ + 2·√(ρ·ln(1/δ))`.
+- **RDP.** Gaussian is (α, α·ρ)-RDP; a pure ε-DP Laplace mechanism is ε-RDP for
+  every α. RDP composes additively per α, and Mironov's conversion gives
+  `ε(δ) = ε_RDP(α) + ln(1/δ)/(α−1)`. Optimising α recovers the zCDP formula, so
+  the two modes agree for Gaussian mechanisms (verified by a test).
+- **Mixing.** With `P = Σε(Laplace)` and `ρ = Σρ(Gaussian)`,
+  `ε = P + ρ + 2√(ρ·ln(1/δ))`. The session guarantee carries the single δ target
+  (`XAZZ_DP_DELTA_BUDGET`) once any Gaussian mechanism is composed.
+
+**Limit.** The composed guarantee is converted at the session δ, which is
+typically looser than each query's calibration δ, so `rdp`/`zcdp` are ≤ `basic`
+for the composed budget (a test pins `10` Gaussian queries at ε≈3.0 vs the basic
+`10`). They are *not* a claim of the exact analytic Gaussian mechanism, and a
+single query's bound depends on the session δ; the accounting is a valid
+upper bound either way. Rejected requests roll the composition back atomically.
+
 ### Budget configuration
 
 | Env var | Default | Meaning |
 |---|---|---|
 | `XAZZ_DP_BUDGET` | 10.0 | Total ε budget |
 | `XAZZ_DP_DELTA_BUDGET` | 1e-4 | Total δ budget (for Gaussian) |
+| `XAZZ_DP_COMPOSITION` | `basic` | Composition accounting mode: `basic` \| `rdp` \| `zcdp` (issue #161). Unrecognised values fall back to `basic`. |
 | `XAZZ_DP_MAX_EPSILON` | unset (no cap) | **Per-query** ε cap, opt-in (issue #118). A `withDp` whose ε exceeds it is refused before any noise is drawn, so no budget is spent. Invalid or `<= 0` values are ignored. |
 
 Two layers cap ε, and they are independent:
@@ -95,9 +122,9 @@ There are two budget scopes, and they are deliberately separate.
 This implementation provides **deterministic, explainable composition accounting**. The following are not covered yet and require follow-up review before this can be called a "rigorously verified privacy framework":
 
 - Theoretical bounds for adaptive queries
-- Tighter bounds via RDP / advanced composition
+- **RDP/zCDP composition** — implemented as an opt-in mode (issue #161, §3); the exact analytic Gaussian mechanism and adaptive-query bounds remain open
 - Parallel composition beyond sequential execution
-- Automatic sensitivity inference (aggregation-aware, clipping)
-- Cross-checking results against external audit tools (e.g. OpenDP)
+- Automatic sensitivity inference (aggregation-aware, clipping) — tracked in issue #307
+- Cross-checking results against external audit tools (e.g. OpenDP) — tracked in issue #308
 
-The semantics in this document implement exactly the **correct composition of basic sequential composition**.
+The default (`basic`) semantics implement exactly the **correct composition of basic sequential composition**; the `rdp`/`zcdp` modes implement the standard concentration-parameter composition with the limits noted in §3.
