@@ -11,9 +11,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ### Fixed — ONNX dependency compatibility and GPU verification (#62, #63)
 
-- Restore optional ONNX builds after ORT rc.14's explicit-environment API change
-  and the independent protobuf 3.x upgrade. Match the generated ONNX types' existing
-  protobuf 1.x trait; its existing advisory remains unresolved.
+- Restore optional ONNX builds after ORT rc.14's explicit-environment API change.
+  Regenerate the official ONNX schema with patched protobuf 3.7.2, removing the
+  legacy rlx-onnx-proto/protobuf 1.x dependency and its recursion vulnerability.
 - Compile-check CUDA, wgpu, ONNX and ONNX CUDA on PRs. Add a strict hardware
   evidence runner and manual trusted-host workflow; reject zero tests, CPU fallback,
   non-finite parity results and missing ONNX compute-node evidence. Stage Windows
@@ -21,6 +21,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - Revalidate Windows RTX 4070 CUDA and MSVC ONNX CPU/CUDA, preserve failure
   controls and profiles, and reconcile outdated verification documentation.
   See [2026-10-22 evidence](docs/gpu-revalidation-2026-10-22.md).
+- Check the entire workspace dependency graph, update vulnerable/yanked versions,
+  and patch object_store's XML dependency while retaining its Polars-compatible
+  API. Track two owner-approved maintenance exceptions with enforced expiration.
+  See [dependency repair](docs/dependency-policy-2026-10-22.md).
 
 ### Added — Windows 리소스 텔레메트리: Job Object 회계로 CPU·피크 메모리 기록 (issue #128)
 

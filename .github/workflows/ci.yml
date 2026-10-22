@@ -178,6 +178,22 @@ jobs:
       - name: Test benchmark regression contract
         run: python -m unittest discover -s benches -p "test_bench_regression.py" -v
 
+  dependency-regression:
+    name: XML dependency regression · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust stable
+        run: rustup toolchain install stable --no-self-update --profile minimal
+      - name: Verify HTTP XML parsing through the patched dependency
+        # Independent from credentials and external HTTP services: fixture server
+        # binds loopback and asserts that a real PROPFIND request was received.
+        run: cargo +stable test --manifest-path vendor/object_store/Cargo.toml --features http --test http_xml_security --target-dir target/object-store-security
+
   # ── 라이선스 · 의존성 정책 (deny.toml) ──────────────────────────────────────
   licenses:
     name: License & dependency policy

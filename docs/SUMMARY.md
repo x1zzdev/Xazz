@@ -1,7 +1,5 @@
 # Summary
 
-- [Dependency policy repair (2026-10-22)](dependency-policy-2026-10-22.md)
-
 [Introduction](README.md)
 
 # Overview
@@ -20,6 +18,8 @@
 - [Check diagnostics](CHECK_DIAGNOSTICS.md)
 
 # Security & process
+
+- [Dependency policy repair (2026-10-22)](dependency-policy-2026-10-22.md)
 
 - [Security guardrail](SECURITY_GUARDRAIL.md)
 - [Collaboration rules](COLLABORATION.md)
