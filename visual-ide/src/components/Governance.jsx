@@ -109,6 +109,27 @@ function RefreshButton({ onClick, label }) {
   )
 }
 
+// Shared cursor pagination for the four history tables (policy history,
+// policy-history TTL, DP window history, DP reset history) — issue #274. Labels
+// are passed in so each panel keeps its own wording.
+function HistoryPagination({
+  pageLabel, previousLabel, nextLabel, onPrevious, onNext, hasPrevious, hasNext,
+}) {
+  return (
+    <div className="gov-actions">
+      <button className="button button--tool-secondary button--compact" type="button"
+        disabled={!hasPrevious} onClick={onPrevious}>
+        {previousLabel}
+      </button>
+      <span>{pageLabel}</span>
+      <button className="button button--tool-secondary button--compact" type="button"
+        disabled={!hasNext} onClick={onNext}>
+        {nextLabel}
+      </button>
+    </div>
+  )
+}
+
 // ── Server access ───────────────────────────────────────────────────────────
 
 function AccessPanel({ onApply }) {
@@ -395,22 +416,19 @@ function DpLedgerPanel({ revision }) {
             ) : (
               <p className="monitor-empty">{t('gov.dp.windowHistoryEmpty')}</p>
             )}
-            <div className="gov-actions">
-              <button className="button button--tool-secondary button--compact" type="button"
-                disabled={windowPath.length === 1}
-                onClick={() => setWindowPath((path) => path.slice(0, -1))}>
-                {t('gov.dp.previous')}
-              </button>
-              <span>{t('gov.dp.windowPage').replace('{n}', String(windowPath.length))}</span>
-              <button className="button button--tool-secondary button--compact" type="button"
-                disabled={windowHistoryState.status !== 'ready' || (windowHistoryState.data?.history?.length ?? 0) < 20}
-                onClick={() => {
-                  const next = windowHistoryState.data?.next_cursor
-                  if (next != null) setWindowPath((path) => [...path, next])
-                }}>
-                {t('gov.dp.next')}
-              </button>
-            </div>
+            <HistoryPagination
+              pageLabel={t('gov.dp.windowPage').replace('{n}', String(windowPath.length))}
+              previousLabel={t('gov.dp.previous')}
+              nextLabel={t('gov.dp.next')}
+              onPrevious={() => setWindowPath((path) => path.slice(0, -1))}
+              onNext={() => {
+                const next = windowHistoryState.data?.next_cursor
+                if (next != null) setWindowPath((path) => [...path, next])
+              }}
+              hasPrevious={windowPath.length > 1}
+              hasNext={windowHistoryState.status === 'ready'
+                && (windowHistoryState.data?.history?.length ?? 0) >= 20}
+            />
           </div>
           <div className="gov-actions">
             <RefreshButton onClick={reload} label={t('gov.refresh')} />
@@ -453,22 +471,19 @@ function DpLedgerPanel({ revision }) {
             ) : (
               <p className="monitor-empty">{t('gov.dp.historyEmpty')}</p>
             )}
-            <div className="gov-actions">
-              <button className="button button--tool-secondary button--compact" type="button"
-                disabled={resetPath.length === 1}
-                onClick={() => setResetPath((path) => path.slice(0, -1))}>
-                {t('gov.dp.previous')}
-              </button>
-              <span>{t('gov.dp.historyPage').replace('{n}', String(resetPath.length))}</span>
-              <button className="button button--tool-secondary button--compact" type="button"
-                disabled={historyState.status !== 'ready' || (historyState.data?.resets?.length ?? 0) < 20}
-                onClick={() => {
-                  const next = historyState.data?.next_cursor
-                  if (next != null) setResetPath((path) => [...path, next])
-                }}>
-                {t('gov.dp.next')}
-              </button>
-            </div>
+            <HistoryPagination
+              pageLabel={t('gov.dp.historyPage').replace('{n}', String(resetPath.length))}
+              previousLabel={t('gov.dp.previous')}
+              nextLabel={t('gov.dp.next')}
+              onPrevious={() => setResetPath((path) => path.slice(0, -1))}
+              onNext={() => {
+                const next = historyState.data?.next_cursor
+                if (next != null) setResetPath((path) => [...path, next])
+              }}
+              hasPrevious={resetPath.length > 1}
+              hasNext={historyState.status === 'ready'
+                && (historyState.data?.resets?.length ?? 0) >= 20}
+            />
           </div>
         </>
       )}
@@ -965,21 +980,18 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
             ))}
           </ol>
         )}
-        <div className="gov-actions">
-          <button className="button button--tool-secondary button--compact" type="button"
-            disabled={historyPath.length === 1}
-            onClick={() => setHistoryPath((path) => path.slice(0, -1))}>
-            {t('gov.policy.previous')}
-          </button>
-          <span>{t('gov.policy.historyPage').replace('{n}', String(historyPath.length))}</span>
-          <button className="button button--tool-secondary button--compact" type="button"
-            disabled={historyState.status !== 'ready' || (historyState.data?.entries?.length ?? 0) < 20}
-            onClick={() => {
-              if (historyNextCursor != null) setHistoryPath((path) => [...path, historyNextCursor])
-            }}>
-            {t('gov.policy.next')}
-          </button>
-        </div>
+        <HistoryPagination
+          pageLabel={t('gov.policy.historyPage').replace('{n}', String(historyPath.length))}
+          previousLabel={t('gov.policy.previous')}
+          nextLabel={t('gov.policy.next')}
+          onPrevious={() => setHistoryPath((path) => path.slice(0, -1))}
+          onNext={() => {
+            if (historyNextCursor != null) setHistoryPath((path) => [...path, historyNextCursor])
+          }}
+          hasPrevious={historyPath.length > 1}
+          hasNext={historyState.status === 'ready'
+            && (historyState.data?.entries?.length ?? 0) >= 20}
+        />
       </div>
 
       {ttl && (
@@ -1060,22 +1072,19 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
         ) : (
           <p className="monitor-empty">{t('gov.policy.ttlHistoryEmpty')}</p>
         )}
-        <div className="gov-actions">
-          <button className="button button--tool-secondary button--compact" type="button"
-            disabled={ttlPath.length === 1}
-            onClick={() => setTtlPath((path) => path.slice(0, -1))}>
-            {t('gov.policy.previous')}
-          </button>
-          <span>{t('gov.policy.ttlPage').replace('{n}', String(ttlPath.length))}</span>
-          <button className="button button--tool-secondary button--compact" type="button"
-            disabled={ttlHistoryState.status !== 'ready' || (ttlHistoryState.data?.history?.length ?? 0) < 20}
-            onClick={() => {
-              const next = ttlHistoryState.data?.next_cursor
-              if (next != null) setTtlPath((path) => [...path, next])
-            }}>
-            {t('gov.policy.next')}
-          </button>
-        </div>
+        <HistoryPagination
+          pageLabel={t('gov.policy.ttlPage').replace('{n}', String(ttlPath.length))}
+          previousLabel={t('gov.policy.previous')}
+          nextLabel={t('gov.policy.next')}
+          onPrevious={() => setTtlPath((path) => path.slice(0, -1))}
+          onNext={() => {
+            const next = ttlHistoryState.data?.next_cursor
+            if (next != null) setTtlPath((path) => [...path, next])
+          }}
+          hasPrevious={ttlPath.length > 1}
+          hasNext={ttlHistoryState.status === 'ready'
+            && (ttlHistoryState.data?.history?.length ?? 0) >= 20}
+        />
       </div>
 
       <ConfirmDialog
