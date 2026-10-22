@@ -1,0 +1,58 @@
+name: Optional compute features
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Compile ${{ matrix.feature }} · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {feature: wgpu, os: ubuntu-latest}
+          - {feature: cuda, os: ubuntu-latest}
+          - {feature: onnx, os: windows-latest}
+          - {feature: onnx-cuda, os: windows-latest}
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_BUILD_JOBS: 4
+      # Compile bindings without requiring nvcc or a GPU on hosted runners.
+      CUDARC_CUDA_VERSION: '13010'
+      ORT_CUDA_VERSION: '13'
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        shell: bash
+        run: rustup toolchain install stable --no-self-update --profile minimal
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: compute-${{ matrix.os }}-${{ matrix.feature }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('xazz-*/src/**/*.rs') }}
+          restore-keys: compute-${{ matrix.os }}-${{ matrix.feature }}-${{ hashFiles('**/Cargo.lock') }}-
+      - name: Compile library, binary and tests (no hardware execution)
+        run: cargo +stable check --release --locked -p xazz-exec --features ${{ matrix.feature }} --all-targets
+
+  evidence-contract:
+    name: Hardware evidence contract · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s scripts -p test_verify_gpu_acceptance.py -v

@@ -78,10 +78,11 @@ burn-wgpu = { version = "0.21", optional = true }
 
 # CUDA provider (D1 #62, revised) — native CubeCL CUDA backend, enabled by the
 # `cuda` feature. Unlike the former burn-tch/LibTorch path this is pure Rust
-# (CubeCL JIT-compiles kernels at runtime), has no LibTorch/system-SDK or MSVC
+# (CubeCL JIT-compiles kernels at runtime), has no LibTorch or MSVC
 # requirement, and shares the CubeCL stack with burn-wgpu — so it tracks the
 # upstream Burn 0.22 direction (CubeCL CUDA, graph replay, LLVM GPU backends).
-# A CUDA driver must be present at runtime; a missing device falls back to CPU
+# A CUDA driver, NVRTC library and CUDA headers must be present at runtime;
+# a missing device/runtime component falls back to CPU
 # through the resolver's probe/warning path.
 burn-cuda = { version = "0.21", optional = true }
 

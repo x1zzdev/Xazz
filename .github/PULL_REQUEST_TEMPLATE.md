@@ -29,5 +29,11 @@ Closes #
 
 ## Notes for reviewers
 
+<!-- For optional compute/backend/dependency changes: list compile checks separately
+from hardware results (source SHA, features, toolchain, driver/runtime, exact executed
+test count, CPU fallback rejection, evidence link). State untested providers. Update
+#62/#63 or the relevant tracking issue when new hardware evidence changes its status.
+Default workspace tests alone are not GPU validation. -->
+
 <!-- Screenshots, benchmark numbers, migration notes, or anything the reviewer
 should verify. -->

@@ -1,0 +1,54 @@
+name: GPU hardware acceptance (manual)
+
+# Never execute pull-request code automatically on a private GPU host.
+# A maintainer selects a trusted ref on a provisioned, labelled runner.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-hardware-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  windows-gpu:
+    runs-on: [self-hosted, Windows, X64, xazz-gpu]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      ORT_CUDA_VERSION: '13'
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v7
+      - name: CUDA training and inference
+        run: python scripts/verify_gpu_acceptance.py cuda --output "target/gpu-evidence-${{ github.run_id }}/cuda"
+      - name: ONNX CPU and unsupported CUDA rejection
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vs) { throw 'MSVC C++ tools are required' }
+          & "$vs/Common7/Tools/Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          python scripts/verify_gpu_acceptance.py onnx-cpu --target-dir target/onnx-msvc --output "target/gpu-evidence-${{ github.run_id }}/onnx-cpu"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python scripts/verify_gpu_acceptance.py onnx-cpu --target-dir target/onnx-msvc --reject-uncompiled-cuda --output "target/gpu-evidence-${{ github.run_id }}/onnx-uncompiled-cuda"
+      - name: ONNX CUDA and invalid device rejection
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vs) { throw 'MSVC C++ tools are required' }
+          & "$vs/Common7/Tools/Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          python scripts/verify_gpu_acceptance.py onnx-cuda --target-dir target/onnx-msvc --output "target/gpu-evidence-${{ github.run_id }}/onnx-cuda"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python scripts/verify_gpu_acceptance.py onnx-cuda --target-dir target/onnx-msvc --reject-device cuda:999 --output "target/gpu-evidence-${{ github.run_id }}/onnx-invalid-device"
+      - name: Preserve results, failures and ORT profiles
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gpu-hardware-${{ github.sha }}-${{ github.run_id }}
+          path: target/gpu-evidence-${{ github.run_id }}/
+          if-no-files-found: error
+          retention-days: 30

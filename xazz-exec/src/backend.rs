@@ -2088,8 +2088,9 @@ mod acceptance {
     use polars::prelude::*;
 
     fn predictions(df: &DataFrame) -> Vec<f64> {
-        df.column("pred")
-            .expect("prediction column")
+        let column = df.column("pred").expect("prediction column");
+        assert_eq!(column.null_count(), 0, "null prediction");
+        column
             .f64()
             .expect("float prediction column")
             .into_no_null_iter()
@@ -2101,17 +2102,21 @@ mod acceptance {
     #[cfg(any(feature = "cuda", feature = "wgpu", feature = "onnx"))]
     fn assert_parity(requested: &str) {
         let (df, layers, config) = tiny_dataset();
+        let name = format!("acc_{requested}_{}", std::process::id());
         let cpu = super::CpuBackend
-            .train(&df, "acc_cpu", &layers, &config)
+            .train(&df, &format!("{name}_cpu"), &layers, &config)
             .expect("cpu reference train");
 
         let (backend, warning) = super::resolve(Some(requested));
-        assert!(warning.is_none(), "{requested} should be compiled");
+        assert!(
+            warning.is_none(),
+            "{requested} fell back to CPU: {warning:?}"
+        );
         assert_eq!(backend.id(), requested);
 
-        // Real device training must complete and produce a finite loss.
+        // Requested-backend training must complete with finite loss (ONNX trains on CPU).
         let gpu = backend
-            .train(&df, "acc_gpu", &layers, &config)
+            .train(&df, &format!("{name}_device"), &layers, &config)
             .expect("backend train");
         assert!(
             gpu.report.final_train_loss.is_finite(),
@@ -2125,9 +2130,21 @@ mod acceptance {
         let gpu_out = backend
             .predict(&cpu, &df, Some("pred"))
             .expect("backend predict");
-        let max_diff = predictions(&cpu_out)
+        assert_eq!(cpu_out.height(), df.height());
+        assert_eq!(gpu_out.height(), df.height());
+        let cpu_predictions = predictions(&cpu_out);
+        let gpu_predictions = predictions(&gpu_out);
+        assert_eq!(cpu_predictions.len(), gpu_predictions.len());
+        assert!(!cpu_predictions.is_empty());
+        assert!(
+            cpu_predictions
+                .iter()
+                .chain(&gpu_predictions)
+                .all(|v| v.is_finite())
+        );
+        let max_diff = cpu_predictions
             .into_iter()
-            .zip(predictions(&gpu_out))
+            .zip(gpu_predictions)
             .map(|(a, b)| (a - b).abs())
             .fold(0.0f64, f64::max);
         assert!(
@@ -2140,6 +2157,20 @@ mod acceptance {
             .predict(&gpu, &df, Some("pred"))
             .expect("backend predict (device-trained)");
         assert_eq!(out.height(), df.height());
+        assert!(predictions(&out).iter().all(|v| v.is_finite()));
+
+        #[cfg(feature = "onnx")]
+        if requested == "onnx" {
+            verify_onnx_provider(&cpu, &df);
+        }
+        println!(
+            "XAZZ_GPU_ACCEPTANCE {}",
+            serde_json::json!({
+                "backend": requested, "rows": df.height(),
+                "max_abs_diff": max_diff, "training_loss": gpu.report.final_train_loss,
+                "training_backend": if requested == "onnx" { "cpu" } else { requested },
+            })
+        );
 
         let _ = std::fs::remove_file(&cpu.report.checkpoint_path);
         let _ = std::fs::remove_file(&gpu.report.checkpoint_path);
@@ -2151,6 +2182,56 @@ mod acceptance {
         }
         // The shared `checkpoints/` directory is intentionally not removed: deleting it
         // races with parallel tests that are mid-save.
+    }
+
+    #[cfg(feature = "onnx")]
+    fn verify_onnx_provider(trained: &crate::dl::TrainedModel, df: &DataFrame) {
+        // Other optional EPs can still use this acceptance test manually. The
+        // reproducible CPU/CUDA runner always supplies an explicit expectation.
+        let Ok(expected) = std::env::var("XAZZ_TEST_EXPECT_ORT_PROVIDER") else {
+            return;
+        };
+        assert!(matches!(
+            expected.as_str(),
+            "CPUExecutionProvider" | "CUDAExecutionProvider"
+        ));
+        let model_path = format!(
+            "{}.onnx",
+            trained.report.checkpoint_path.trim_end_matches(".json")
+        );
+        let prefix = std::env::var("XAZZ_TEST_ORT_PROFILE_PREFIX").expect("profile evidence path");
+        let mut session = crate::dl::onnx_export::load_profiled_session(
+            &model_path,
+            std::path::Path::new(&prefix),
+        )
+        .expect("profiled session using production provider selection");
+        let (out, _) =
+            crate::dl::onnx_export::predict_with_session(trained, &mut session, df, Some("pred"))
+                .expect("profiled inference");
+        assert_eq!(out.height(), df.height());
+        assert!(predictions(&out).iter().all(|v| v.is_finite()));
+        let profile_path = session.end_profiling().expect("finish ORT profile");
+        let events: Vec<serde_json::Value> =
+            serde_json::from_slice(&std::fs::read(&profile_path).expect("read ORT profile"))
+                .expect("ORT profile JSON");
+        let mut providers = std::collections::BTreeMap::<String, usize>::new();
+        for event in events {
+            if event["cat"] == "Node"
+                && let Some(provider) = event["args"]["provider"].as_str()
+            {
+                *providers.entry(provider.to_owned()).or_default() += 1;
+            }
+        }
+        assert!(
+            providers.get(&expected).copied().unwrap_or(0) > 0,
+            "no nodes executed on {expected}: {providers:?}"
+        );
+        println!(
+            "XAZZ_ORT_PROVIDERS {}",
+            serde_json::json!({
+                "expected": expected, "nodes": providers,
+            })
+        );
     }
 
     #[cfg(feature = "cuda")]

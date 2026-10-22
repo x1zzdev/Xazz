@@ -112,11 +112,20 @@ For Visual IDE changes, run `npm ci` and the `test:contract`, `test:stdout`, `te
 | Feature | Provider | Acceptance (gated, `#[ignore]`) |
 |---|---|---|
 | `wgpu` | `burn-wgpu` (no SDK needed) | `cargo test --release -p xazz-exec --features wgpu -- --ignored --nocapture` |
-| `cuda` | `burn-cuda` (native CubeCL, no SDK) | `cargo test --release -p xazz-exec --features cuda -- --ignored --nocapture` |
+| `cuda` | `burn-cuda` (native CubeCL; NVRTC + CUDA headers required) | `cargo test --release -p xazz-exec --features cuda -- --ignored --nocapture` |
 | `onnx` | ONNX Runtime (`ort`) | `cargo test --release -p xazz-exec --features onnx -- --ignored --nocapture` |
 
 - Use `--release` for GPU feature tests: under `windows-gnu` the debug test binary can exceed the 4 GB PE limit.
 - **Windows: `onnx*` requires the MSVC toolchain.** ONNX Runtime has no `windows-gnu` prebuilt, so `build.rs` fails fast unless you install `stable-x86_64-pc-windows-msvc` + VS Build Tools ("Desktop development with C++"). `wgpu` and `cuda` (pure-Rust CubeCL) work on either toolchain. Set `XAZZ_ALLOW_WINDOWS_GNU_GPU=1` only to bypass the guard (unsupported). See `docs/design/gpu-backend-acceptance.md` §6.
+
+Default workspace checks do **not** compile or execute these optional backends.
+`gpu-features.yml` checks `wgpu`, `cuda`, `onnx` and `onnx-cuda` separately on PRs;
+its green status proves compilation, not hardware execution. For real CUDA/ONNX
+validation use [the evidence runner](docs/GPU_BACKENDS.md#repeatable-hardware-verification).
+It rejects zero executed tests and missing device/provider evidence. Record the
+source revision, features, runtime versions and failures together with successes.
+After hardware verification, update the relevant issue checklist and link the
+dated evidence; keep exporter migration and untested platforms separate.
 
 ---
 

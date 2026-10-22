@@ -10,6 +10,52 @@ device at runtime.
 > [docs/design/gpu-backend-acceptance.md](design/gpu-backend-acceptance.md).
 > Measurement methodology and cache/chunk design live in
 > [docs/design/gpu-backend-perf-log.md](design/gpu-backend-perf-log.md).
+> Latest revalidation and scope: [2026-10-22](gpu-revalidation-2026-10-22.md).
+
+## Repeatable hardware verification
+
+Default `cargo test --workspace` excludes optional backends. PR workflow
+`gpu-features.yml` compile-checks `wgpu`/`cuda` on Linux and `onnx`/`onnx-cuda`
+on Windows MSVC, including test targets. No hosted GPU execution is claimed.
+
+Use Python 3.11+ and the existing Rust/CUDA environment to run the strict gate
+from the repository root. Each output directory must be new; failed runs are
+preserved rather than overwritten. The script builds with `--locked`, obtains
+the exact test binary from Cargo JSON, runs one exact ignored test, checks its
+count and backend evidence, and saves commands, exit codes, hashes and profiles.
+It changes environment variables only for its children and isolates checkpoints.
+
+```powershell
+# NVIDIA driver, NVRTC DLL on PATH, CUDA_PATH/include/cuda_runtime.h required.
+python scripts/verify_gpu_acceptance.py cuda --output target/gpu-evidence/cuda
+
+# Use an x64 Visual Studio Developer PowerShell for ONNX (MSVC + Windows SDK).
+python scripts/verify_gpu_acceptance.py onnx-cpu --target-dir target/onnx-msvc --output target/gpu-evidence/onnx-cpu
+python scripts/verify_gpu_acceptance.py onnx-cpu --target-dir target/onnx-msvc --reject-uncompiled-cuda --output target/gpu-evidence/onnx-uncompiled-cuda
+
+# For the CUDA 13 ORT distribution: compatible cuBLAS DLLs must be on PATH.
+# The runner places this build's provider DLLs next to its test executable.
+$env:ORT_CUDA_VERSION = '13'
+python scripts/verify_gpu_acceptance.py onnx-cuda --target-dir target/onnx-msvc --output target/gpu-evidence/onnx-cuda
+python scripts/verify_gpu_acceptance.py onnx-cuda --target-dir target/onnx-msvc --reject-device cuda:999 --output target/gpu-evidence/onnx-invalid-device
+```
+
+Success requires one passed test, no ignored tests, finite losses/predictions,
+matching nonempty output sizes and same-checkpoint inference error `< 1e-3`.
+ONNX additionally profiles a session using the production provider selection and
+requires nodes on the explicitly requested EP. The profile includes other EPs
+too: CUDA-node execution does not imply every graph node ran on CUDA. ONNX
+training remains CPU. Negative controls must fail with the expected diagnostic;
+an unrelated DLL failure is not a passing negative control.
+
+`gpu-hardware.yml` provides manual execution of all five checks and uploads the
+evidence, including failed runs. It requires a separately provisioned runner
+labelled `self-hosted, Windows, X64, xazz-gpu`, Python 3.11+, GNU/MSVC Rust,
+Visual Studio C++ tools, and CUDA runtime paths. Adding the workflow does not
+register a runner or schedule hardware tests automatically. A maintainer must
+select a trusted ref; pull-request code is never automatically run on that host.
+For backend/dependency changes, attach fresh hardware evidence before release
+and reconcile #62/#63 against the dated results.
 
 ## 1. Feature matrix
 

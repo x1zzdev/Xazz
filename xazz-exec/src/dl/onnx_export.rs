@@ -421,6 +421,12 @@ fn onnx_is_fresh(trained: &TrainedModel, path: &str) -> bool {
 /// so a GPU-enabled ONNX Runtime build runs the graph on CUDA/TensorRT/DirectML/
 /// CoreML. The session is cached by the caller, so this runs once per artifact.
 pub fn load_session(path: &str) -> Result<ort::session::Session, String> {
+    session_builder()?
+        .commit_from_file(path)
+        .map_err(|e| format!("ONNX: session load '{path}' failed: {e}"))
+}
+
+fn session_builder() -> Result<ort::session::builder::SessionBuilder, String> {
     let eps = execution_providers()?;
     let mut builder = ort::session::Session::builder().map_err(onnx_err)?;
     if !eps.is_empty() {
@@ -428,9 +434,21 @@ pub fn load_session(path: &str) -> Result<ort::session::Session, String> {
             .with_execution_providers(eps)
             .map_err(|e| format!("ONNX: execution provider setup failed: {e}"))?;
     }
-    builder
+    Ok(builder)
+}
+
+/// Hardware acceptance uses the production provider selection and records the
+/// providers that actually executed nodes, rather than only registering an EP.
+#[cfg(test)]
+pub(crate) fn load_profiled_session(
+    path: &str,
+    profile: &std::path::Path,
+) -> Result<ort::session::Session, String> {
+    session_builder()?
+        .with_profiling(profile)
+        .map_err(onnx_err)?
         .commit_from_file(path)
-        .map_err(|e| format!("ONNX: session load '{path}' failed: {e}"))
+        .map_err(onnx_err)
 }
 
 /// `XAZZ_ORT_DEVICE` device index for the CUDA/TensorRT/DirectML EPs (default 0).
