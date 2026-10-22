@@ -1,12 +1,16 @@
 // Xazz Visualization Example — Pie Chart
 // 예산 카테고리별 분포를 파이 차트로 시각화
+//
+// 사용법: xazz run examples/visualization/viz_pie_chart.xzz
+//
+// 외부 CSV 없이 인메모리 DuckDB 리터럴을 소스로 쓴다.
 
 type BudgetData = {
     category: string,
-    amount: float,
+    amount:   float,
 }
 
-v by_category = load("budget.csv") :: BudgetData
+v by_category = load("duckdb://:memory:?sql=SELECT 'infra' AS category, 40.0 AS amount UNION ALL SELECT 'rnd', 35.5 UNION ALL SELECT 'ops', 24.5") :: BudgetData
     |> groupBy("category")
     |> sum("amount")
     |> chart {
