@@ -337,8 +337,8 @@ Xazz는 pre-1.0입니다. 설치한 뒤에 알게 되는 것보다, **검증되�
 
 - **CPU가 기본이며 GPU 검증 결과는 실행한 하드웨어와 코드 버전에 한정됩니다.** GPU 지원은 선택 사항이고 런타임에 `XAZZ_BACKEND` / `XAZZ_DEVICE`로 선택하며, `.xzz` 파이프라인 실행에 필수가 아닙니다.
   - `burn-wgpu`(크로스 벤더)는 Windows 11 / RTX 4070 Laptop + Intel Arc iGPU에서 실기 acceptance를 통과했습니다(2026-09-25).
-  - `burn-cuda`는 2026-10-01 Windows GNU / RTX 4070에서 실기 검증을 통과했습니다. 실행 시 드라이버 외에 NVRTC와 CUDA 헤더가 필요합니다.
-  - ONNX CPU·CUDA 추론은 2026-10-06 Windows MSVC에서 실기 검증을 통과했습니다. ONNX 학습은 CPU에서 수행하며 macOS CoreML은 아직 미검증입니다. [실행 환경과 재현 절차](docs/GPU_BACKENDS.md), [최신 재검증 기록](docs/gpu-revalidation-2026-10-22.md)을 참고하세요.
+  - `burn-cuda`는 2026-10-22 Windows GNU / RTX 4070에서 실기 재검증을 통과했습니다. 실행 시 드라이버 외에 NVRTC와 CUDA 헤더가 필요합니다.
+  - ONNX CPU·CUDA 추론은 의존성 호환성 수정 후 2026-10-22 Windows MSVC에서 실기 재검증을 통과했고 실제 CUDA 계산 노드를 확인했습니다. ONNX 학습은 CPU에서 수행하며 macOS CoreML은 아직 미검증입니다. [실행 환경과 재현 절차](docs/GPU_BACKENDS.md), [검증한 코드 버전과 근거](docs/gpu-revalidation-2026-10-22.md)를 참고하세요.
   - 기본 workspace 테스트에는 GPU 기능이 포함되지 않습니다. PR의 기능별 컴파일 검사와 별도로 실행하는 GPU 실기 검증을 구분하며, 과거의 통과가 이후 의존성 변경까지 보장하지는 않습니다.
 - **네이티브 Python 확장은 아직 없습니다.** `import xazz`는 CLI 위의 순수 Python 어댑터이며 PyO3 모듈이 아닙니다 — CLI와 동일한 진단을 돌려주지만 서브프로세스 경계 비용을 지불합니다. PyO3 경로와 NumPy/Pandas → Arrow 핸드오프는 보류 상태입니다. [docs/ROADMAP.md](docs/ROADMAP.md) Track C4 참고.
 - **`xazz emit rust`는 참조용 emitter이며 두 번째 런타임이 아닙니다.** 신규 기능은 `xazz-exec`에 먼저 들어가고, 생성된 Rust는 일부 학습 옵션(예: 단일 실행 `validation_split`/조기 종료, 스윕의 per-epoch 열)에서 뒤처질 수 있습니다. 정본은 `xazz run`이며, emit 결과는 읽기 좋은 참조 코드로 취급하세요.

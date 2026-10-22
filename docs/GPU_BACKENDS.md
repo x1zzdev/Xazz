@@ -265,7 +265,7 @@ debug and GPU runs are impractically slow there.
 |---------|--------|
 | CPU | Reference implementation — always available |
 | `wgpu` | **Verified** on Windows 11 / RTX 4070 (dGPU) and Intel Arc (iGPU); `XAZZ_DEVICE` adapter pinning confirmed |
-| `cuda` | **검증 완료** — 2026-10-01 Windows GNU / RTX 4070, NVRTC·CUDA 헤더 요구사항과 결과는 [실기 기록 §4](design/gpu-backend-acceptance.md#4-cuda) 참조 |
-| `onnx` (CPU EP) | **검증 완료** — 2026-10-06 Windows MSVC, [acceptance·일반 검사 근거](windows-onnx-acceptance-2026-10-06.md) |
-| `onnx-cuda` (CUDA EP) | **검증 완료** — 같은 MSVC 호스트에서 명시적 CUDA EP acceptance·설정 실패 시 오류 반환 확인. 테스트 실행 파일 옆 provider DLL과 cuBLAS 13 필요. [재현·실패 근거](windows-onnx-acceptance-2026-10-06.md) |
+| `cuda` | **재검증 완료** — 2026-10-22 Windows GNU / RTX 4070, 실제 CUDA 학습·추론 및 일반 검사 138개 통과. [코드 버전·근거](gpu-revalidation-2026-10-22.md) |
+| `onnx` (CPU EP) | **재검증 완료** — 2026-10-22 Windows MSVC, CPU 계산 노드 2개, 동일 체크포인트 예측 편차 0. [근거](gpu-revalidation-2026-10-22.md) |
+| `onnx-cuda` (CUDA EP) | **재검증 완료** — ORT rc.14/protobuf 호환성 수정 후 실제 CUDA 계산 노드 3개 확인. 일반 검사 140개, 미컴파일 EP·잘못된 장치 거부 확인. 일치하는 provider DLL과 cuBLAS 13 필요. [재현·실패·성공 근거](gpu-revalidation-2026-10-22.md) |
 | `onnx-coreml` | Pending macOS hardware |
