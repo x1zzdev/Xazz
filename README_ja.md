@@ -2,7 +2,7 @@
 
 [English](README.md) · [한국어](README_kr.md) · [日本語](README_ja.md) · [简体中文](README_zh.md)
 
-> 翻訳ステータス: [英語版 README](README.md) の `e8db438` (2026-09-24) を基にした入門用の要約です。機能やコマンドの最新情報は英語版を確認してください。更新方法は[翻訳ガイド](docs/TRANSLATING.md)にあります。
+> 翻訳ステータス: ⚠ この翻訳は古くなっている可能性があります。[英語版 README](README.md) の `e8db438` (2026-09-24) を基にした入門用の要約で、以降の変更（「Limitations & Non-goals」セクション、DuckDB/Polars の比較、[examples インデックス](examples/README.md)）は反映されていません。機能やコマンドの最新情報は英語版を確認してください。更新方法は[翻訳ガイド](docs/TRANSLATING.md)にあります。
 
 Xazz は Rust で実装された AI パイプライン向けのガバナンス層です。`.xzz` スクリプトを実行前に解析し、型・null 値・セキュリティポリシーを確認します。データ処理には Polars、学習には Burn を使用します。
 

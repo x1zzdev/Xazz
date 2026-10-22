@@ -2,7 +2,7 @@
 
 [English](README.md) · [한국어](README_kr.md) · [日本語](README_ja.md) · [简体中文](README_zh.md)
 
-> 翻译状态：本文是根据[英文 README](README.md) 的 `e8db438`（2026-09-24）编写的入门摘要。功能和命令的最新说明以英文版为准。更新流程见[翻译指南](docs/TRANSLATING.md)。
+> 翻译状态：⚠ 本翻译可能已过时。本文是根据[英文 README](README.md) 的 `e8db438`（2026-09-24）编写的入门摘要，尚未反映其后的变更（“Limitations & Non-goals”章节、DuckDB/Polars 对比、[示例索引](examples/README.md)）。功能和命令的最新说明以英文版为准。更新流程见[翻译指南](docs/TRANSLATING.md)。
 
 Xazz 是用 Rust 构建的 AI 流水线治理层。它在运行 `.xzz` 脚本之前检查类型、空值和安全策略；数据处理使用 Polars，模型训练使用 Burn。
 
