@@ -155,6 +155,25 @@ Maintainers curate `good first issue` items:
 - A maintainer leaves a short "where to start" note in the issue.
 - If the issue turns out larger than advertised, say so and split it rather than leaving a newcomer stuck.
 
+## Developer Certificate of Origin (DCO)
+
+Xazz uses the [Developer Certificate of Origin](https://developercertificate.org/)
+instead of a CLA. It is lightweight: by signing off your commits you certify that
+you wrote the change or otherwise have the right to submit it under the project's
+license.
+
+- Sign off every commit with `git commit -s`, which appends:
+
+  ```
+  Signed-off-by: Your Name <you@example.com>
+  ```
+
+  The name and email must be real and match the commit author.
+- To sign off a branch you already committed, use `git rebase --signoff main` (or
+  `git commit --amend -s` for the last commit).
+- CI enforcement is planned as a check on pull-request commits; until it lands,
+  reviewers ask for the sign-off during review. Dependabot commits are exempt.
+
 ## Releasing
 
 Release cadence, the checklist, and the release-note template live in [docs/RELEASING.md](docs/RELEASING.md).
