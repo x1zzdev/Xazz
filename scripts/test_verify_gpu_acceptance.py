@@ -50,10 +50,18 @@ class AcceptanceEvidenceTests(unittest.TestCase):
                                 0, "onnx", "CUDAExecutionProvider")
 
     def test_onnx_profile_reports_cpu_nodes_as_well(self):
-        profile = {"expected": "CUDAExecutionProvider", "nodes": {"CUDAExecutionProvider": 4, "CPUExecutionProvider": 1}}
+        profile = {"expected": "CUDAExecutionProvider", "nodes": {"CUDAExecutionProvider": 4, "CPUExecutionProvider": 1},
+                   "compute_nodes": {"CUDAExecutionProvider": 2}}
         result = validate_result(self.success("onnx") + "XAZZ_ORT_PROVIDERS " + json.dumps(profile),
                                  0, "onnx", "CUDAExecutionProvider")
         self.assertEqual(result["ort_provider_nodes"]["CPUExecutionProvider"], 1)
+
+    def test_cuda_memory_copies_alone_are_not_compute_evidence(self):
+        profile = {"expected": "CUDAExecutionProvider", "nodes": {"CUDAExecutionProvider": 2},
+                   "compute_nodes": {"CPUExecutionProvider": 3}}
+        with self.assertRaises(ValueError):
+            validate_result(self.success("onnx") + "XAZZ_ORT_PROVIDERS " + json.dumps(profile),
+                            0, "onnx", "CUDAExecutionProvider")
 
     def test_rejection_must_be_the_expected_runtime_failure(self):
         log = "Invalid device ID: 999\ntest result: FAILED. 0 passed; 1 failed; 0 ignored;"

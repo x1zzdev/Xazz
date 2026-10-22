@@ -383,13 +383,16 @@ pub fn export(trained: &TrainedModel, path: &str) -> Result<(), String> {
     std::fs::write(path, bytes).map_err(|e| format!("ONNX: write '{path}' failed: {e}"))
 }
 
-/// ONNX Runtime environment (initialized once per process).
-pub fn init_runtime() {
-    use std::sync::Once;
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        let _ = ort::init().with_name("xazz").commit();
-    });
+/// Retain the process's single ORT environment for all cached sessions. rc.14
+/// requires passing the environment explicitly, and rejects a second one.
+/// Initialization failures propagate instead of being silently discarded.
+fn runtime_environment() -> Result<&'static ort::environment::Environment, String> {
+    static ENVIRONMENT: std::sync::OnceLock<Result<ort::environment::Environment, String>> =
+        std::sync::OnceLock::new();
+    ENVIRONMENT
+        .get_or_init(|| ort::init().with_name("xazz").build().map_err(onnx_err))
+        .as_ref()
+        .map_err(Clone::clone)
 }
 
 /// Writes the `.onnx` artifact only when it is missing or older than the
@@ -428,7 +431,7 @@ pub fn load_session(path: &str) -> Result<ort::session::Session, String> {
 
 fn session_builder() -> Result<ort::session::builder::SessionBuilder, String> {
     let eps = execution_providers()?;
-    let mut builder = ort::session::Session::builder().map_err(onnx_err)?;
+    let mut builder = ort::session::Session::builder(runtime_environment()?).map_err(onnx_err)?;
     if !eps.is_empty() {
         builder = builder
             .with_execution_providers(eps)

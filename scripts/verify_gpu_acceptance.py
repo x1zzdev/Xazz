@@ -61,7 +61,11 @@ def validate_result(log, exit_code, backend, provider=None, rejection=None):
         nodes = profiles[0].get("nodes", {})
         if not isinstance(nodes.get(provider), int) or nodes[provider] <= 0:
             raise ValueError("requested ORT provider executed no nodes")
+        compute = profiles[0].get("compute_nodes", {})
+        if not isinstance(compute.get(provider), int) or compute[provider] <= 0:
+            raise ValueError("requested ORT provider executed no compute nodes (copies are insufficient)")
         result["ort_provider_nodes"] = nodes
+        result["ort_compute_nodes"] = compute
     return result
 
 
@@ -151,6 +155,8 @@ def main():
         report["build"] = run_logged(build, output / "build.log", root, env, 7200)
         if report["build"]["exit_code"]:
             raise ValueError("build failed; see build.log")
+        if any(digest(root / name) != sha for name, sha in report["source_files"].items()):
+            raise ValueError("source changed during build; rerun to obtain consistent evidence")
         artifacts = []
         for line in (output / "build.log").read_text(encoding="utf-8").splitlines():
             try:

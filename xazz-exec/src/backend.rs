@@ -886,10 +886,8 @@ mod onnx {
                 .cache
                 .lock()
                 .map_err(|_| "ONNX session cache poisoned".to_string())?;
-            let session = guard.get_or_insert_with(key, || {
-                crate::dl::onnx_export::init_runtime();
-                crate::dl::onnx_export::load_session(&path)
-            })?;
+            let session =
+                guard.get_or_insert_with(key, || crate::dl::onnx_export::load_session(&path))?;
             crate::dl::onnx_export::predict_with_session(trained, session, df, as_col)
         }
     }
@@ -2215,21 +2213,27 @@ mod acceptance {
             serde_json::from_slice(&std::fs::read(&profile_path).expect("read ORT profile"))
                 .expect("ORT profile JSON");
         let mut providers = std::collections::BTreeMap::<String, usize>::new();
+        let mut compute = std::collections::BTreeMap::<String, usize>::new();
         for event in events {
             if event["cat"] == "Node"
                 && let Some(provider) = event["args"]["provider"].as_str()
             {
                 *providers.entry(provider.to_owned()).or_default() += 1;
+                if let Some(op) = event["args"]["op_name"].as_str()
+                    && !op.starts_with("Memcpy")
+                {
+                    *compute.entry(provider.to_owned()).or_default() += 1;
+                }
             }
         }
         assert!(
-            providers.get(&expected).copied().unwrap_or(0) > 0,
-            "no nodes executed on {expected}: {providers:?}"
+            compute.get(&expected).copied().unwrap_or(0) > 0,
+            "no compute nodes executed on {expected}: {providers:?}"
         );
         println!(
             "XAZZ_ORT_PROVIDERS {}",
             serde_json::json!({
-                "expected": expected, "nodes": providers,
+                "expected": expected, "nodes": providers, "compute_nodes": compute,
             })
         );
     }

@@ -43,7 +43,8 @@ python scripts/verify_gpu_acceptance.py onnx-cuda --target-dir target/onnx-msvc 
 Success requires one passed test, no ignored tests, finite losses/predictions,
 matching nonempty output sizes and same-checkpoint inference error `< 1e-3`.
 ONNX additionally profiles a session using the production provider selection and
-requires nodes on the explicitly requested EP. The profile includes other EPs
+requires compute nodes on the explicitly requested EP (memory copies alone do
+not qualify). The profile includes other EPs
 too: CUDA-node execution does not imply every graph node ran on CUDA. ONNX
 training remains CPU. Negative controls must fail with the expected diagnostic;
 an unrelated DLL failure is not a passing negative control.
