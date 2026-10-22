@@ -219,6 +219,12 @@ Every image below is captured from this repository: the binaries in `target/rele
 
 ---
 
+## Examples
+
+Runnable `.xzz` pipelines live in [`examples/`](examples/README.md) — from the smallest bar chart to differential privacy, Burn training, DuckDB/PostgreSQL sources, and the security guardrail demos. The index lists each example's command and data prerequisites (Git LFS data, generators, or a local database). CI checks and runs all of them in the `Example smoke` job.
+
+---
+
 ## Architecture
 
 Xazz is a modularized Rust workspace. The CLI stays a 2–5 MB binary; heavyweight engines live behind the `xazz-runner` subprocess boundary.
