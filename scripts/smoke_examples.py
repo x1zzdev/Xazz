@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Check and run every .xzz example, reporting failures by file and stage."""
+"""Check and run every .xzz example, reporting failures by file and stage.
+
+Examples that are *supposed* to fail (a policy block, a missing external
+service) are listed in ``EXPECTED_FAILURES`` and reported as ``XFAIL``; if one
+of them unexpectedly passes it becomes ``XPASS`` and fails the run so the
+allowlist stays honest. Training-heavy examples are listed in ``HEAVY`` and
+skipped unless ``--include-heavy`` is given.
+"""
 
 import argparse
 import json
@@ -10,6 +17,23 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Examples that cannot pass in this harness. Reported as XFAIL; an unexpected
+# pass is XPASS and fails the run.
+EXPECTED_FAILURES = {
+    "examples/duckdb/postgres_demo.xzz": "needs a local PostgreSQL server",
+    "examples/security/patient_unsafe.xzz": "intentionally blocked by the policy guardrail (exit 1)",
+    "examples/security/patient_secret_leak.xzz": "intentionally blocked by the policy guardrail (exit 1)",
+    "examples/security/prompt_unsafe.xzz": "intentionally blocked by the policy guardrail (exit 1)",
+}
+
+# Training-heavy examples are skipped by default: a debug build needs many
+# minutes per run. Pass --include-heavy to exercise them too.
+HEAVY = {
+    "examples/deep_learning/air_pipeline.xzz": "trains a 228K-row dataset (slow in debug builds)",
+    "examples/deep_learning/air_quality_predictor.xzz": "trains a 228K-row dataset (slow in debug builds)",
+    "examples/end_to_end/air_quality_full.xzz": "trains a 228K-row dataset (slow in debug builds)",
+}
 
 
 def run_command(binary: Path, stage: str, source: Path, cwd: Path, timeout: int):
@@ -57,6 +81,11 @@ def main() -> int:
     )
     parser.add_argument("--timeout", type=int, default=30, help="seconds per command")
     parser.add_argument("--check-only", action="store_true")
+    parser.add_argument(
+        "--include-heavy",
+        action="store_true",
+        help="also run training-heavy examples (skipped by default)",
+    )
     args = parser.parse_args()
     binary = args.xazz.resolve()
     if not binary.is_file() or args.timeout < 1:
@@ -67,7 +96,11 @@ def main() -> int:
         parser.error("no .xzz examples found")
     failures = 0
     for source in examples:
-        label = source.relative_to(ROOT)
+        label = str(source.relative_to(ROOT))
+        expected = label in EXPECTED_FAILURES
+        if label in HEAVY and not args.include_heavy:
+            print(f"SKIP {label} [heavy] {HEAVY[label]}")
+            continue
         # Generated charts and checkpoints stay outside the repository.
         with tempfile.TemporaryDirectory(prefix="xazz-example-") as tmp:
             cwd = Path(tmp)
@@ -84,15 +117,24 @@ def main() -> int:
 
             error = run_command(binary, "check", source, cwd, args.timeout)
             if error:
-                print(f"FAIL {label} [check]\n    {error}")
-                failures += 1
+                if expected:
+                    print(f"XFAIL {label} [check] {EXPECTED_FAILURES[label]}")
+                else:
+                    print(f"FAIL {label} [check]\n    {error}")
+                    failures += 1
                 continue
             print(f"PASS {label} [check]")
             if args.check_only:
                 continue
             error = run_command(binary, "run", source, cwd, args.timeout)
             if error:
-                print(f"FAIL {label} [run]\n    {error}")
+                if expected:
+                    print(f"XFAIL {label} [run] {EXPECTED_FAILURES[label]}")
+                else:
+                    print(f"FAIL {label} [run]\n    {error}")
+                    failures += 1
+            elif expected:
+                print(f"XPASS {label} [run] expected to fail: {EXPECTED_FAILURES[label]}")
                 failures += 1
             else:
                 print(f"PASS {label} [run]")
