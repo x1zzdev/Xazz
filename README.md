@@ -287,7 +287,7 @@ python benches/run_readme_benchmark.py --xlarge
 
 ## Security & Privacy
 
-**Policy-as-Code guardrails** scan the pipeline *before* execution — PII patterns (RRN, phone, card numbers with Luhn validation), secrets, and custom rules. Violations are blocked with structured JSON reports; an optional local sLM hook (Ollama, e.g. Qwen2.5-Coder) proposes safe corrections that are re-verified by the same policy engine before adoption — your code stays on the machine by default. See [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md).
+**Policy-as-Code guardrails** scan the pipeline *before* execution — PII patterns (RRN, phone, card numbers with Luhn validation), secrets, and custom rules. Violations are blocked with structured JSON reports; an optional local sLM hook (Ollama, e.g. Qwen2.5-Coder) proposes safe corrections that are re-verified by the same policy engine before adoption — your code stays on the machine by default. See [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md). The regulatory basis attached to each rule is an audit-trail reference, **not legal advice**; the mapping priority, coverage/confidence and verification procedure are in [docs/design/regulatory-mapping.md](docs/design/regulatory-mapping.md).
 
 **Differential privacy** — Laplace/Gaussian mechanisms with ε **and δ** composition accounting. Each query records `(εᵢ, δᵢ)`; `PrivacyBudget` accumulates `Σεᵢ`, `Σδᵢ` and refuses queries that would exceed either budget. Budget state is visible in the IDE monitor. See [docs/design/dp-spec.md](docs/design/dp-spec.md).
 
