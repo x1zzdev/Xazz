@@ -203,7 +203,7 @@ pub enum Commands {
         #[arg(long, default_value = "http://127.0.0.1:8005")]
         server: String,
 
-        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        /// Target tenant namespace (sent as X-Xazz-Tenant). No-op when the server uses a single token (XAZZ_SERVER_TOKEN): it runs with an empty tenant (see docs/SERVER.md)
         #[arg(long)]
         tenant: String,
 
@@ -288,7 +288,7 @@ pub enum PolicyTtlAction {
         #[arg(long, default_value = "http://127.0.0.1:8005")]
         server: String,
 
-        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        /// Target tenant namespace (sent as X-Xazz-Tenant). No-op when the server uses a single token (XAZZ_SERVER_TOKEN): it runs with an empty tenant (see docs/SERVER.md)
         #[arg(long)]
         tenant: String,
 
@@ -312,7 +312,7 @@ pub enum PolicyTtlAction {
         #[arg(long, default_value = "http://127.0.0.1:8005")]
         server: String,
 
-        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        /// Target tenant namespace (sent as X-Xazz-Tenant). No-op when the server uses a single token (XAZZ_SERVER_TOKEN): it runs with an empty tenant (see docs/SERVER.md)
         #[arg(long)]
         tenant: String,
 
@@ -343,7 +343,7 @@ pub enum DpAction {
         #[arg(long, default_value = "http://127.0.0.1:8005")]
         server: String,
 
-        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        /// Target tenant namespace (sent as X-Xazz-Tenant). No-op when the server uses a single token (XAZZ_SERVER_TOKEN): it runs with an empty tenant (see docs/SERVER.md)
         #[arg(long)]
         tenant: String,
 
@@ -365,7 +365,7 @@ pub enum DpAction {
         #[arg(long, default_value = "http://127.0.0.1:8005")]
         server: String,
 
-        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        /// Target tenant namespace (sent as X-Xazz-Tenant). No-op when the server uses a single token (XAZZ_SERVER_TOKEN): it runs with an empty tenant (see docs/SERVER.md)
         #[arg(long)]
         tenant: String,
 
@@ -390,7 +390,7 @@ pub enum DpAction {
         #[arg(long, default_value = "http://127.0.0.1:8005")]
         server: String,
 
-        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        /// Target tenant namespace (sent as X-Xazz-Tenant). No-op when the server uses a single token (XAZZ_SERVER_TOKEN): it runs with an empty tenant (see docs/SERVER.md)
         #[arg(long)]
         tenant: String,
 
@@ -423,7 +423,7 @@ pub enum DpWindowAction {
         #[arg(long, default_value = "http://127.0.0.1:8005")]
         server: String,
 
-        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        /// Target tenant namespace (sent as X-Xazz-Tenant). No-op when the server uses a single token (XAZZ_SERVER_TOKEN): it runs with an empty tenant (see docs/SERVER.md)
         #[arg(long)]
         tenant: String,
 
@@ -447,7 +447,7 @@ pub enum DpWindowAction {
         #[arg(long, default_value = "http://127.0.0.1:8005")]
         server: String,
 
-        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        /// Target tenant namespace (sent as X-Xazz-Tenant). No-op when the server uses a single token (XAZZ_SERVER_TOKEN): it runs with an empty tenant (see docs/SERVER.md)
         #[arg(long)]
         tenant: String,
 
@@ -467,7 +467,7 @@ pub enum DpWindowAction {
         #[arg(long, default_value = "http://127.0.0.1:8005")]
         server: String,
 
-        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        /// Target tenant namespace (sent as X-Xazz-Tenant). No-op when the server uses a single token (XAZZ_SERVER_TOKEN): it runs with an empty tenant (see docs/SERVER.md)
         #[arg(long)]
         tenant: String,
 
@@ -553,7 +553,7 @@ pub enum RegistryAction {
         #[arg(long, default_value = "http://127.0.0.1:8005")]
         server: String,
 
-        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        /// Target tenant namespace (sent as X-Xazz-Tenant). No-op when the server uses a single token (XAZZ_SERVER_TOKEN): it runs with an empty tenant (see docs/SERVER.md)
         #[arg(long)]
         tenant: String,
 
@@ -580,7 +580,7 @@ pub enum RegistryAction {
         #[arg(long, default_value = "http://127.0.0.1:8005")]
         server: String,
 
-        /// Target tenant namespace (sent as X-Xazz-Tenant)
+        /// Target tenant namespace (sent as X-Xazz-Tenant). No-op when the server uses a single token (XAZZ_SERVER_TOKEN): it runs with an empty tenant (see docs/SERVER.md)
         #[arg(long)]
         tenant: String,
 
