@@ -74,6 +74,29 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def stage_ort_dlls(binary, library_dirs, cuda):
+    """Match DLLs to Cargo's actual ORT link directory, never stale release/ files."""
+    candidates = {path.resolve() for path in library_dirs if (path / "onnxruntime.lib").is_file()}
+    if len(candidates) != 1:
+        raise ValueError(f"expected one ORT link directory, got {len(candidates)}")
+    source = candidates.pop()
+    if cuda:
+        for name in ("onnxruntime_providers_shared.dll", "onnxruntime_providers_cuda.dll"):
+            if not (source / name).is_file():
+                raise ValueError(f"missing provider DLL from linked runtime: {source / name}")
+    copied = []
+    for src in sorted(source.glob("*.dll")):
+        dst = binary.parent / src.name
+        sha = digest(src)
+        if not dst.exists() or sha != digest(dst):
+            # Do not follow an older symlink and overwrite its cached runtime.
+            if dst.is_symlink():
+                dst.unlink()
+            shutil.copy2(src, dst)
+        copied.append({"name": src.name, "sha256": digest(dst)})
+    return {"source": str(source), "files": copied}
+
+
 def capture(command, cwd, env=None):
     return subprocess.run(command, cwd=cwd, env=env, capture_output=True,
                           text=True, encoding="utf-8", errors="replace", check=True).stdout.strip()
@@ -158,11 +181,15 @@ def main():
         if any(digest(root / name) != sha for name, sha in report["source_files"].items()):
             raise ValueError("source changed during build; rerun to obtain consistent evidence")
         artifacts = []
+        ort_library_dirs = []
         for line in (output / "build.log").read_text(encoding="utf-8").splitlines():
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if event.get("reason") == "build-script-executed" and "#ort-sys@" in event.get("package_id", ""):
+                ort_library_dirs.extend(Path(path.removeprefix("native="))
+                                        for path in event.get("linked_paths", []) if path.startswith("native="))
             if (event.get("reason") == "compiler-artifact" and event.get("executable")
                     and event.get("target", {}).get("name") == "xazz_exec"
                     and event.get("profile", {}).get("test")):
@@ -171,17 +198,10 @@ def main():
             raise ValueError(f"expected one freshly resolved library test binary, got {len(artifacts)}")
         binary = artifacts[0]
         report["binary"] = {"path": str(binary), "sha256": digest(binary)}
-        # ort-sys may copy provider DLLs only to release/, not release/deps/.
-        # Use this build's output; do not search arbitrary older ORT installations.
-        if os.name == "nt" and args.mode == "onnx-cuda":
-            report["provider_dlls"] = []
-            for name in ("onnxruntime_providers_shared.dll", "onnxruntime_providers_cuda.dll"):
-                src, dst = binary.parent.parent / name, binary.parent / name
-                if not src.is_file():
-                    raise ValueError(f"missing provider DLL from current build: {src}")
-                if not dst.exists() or digest(src) != digest(dst):
-                    shutil.copy2(src, dst)
-                report["provider_dlls"].append({"name": name, "sha256": digest(dst)})
+        # ort-sys leaves existing regular files unchanged; release/ may contain
+        # DLLs from a previous runtime. Resolve the current static link source.
+        if os.name == "nt" and backend == "onnx":
+            report["runtime_dlls"] = stage_ort_dlls(binary, ort_library_dirs, args.mode == "onnx-cuda")
         test = f"backend::acceptance::{backend}_matches_cpu_losses"
         run_dir = output / "run"
         run_dir.mkdir()

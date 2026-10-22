@@ -34,7 +34,7 @@ python scripts/verify_gpu_acceptance.py onnx-cpu --target-dir target/onnx-msvc -
 python scripts/verify_gpu_acceptance.py onnx-cpu --target-dir target/onnx-msvc --reject-uncompiled-cuda --output target/gpu-evidence/onnx-uncompiled-cuda
 
 # For the CUDA 13 ORT distribution: compatible cuBLAS DLLs must be on PATH.
-# The runner places this build's provider DLLs next to its test executable.
+# The runner reads Cargo's ORT link directory and places matching DLLs next to the test.
 $env:ORT_CUDA_VERSION = '13'
 python scripts/verify_gpu_acceptance.py onnx-cuda --target-dir target/onnx-msvc --output target/gpu-evidence/onnx-cuda
 python scripts/verify_gpu_acceptance.py onnx-cuda --target-dir target/onnx-msvc --reject-device cuda:999 --output target/gpu-evidence/onnx-invalid-device
@@ -48,6 +48,13 @@ not qualify). The profile includes other EPs
 too: CUDA-node execution does not imply every graph node ran on CUDA. ONNX
 training remains CPU. Negative controls must fail with the expected diagnostic;
 an unrelated DLL failure is not a passing negative control.
+
+On Windows, ORT's `copy-dylibs` can leave existing regular DLL files untouched
+after a version upgrade. A file in `release/` is therefore not proof that it
+matches the newly linked runtime. The runner resolves the actual `ort-sys` link
+directory from Cargo's JSON and stages those DLLs beside the test executable,
+recording their hashes. When packaging the CLI, likewise use DLLs from the same
+ORT distribution; this test helper does not update your installed application.
 
 `gpu-hardware.yml` provides manual execution of all five checks and uploads the
 evidence, including failed runs. It requires a separately provisioned runner

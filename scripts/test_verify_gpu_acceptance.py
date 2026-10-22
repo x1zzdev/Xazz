@@ -1,7 +1,9 @@
 import json
 import unittest
+from pathlib import Path
+import tempfile
 
-from verify_gpu_acceptance import validate_result
+from verify_gpu_acceptance import stage_ort_dlls, validate_result
 
 
 class AcceptanceEvidenceTests(unittest.TestCase):
@@ -69,6 +71,39 @@ class AcceptanceEvidenceTests(unittest.TestCase):
         for exit_code, diagnostic in ((0, "Invalid device ID: 999"), (101, "missing DLL")):
             with self.assertRaises(ValueError):
                 validate_result(log, exit_code, "onnx", rejection=diagnostic)
+
+
+class RuntimeDllTests(unittest.TestCase):
+    def test_stale_release_and_deps_dlls_are_replaced_from_linked_runtime(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source, release = root / "runtime", root / "release"
+            source.mkdir()
+            deps = release / "deps"
+            deps.mkdir(parents=True)
+            (source / "onnxruntime.lib").write_bytes(b"linked runtime")
+            for name in ("onnxruntime_providers_shared.dll", "onnxruntime_providers_cuda.dll"):
+                (source / name).write_bytes(b"current DLL")
+                (release / name).write_bytes(b"stale release DLL")
+                (deps / name).write_bytes(b"stale test DLL")
+            result = stage_ort_dlls(deps / "test.exe", [source, source], True)
+            self.assertEqual(len(result["files"]), 2)
+            self.assertEqual((deps / "onnxruntime_providers_cuda.dll").read_bytes(), b"current DLL")
+            self.assertEqual((release / "onnxruntime_providers_cuda.dll").read_bytes(), b"stale release DLL")
+
+    def test_missing_or_ambiguous_runtime_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with self.assertRaises(ValueError):
+                stage_ort_dlls(root / "test.exe", [], True)
+            (root / "onnxruntime.lib").write_bytes(b"runtime without providers")
+            with self.assertRaises(ValueError):
+                stage_ort_dlls(root / "test.exe", [root], True)
+            other = root / "other"
+            other.mkdir()
+            (other / "onnxruntime.lib").write_bytes(b"other runtime")
+            with self.assertRaises(ValueError):
+                stage_ort_dlls(root / "test.exe", [root, other], True)
 
 
 if __name__ == "__main__":
