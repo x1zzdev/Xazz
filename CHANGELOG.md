@@ -23,7 +23,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
   See [2026-10-22 evidence](docs/gpu-revalidation-2026-10-22.md).
 - Check the entire workspace dependency graph, update vulnerable/yanked versions,
   and patch object_store's XML dependency while retaining its Polars-compatible
-  API. Track two owner-approved maintenance exceptions with enforced expiration.
+  API. Track two user-approved maintenance exceptions with enforced expiration.
   See [dependency repair](docs/dependency-policy-2026-10-22.md).
 
 ### Added — Windows 리소스 텔레메트리: Job Object 회계로 CPU·피크 메모리 기록 (issue #128)

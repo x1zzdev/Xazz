@@ -17,7 +17,8 @@ feature-depth = 1
 
 # ── 라이선스 ────────────────────────────────────────────────────────────────
 [licenses]
-# 허용: permissive/OSI-approved, 모두 Apache-2.0과 양립
+# 허용: Apache-2.0과 양립하는 permissive 라이선스만. CC0-1.0·CDLA-Permissive-2.0은
+# OSI 목록에 없지만 permissive 공개 라이선스다.
 allow = [
     "MIT",
     "Apache-2.0",
