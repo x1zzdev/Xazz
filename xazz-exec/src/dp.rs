@@ -127,7 +127,8 @@ pub fn composition_mode_from_env() -> CompositionMode {
 /// ([`gaussian_sigma`]), so its exact RDP parameter is
 /// `ρ = Δf² / (2σ²) = ε² / (4 ln(1.25/δ))` — the sensitivity cancels.
 pub fn gaussian_rho(epsilon: f64, delta: f64) -> f64 {
-    if !epsilon.is_finite() || epsilon <= 0.0 || !delta.is_finite() || delta <= 0.0 || delta >= 1.0 {
+    if !epsilon.is_finite() || epsilon <= 0.0 || !delta.is_finite() || delta <= 0.0 || delta >= 1.0
+    {
         return 0.0;
     }
     let denom = 4.0 * (1.25 / delta).ln();
