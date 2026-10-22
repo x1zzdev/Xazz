@@ -56,6 +56,13 @@ directory from Cargo's JSON and stages those DLLs beside the test executable,
 recording their hashes. When packaging the CLI, likewise use DLLs from the same
 ORT distribution; this test helper does not update your installed application.
 
+`ort-sys` caches downloaded runtimes under `%LOCALAPPDATA%\ort.pyke.io`. A shell
+started from a packaged (MSIX) application sees a virtualized AppData, so a cache
+created in one sandbox can be invisible to another even though Cargo's cached
+build script still reports its path; the runner then fails with
+`expected one ORT link directory, got 0`. Run the build and the runner from the
+same shell environment, or make the distribution visible at the reported path.
+
 `gpu-hardware.yml` provides manual execution of all five checks and uploads the
 evidence, including failed runs. It requires a separately provisioned runner
 labelled `self-hosted, Windows, X64, xazz-gpu`, Python 3.11+, GNU/MSVC Rust,
@@ -265,7 +272,7 @@ debug and GPU runs are impractically slow there.
 |---------|--------|
 | CPU | Reference implementation — always available |
 | `wgpu` | **Verified** on Windows 11 / RTX 4070 (dGPU) and Intel Arc (iGPU); `XAZZ_DEVICE` adapter pinning confirmed |
-| `cuda` | **재검증 완료** — 2026-10-22 Windows GNU / RTX 4070, 실제 CUDA 학습·추론 및 일반 검사 138개 통과. [코드 버전·근거](gpu-revalidation-2026-10-22.md) |
-| `onnx` (CPU EP) | **재검증 완료** — 2026-10-22 Windows MSVC, CPU 계산 노드 2개, 동일 체크포인트 예측 편차 0. [근거](gpu-revalidation-2026-10-22.md) |
-| `onnx-cuda` (CUDA EP) | **재검증 완료** — ORT rc.14/protobuf 호환성 수정 후 실제 CUDA 계산 노드 3개 확인. 일반 검사 140개, 미컴파일 EP·잘못된 장치 거부 확인. 일치하는 provider DLL과 cuBLAS 13 필요. [재현·실패·성공 근거](gpu-revalidation-2026-10-22.md) |
+| `cuda` | **재검증 완료** — 2026-10-22 Windows GNU / RTX 4070, 실제 CUDA 학습·추론 및 일반 검사 138개 통과. 의존성 수정 커밋 `3dc1c24`에서 재실행해 통과. [코드 버전·근거](gpu-revalidation-2026-10-22.md) |
+| `onnx` (CPU EP) | **재검증 완료** — 2026-10-22 Windows MSVC, CPU 계산 노드 2개, 동일 체크포인트 예측 편차 0. protobuf 1.x 제거 커밋 `3dc1c24`에서 재실행해 통과. [근거](gpu-revalidation-2026-10-22.md) |
+| `onnx-cuda` (CUDA EP) | **재검증 완료** — ORT rc.14 호환성 수정과 protobuf 1.x 제거(`3dc1c24`) 후 실제 CUDA 계산 노드 3개 확인. 일반 검사 141개, 미컴파일 EP·잘못된 장치 거부 확인. 일치하는 provider DLL과 cuBLAS 13 필요. [재현·실패·성공 근거](gpu-revalidation-2026-10-22.md) |
 | `onnx-coreml` | Pending macOS hardware |

@@ -6,6 +6,7 @@
 - 기반 main: `b347688b3b4906a53ddb0b4323aed9041e117628` — 최종 확인 시에도 동일.
 - 최종 실기·검사 도구 커밋: `4ebba41559e4b0c58ea0229ecaee51df26afbd6c`. 이후 커밋은 검증 문서와 근거 정리다.
 - 과거 검증: CUDA [#263](https://github.com/x1zzdev/Xazz/pull/263), Windows ONNX [#289](https://github.com/x1zzdev/Xazz/pull/289). 과거 통과와 최신 코드 검증은 구분한다.
+- **후속(같은 날)**: 이후 의존성 수정 커밋 `3dc1c2414a3df0af4cec5bb01a23652dbb3a76e1`에서 protobuf 1.x 제거와 전체 workspace 의존성 정책 수정이 들어갔고, 실기 검사를 **다시 실행해 통과**했다. 아래 "의존성 수정 후 재검증" 절과 [의존성 정책 보고서](dependency-policy-2026-10-22.md)를 본다. 이 절 위의 수치는 `4ebba41` 기준 기록이다.
 
 ## 실기 결과
 
@@ -30,7 +31,7 @@
 - `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `git diff --check` 통과.
 - [최종 코드의 기능별 CI](https://github.com/x1zzdev/Xazz/actions/runs/39713950242): CUDA/wgpu Linux 컴파일, ONNX/ONNX CUDA Windows MSVC 컴파일, Windows/Linux Python 판정 검사 **모두 통과**.
 - 문서 빌드·링크 검사 통과. 최종 문서 커밋의 CI 상태는 PR에서 확인한다.
-- 전체 workspace 의존성 정책은 기존 **37개 오류**로 실패: 라이선스 16, 취약점 14, 건전성 3, 유지보수 중단 2, 철회된 버전 2. 이번 PR은 이를 숨기거나 예외 처리하지 않는다. 현재 기본 CI의 cargo-deny는 루트 CLI 그래프만 보므로 그 성공을 전체 workspace 성공으로 해석하지 않는다.
+- 전체 workspace 의존성 정책은 기존 **37개 오류**로 실패: 라이선스 16, 취약점 14, 건전성 3, 유지보수 중단 2, 철회된 버전 2. 이번 PR은 이를 숨기거나 예외 처리하지 않는다. 현재 기본 CI의 cargo-deny는 루트 CLI 그래프만 보므로 그 성공을 전체 workspace 성공으로 해석하지 않는다. *(후속: 같은 PR의 커밋 `defbec6`·`3dc1c24`에서 35건을 수정하고 2건은 기한부 예외로 등록했다. [의존성 정책 보고서](dependency-policy-2026-10-22.md) 참조.)*
 
 ## 실행 환경
 
@@ -55,7 +56,7 @@
 첫 MSVC ONNX 빌드가 5개 컴파일 오류로 실패했다. 새 선택 기능 CI도 [수정 전 오류를 그대로 검출](https://github.com/x1zzdev/Xazz/actions/runs/39710751666)했다.
 
 - ORT rc.14에서 `ort::init().commit()`이 없어지고 환경을 `Session::builder(&environment)`에 전달해야 한다. [공식 변경 안내](https://github.com/pykeio/ort/releases/tag/v2.0.0-rc.14)에 맞춰 프로세스의 단일 환경을 유지하고 세션에 명시적으로 전달하며 초기화 오류를 반환하도록 수정했다. 지원 API 버전도 rc.14로 명시했다.
-- `rlx-onnx-proto 0.2.18`의 생성 타입은 protobuf 1.7의 `Message`를 구현하지만 직접 의존성만 3.7로 바뀌어 `write_to_bytes`·`merge_from_bytes`를 사용할 수 없었다. 생성 타입과 동일한 기존 1.7 의존성으로 맞추고 불필요한 3.7·protobuf-support를 제거했다. transitive protobuf 1.7은 기존에도 존재했다. 그 보안 경고는 해결되지 않았으며 exporter/생성기 이관은 #63·#127의 별도 작업이다.
+- `rlx-onnx-proto 0.2.18`의 생성 타입은 protobuf 1.7의 `Message`를 구현하지만 직접 의존성만 3.7로 바뀌어 `write_to_bytes`·`merge_from_bytes`를 사용할 수 없었다. 생성 타입과 동일한 기존 1.7 의존성으로 맞추고 불필요한 3.7·protobuf-support를 제거했다. transitive protobuf 1.7은 기존에도 존재했다. 그 보안 경고는 해결되지 않았으며 exporter/생성기 이관은 #63·#127의 별도 작업이다. *(후속: 커밋 `3dc1c24`에서 `rlx-onnx-proto`/protobuf 1.x를 제거하고 공식 ONNX 스키마를 protobuf 3.7.2로 생성해 이 경고를 해결했다. exporter의 `burn-onnx` 이관은 여전히 #63·#127의 별도 작업이다.)*
 
 ### 3. Windows 런타임 캐시·DLL 버전 불일치
 
@@ -74,11 +75,32 @@ ORT 1.31.0 CUDA 다운로드는 체크섬 검증·압축 해제 후 캐시 폴�
 
 ## 검증 근거
 
-[로그·실행 결과·ORT 프로파일 묶음](evidence/gpu-windows-2026-10-22.zip): 실행·환경 파일 33개와 `manifest.json`, 368,791 bytes.
+[로그·실행 결과·ORT 프로파일 묶음](evidence/gpu-windows-2026-10-22.zip): 실행·환경 파일 33개와 `manifest.json`, 368,553 bytes. (ORT 런타임 캐시 루트 경로를 추가로 정규화해 다시 포장했다. 로그·결과 내용은 동일하며 manifest의 공개본 해시만 갱신했다.)
 
-SHA-256: `13a3a0fa82c282145f37eed6207d4d477000f3adf8ddfd6d674b73d668fee4c7`.
+SHA-256: `d6074f7014a180cf380cabfc021559ee011b21cfadfe78501f78d733088c6e00`.
 
 최초 ONNX 컴파일 실패, CI의 같은 실패, 캐시 추출 실패, 최종 성공 3건, 예상 거부 2건, 일반 검사·정책 오류를 함께 보존했다. 개인 절대 경로와 ANSI 제어 문자를 정규화했으며 manifest에는 원본·공개본 해시를 각각 기록했다. 실행 파일·DLL·모델 체크포인트는 포함하지 않았다. 최종 결과 JSON의 소스·실행 파일·런타임 해시로 검사 대상을 확인할 수 있다.
+
+## 의존성 수정 후 재검증 (2026-10-22)
+
+의존성 수정 커밋 `3dc1c2414a3df0af4cec5bb01a23652dbb3a76e1`(protobuf 1.x 제거, 공식 ONNX 스키마 생성, object_store quick-xml 패치, 취약·철회 버전 업데이트)에서 위 다섯 가지 실기 검사를 같은 Windows 환경(RTX 4070 Laptop, 드라이버 591.44, Rust 1.98.0, ORT 1.31.0 CUDA 13 배포본)에서 다시 실행했다. 이전 커밋의 통과를 대신 쓰지 않았다.
+
+| 검사 | 결과 | 수치·실행 증거 | 테스트 프로세스 시간 |
+|---|---|---|---|
+| CUDA 학습·추론 (GNU, `cuda`) | 통과 | backend=`cuda`, training_backend=`cuda`, 유한한 loss, 동일 체크포인트 최대 편차 0 | 4.141초 |
+| ONNX CPU 추론 (MSVC, `onnx`) | 통과 | CPU 계산 노드 2개, 최대 편차 0 | 0.140초 |
+| ONNX CUDA 추론 (MSVC, `onnx-cuda`) | 통과 | CUDA 계산 노드 3개, 최대 편차 0 | 2.110초 |
+| CUDA 미포함 ONNX 빌드에 CUDA 요청 | 예상 거부 확인 | 종료 101, 정확히 1개 실패, `ONNX execution provider is not compiled into this binary` | 0.047초 |
+| ONNX CUDA에 `cuda:999` 요청 | 예상 거부 확인 | 종료 101, 정확히 1개 실패, `Invalid device ID: 999` | 0.234초 |
+
+- CUDA 기능 라이브러리: **138 passed, 0 failed, 1 ignored**. ONNX CUDA 기능 라이브러리: **141 passed, 0 failed, 1 ignored**(ONNX 스키마·재귀 제한 테스트 추가). ignored 1개는 각각 위 실기 검사다.
+- 기본 workspace: **746 passed, 0 failed, 0 ignored**(테스트 바이너리 17개, GPU 기능 미포함). `cargo clippy --workspace --all-targets --locked -- -D warnings` 통과.
+- 전체 workspace 의존성 정책: 오류 0, 기한부 유지보수 예외 2건(2026-11-21 UTC 만료), 중복 버전 경고 41건.
+- 코드 커밋의 PR CI: Linux/macOS/Windows 테스트, 기능별 컴파일, 정책·문서 검사 모두 통과. CodeQL은 수정하지 않은 벤더 `object_store` 원본의 `allow_insecure` 옵션 코드 1건을 보고했으며 Xazz는 이 옵션을 사용하지 않는다.
+- ONNX CUDA·`cuda:999` 검사는 코드 커밋에 문서·주석·예외 설명 문구 4개 파일만 바뀐 작업 트리에서 실행했다. 해당 diff와 해시는 근거 묶음의 `working-tree-diff.patch`로 보존했다. 나머지 검사는 변경 없는 작업 트리에서 실행했다.
+- 환경 주의: `ort-sys`는 `%LOCALAPPDATA%\ort.pyke.io`에 런타임을 캐시하는데, 패키지형(MSIX) 앱에서 띄운 셸은 가상화된 AppData를 본다. 다른 샌드박스에서 만든 캐시가 보이지 않으면 검사기가 `expected one ORT link directory, got 0`으로 실패한다(첫 시도 `onnx-cuda-resumed`, 근거 묶음에 보존). 이전 근거와 해시가 같은 ORT CUDA 13 배포본을 현재 셸이 보는 경로로 복사하고 테스트 실행 파일을 다시 링크한 뒤 통과했다. 코드 변경은 없다.
+
+근거: [dependency-gpu-windows-2026-10-22.zip](evidence/dependency-gpu-windows-2026-10-22.zip), 35개 파일과 `manifest.json`, 281,352 bytes, SHA-256 `c4a45043fd6c5b8b879b3d9bd1f53146b044e302ff92177f16e6b9618cebe23d`. 기존 `gpu-windows-2026-10-22.zip`은 이전 커밋의 기록으로 그대로 둔다.
 
 ## 이슈 정리
 
