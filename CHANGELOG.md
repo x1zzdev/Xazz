@@ -9,6 +9,18 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — 감사로그 HMAC 인증과 키 분리 (issue #304)
+
+- 서버가 별도 환경 설정의 키로 각 감사 기록을 HMAC-SHA256 인증한다. 기존
+  SHA-256 체인 형식은 유지하며, 키 ID와 인증값을 추가한다. 키 교체 시 과거 키로
+  기존 기록을 검증하고, 실행 자식 프로세스에는 감사 인증 설정을 전달하지 않는다.
+- 기존 로그에서 인증을 필수로 할 시작 번호를 신뢰된 서버 설정으로 고정한다.
+  해시를 재계산한 위조, 인증값 제거, 잘못된 키는 검증과 추가 기록에서 거부한다.
+  키 미설정·기존 미인증 구간은 경고하며, API의 `authenticated`로 인증 여부를 구분한다.
+- 감사 기록 실패 시 `POST /security/audit`가 HTTP 500을 반환한다. 잘못된 키 설정이나
+  기존 체인 검증 실패는 서버 시작 단계에서 거부한다. 운영·이관 절차는 `docs/SERVER.md`에
+  정리했다. 정상 기록의 끝부분 삭제·과거 이력 재생 탐지는 외부 체크포인트 작업 #305에 남긴다.
+
 ### Added — Windows 리소스 텔레메트리: Job Object 회계로 CPU·피크 메모리 기록 (issue #128)
 
 - Windows에서 `[xazz:resources]` 마커와 `xazz run --json`의 `resources`가

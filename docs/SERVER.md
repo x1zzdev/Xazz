@@ -25,6 +25,49 @@ is allowed (default local-only behavior). `XAZZ_ADMIN_ACTORS` entries split on
 the **last** `:` so a credential may itself contain colons; `XAZZ_ADMIN_TOKEN`
 entries are comma-separated.
 
+## Audit record authentication (#304)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `XAZZ_AUDIT_HMAC_KEYS` | unset | Secret JSON object mapping key IDs to hex-encoded keys of at least 32 random bytes. IDs contain 1–64 ASCII letters, digits, `_` or `-`. Keep outside the log directory and source control. |
+| `XAZZ_AUDIT_HMAC_ACTIVE_KEY_ID` | unset | ID used to authenticate new records; must exist in `KEYS`. Other keys verify older records. |
+| `XAZZ_AUDIT_HMAC_REQUIRED_FROM` | `0` when configured | First record index requiring HMAC. Set once to the existing record count when migrating a trusted legacy log. Never derive this value from an untrusted log on startup. |
+
+The server loads keys and policy once at startup. It rejects incomplete/invalid
+configuration and an existing chain that fails verification, before listening.
+All three variables are removed from execution child environments. The HTTP API
+has no key setter and cannot choose the signing key or migration boundary.
+
+For a new log, provision `KEYS` through the service's secret environment, select
+the active ID, and leave `REQUIRED_FROM` at zero. Generate keys using a
+cryptographically secure random generator; the 32-byte length check does not
+measure entropy. Do not put live keys in command lines, repository files, or logs.
+
+For migration, stop all writers, verify and back up the old log in a trusted
+environment, record its count `N`, and configure `REQUIRED_FROM=N` in protected
+service configuration. Restart with keys enabled. Existing bytes are preserved;
+new entries are signed. The unsigned prefix remains explicitly reported as
+legacy, not retroactively authenticated. A boundary beyond the current count is
+rejected. Do not increase the boundary to work around a verification failure.
+
+For rotation, stop writers, add a fresh key under a new ID, switch the active ID,
+and restart all instances with the same key ring and boundary. Retain every old
+verification key for as long as its records are retained. Missing/wrong keys,
+partial authentication fields, malformed tags, and missing mandatory tags fail
+verification. Removing keys does not silently downgrade an existing signed log.
+
+If all three settings are absent, legacy unsigned operation remains available
+with an explicit startup warning. `GET /security/audit/chain` returns one locked
+snapshot with `{intact, records, authenticated, hmac_configured, legacy_records,
+warning}`. `intact` checks the SHA chain and the configured HMAC policy;
+`authenticated` is true only for a nonempty valid chain with every record signed.
+No-key or mixed legacy chains never report `authenticated: true`. A failed append
+returns HTTP 500 from `POST /security/audit`; no record is added. Log I/O or parse
+failures also return 500 from the chain endpoint.
+
+See [the threat model](design/security-model.md#audit-log-authentication-304)
+for the file-writer boundary and the external checkpoint work remaining in #305.
+
 ## Bind, paths, and execution
 
 | Variable | Default | Meaning |

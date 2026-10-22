@@ -8373,6 +8373,7 @@ dependencies = [
  "encoding_rs",
  "fs2",
  "hex",
+ "hmac 0.13.0",
  "http-body-util",
  "hyper",
  "hyper-util",

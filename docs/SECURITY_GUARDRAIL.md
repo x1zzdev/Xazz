@@ -417,7 +417,7 @@ request and only ever returns that tenant's data.
 | `POST` | `/security/verify` | Check `sha256(code) == hash` and whether that hash is in the log (proof of audit, not of execution) |
 | `GET` | `/security/audit/log` | Entire audit log (`{ count, records }`) |
 | `GET` | `/security/audit/log/{hash}` | Records matching a code hash (**404** when none) |
-| `GET` | `/security/audit/chain` | Verify the hash-chain (`{ intact, records }`) |
+| `GET` | `/security/audit/chain` | Verify SHA links and configured HMAC policy (`{ intact, records, authenticated, hmac_configured, legacy_records, warning }`); see [audit configuration](SERVER.md#audit-record-authentication-304) |
 | `POST` | `/security/inference/check` | Runtime output gate: scan a generated response and record the prompt/response hashes as audit evidence |
 | `GET` | `/runs` | The tenant's recent runs, newest first (capped at 50) |
 | `GET` | `/runs/{id}` | One run by id, tenant-scoped (**404** when absent) |

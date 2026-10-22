@@ -50,3 +50,53 @@ README 등 사용자 문서에서 "샌드박스 런타임"이라는 표현은 �
 - 서브프로세스 실행 경계 → **프로세스 격리(process isolation)**
 - 사전 실행 검사 → **정적 가드레일(guardrail) 게이트**
 - 실행 시간 제한 → **타임아웃 하드닝**
+
+## Audit log authentication (#304)
+
+The protected asset is the authenticity of records in `audit_log/audit.jsonl`.
+The attacker may edit that file and recompute its SHA-256 chain, but cannot read
+the server's HMAC keys, change its key ring/migration policy, or execute code in
+the trusted server process. A filesystem writer is different from the trusted
+server appender, which necessarily holds the key. HMAC is symmetric: anyone with
+a verification key can also forge records; it is not a public-key signature.
+
+The server appends `hmac_key_id` and `hmac` (hex HMAC-SHA256) to each new record
+when configured. The MAC covers UTF-8 compact JSON of this ordered tuple:
+
+```text
+["xazz-audit-hmac-sha256-v1", hmac_key_id, index, timestamp, hash, code_length,
+ outcome, prompt_hash, response_hash, model_fingerprint, prev_hash, record_hash]
+```
+
+Absent optional values serialize as `null`. Explicit field positions avoid the
+legacy NUL-delimited digest's optional-field ambiguity. The old `record_hash`
+encoding stays unchanged, preserving existing logs and browser hash replay.
+Browser replay checks only SHA links; the server's authentication verdict is
+authoritative. Tags are checked using RustCrypto HMAC's constant-time verifier.
+Append validates the entire existing chain and HMAC policy under the same
+exclusive file handle before signing; readers use the existing shared lock.
+This preserves the Windows lock protocol and prevents signing over a forged
+history. Work per append is linear in the existing log length.
+
+Separate the service account/secret configuration permissions from accounts that
+can modify the log. On Windows, configure NTFS ACLs on the service configuration
+and log directory separately; on Unix use distinct ownership/permissions. Loading
+an environment variable does not itself enforce that OS permission boundary.
+Execution children do not inherit the audit variables, but a child running under
+the server's OS identity is not isolated from that identity's other capabilities.
+Server-process compromise, administrator access, or secret/configuration access
+is outside this protection. No HTTP request supplies a trusted verification key.
+
+The migration boundary is trusted configuration, never a field chosen by the
+log writer. It prevents stripping all MACs and presenting a forged signed chain
+as legacy. Unsigned legacy prefixes are permitted only by explicit configuration
+and remain unauthenticated. With keys absent, the API warns and makes no claim
+of authentication. Deployment/rotation steps are in [SERVER.md](../SERVER.md).
+
+**Remaining limits (#305):** a valid older prefix, truncation of the signed tail,
+deletion of an entire fresh log, and replay of a valid history under the same key
+are not detectable without an external trusted checkpoint/identity. HMAC does
+not prove that an event was logged at all, that an HTTP caller was truthful, or
+that execution happened; it proves that the trusted appender authenticated the
+record. Separate deployments should use separate keys. This change does not
+claim forward security, non-repudiation, or OS sandboxing.

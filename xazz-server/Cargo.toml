@@ -18,6 +18,7 @@ csv = "1"
 encoding_rs = "0.8"
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.11"
+hmac = "0.13"
 hex = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 
