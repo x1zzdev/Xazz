@@ -994,7 +994,9 @@ function PolicyPackPanel({ revision, onPolicyChange }) {
         />
       </div>
 
-      {ttl && (
+      {ttlState.status === 'error' ? (
+        <PanelStatus state={ttlState} onRetry={reloadTtl} lines={2} />
+      ) : ttl && (
         <form
           className="gov-inline-form"
           onSubmit={(event) => {
