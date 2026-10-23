@@ -92,7 +92,11 @@ burn-cuda = { version = "0.21", optional = true }
 # serialization trait. `tls-rustls` is used instead of the default `tls-native`
 # so the download needs no system OpenSSL (`openssl-sys`).
 # Windows: MSVC toolchain only (`ort-sys` has no windows-gnu prebuilt).
-ort = { version = "2.0.0-rc.13", default-features = false, features = [
+# Pinned to the exact rc.13: rc.14 reworked the `Environment`/`Session` builder
+# API (`EnvironmentBuilder::commit` removed, `Session::builder` now takes an
+# `&Environment`), which `onnx_export.rs` is written against rc.13. A `^`
+# requirement lets cargo resolve rc.14, so an exact pin is required.
+ort = { version = "=2.0.0-rc.13", default-features = false, features = [
     "std",
     "download-binaries",
     "copy-dylibs",
