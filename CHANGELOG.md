@@ -9,6 +9,19 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+## [v0.4.1] — 2026-10-23
+
+### Fixed — `onnx` 기능 빌드 복구: protobuf·ort 버전 정합 (#238)
+
+- v0.4.0 의존성 일괄 갱신이 `xazz-exec`의 `onnx` 기능을 깨뜨렸다. CI/릴리스는
+  default feature만 빌드해 미검출이었다.
+  - `protobuf`가 3.7로 올라갔지만 `rlx-onnx-proto 0.2.18`은 protobuf 1.7로
+    생성돼 있어 `onnx_export.rs`의 `Message` 트레이트가 불일치 → 1.7로 고정.
+  - `ort`가 rc.14로 해석됐지만 exporter는 rc.13 API(`EnvironmentBuilder::commit`,
+    인자 없는 `Session::builder()`)를 쓴다 → `=2.0.0-rc.13`으로 정확히 고정.
+- 검증: `cargo check -p xazz-exec --features onnx` 통과(로컬). 릴리스 바이너리는
+  default feature라 영향 없음.
+
 ## [v0.4.0] — 2026-10-23
 
 ### Added — 통계 연산자: skew / kurtosis / quantile / corr / histogram / outlierIqr (issue #164)

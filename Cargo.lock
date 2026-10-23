@@ -8269,7 +8269,7 @@ dependencies = [
 
 [[package]]
 name = "xazz"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -8286,7 +8286,7 @@ dependencies = [
 
 [[package]]
 name = "xazz-compiler"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -8295,14 +8295,14 @@ dependencies = [
 
 [[package]]
 name = "xazz-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "xazz-exec"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "burn",
  "burn-cuda",
@@ -8324,7 +8324,7 @@ dependencies = [
 
 [[package]]
 name = "xazz-lsp"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde_json",
  "tokio",
@@ -8337,7 +8337,7 @@ dependencies = [
 
 [[package]]
 name = "xazz-runner"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -8345,7 +8345,7 @@ dependencies = [
 
 [[package]]
 name = "xazz-server"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "axum",
  "chrono",
