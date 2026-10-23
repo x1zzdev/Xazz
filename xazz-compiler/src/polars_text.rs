@@ -97,6 +97,8 @@ pub fn agg_expr_to_polars(kind: crate::ir::AggKind, col: &str) -> String {
         // var(1)/std(1) take an argument, so the parentheses are already part of the method name.
         crate::ir::AggKind::Variance => "var(1)",
         crate::ir::AggKind::Std => "std(1)",
+        crate::ir::AggKind::Skew => "skew(false)",
+        crate::ir::AggKind::Kurtosis => "kurtosis(true, false)",
     };
     format!("col(\"{}\").{}", escape(col), method)
 }
@@ -116,6 +118,8 @@ pub fn agg_kind_suffix(kind: crate::ir::AggKind) -> &'static str {
         crate::ir::AggKind::Median => "median",
         crate::ir::AggKind::Variance => "var",
         crate::ir::AggKind::Std => "std",
+        crate::ir::AggKind::Skew => "skew",
+        crate::ir::AggKind::Kurtosis => "kurtosis",
     }
 }
 

@@ -427,12 +427,33 @@ pub fn infer_shape(
             | PipelineOp::Median(col)
             | PipelineOp::Variance(col)
             | PipelineOp::Std(col)
+            | PipelineOp::Skew(col)
+            | PipelineOp::Kurtosis(col)
             | PipelineOp::Count(Some(col)) => {
                 shape.aggregated = true;
                 let mut cols: Vec<OutputColumn> =
                     group_keys.iter().map(OutputColumn::raw).collect();
                 cols.push(OutputColumn::agg(col));
                 shape.set_columns(cols);
+            }
+            PipelineOp::Quantile { col, .. } => {
+                shape.aggregated = true;
+                let mut cols: Vec<OutputColumn> =
+                    group_keys.iter().map(OutputColumn::raw).collect();
+                cols.push(OutputColumn::agg(col));
+                shape.set_columns(cols);
+            }
+            PipelineOp::Corr { a, b } => {
+                shape.aggregated = true;
+                let mut cols: Vec<OutputColumn> =
+                    group_keys.iter().map(OutputColumn::raw).collect();
+                cols.push(OutputColumn::agg(&format!("{a}_{b}_corr")));
+                shape.set_columns(cols);
+            }
+            PipelineOp::Histogram { .. } => {
+                // Binning replaces the frame with derived `bin`/`n` columns.
+                shape.aggregated = true;
+                shape.set_columns(vec![OutputColumn::agg("bin"), OutputColumn::agg("n")]);
             }
             PipelineOp::Agg(specs) => {
                 shape.aggregated = true;
@@ -492,6 +513,7 @@ pub fn infer_shape(
             // ── Operations that only filter rows or change values — column set unchanged ──
             PipelineOp::Filter(_)
             | PipelineOp::DropNull(_)
+            | PipelineOp::OutlierIqr { .. }
             | PipelineOp::FillNull { .. }
             | PipelineOp::OrderBy { .. }
             | PipelineOp::Take(_)

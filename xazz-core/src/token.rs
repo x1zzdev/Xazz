@@ -138,10 +138,26 @@ pub enum TokenKind {
     Variance,
     /// std  (standard deviation aggregation)
     Std,
+    /// skew  (skewness aggregation — issue #164)
+    Skew,
+    /// kurtosis  (kurtosis aggregation — issue #164)
+    Kurtosis,
+    /// quantile  (quantile aggregation — issue #164)
+    Quantile,
+    /// corr  (Pearson correlation of two columns — issue #164)
+    Corr,
+    /// histogram  (bin a numeric column — issue #164)
+    Histogram,
+    /// outlierIqr  (keep rows within [Q1 - f·IQR, Q3 + f·IQR] — issue #164)
+    OutlierIqr,
     /// agg  (multi-aggregate operation — agg([min("c"), mean("c"), max("c")]))
     Agg,
     /// seed  (named argument of sample)
     Seed,
+    /// bins  (named argument of histogram)
+    Bins,
+    /// factor  (named argument of outlierIqr)
+    Factor,
 
     // ── Deep-learning keywords (v0.3) ─────────────────────────
     /// model  (model declaration)

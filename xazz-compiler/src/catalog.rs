@@ -104,6 +104,7 @@ fn apply_data_op(op: &DataOp, provenance: &mut Vec<(String, Vec<String>, usize)>
         // Pass-through ops — provenance unchanged.
         Filter(_)
         | DropNull(_)
+        | OutlierIqr { .. }
         | Sort { .. }
         | Limit(_)
         | Sample { .. }
@@ -156,6 +157,28 @@ fn apply_data_op(op: &DataOp, provenance: &mut Vec<(String, Vec<String>, usize)>
                     provenance.push((col.clone(), vec![col.clone()], step_idx));
                 }
             }
+        }
+
+        // Quantile — same shape as Aggregate (one statistic column).
+        Quantile { col, .. } => {
+            if !provenance.iter().any(|(c, _, _)| c == col) {
+                provenance.push((col.clone(), vec![col.clone()], step_idx));
+            }
+        }
+
+        // Corr — a derived `<a>_<b>_corr` column with lineage from both inputs.
+        Corr { a, b } => {
+            let name = format!("{a}_{b}_corr");
+            if !provenance.iter().any(|(c, _, _)| c == &name) {
+                provenance.push((name, vec![a.clone(), b.clone()], step_idx));
+            }
+        }
+
+        // Histogram — replaces the frame with `bin`/`n`, both derived from `col`.
+        Histogram { col, .. } => {
+            provenance.clear();
+            provenance.push(("bin".to_owned(), vec![col.clone()], step_idx));
+            provenance.push(("n".to_owned(), vec![col.clone()], step_idx));
         }
 
         // Join — merge the other side's columns. We don't have the other side's

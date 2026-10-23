@@ -150,6 +150,24 @@ pub fn print_op(op: &PipelineOp) -> String {
         PipelineOp::Median(col) => format!("median(\"{}\")", escape(col)),
         PipelineOp::Variance(col) => format!("variance(\"{}\")", escape(col)),
         PipelineOp::Std(col) => format!("std(\"{}\")", escape(col)),
+        PipelineOp::Skew(col) => format!("skew(\"{}\")", escape(col)),
+        PipelineOp::Kurtosis(col) => format!("kurtosis(\"{}\")", escape(col)),
+        PipelineOp::Quantile { col, q } => {
+            format!("quantile(\"{}\", {})", escape(col), print_f64(*q))
+        }
+        PipelineOp::Corr { a, b } => {
+            format!("corr(\"{}\", \"{}\")", escape(a), escape(b))
+        }
+        PipelineOp::Histogram { col, bins } => {
+            format!("histogram(\"{}\", bins: {})", escape(col), bins)
+        }
+        PipelineOp::OutlierIqr { col, factor } => {
+            format!(
+                "outlierIqr(\"{}\", factor: {})",
+                escape(col),
+                print_f64(*factor)
+            )
+        }
         PipelineOp::Agg(specs) => {
             let args: Vec<String> = specs
                 .iter()
@@ -163,6 +181,8 @@ pub fn print_op(op: &PipelineOp) -> String {
                         crate::ast::AggFn::Median => "median",
                         crate::ast::AggFn::Variance => "variance",
                         crate::ast::AggFn::Std => "std",
+                        crate::ast::AggFn::Skew => "skew",
+                        crate::ast::AggFn::Kurtosis => "kurtosis",
                     };
                     format!("{}(\"{}\")", name, escape(&s.col))
                 })

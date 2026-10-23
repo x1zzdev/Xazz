@@ -1511,6 +1511,123 @@ impl Parser {
                 Ok(PipelineOp::Std(col_name))
             }
 
+            // ── #164 skew("col") — sample skewness ─────────────────────────────────
+            TokenKind::Skew => {
+                self.advance();
+                self.expect(&TokenKind::LParen)?;
+                let col_name = self.expect_string_lit()?;
+                self.expect(&TokenKind::RParen)?;
+                Ok(PipelineOp::Skew(col_name))
+            }
+
+            // ── #164 kurtosis("col") — sample excess kurtosis ──────────────────────
+            TokenKind::Kurtosis => {
+                self.advance();
+                self.expect(&TokenKind::LParen)?;
+                let col_name = self.expect_string_lit()?;
+                self.expect(&TokenKind::RParen)?;
+                Ok(PipelineOp::Kurtosis(col_name))
+            }
+
+            // ── #164 quantile("col", 0.5) — quantile (type-7) ──────────────────────
+            TokenKind::Quantile => {
+                self.advance();
+                self.expect(&TokenKind::LParen)?;
+                let col_name = self.expect_string_lit()?;
+                self.expect(&TokenKind::Comma)?;
+                let q = self.expect_float()?;
+                self.expect(&TokenKind::RParen)?;
+                if !(0.0..=1.0).contains(&q) {
+                    return Err(CompileError::new(
+                        ErrorKind::ExpectedToken("quantile in [0, 1]".into()),
+                        self.current_span(),
+                        format!("quantile 의 두 번째 인자는 0과 1 사이여야 합니다. 실제: {q}"),
+                    ));
+                }
+                Ok(PipelineOp::Quantile { col: col_name, q })
+            }
+
+            // ── #164 corr("a", "b") — Pearson correlation ─────────────────────────
+            TokenKind::Corr => {
+                self.advance();
+                self.expect(&TokenKind::LParen)?;
+                let a = self.expect_string_lit()?;
+                self.expect(&TokenKind::Comma)?;
+                let b = self.expect_string_lit()?;
+                self.expect(&TokenKind::RParen)?;
+                Ok(PipelineOp::Corr { a, b })
+            }
+
+            // ── #164 histogram("col", bins: 10) — equal-width binning ──────────────
+            TokenKind::Histogram => {
+                self.advance();
+                self.expect(&TokenKind::LParen)?;
+                let col_name = self.expect_string_lit()?;
+                let mut bins: usize = 10;
+                if matches!(self.current_kind(), TokenKind::Comma) {
+                    self.advance(); // consume ,
+                    self.expect(&TokenKind::Bins)?;
+                    self.expect(&TokenKind::Colon)?;
+                    match self.current_kind() {
+                        TokenKind::IntLit(n) => {
+                            let n = *n;
+                            self.advance();
+                            if n <= 0 {
+                                return Err(CompileError::new(
+                                    ErrorKind::UnexpectedToken("histogram bins <= 0".into()),
+                                    self.current_span(),
+                                    format!("histogram() 의 bins 는 0보다 커야 합니다. 실제: {n}"),
+                                ));
+                            }
+                            bins = n as usize;
+                        }
+                        other => {
+                            return Err(CompileError::new(
+                                ErrorKind::ExpectedToken("IntLit".into()),
+                                self.current_span(),
+                                format!(
+                                    "histogram 의 bins: 뒤에는 정수 리터럴이 필요합니다. 실제: {:?}",
+                                    other
+                                ),
+                            ));
+                        }
+                    }
+                }
+                self.expect(&TokenKind::RParen)?;
+                Ok(PipelineOp::Histogram {
+                    col: col_name,
+                    bins,
+                })
+            }
+
+            // ── #164 outlierIqr("col", factor: 1.5) — IQR-based outlier filter ─────
+            TokenKind::OutlierIqr => {
+                self.advance();
+                self.expect(&TokenKind::LParen)?;
+                let col_name = self.expect_string_lit()?;
+                let mut factor: f64 = 1.5;
+                if matches!(self.current_kind(), TokenKind::Comma) {
+                    self.advance(); // consume ,
+                    self.expect(&TokenKind::Factor)?;
+                    self.expect(&TokenKind::Colon)?;
+                    factor = self.expect_float()?;
+                    if factor < 0.0 {
+                        return Err(CompileError::new(
+                            ErrorKind::UnexpectedToken("outlierIqr factor < 0".into()),
+                            self.current_span(),
+                            format!(
+                                "outlierIqr() 의 factor 는 0 이상이어야 합니다. 실제: {factor}"
+                            ),
+                        ));
+                    }
+                }
+                self.expect(&TokenKind::RParen)?;
+                Ok(PipelineOp::OutlierIqr {
+                    col: col_name,
+                    factor,
+                })
+            }
+
             // ── v0.23 agg([min("c"), mean("c"), max("c")]) — multi-aggregation ────────
             TokenKind::Agg => {
                 self.advance();
@@ -1528,12 +1645,14 @@ impl Parser {
                             TokenKind::Median => AggFn::Median,
                             TokenKind::Variance => AggFn::Variance,
                             TokenKind::Std => AggFn::Std,
+                            TokenKind::Skew => AggFn::Skew,
+                            TokenKind::Kurtosis => AggFn::Kurtosis,
                             other => {
                                 return Err(CompileError::new(
                                     ErrorKind::ExpectedToken("aggregate function".into()),
                                     self.current_span(),
                                     format!(
-                                        "agg([...]) 안에는 sum/mean/min/max/count/median/variance/std 만 올 수 있습니다. 실제: {:?}",
+                                        "agg([...]) 안에는 sum/mean/min/max/count/median/variance/std/skew/kurtosis 만 올 수 있습니다. 실제: {:?}",
                                         other
                                     ),
                                 ));
@@ -1618,7 +1737,7 @@ impl Parser {
                 ErrorKind::UnexpectedToken(format!("{:?}", other)),
                 self.current_span(),
                 format!(
-                    "|> 뒤에는 filter/select/count/groupBy/sum/mean/min/max/orderBy/take/dropNull/fillNull/join/withColumn/chart/cast/rename/replace/sample/median/variance/std/train/predict/withDp 중 하나가 와야 합니다. 실제: {:?}",
+                    "|> 뒤에는 filter/select/count/groupBy/sum/mean/min/max/orderBy/take/dropNull/fillNull/join/withColumn/chart/cast/rename/replace/sample/median/variance/std/skew/kurtosis/quantile/corr/histogram/outlierIqr/agg/train/predict/withDp/save 중 하나가 와야 합니다. 실제: {:?}",
                     other
                 ),
             )),
@@ -2148,6 +2267,84 @@ mod tests {
             },
             other => panic!("VarDecl 예상, 실제: {:?}", other),
         }
+    }
+
+    // ── issue #164: statistical operator parsing ─────────────────────────────
+
+    #[test]
+    fn test_statistical_operators_ast() {
+        let src = r#"v s = load("d.csv") :: T |> skew("a") |> kurtosis("b") |> quantile("c", 0.9) |> corr("a", "b") |> histogram("a", bins: 5) |> outlierIqr("a", factor: 2.0);"#;
+        let program = parse_src(src).expect("통계 연산자 파싱 실패");
+        match &program.stmts[0] {
+            Stmt::VarDecl { ops, .. } => {
+                assert_eq!(
+                    ops,
+                    &vec![
+                        PipelineOp::Skew("a".into()),
+                        PipelineOp::Kurtosis("b".into()),
+                        PipelineOp::Quantile {
+                            col: "c".into(),
+                            q: 0.9,
+                        },
+                        PipelineOp::Corr {
+                            a: "a".into(),
+                            b: "b".into(),
+                        },
+                        PipelineOp::Histogram {
+                            col: "a".into(),
+                            bins: 5,
+                        },
+                        PipelineOp::OutlierIqr {
+                            col: "a".into(),
+                            factor: 2.0,
+                        },
+                    ]
+                );
+            }
+            other => panic!("VarDecl 예상, 실제: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_statistical_operator_defaults() {
+        let src = r#"v s = load("d.csv") :: T |> histogram("a") |> outlierIqr("a");"#;
+        let program = parse_src(src).expect("기본값 파싱 실패");
+        match &program.stmts[0] {
+            Stmt::VarDecl { ops, .. } => {
+                assert_eq!(
+                    ops,
+                    &vec![
+                        PipelineOp::Histogram {
+                            col: "a".into(),
+                            bins: 10,
+                        },
+                        PipelineOp::OutlierIqr {
+                            col: "a".into(),
+                            factor: 1.5,
+                        },
+                    ]
+                );
+            }
+            other => panic!("VarDecl 예상, 실제: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_quantile_out_of_range_rejected() {
+        let src = r#"v s = load("d.csv") :: T |> quantile("a", 1.5);"#;
+        assert!(parse_src(src).is_err(), "quantile q > 1 은 거부되어야 함");
+    }
+
+    #[test]
+    fn test_histogram_zero_bins_rejected() {
+        let src = r#"v s = load("d.csv") :: T |> histogram("a", bins: 0);"#;
+        assert!(parse_src(src).is_err(), "bins: 0 은 거부되어야 함");
+    }
+
+    #[test]
+    fn test_outlier_iqr_negative_factor_rejected() {
+        let src = r#"v s = load("d.csv") :: T |> outlierIqr("a", factor: -1.0);"#;
+        assert!(parse_src(src).is_err(), "음수 factor 는 거부되어야 함");
     }
 
     // ── test 2: load :: filter parsing and AST BinOp validation ─────────────────────

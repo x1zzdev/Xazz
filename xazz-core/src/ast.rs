@@ -149,6 +149,10 @@ pub enum AggFn {
     Median,
     Variance,
     Std,
+    /// skewness (issue #164)
+    Skew,
+    /// kurtosis (issue #164)
+    Kurtosis,
 }
 
 /// A single aggregation spec inside `agg([...])`, e.g. `mean("measurement")`.
@@ -214,6 +218,18 @@ pub enum PipelineOp {
     Variance(String),
     /// std("col") — standard deviation aggregation (v0.22)
     Std(String),
+    /// skew("col") — sample skewness (issue #164)
+    Skew(String),
+    /// kurtosis("col") — sample excess kurtosis (issue #164)
+    Kurtosis(String),
+    /// quantile("col", 0.5) — quantile with linear (type-7) interpolation (issue #164)
+    Quantile { col: String, q: f64 },
+    /// corr("a", "b") — Pearson correlation of two numeric columns (issue #164)
+    Corr { a: String, b: String },
+    /// histogram("col", bins: 10) — bin a numeric column into (bin, count) rows (issue #164)
+    Histogram { col: String, bins: usize },
+    /// outlierIqr("col", factor: 1.5) — keep rows within [Q1 - f·IQR, Q3 + f·IQR] (issue #164)
+    OutlierIqr { col: String, factor: f64 },
     /// agg([min("c"), mean("c"), max("c")]) — multiple aggregations in one pass (v0.23)
     Agg(Vec<AggSpec>),
     /// train(ModelName, target: "col", epochs: N, lr: F) — training operator (v0.5)

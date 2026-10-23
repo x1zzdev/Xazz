@@ -1,0 +1,42 @@
+// Xazz Statistical Operators — descriptive statistics on a real dataset
+// Demonstrates: skew, kurtosis, quantile, corr, histogram, outlierIqr
+//
+// Run: xazz run examples/statistics/descriptive_stats.xzz
+
+// ── 1. Schema Declaration ────────────────────────────────────────────────────
+type AirQuality = {
+    date:    string,
+    station: string,
+    pm10:    Option<float>,
+    pm25:    Option<float>,
+}
+
+// ── 2. Load & clean ──────────────────────────────────────────────────────────
+v cleaned = load("examples/data/seoul_air_2024.csv") :: AirQuality
+    |> dropNull("pm10")
+    |> fillNull("pm25", strategy: "mean")
+
+// ── 3. Distribution shape — skewness and excess kurtosis in one pass ──────────
+v shape = cleaned
+    |> agg([skew("pm10"), kurtosis("pm10")])
+
+// ── 4. Percentiles — linear (type-7) interpolation ───────────────────────────
+v p50 = cleaned |> quantile("pm10", 0.5)
+v p95 = cleaned |> quantile("pm10", 0.95)
+
+// ── 5. Pearson correlation between PM10 and PM2.5 ────────────────────────────
+v correlation = cleaned |> corr("pm10", "pm25")
+
+// ── 6. Histogram — bin PM10 into 10 equal-width buckets (columns: bin, n) ─────
+v distribution = cleaned
+    |> histogram("pm10", bins: 10)
+    |> chart {
+        type:  bar,
+        x:     bin,
+        y:     n,
+        title: "PM10 distribution (10 bins)",
+    }
+
+// ── 7. Outlier filter — drop values outside [Q1 - 1.5·IQR, Q3 + 1.5·IQR] ─────
+v without_outliers = cleaned
+    |> outlierIqr("pm10", factor: 1.5)

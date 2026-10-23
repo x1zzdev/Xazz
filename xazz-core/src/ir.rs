@@ -166,6 +166,10 @@ pub enum AggKind {
     Median,
     Variance,
     Std,
+    /// sample skewness (issue #164)
+    Skew,
+    /// sample excess kurtosis (issue #164)
+    Kurtosis,
 }
 
 impl From<AggFn> for AggKind {
@@ -179,6 +183,8 @@ impl From<AggFn> for AggKind {
             AggFn::Median => AggKind::Median,
             AggFn::Variance => AggKind::Variance,
             AggFn::Std => AggKind::Std,
+            AggFn::Skew => AggKind::Skew,
+            AggFn::Kurtosis => AggKind::Kurtosis,
         }
     }
 }
@@ -197,6 +203,32 @@ pub enum DataOp {
     /// Multiple aggregations in a single pass (`agg([...])`), lowered to one
     /// `group_by(...).agg([...])` (or `select([...])` when ungrouped).
     AggList(Vec<(AggKind, String)>),
+    /// Quantile with linear (type-7) interpolation (issue #164). Grouped when a
+    /// preceding GroupBy exists.
+    Quantile {
+        col: String,
+        q: f64,
+    },
+    /// Pearson correlation of two numeric columns (issue #164). Grouped when a
+    /// preceding GroupBy exists.
+    Corr {
+        a: String,
+        b: String,
+    },
+    /// Bin a numeric column into `bins` equal-width buckets (issue #164). The
+    /// result replaces the frame with `(bin: str, n: u32)` rows; grouping is
+    /// not supported (the whole frame is binned).
+    Histogram {
+        col: String,
+        bins: usize,
+    },
+    /// Keep rows whose value lies within `[Q1 - factor·IQR, Q3 + factor·IQR]`
+    /// (issue #164). Quantiles are computed over the whole frame (ddof=1,
+    /// type-7/linear); grouping is not applied to the bounds.
+    OutlierIqr {
+        col: String,
+        factor: f64,
+    },
     Sort {
         col: String,
         desc: bool,

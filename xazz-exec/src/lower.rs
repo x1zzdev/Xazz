@@ -9,7 +9,10 @@
 use std::collections::HashMap;
 
 use polars::frame::DataFrame;
-use polars::prelude::{IntoLazy, JoinArgs, JoinType, LazyFrame, SortMultipleOptions, col, lit};
+use polars::prelude::{
+    Column, DataType, IntoLazy, JoinArgs, JoinType, LazyFrame, QuantileMethod, SortMultipleOptions,
+    col, lit,
+};
 
 use xazz_compiler::ast::BinOpKind;
 use xazz_compiler::ir::{AggKind, DataOp, FillValue, TypedExpr, TypedExprKind};
@@ -58,12 +61,51 @@ fn agg_expr(kind: &AggKind, agg_col: &str) -> polars::prelude::Expr {
         AggKind::Median => col(agg_col).median(),
         AggKind::Variance => col(agg_col).var(1),
         AggKind::Std => col(agg_col).std(1),
+        // Unbiased (bias=false) sample skewness / excess kurtosis, consistent
+        // with the ddof=1 variance/std above (issue #164).
+        AggKind::Skew => col(agg_col).skew(false),
+        AggKind::Kurtosis => col(agg_col).kurtosis(true, false),
     }
 }
 
 /// Short suffix used to name `agg([...])` output columns (`<col>_<name>`).
 fn agg_kind_name(kind: &AggKind) -> &'static str {
     xazz_compiler::polars_text::agg_kind_suffix(*kind)
+}
+
+/// Bins finite values into `bins` equal-width buckets over `[min, max)`; the last
+/// bucket is closed so the maximum lands in it. Returns interval labels and
+/// per-bucket counts. An empty input yields no rows; a degenerate range
+/// (`min == max`) yields a single closed bucket.
+fn histogram_bins(values: &[f64], bins: usize) -> (Vec<String>, Vec<u32>) {
+    if values.is_empty() || bins == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    let min = values.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    if min == max {
+        return (vec![format!("[{min}, {max}]")], vec![values.len() as u32]);
+    }
+    let width = (max - min) / bins as f64;
+    let mut counts = vec![0u32; bins];
+    for &v in values {
+        let mut idx = ((v - min) / width).floor() as isize;
+        if idx < 0 {
+            idx = 0;
+        }
+        if idx as usize >= bins {
+            idx = bins as isize - 1;
+        }
+        counts[idx as usize] += 1;
+    }
+    let labels = (0..bins)
+        .map(|i| {
+            let lo = min + width * i as f64;
+            let hi = min + width * (i + 1) as f64;
+            format!("[{lo}, {hi})")
+        })
+        .collect();
+    (labels, counts)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,6 +163,89 @@ pub fn lower_data(
                 *lf = lf.clone().group_by([col(group_col.as_str())]).agg(exprs);
             } else {
                 *lf = lf.clone().select(exprs);
+            }
+        }
+        DataOp::Quantile { col: q_col, q } => {
+            let expr = col(q_col.as_str()).quantile(lit(*q), QuantileMethod::Linear);
+            if let Some(group_col) = pending_group.take() {
+                *lf = lf.clone().group_by([col(group_col.as_str())]).agg([expr]);
+            } else {
+                *lf = lf.clone().select([expr]);
+            }
+        }
+        DataOp::Corr { a, b } => {
+            // Pearson r = cov(a,b) / (σa·σb). The numerator is the population
+            // covariance (mean(ab) − mean(a)·mean(b)), so the denominator must
+            // use the population std (ddof=0); a ddof mismatch scales r wrongly.
+            let expr = ((col(a.as_str()) * col(b.as_str())).mean()
+                - col(a.as_str()).mean() * col(b.as_str()).mean())
+                / (col(a.as_str()).std(0) * col(b.as_str()).std(0));
+            let expr = expr.alias(format!("{a}_{b}_corr"));
+            if let Some(group_col) = pending_group.take() {
+                *lf = lf.clone().group_by([col(group_col.as_str())]).agg([expr]);
+            } else {
+                *lf = lf.clone().select([expr]);
+            }
+        }
+        DataOp::Histogram { col: h_col, bins } => {
+            // Equal-width binning replaces the frame with `(bin, n)` rows, so
+            // it is materialized: the frame's value distribution is read once and
+            // summarized into a small result. `pending_group` is a barrier here.
+            pending_group.take();
+            let source = lf.clone().select([col(h_col.as_str())]).collect()?;
+            let series = source.column(h_col.as_str())?;
+            let floats = series.cast(&DataType::Float64)?;
+            let values: Vec<f64> = floats
+                .f64()?
+                .into_iter()
+                .flatten()
+                .filter(|v| v.is_finite())
+                .collect();
+            let (labels, counts) = histogram_bins(&values, *bins);
+            let height = labels.len();
+            let bin_col = Column::new("bin".into(), labels);
+            let count_col = Column::new("n".into(), counts);
+            *lf = DataFrame::new(height, vec![bin_col, count_col])?.lazy();
+        }
+        DataOp::OutlierIqr { col: o_col, factor } => {
+            // Bounds are computed over the whole frame (type-7/linear quartiles);
+            // grouping is not applied to the bounds. An empty/all-null column has
+            // no quartiles, so the filter keeps nothing.
+            let quartiles = lf
+                .clone()
+                .select([
+                    col(o_col.as_str())
+                        .quantile(lit(0.25), QuantileMethod::Linear)
+                        .alias("q1"),
+                    col(o_col.as_str())
+                        .quantile(lit(0.75), QuantileMethod::Linear)
+                        .alias("q3"),
+                ])
+                .collect()?;
+            let q1 = quartiles
+                .column("q1")
+                .ok()
+                .and_then(|c| c.f64().ok())
+                .and_then(|c| c.get(0));
+            let q3 = quartiles
+                .column("q3")
+                .ok()
+                .and_then(|c| c.f64().ok())
+                .and_then(|c| c.get(0));
+            match (q1, q3) {
+                (Some(q1), Some(q3)) if q1.is_finite() && q3.is_finite() => {
+                    let iqr = q3 - q1;
+                    let lo = q1 - factor * iqr;
+                    let hi = q3 + factor * iqr;
+                    *lf = lf.clone().filter(
+                        col(o_col.as_str())
+                            .gt_eq(lit(lo))
+                            .and(col(o_col.as_str()).lt_eq(lit(hi))),
+                    );
+                }
+                _ => {
+                    *lf = lf.clone().filter(lit(false));
+                }
             }
         }
         DataOp::Sort {
@@ -326,6 +451,71 @@ mod tests {
         let out = collect_pipeline(frame, &ops).unwrap();
         let col_a = out.column("a").unwrap();
         assert_eq!(col_a.null_count(), 0);
+    }
+
+    // ── issue #164: statistical operators ────────────────────────────────────
+
+    #[test]
+    fn histogram_bins_partitions_values() {
+        let (labels, counts) = histogram_bins(&[1.0, 2.0, 3.0, 4.0], 2);
+        assert_eq!(labels.len(), 2);
+        assert_eq!(counts.iter().sum::<u32>(), 4);
+        assert_eq!(counts, vec![2, 2]);
+    }
+
+    #[test]
+    fn histogram_bins_handles_degenerate_and_empty_input() {
+        let (labels, counts) = histogram_bins(&[5.0, 5.0, 5.0], 4);
+        assert_eq!(labels.len(), 1, "동일값은 단일 버킷");
+        assert_eq!(counts, vec![3]);
+
+        let (labels, counts) = histogram_bins(&[], 4);
+        assert!(labels.is_empty());
+        assert!(counts.is_empty());
+    }
+
+    #[test]
+    fn histogram_op_replaces_frame_with_bin_and_count() {
+        let frame = df!("x" => [1.0f64, 2.0, 3.0, 4.0, 5.0]).unwrap();
+        let out = collect_pipeline(
+            frame,
+            &[DataOp::Histogram {
+                col: "x".into(),
+                bins: 2,
+            }],
+        )
+        .unwrap();
+        assert_eq!(out.height(), 2);
+        assert!(out.column("bin").is_ok());
+        assert!(out.column("count").is_ok());
+    }
+
+    #[test]
+    fn outlier_iqr_drops_extreme_value() {
+        let frame = df!("x" => [1.0f64, 2.0, 3.0, 4.0, 100.0]).unwrap();
+        let out = collect_pipeline(
+            frame,
+            &[DataOp::OutlierIqr {
+                col: "x".into(),
+                factor: 1.5,
+            }],
+        )
+        .unwrap();
+        assert_eq!(out.height(), 4, "100 은 IQR 밖으로 제거");
+    }
+
+    #[test]
+    fn outlier_iqr_empty_column_keeps_nothing() {
+        let frame = df!("x" => [None::<f64>, None]).unwrap();
+        let out = collect_pipeline(
+            frame,
+            &[DataOp::OutlierIqr {
+                col: "x".into(),
+                factor: 1.5,
+            }],
+        )
+        .unwrap();
+        assert_eq!(out.height(), 0);
     }
 
     // ── Equivalence check of pre/post-optimization results (proves the IR optimization layer's correctness) ──

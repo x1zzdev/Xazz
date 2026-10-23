@@ -629,6 +629,90 @@ fn generate_rust_src(
                             ));
                         }
                     }
+                    PipelineOp::Skew(agg_col) => {
+                        let agg = crate::polars_text::agg_expr_to_polars(
+                            crate::ir::AggKind::Skew,
+                            agg_col,
+                        );
+                        if let Some(gc) = pending_group_col.take() {
+                            out.push_str(&format!(
+                                "        .group_by([col(\"{}\")])\n        .agg([{}])  // |> groupBy(\"{}\") |> skew(\"{}\")\n",
+                                escape(&gc), agg, gc, agg_col
+                            ));
+                        } else {
+                            out.push_str(&format!(
+                                "        .select([{}])  // |> skew(\"{}\")\n",
+                                agg, agg_col
+                            ));
+                        }
+                    }
+                    PipelineOp::Kurtosis(agg_col) => {
+                        let agg = crate::polars_text::agg_expr_to_polars(
+                            crate::ir::AggKind::Kurtosis,
+                            agg_col,
+                        );
+                        if let Some(gc) = pending_group_col.take() {
+                            out.push_str(&format!(
+                                "        .group_by([col(\"{}\")])\n        .agg([{}])  // |> groupBy(\"{}\") |> kurtosis(\"{}\")\n",
+                                escape(&gc), agg, gc, agg_col
+                            ));
+                        } else {
+                            out.push_str(&format!(
+                                "        .select([{}])  // |> kurtosis(\"{}\")\n",
+                                agg, agg_col
+                            ));
+                        }
+                    }
+                    PipelineOp::Quantile { col: q_col, q } => {
+                        let agg = format!(
+                            "col(\"{}\").quantile(lit({}), QuantileMethod::Linear)",
+                            escape(q_col),
+                            q
+                        );
+                        if let Some(gc) = pending_group_col.take() {
+                            out.push_str(&format!(
+                                "        .group_by([col(\"{}\")])\n        .agg([{}])  // |> groupBy(\"{}\") |> quantile(\"{}\", {})\n",
+                                escape(&gc), agg, gc, q_col, q
+                            ));
+                        } else {
+                            out.push_str(&format!(
+                                "        .select([{}])  // |> quantile(\"{}\", {})\n",
+                                agg, q_col, q
+                            ));
+                        }
+                    }
+                    PipelineOp::Corr { a, b } => {
+                        let agg = format!(
+                            "((col(\"{a}\") * col(\"{b}\")).mean() - col(\"{a}\").mean() * col(\"{b}\").mean()) / (col(\"{a}\").std(0) * col(\"{b}\").std(0))",
+                            a = escape(a),
+                            b = escape(b)
+                        );
+                        if let Some(gc) = pending_group_col.take() {
+                            out.push_str(&format!(
+                                "        .group_by([col(\"{}\")])\n        .agg([{}])  // |> groupBy(\"{}\") |> corr(\"{}\", \"{}\")\n",
+                                escape(&gc), agg, gc, a, b
+                            ));
+                        } else {
+                            out.push_str(&format!(
+                                "        .select([{}])  // |> corr(\"{}\", \"{}\")\n",
+                                agg, a, b
+                            ));
+                        }
+                    }
+                    // ── #164 histogram — runtime-only binning (reference emit) ──────
+                    PipelineOp::Histogram { col: h_col, bins } => {
+                        out.push_str(&format!(
+                            "        // |> histogram(\"{}\", bins: {})  →  [xazz:result] bin/n rows (runtime only)\n",
+                            escape(h_col), bins
+                        ));
+                    }
+                    // ── #164 outlierIqr — runtime-only IQR filter (reference emit) ──
+                    PipelineOp::OutlierIqr { col: o_col, factor } => {
+                        out.push_str(&format!(
+                            "        // |> outlierIqr(\"{}\", factor: {})  →  IQR filter applied at xazz execution\n",
+                            escape(o_col), factor
+                        ));
+                    }
                     // ── v0.23 agg([...]) — multi-aggregation in one pass ─────────────
                     PipelineOp::Agg(specs) => {
                         let aggs: Vec<String> = specs
@@ -1889,7 +1973,22 @@ fn validate_op_columns(
         | PipelineOp::Median(col)
         | PipelineOp::Variance(col)
         | PipelineOp::Std(col)
+        | PipelineOp::Skew(col)
+        | PipelineOp::Kurtosis(col)
         | PipelineOp::DropNull(col) => {
+            check_col(col.as_str())?;
+        }
+        PipelineOp::Quantile { col, .. } => {
+            check_col(col.as_str())?;
+        }
+        PipelineOp::Corr { a, b } => {
+            check_col(a.as_str())?;
+            check_col(b.as_str())?;
+        }
+        PipelineOp::Histogram { col, .. } => {
+            check_col(col.as_str())?;
+        }
+        PipelineOp::OutlierIqr { col, .. } => {
             check_col(col.as_str())?;
         }
         PipelineOp::Agg(specs) => {

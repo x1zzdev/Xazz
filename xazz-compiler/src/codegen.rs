@@ -55,6 +55,8 @@ fn agg_fn_name(func: AggFn) -> &'static str {
         AggFn::Median => "median",
         AggFn::Variance => "variance",
         AggFn::Std => "std",
+        AggFn::Skew => "skew",
+        AggFn::Kurtosis => "kurtosis",
     }
 }
 
@@ -533,6 +535,46 @@ impl Codegen {
                     agg_col
                 )
             }
+            PipelineOp::Skew(agg_col) => {
+                format!(
+                    "  .agg([{}])  // |> skew(\"{}\")",
+                    crate::polars_text::agg_expr_to_polars(crate::ir::AggKind::Skew, agg_col),
+                    agg_col
+                )
+            }
+            PipelineOp::Kurtosis(agg_col) => {
+                format!(
+                    "  .agg([{}])  // |> kurtosis(\"{}\")",
+                    crate::polars_text::agg_expr_to_polars(crate::ir::AggKind::Kurtosis, agg_col),
+                    agg_col
+                )
+            }
+            PipelineOp::Quantile { col: q_col, q } => {
+                format!(
+                    "  .agg([col(\"{}\").quantile(lit({}), QuantileMethod::Linear)])  // |> quantile(\"{}\", {})",
+                    esc(q_col),
+                    q,
+                    q_col,
+                    q
+                )
+            }
+            PipelineOp::Corr { a, b } => {
+                format!(
+                    "  .agg([((col(\"{a}\") * col(\"{b}\")).mean() - col(\"{a}\").mean() * col(\"{b}\").mean()) / (col(\"{a}\").std(0) * col(\"{b}\").std(0))])  // |> corr(\"{a}\", \"{b}\")",
+                    a = esc(a),
+                    b = esc(b)
+                )
+            }
+            PipelineOp::Histogram { col: h_col, bins } => format!(
+                "  // |> histogram(\"{}\", bins: {})  →  [xazz:result] bin/n rows",
+                esc(h_col),
+                bins
+            ),
+            PipelineOp::OutlierIqr { col: o_col, factor } => format!(
+                "  // |> outlierIqr(\"{}\", factor: {})  →  rows outside [Q1 - f·IQR, Q3 + f·IQR] filtered at xazz execution",
+                esc(o_col),
+                factor
+            ),
             PipelineOp::Agg(specs) => {
                 let exprs: Vec<String> = specs
                     .iter()

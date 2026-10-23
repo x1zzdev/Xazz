@@ -850,7 +850,13 @@ impl Analyzer {
             | PipelineOp::Max(_)
             | PipelineOp::Median(_)
             | PipelineOp::Variance(_)
-            | PipelineOp::Std(_) => self.check_aggregate_op(op, st),
+            | PipelineOp::Std(_)
+            | PipelineOp::Skew(_)
+            | PipelineOp::Kurtosis(_) => self.check_aggregate_op(op, st),
+            PipelineOp::Quantile { col, q } => self.check_quantile_op(col, *q, st),
+            PipelineOp::Corr { a, b } => self.check_corr_op(a, b, st),
+            PipelineOp::Histogram { col, bins } => self.check_histogram_op(col, *bins, st),
+            PipelineOp::OutlierIqr { col, factor } => self.check_outlier_iqr_op(col, *factor, st),
             PipelineOp::Agg(specs) => self.check_agg_list_op(specs, st),
             PipelineOp::Count(None) => self.check_count_all_op(st),
             PipelineOp::OrderBy { col, desc } => self.check_orderby_op(col, *desc, st),
@@ -1092,6 +1098,58 @@ impl Analyzer {
         st.pending_group = None;
         st.steps
             .push(ir::Step::Data(ir::DataOp::Aggregate { kind, col: agg_col }));
+        false
+    }
+
+    fn check_quantile_op(&mut self, col: &str, q: f64, st: &mut PipelineCheckState) -> bool {
+        self.check_agg_column(col, &st.cols);
+        st.pending_group = None;
+        st.steps.push(ir::Step::Data(ir::DataOp::Quantile {
+            col: col.to_owned(),
+            q,
+        }));
+        false
+    }
+
+    fn check_corr_op(&mut self, a: &str, b: &str, st: &mut PipelineCheckState) -> bool {
+        self.check_agg_column(a, &st.cols);
+        self.check_agg_column(b, &st.cols);
+        st.pending_group = None;
+        st.steps.push(ir::Step::Data(ir::DataOp::Corr {
+            a: a.to_owned(),
+            b: b.to_owned(),
+        }));
+        false
+    }
+
+    /// `histogram("col", bins: N)` replaces the frame with `(bin, n)` rows, so
+    /// the tracked schema is swapped for those two derived columns.
+    fn check_histogram_op(&mut self, col: &str, bins: usize, st: &mut PipelineCheckState) -> bool {
+        self.check_agg_column(col, &st.cols);
+        st.pending_group = None;
+        let mut next = HashMap::new();
+        next.insert("bin".to_owned(), CheckerColType::new("str", false));
+        next.insert("n".to_owned(), CheckerColType::new("int", false));
+        st.cols = next;
+        st.steps.push(ir::Step::Data(ir::DataOp::Histogram {
+            col: col.to_owned(),
+            bins,
+        }));
+        false
+    }
+
+    /// `outlierIqr("col", factor: f)` filters rows; the column set is unchanged.
+    fn check_outlier_iqr_op(
+        &mut self,
+        col: &str,
+        factor: f64,
+        st: &mut PipelineCheckState,
+    ) -> bool {
+        self.check_agg_column(col, &st.cols);
+        st.steps.push(ir::Step::Data(ir::DataOp::OutlierIqr {
+            col: col.to_owned(),
+            factor,
+        }));
         false
     }
 
@@ -1735,6 +1793,8 @@ fn agg_kind_from_fn(func: AggFn) -> ir::AggKind {
         AggFn::Median => ir::AggKind::Median,
         AggFn::Variance => ir::AggKind::Variance,
         AggFn::Std => ir::AggKind::Std,
+        AggFn::Skew => ir::AggKind::Skew,
+        AggFn::Kurtosis => ir::AggKind::Kurtosis,
     }
 }
 
@@ -1748,6 +1808,8 @@ fn aggregate_kind_col(op: &PipelineOp) -> (ir::AggKind, String) {
         PipelineOp::Median(c) => (ir::AggKind::Median, c.clone()),
         PipelineOp::Variance(c) => (ir::AggKind::Variance, c.clone()),
         PipelineOp::Std(c) => (ir::AggKind::Std, c.clone()),
+        PipelineOp::Skew(c) => (ir::AggKind::Skew, c.clone()),
+        PipelineOp::Kurtosis(c) => (ir::AggKind::Kurtosis, c.clone()),
         _ => unreachable!("집계 연산자만 전달"),
     }
 }
@@ -1817,6 +1879,62 @@ mod tests {
         let r = check("v a = load(\"x.csv\") :: Missing |> select([a]);");
         assert!(r.is_err());
         assert!(err_kinds(&r).iter().any(|k| k.contains("UndeclaredType")));
+    }
+
+    // ── issue #164: statistical operators ────────────────────────────────────
+
+    #[test]
+    fn statistical_operators_check_ok() {
+        let r = check(
+            "type X = { a: float, b: float };
+             v s = load(\"x.csv\") :: X
+               |> skew(\"a\")
+               |> save(\"s.csv\");",
+        );
+        assert!(r.is_ok(), "skew 오류: {:?}", r.errors);
+
+        let r = check(
+            "type X = { a: float, b: float };
+             v s = load(\"x.csv\") :: X |> corr(\"a\", \"b\") |> save(\"s.csv\");",
+        );
+        assert!(r.is_ok(), "corr 오류: {:?}", r.errors);
+
+        let r = check(
+            "type X = { a: float, b: float };
+             v s = load(\"x.csv\") :: X |> quantile(\"a\", 0.5) |> save(\"s.csv\");",
+        );
+        assert!(r.is_ok(), "quantile 오류: {:?}", r.errors);
+
+        let r = check(
+            "type X = { a: float, b: float };
+             v s = load(\"x.csv\") :: X |> outlierIqr(\"a\", factor: 1.5) |> select([a]) |> save(\"s.csv\");",
+        );
+        assert!(r.is_ok(), "outlierIqr 오류: {:?}", r.errors);
+    }
+
+    #[test]
+    fn histogram_replaces_schema_with_bin_and_count() {
+        let r = check(
+            "type X = { a: float };
+             v s = load(\"x.csv\") :: X |> histogram(\"a\", bins: 4) |> select([bin, n]) |> save(\"s.csv\");",
+        );
+        assert!(r.is_ok(), "histogram bin/n 오류: {:?}", r.errors);
+
+        // The original column is gone after binning.
+        let r = check(
+            "type X = { a: float };
+             v s = load(\"x.csv\") :: X |> histogram(\"a\", bins: 4) |> select([a]) |> save(\"s.csv\");",
+        );
+        assert!(r.is_err(), "histogram 이후 원본 컬럼 참조는 오류여야 함");
+    }
+
+    #[test]
+    fn statistical_operator_on_missing_column_is_error() {
+        let r = check(
+            "type X = { a: float };
+             v s = load(\"x.csv\") :: X |> skew(\"missing\") |> save(\"s.csv\");",
+        );
+        assert!(r.is_err(), "없는 컬럼 집계는 오류여야 함");
     }
 
     #[test]

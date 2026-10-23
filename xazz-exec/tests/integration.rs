@@ -413,3 +413,100 @@ fn train_hyperparameter_sweep_end_to_end() {
     assert!(df.column("pred").is_ok(), "예측 컬럼 없음");
     assert_eq!(df.height(), 8, "8행 기대");
 }
+
+// ── issue #164: statistical operators ────────────────────────────────────────
+
+/// `skew`, `kurtosis`, `quantile` and `corr` run end to end and produce the
+/// expected statistics for a perfectly linear `y = 2x` sample.
+#[test]
+fn statistical_operators_end_to_end() {
+    let dir = temp_dir();
+    write_csv(&dir, "x,y\n1,2\n2,4\n3,6\n4,8\n5,10\n");
+    write_xzz(
+        &dir.join("data.csv"),
+        "type P = { x: float, y: float };
+         v base = load(\"data.csv\") :: P;
+         v sk = base |> skew(\"x\") |> save(\"sk.parquet\");
+         v ku = base |> kurtosis(\"x\") |> save(\"ku.parquet\");
+         v qn = base |> quantile(\"x\", 0.5) |> save(\"qn.parquet\");
+         v co = base |> corr(\"x\", \"y\") |> save(\"co.parquet\");",
+    );
+    let result = run_in_dir(&dir);
+    assert!(result.is_ok(), "통계 연산자 실행 실패: {:?}", result);
+
+    let skew = read_parquet(&dir.join("sk.parquet"));
+    assert_eq!(skew.height(), 1);
+    let s = skew.column("x").unwrap().f64().unwrap().get(0).unwrap();
+    assert!(s.abs() < 1e-9, "대칭 표본의 왜도는 0 이어야 함: {s}");
+
+    let kurt = read_parquet(&dir.join("ku.parquet"));
+    assert_eq!(kurt.height(), 1);
+    let k = kurt.column("x").unwrap().f64().unwrap().get(0).unwrap();
+    assert!(k.is_finite(), "첨도는 유한해야 함: {k}");
+
+    let q = read_parquet(&dir.join("qn.parquet"));
+    let qv = q.column("x").unwrap().f64().unwrap().get(0).unwrap();
+    assert!((qv - 3.0).abs() < 1e-9, "중앙값 분위수는 3 이어야 함: {qv}");
+
+    let c = read_parquet(&dir.join("co.parquet"));
+    let cv = c
+        .column("x_y_corr")
+        .expect("corr 컬럼명 x_y_corr")
+        .f64()
+        .unwrap()
+        .get(0)
+        .unwrap();
+    assert!(
+        (cv - 1.0).abs() < 1e-9,
+        "완전 선형 상관은 1 이어야 함: {cv}"
+    );
+}
+
+/// `histogram("col", bins: N)` replaces the frame with `(bin, count)` rows whose
+/// counts partition every finite input value.
+#[test]
+fn histogram_end_to_end() {
+    let dir = temp_dir();
+    write_csv(&dir, "x\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n");
+    write_xzz(
+        &dir.join("data.csv"),
+        "type P = { x: float };
+         v h = load(\"data.csv\") :: P
+           |> histogram(\"x\", bins: 2)
+           |> save(\"out.parquet\");",
+    );
+    let result = run_in_dir(&dir);
+    assert!(result.is_ok(), "histogram 실행 실패: {:?}", result);
+
+    let df = read_parquet(&dir.join("out.parquet"));
+    assert!(df.column("bin").is_ok(), "bin 컬럼 없음");
+    assert!(df.column("n").is_ok(), "n 컬럼 없음");
+    assert_eq!(df.height(), 2, "bins: 2 → 2행 기대");
+    let total: u32 = df
+        .column("n")
+        .unwrap()
+        .u32()
+        .unwrap()
+        .into_no_null_iter()
+        .sum();
+    assert_eq!(total, 10, "모든 값이 버킷에 포함되어야 함");
+}
+
+/// `outlierIqr("col", factor: 1.5)` drops values outside `[Q1 - 1.5·IQR, Q3 + 1.5·IQR]`.
+#[test]
+fn outlier_iqr_filters_outliers_end_to_end() {
+    let dir = temp_dir();
+    write_csv(&dir, "x\n1\n2\n3\n4\n100\n");
+    write_xzz(
+        &dir.join("data.csv"),
+        "type P = { x: float };
+         v o = load(\"data.csv\") :: P
+           |> outlierIqr(\"x\", factor: 1.5)
+           |> save(\"out.parquet\");",
+    );
+    let result = run_in_dir(&dir);
+    assert!(result.is_ok(), "outlierIqr 실행 실패: {:?}", result);
+
+    let df = read_parquet(&dir.join("out.parquet"));
+    assert_eq!(df.height(), 4, "이상치 100 이 제거되어 4행 기대");
+}
