@@ -19,7 +19,7 @@
 [![Language: .xzz](https://img.shields.io/badge/Language-.xzz-orange.svg)]()
 [![Backend: Polars](https://img.shields.io/badge/Backend-Polars-red.svg)]()
 [![DL Engine: Burn](https://img.shields.io/badge/DL%20Engine-Burn-purple.svg)]()
-[![Version: v0.3.1](https://img.shields.io/badge/Version-v0.3.1-green.svg)](https://github.com/x1zzdev/Xazz/releases)
+[![Version: v0.4.0](https://img.shields.io/badge/Version-v0.4.0-green.svg)](https://github.com/x1zzdev/Xazz/releases)
 [![CI](https://github.com/x1zzdev/Xazz/actions/workflows/ci.yml/badge.svg)](https://github.com/x1zzdev/Xazz/actions/workflows/ci.yml)
 
 [English](README.md) · [한국어](README_kr.md) · [日本語](README_ja.md) · [简体中文](README_zh.md)
@@ -315,7 +315,7 @@ python benches/run_readme_benchmark.py --xlarge
 | DuckDB 커넥터 | `load("duckdb://...?sql=...")` — 인메모리·파일 DuckDB를 파이프라인 소스로 사용, 번들(시스템 설치 불필요), 한계는 [`docs/CONNECTORS.md`](docs/CONNECTORS.md) (Track A3) | Stable |
 | PostgreSQL 커넥터 | `load("postgres://...?sql=...")` — PostgreSQL 쿼리를 파이프라인 소스로 사용, 암호화되지 않는 `NoTls` TCP, [`docs/CONNECTORS.md`](docs/CONNECTORS.md) 참고 (Track A3) | Stable |
 | `Option<T>` 타입 시스템 | 널 안전 컬럼 선언 — non-nullable 컬럼에 `fillNull`은 컴파일 오류 | Stable |
-| 26 파이프라인 연산자 | `filter`, `groupBy`, `agg([...])`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
+| 32 파이프라인 연산자 | `filter`, `groupBy`, `agg([...])`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, `skew`, `kurtosis`, `quantile`, `corr`, `histogram`, `outlierIqr`, … | Stable |
 | Visual IDE | 노드 기반 파이프라인 편집기 + 모니터, `xazz-server`가 서빙 | Stable |
 | 런 히스토리 | SQLite 영속 런 레코드 — `GET /runs`, `GET /runs/:id` (Track C1) | Stable |
 | 인증 & 멀티테넌시 | `XAZZ_SERVER_TOKEN` / `XAZZ_TENANT_TOKENS` + `X-Xazz-Tenant`; 위임 정책 변경용 `XAZZ_ADMIN_TOKEN` + `X-Xazz-Actor` (`XAZZ_ADMIN_ACTORS=token:actor`로 actor 고정 시 `X-Xazz-Actor`를 무시하므로 CLI `--actor`는 무효) — 테넌트별 런 히스토리·감사 (Track C2) | Stable |
@@ -335,10 +335,10 @@ python benches/run_readme_benchmark.py --xlarge
 
 Xazz는 pre-1.0입니다. 설치한 뒤에 알게 되는 것보다, **검증되지 않은 것**을 먼저 밝히는 편이 낫다고 생각합니다. 이 섹션은 릴리스 노트에도 동일하게 반영됩니다.
 
-- **CPU가 기본이며 유일하게 완전히 검증된 경로입니다.** GPU 지원은 선택 사항이고 런타임에 `XAZZ_BACKEND` / `XAZZ_DEVICE`로 선택하며, `.xzz` 파이프라인 실행에 필수가 아닙니다.
+- **CPU가 기본 경로입니다.** GPU 지원은 선택 사항이고 런타임에 `XAZZ_BACKEND` / `XAZZ_DEVICE`로 선택하며, `.xzz` 파이프라인 실행에 필수가 아닙니다.
   - `burn-wgpu`(크로스 벤더)는 Windows 11 / RTX 4070 Laptop + Intel Arc iGPU에서 실기 acceptance를 통과했습니다(2026-09-25).
-  - `burn-cuda`는 컴파일되고 드라이버가 없으면 CPU로 fail-closed 폴백하지만, gated parity 테스트는 아직 CUDA 드라이버 호스트에서 실행되지 않았습니다.
-  - ONNX Runtime export/inference는 연결되어 있으나 gated acceptance 테스트가 표준 툴체인에서 아직 통과하지 못했습니다: `ort-sys`는 `*-windows-msvc`용 사전 빌드 바이너리만 제공하며(Windows GNU 툴체인 실패), macOS `coreml` 실행도 대기 중입니다. [docs/GPU_BACKENDS.md](docs/GPU_BACKENDS.md) 참고.
+  - `burn-cuda`(네이티브 CubeCL) parity는 Windows 11 / RTX 4070(`windows-gnu`, 2026-10-06)에서 통과했습니다. `XAZZ_DEVICE=cuda:*` 종단 CLI 실행은 아직 미검증입니다.
+  - ONNX Runtime export/inference는 `windows-msvc`에서 CPU + CUDA 실행 프로바이더 acceptance를 통과했습니다. macOS `coreml`은 대기 중입니다. `ort-sys`는 `*-windows-msvc`용 사전 빌드 바이너리만 제공합니다(Windows GNU 툴체인 실패). [docs/GPU_BACKENDS.md](docs/GPU_BACKENDS.md) 및 [docs/windows-onnx-acceptance-2026-10-06.md](docs/windows-onnx-acceptance-2026-10-06.md) 참고.
 - **네이티브 Python 확장은 아직 없습니다.** `import xazz`는 CLI 위의 순수 Python 어댑터이며 PyO3 모듈이 아닙니다 — CLI와 동일한 진단을 돌려주지만 서브프로세스 경계 비용을 지불합니다. PyO3 경로와 NumPy/Pandas → Arrow 핸드오프는 보류 상태입니다. [docs/ROADMAP.md](docs/ROADMAP.md) Track C4 참고.
 - **`xazz emit rust`는 참조용 emitter이며 두 번째 런타임이 아닙니다.** 신규 기능은 `xazz-exec`에 먼저 들어가고, 생성된 Rust는 일부 학습 옵션(예: 단일 실행 `validation_split`/조기 종료, 스윕의 per-epoch 열)에서 뒤처질 수 있습니다. 정본은 `xazz run`이며, emit 결과는 읽기 좋은 참조 코드로 취급하세요.
 - **컨테이너 이미지·클린 호스트 스모크는 다음 태그 대기 중입니다.** `Dockerfile`과 `docker compose up` 데모는 로컬 빌드로 동작하지만, GHCR 멀티아키 이미지는 `v*` 태그에서만 게시되며, [클린 호스트 스모크 체크리스트](docs/DOCKER.md#smoke-checklist-clean-host)는 아직 게시된 태그에 대해 기록되지 않았습니다.

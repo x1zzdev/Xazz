@@ -19,7 +19,7 @@
 [![Language: .xzz](https://img.shields.io/badge/Language-.xzz-orange.svg)]()
 [![Backend: Polars](https://img.shields.io/badge/Backend-Polars-red.svg)]()
 [![DL Engine: Burn](https://img.shields.io/badge/DL%20Engine-Burn-purple.svg)]()
-[![Version: v0.3.1](https://img.shields.io/badge/Version-v0.3.1-green.svg)](https://github.com/x1zzdev/Xazz/releases)
+[![Version: v0.4.0](https://img.shields.io/badge/Version-v0.4.0-green.svg)](https://github.com/x1zzdev/Xazz/releases)
 [![CI](https://github.com/x1zzdev/Xazz/actions/workflows/ci.yml/badge.svg)](https://github.com/x1zzdev/Xazz/actions/workflows/ci.yml)
 
 [English](README.md) · [한국어](README_kr.md) · [日本語](README_ja.md) · [简体中文](README_zh.md)
@@ -321,7 +321,7 @@ python benches/run_readme_benchmark.py --xlarge
 | DuckDB connector | `load("duckdb://...?sql=...")` — in-memory or file-backed DuckDB as a pipeline source; bundled (no system install); limits in [`docs/CONNECTORS.md`](docs/CONNECTORS.md) (Track A3) | Stable |
 | PostgreSQL connector | `load("postgres://...?sql=...")` — PostgreSQL query as a pipeline source; unencrypted `NoTls` TCP, see [`docs/CONNECTORS.md`](docs/CONNECTORS.md) (Track A3) | Stable |
 | `Option<T>` type system | Null-safe column declarations — `fillNull` on a non-nullable column is a compile error | Stable |
-| 26 pipeline operators | `filter`, `groupBy`, `agg([...])`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, … | Stable |
+| 32 pipeline operators | `filter`, `groupBy`, `agg([...])`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, `skew`, `kurtosis`, `quantile`, `corr`, `histogram`, `outlierIqr`, … | Stable |
 | Visual IDE | Node-based pipeline editor + monitor, served by `xazz-server` | Stable |
 | Run history | SQLite-persisted run records — `GET /runs`, `GET /runs/:id` (Track C1) | Stable |
 | Auth & multi-tenant | `XAZZ_SERVER_TOKEN` / `XAZZ_TENANT_TOKENS` + `X-Xazz-Tenant`; `XAZZ_ADMIN_TOKEN` + `X-Xazz-Actor` (or `XAZZ_ADMIN_ACTORS=token:actor` to pin the actor, which then ignores `X-Xazz-Actor` so CLI `--actor` has no effect) for delegated policy changes — tenant-scoped run history & audit (Track C2) | Stable |
@@ -341,10 +341,10 @@ python benches/run_readme_benchmark.py --xlarge
 
 Xazz is pre-1.0. We would rather state what is **not** verified than let you discover it after installing. This section is mirrored in the release notes.
 
-- **CPU is the default and the only fully verified path.** GPU support is optional, selected at runtime via `XAZZ_BACKEND` / `XAZZ_DEVICE`, and never required to run a `.xzz` pipeline.
+- **CPU is the default path.** GPU support is optional, selected at runtime via `XAZZ_BACKEND` / `XAZZ_DEVICE`, and never required to run a `.xzz` pipeline.
   - `burn-wgpu` (cross-vendor) passed real-hardware acceptance on Windows 11 / RTX 4070 Laptop + Intel Arc iGPU (2026-09-25).
-  - `burn-cuda` compiles and fails closed to CPU when no driver is present, but its gated parity test has **not** run on a CUDA-driver host yet.
-  - ONNX Runtime export/inference is wired, but its gated acceptance test has **not** passed on a standard toolchain: `ort-sys` ships prebuilt binaries only for `*-windows-msvc` (the Windows GNU toolchain fails), and the macOS `coreml` run is pending. See [docs/GPU_BACKENDS.md](docs/GPU_BACKENDS.md).
+  - `burn-cuda` (native CubeCL) parity passed on Windows 11 / RTX 4070 (`windows-gnu`, 2026-10-06); `XAZZ_DEVICE=cuda:*` end-to-end CLI runs are still unverified.
+  - ONNX Runtime export/inference passed its CPU + CUDA execution-provider acceptance on `windows-msvc`; macOS CoreML is pending. `ort-sys` ships prebuilt binaries only for `*-windows-msvc` (the Windows GNU toolchain fails). See [docs/GPU_BACKENDS.md](docs/GPU_BACKENDS.md) and [docs/windows-onnx-acceptance-2026-10-06.md](docs/windows-onnx-acceptance-2026-10-06.md).
 - **No native Python extension yet.** `import xazz` is a pure-Python adapter over the CLI, not a PyO3 module — it returns the same diagnostics as the CLI but pays a subprocess boundary. The PyO3 path and the NumPy/Pandas → Arrow handoff are deferred. See [docs/ROADMAP.md](docs/ROADMAP.md) Track C4.
 - **`xazz emit rust` is a reference emitter, not a second runtime.** New language features land in `xazz-exec` first; the emitted Rust can lag on some training options (e.g. single-run `validation_split` / early stopping, per-epoch sweep columns). `xazz run` is the source of truth — treat the emitted code as readable reference output.
 - **The container image and clean-host smoke are pending the next tag.** The `Dockerfile` and `docker compose up` demo work from a local build, but the GHCR multi-arch image is published only on a `v*` tag, and the [clean-host smoke checklist](docs/DOCKER.md#smoke-checklist-clean-host) has not been recorded against a published tag yet.

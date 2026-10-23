@@ -9,6 +9,24 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+## [v0.4.0] — 2026-10-23
+
+### Added — 통계 연산자: skew / kurtosis / quantile / corr / histogram / outlierIqr (issue #164)
+
+- 파이프라인에서 기본 통계를 바로 구할 수 있게 6개 연산자를 전 계층(AST → 파서 →
+  체커 → Typed IR → lower(Polars) → 정책/카탈로그 → codegen/emitter)에 추가했다.
+  - `skew("col")` / `kurtosis("col")` — 표본 왜도 / 초과 첨도(ddof=1). `agg([...])`
+    안에서도 사용 가능하며, 그룹 집계도 지원한다.
+  - `quantile("col", p)` — 선형(type-7) 보간 분위수. `p` 는 `[0, 1]`.
+  - `corr("a", "b")` — 두 숫자 컬럼의 Pearson 상관계수. 출력 컬럼명은 `<a>_<b>_corr`.
+  - `histogram("col", bins: 10)` — 숫자 컬럼을 동일 폭 버킷으로 이진화. 프레임을
+    `(bin: string, n: int)` 두 컬럼으로 대체한다(그룹 미지원, 기본 `bins: 10`).
+  - `outlierIqr("col", factor: 1.5)` — `[Q1 − factor·IQR, Q3 + factor·IQR]` 밖의 행을
+    제거한다(경계는 전체 프레임 기준, 기본 `factor: 1.5`).
+- 테스트: 파서 6종(기본값·범위 검증 포함), 체커 3종(스키마 교체·미존재 컬럼),
+  lower 단위 5종, `xazz-exec` 통합 3종(`statistical_operators`/`histogram`/`outlier_iqr`).
+- 문서·예제: README(+kr) 연산자 표, `examples/statistics/descriptive_stats.xzz`.
+
 ### Added — Windows 리소스 텔레메트리: Job Object 회계로 CPU·피크 메모리 기록 (issue #128)
 
 - Windows에서 `[xazz:resources]` 마커와 `xazz run --json`의 `resources`가
