@@ -100,7 +100,10 @@ ort = { version = "2.0.0-rc.13", default-features = false, features = [
     "tls-rustls",
 ], optional = true }
 rlx-onnx-proto = { version = "0.2", optional = true }
-protobuf = { version = "3.7", optional = true }
+# Pinned to the same major as `rlx-onnx-proto`'s `protobuf = "1.7"`: its generated
+# ONNX types implement the 1.7 `Message` trait, so `onnx_export.rs` must import
+# the same trait. Bumping this to 3.x breaks the `onnx` feature (issue #238).
+protobuf = { version = "1.7", optional = true }
 
 # ── DuckDB 외부 소스 커넥터 (issue #56, Track A3) ─────────────────────────────
 # bundled: embeds DuckDB (no system install needed).
