@@ -1,10 +1,18 @@
 // Xazz 시각화 예제 1: bar chart
 // 지역별 범죄 건수 막대 차트
 //
-// 사용법: xazz run examples/viz_bar_chart.xzz
+// 사용법: xazz run examples/visualization/viz_bar_chart.xzz
 // 출력: [xazz:chart] { "type": "bar", ... }
+//
+// 외부 CSV 없이 인메모리 DuckDB 리터럴을 소스로 쓴다
+// (examples/duckdb/hello_duckdb.xzz 와 같은 방식).
 
-v crime_chart = load("examples/crime.csv") :: CrimeData
+type CrimeData = {
+    case_id: int,
+    region:  string,
+}
+
+v crime_chart = load("duckdb://:memory:?sql=SELECT 1 AS case_id, 'seoul' AS region UNION ALL SELECT 2, 'seoul' UNION ALL SELECT 3, 'busan' UNION ALL SELECT 4, 'busan' UNION ALL SELECT 5, 'incheon'") :: CrimeData
     |> groupBy("region")
     |> count("case_id")
     |> orderBy("case_id", desc: true)

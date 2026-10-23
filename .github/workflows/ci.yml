@@ -84,6 +84,100 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  # ── wgpu 백엔드 컴파일 게이트 (#280) — 기본 feature 빌드가 놓치는 게이트 백엔드 ──
+  wgpu-compile-check:
+    name: wgpu compile check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust stable
+        shell: bash
+        run: |
+          rustup toolchain install stable --no-self-update --profile minimal
+          rustup default stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: registry-wgpu-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: registry-wgpu-
+
+      - name: Cache build artifacts
+        uses: actions/cache@v6
+        with:
+          path: target
+          key: build-wgpu-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('src/**/*.rs', 'xazz-*/src/**/*.rs') }}
+          restore-keys: |
+            build-wgpu-${{ hashFiles('**/Cargo.lock') }}-
+            build-wgpu-
+
+      # 컴파일만 확인한다(느린 #[ignore] GPU 테스트는 실행하지 않음).
+      - name: cargo check (wgpu)
+        run: cargo check --release -p xazz-exec --features wgpu --all-targets
+
+  # ── 예제 스모크 (#266) — examples/**.xzz 를 check + run 으로 전수 검증 ─────────
+  examples:
+    name: Example smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # examples/**.csv 는 Git LFS 로 추적되므로 실제 데이터가 필요하다.
+          lfs: true
+
+      - name: Install Rust stable
+        shell: bash
+        run: |
+          rustup toolchain install stable --no-self-update --profile minimal
+          rustup default stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: registry-examples-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: registry-examples-
+
+      - name: Cache build artifacts
+        uses: actions/cache@v6
+        with:
+          path: target
+          key: build-examples-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('src/**/*.rs', 'xazz-*/src/**/*.rs') }}
+          restore-keys: |
+            build-examples-${{ hashFiles('**/Cargo.lock') }}-
+            build-examples-
+
+      - name: Build CLI and execution binaries
+        run: cargo build -p xazz -p xazz-runner -p xazz-exec
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # 생성기로만 두는 합성 데이터를 먼저 만든다(저장소에는 커밋하지 않음).
+      - name: Generate example data
+        run: |
+          python3 examples/security/generate_patients.py
+          python3 examples/semiconductor/generate_wafer_data.py
+
+      - name: Run example smoke
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python3 scripts/smoke_examples.py --xazz target/debug/xazz --timeout 60
+
   benchmark-tests:
     name: Benchmark Python tests · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

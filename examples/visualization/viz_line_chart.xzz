@@ -1,7 +1,16 @@
 // Xazz 시각화 예제 2: line chart
 // 연도별 매출 추이 라인 차트
+//
+// 사용법: xazz run examples/visualization/viz_line_chart.xzz
+//
+// 외부 CSV 없이 인메모리 DuckDB 리터럴을 소스로 쓴다.
 
-v revenue_chart = load("examples/sales.csv") :: SalesData
+type SalesData = {
+    year:    int,
+    revenue: float,
+}
+
+v revenue_chart = load("duckdb://:memory:?sql=SELECT 2021 AS year, 120.5 AS revenue UNION ALL SELECT 2022, 145.0 UNION ALL SELECT 2023, 160.25 UNION ALL SELECT 2024, 178.9") :: SalesData
     |> groupBy("year")
     |> sum("revenue")
     |> orderBy("year")
