@@ -235,8 +235,13 @@ def summarize(runs: list[dict]) -> dict:
     latency = round(statistics.median(run["latency_ms"] for run in runs), 1)
     if latency <= 0:
         raise RuntimeError("지연 중앙값을 기존 0.1ms 결과 해상도로 표현할 수 없습니다")
-    return {"latency_ms": latency,
-            "peak_mb": round(statistics.median(run["peak_mb"] for run in runs), 1), "runs": runs}
+    result = {"latency_ms": latency,
+              "peak_mb": round(statistics.median(run["peak_mb"] for run in runs), 1), "runs": runs}
+    # xazz 실행에만 있다 — wall-clock에서 파이프라인 마커를 뺀 러너 스폰/부팅 비용.
+    startups = [run["startup_ms"] for run in runs if "startup_ms" in run]
+    if startups:
+        result["startup_ms"] = round(statistics.median(startups), 1)
+    return result
 
 
 def parse_xazz_collections(stdout: str, streaming: str) -> list[dict]:
@@ -287,7 +292,7 @@ def bench_xazz(csv: Path, *, xazz_bin: Path = XAZZ_BIN, streaming: str = "auto",
     warmup_collections = []
     try:
         for index in range(runs + 1):
-            _, peak, stdout = measure_tree([str(xazz_bin), "run", script.name], csv.parent,
+            wall_ms, peak, stdout = measure_tree([str(xazz_bin), "run", script.name], csv.parent,
                 capture=True, env={"XAZZ_BACKEND": "cpu", "XAZZ_STREAMING":
                                    {"auto": None, "on": "1", "off": "0"}[streaming],
                                    "XAZZ_COLLECT_DIAGNOSTICS": "1",
@@ -300,6 +305,8 @@ def bench_xazz(csv: Path, *, xazz_bin: Path = XAZZ_BIN, streaming: str = "auto",
             collections = parse_xazz_collections(stdout, streaming)
             if index:
                 samples.append({"latency_ms": latency, "peak_mb": peak,
+                                "wall_ms": wall_ms,
+                                "startup_ms": max(0.0, wall_ms - latency),
                                 "fallback_to_wallclock": False, "collections": collections})
             else:
                 warmup_collections = collections

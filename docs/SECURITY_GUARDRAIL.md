@@ -3,7 +3,13 @@
 > Xazz statically detects and blocks PII leaks and security-compliance violations **before** a `.xzz` pipeline runs. The Type Checker asks "does this code run?"; the guardrail asks "is it safe to run this code?"
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md) · [WORKSPACE.md](WORKSPACE.md) ·
-[design/security-model.md](design/security-model.md) · [experiments/slm_guardrail](../experiments/slm_guardrail/README.md)
+[design/security-model.md](design/security-model.md) · [design/regulatory-mapping.md](design/regulatory-mapping.md) · [experiments/slm_guardrail](../experiments/slm_guardrail/README.md)
+
+> ⚠️ The regulatory basis recorded in each violation's `source_ref` is an
+> **audit-trail reference, not legal advice**. The framework priority order,
+> per-reference coverage/confidence, and the verification procedure live in
+> [design/regulatory-mapping.md](design/regulatory-mapping.md). Override the
+> basis per organization with `rule_source_refs` in the policy file.
 
 ---
 
