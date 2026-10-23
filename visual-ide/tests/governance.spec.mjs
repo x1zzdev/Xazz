@@ -317,6 +317,18 @@ test('TTL history returns to page one when server access changes', async ({ page
   expect(requests.some((r) => r.path === '/security/policy/history/ttl/history' && r.headers['x-xazz-tenant'] === 'B')).toBe(true)
 })
 
+test('a policy TTL that fails to load says so instead of vanishing', async ({ page }) => {
+  await mockServer(page, {
+    'GET /security/policy/history/ttl': { http: 500, json: { error: 'ttl store unavailable' } },
+  })
+  await openMonitor(page)
+  const panel = page.getByRole('region', { name: 'Policy packs' })
+  // #275: the retention form must not silently disappear on a failed fetch.
+  await expect(panel.getByRole('note')).toContainText('xazz-server answered 500')
+  await expect(panel.getByRole('note')).toContainText('ttl store unavailable')
+  await expect(panel.getByLabel(/History retention/)).toHaveCount(0)
+})
+
 test('policy change history pages by id cursor and returns to page one', async ({ page }) => {
   const history = Array.from({ length: 21 }, (_, i) => {
     const id = 21 - i
