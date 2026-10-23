@@ -73,6 +73,99 @@ pub fn check_epsilon_cap(epsilon: f64, cap: Option<f64>) -> Result<(), String> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Composition accounting modes (issue #161)
+//
+// Basic sequential composition sums ε and δ linearly, which is exact but loose
+// when many Gaussian mechanisms compose. Rényi DP (RDP) and zero-concentrated DP
+// (zCDP) compose the *concentration* parameter and only convert to (ε, δ) at the
+// end, so the composed ε grows ~√k instead of k for k Gaussian mechanisms.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Composition accounting mode (issue #161).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CompositionMode {
+    /// Basic sequential composition: (Σε, Σδ). Exact; the default.
+    #[default]
+    Basic,
+    /// Rényi DP: per-α ε composed additively, converted to (ε, δ) at the session δ.
+    Rdp,
+    /// Zero-concentrated DP: ρ composed additively, converted to (ε, δ).
+    Zcdp,
+}
+
+/// Environment variable selecting the composition mode (`basic` | `rdp` | `zcdp`).
+pub const COMPOSITION_ENV: &str = "XAZZ_DP_COMPOSITION";
+
+impl CompositionMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CompositionMode::Basic => "basic",
+            CompositionMode::Rdp => "rdp",
+            CompositionMode::Zcdp => "zcdp",
+        }
+    }
+}
+
+/// Parses a composition mode. Unrecognised or empty values fall back to `Basic`
+/// (fail-safe: the default accounting is the conservative sum).
+pub fn parse_composition_mode(raw: Option<&str>) -> CompositionMode {
+    match raw.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+        Some("rdp") => CompositionMode::Rdp,
+        Some("zcdp") => CompositionMode::Zcdp,
+        _ => CompositionMode::Basic,
+    }
+}
+
+/// Reads the composition mode from `XAZZ_DP_COMPOSITION`.
+pub fn composition_mode_from_env() -> CompositionMode {
+    parse_composition_mode(std::env::var(COMPOSITION_ENV).ok().as_deref())
+}
+
+/// zCDP ρ of a Gaussian mechanism calibrated to (ε, δ).
+///
+/// The engine draws noise with `σ = Δf·√(2 ln(1.25/δ)) / ε`
+/// ([`gaussian_sigma`]), so its exact RDP parameter is
+/// `ρ = Δf² / (2σ²) = ε² / (4 ln(1.25/δ))` — the sensitivity cancels.
+pub fn gaussian_rho(epsilon: f64, delta: f64) -> f64 {
+    if !epsilon.is_finite() || epsilon <= 0.0 || !delta.is_finite() || delta <= 0.0 || delta >= 1.0
+    {
+        return 0.0;
+    }
+    let denom = 4.0 * (1.25 / delta).ln();
+    epsilon * epsilon / denom
+}
+
+/// RDP ε of a Gaussian mechanism at order `alpha > 1`: `ε_RDP(α) = α·ρ`.
+pub fn rdp_epsilon_gaussian(alpha: f64, rho: f64) -> f64 {
+    alpha * rho
+}
+
+/// Converts an RDP guarantee `(α, ε_RDP)` to `(ε, δ)`-DP (Mironov):
+/// `ε = ε_RDP + ln(1/δ) / (α - 1)`.
+pub fn rdp_to_dp(epsilon_rdp: f64, alpha: f64, delta: f64) -> f64 {
+    if alpha <= 1.0 || !delta.is_finite() || delta <= 0.0 || delta >= 1.0 {
+        return f64::INFINITY;
+    }
+    epsilon_rdp + (1.0 / delta).ln() / (alpha - 1.0)
+}
+
+/// Converts a composed zCDP budget `ρ` to `(ε, δ)`-DP:
+/// `ε = ρ + 2·√(ρ·ln(1/δ))`.
+///
+/// This is the optimum over α of [`rdp_to_dp`] for `ε_RDP(α) = α·ρ`, so the RDP
+/// and zCDP conversions agree for Gaussian mechanisms.
+pub fn zcdp_to_dp(rho: f64, delta: f64) -> f64 {
+    if rho <= 0.0 {
+        return 0.0;
+    }
+    if !delta.is_finite() || delta <= 0.0 || delta >= 1.0 {
+        // No finite δ target → the Gaussian composition cannot be bounded.
+        return f64::INFINITY;
+    }
+    rho + 2.0 * (rho * (1.0 / delta).ln()).sqrt()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Session privacy budget (ε/δ composition accounting)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -100,6 +193,7 @@ pub struct PrivacyBudget {
     spent_eps: f64,
     spent_delta: f64,
     queries: Vec<CompositionRecord>,
+    mode: CompositionMode,
 }
 
 impl PrivacyBudget {
@@ -110,6 +204,7 @@ impl PrivacyBudget {
             spent_eps: 0.0,
             spent_delta: 0.0,
             queries: Vec::new(),
+            mode: CompositionMode::Basic,
         }
     }
 
@@ -121,7 +216,24 @@ impl PrivacyBudget {
             spent_eps: 0.0,
             spent_delta: 0.0,
             queries: Vec::new(),
+            mode: CompositionMode::Basic,
         }
+    }
+
+    /// Overrides the composition accounting mode (issue #161).
+    pub fn with_mode(mut self, mode: CompositionMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// Sets the composition accounting mode.
+    pub fn set_mode(&mut self, mode: CompositionMode) {
+        self.mode = mode;
+    }
+
+    /// Current composition accounting mode.
+    pub fn mode(&self) -> CompositionMode {
+        self.mode
     }
 
     /// Reads the total budget from environment variables (defaults ε=10.0, δ=1e-4).
@@ -136,7 +248,7 @@ impl PrivacyBudget {
             .and_then(|v| v.parse::<f64>().ok())
             .filter(|v| (0.0..1.0).contains(v))
             .unwrap_or(DEFAULT_TOTAL_DELTA_BUDGET);
-        PrivacyBudget::new_with_delta(total_eps, total_delta)
+        PrivacyBudget::new_with_delta(total_eps, total_delta).with_mode(composition_mode_from_env())
     }
 
     /// Spends (ε, δ) of budget. Returns Err when exceeded (execution refused).
@@ -195,50 +307,111 @@ impl PrivacyBudget {
         };
 
         let count_f = count as f64;
-        // Composition accounting: k mechanisms → (k·Σεᵢ, k·Σδᵢ)
+        // Basic sequential composition (also the reported linear spend).
         let new_eps = self.spent_eps + epsilon * count_f;
         let new_delta = self.spent_delta + delta * count_f;
 
+        // Tentatively record the mechanisms so a composed budget can be evaluated.
+        let prev_len = self.queries.len();
+        let record = CompositionRecord {
+            mechanism,
+            epsilon,
+            delta,
+        };
+        for _ in 0..count {
+            self.queries.push(record);
+        }
+
+        let (check_eps, check_delta) = match self.mode {
+            CompositionMode::Basic => (new_eps, new_delta),
+            CompositionMode::Rdp | CompositionMode::Zcdp => {
+                (self.composed_epsilon(), self.composed_delta())
+            }
+        };
+
         const EPS_TOL: f64 = 1e-9;
-        if new_eps > self.total_eps + EPS_TOL {
+        if check_eps > self.total_eps + EPS_TOL {
+            self.queries.truncate(prev_len);
             return Err(format!(
-                "DP 예산 초과(ε): 이번 요청 ε={epsilon:.4} × {count} 컬럼 을 더하면 누적 {new_eps:.4} > 총 예산 {:.4}. \
+                "DP 예산 초과(ε): 이번 요청 ε={epsilon:.4} × {count} 컬럼 을 반영하면 누적 {check_eps:.4} ({} 조합) > 총 예산 {:.4}. \
                  반복 질의를 통한 노이즈 평균화(재구성 공격) 방지를 위해 실행을 거부합니다. \
-                 (총 예산은 XAZZ_DP_BUDGET 환경변수로 조정 가능)",
+                 (총 예산은 XAZZ_DP_BUDGET, 조성 모드는 XAZZ_DP_COMPOSITION 으로 조정 가능)",
+                self.mode.as_str(),
                 self.total_eps
             ));
         }
-        if new_delta > self.total_delta + EPS_TOL {
+        if check_delta > self.total_delta + EPS_TOL {
+            self.queries.truncate(prev_len);
             return Err(format!(
-                "DP 예산 초과(δ): 이번 요청 δ={delta:.4e} × {count} 컬럼 을 더하면 누적 {new_delta:.4e} > 총 δ 예산 {:.4e}. \
+                "DP 예산 초과(δ): 이번 요청 δ={delta:.4e} × {count} 컬럼 을 반영하면 누적 {check_delta:.4e} ({} 조합) > 총 δ 예산 {:.4e}. \
                  gaussian 메커니즘의 조성 회계를 위해 실행을 거부합니다. \
-                 (총 δ 예산은 XAZZ_DP_DELTA_BUDGET 환경변수로 조정 가능)",
+                 (총 δ 예산은 XAZZ_DP_DELTA_BUDGET 으로 조정 가능)",
+                self.mode.as_str(),
                 self.total_delta
             ));
         }
 
         self.spent_eps = new_eps;
         self.spent_delta = new_delta;
-        for _ in 0..count {
-            self.queries.push(CompositionRecord {
-                mechanism,
-                epsilon,
-                delta,
-            });
-        }
         Ok(())
     }
 
+    /// Composed ε under the current mode.
+    ///
+    /// `Basic` is the linear sum. `Rdp`/`Zcdp` compose the concentration and
+    /// convert to (ε, δ) at the session δ budget: for Laplace queries the pure ε
+    /// is kept, and Gaussian queries contribute `ρ = ε² / (4 ln(1.25/δ))`.
+    pub fn composed_epsilon(&self) -> f64 {
+        match self.mode {
+            CompositionMode::Basic => self.spent_eps,
+            CompositionMode::Rdp | CompositionMode::Zcdp => {
+                let mut pure = 0.0;
+                let mut rho = 0.0;
+                for q in &self.queries {
+                    match q.mechanism {
+                        DpMechanism::Laplace => pure += q.epsilon,
+                        DpMechanism::Gaussian => rho += gaussian_rho(q.epsilon, q.delta),
+                    }
+                }
+                pure + zcdp_to_dp(rho, self.total_delta)
+            }
+        }
+    }
+
+    /// Composed δ under the current mode.
+    ///
+    /// In `Rdp`/`Zcdp` the guarantee carries a single δ, the session δ budget,
+    /// once any Gaussian mechanism is composed (0 for a pure-ε session).
+    pub fn composed_delta(&self) -> f64 {
+        match self.mode {
+            CompositionMode::Basic => self.spent_delta,
+            CompositionMode::Rdp | CompositionMode::Zcdp => {
+                if self
+                    .queries
+                    .iter()
+                    .any(|q| q.mechanism == DpMechanism::Gaussian)
+                {
+                    self.total_delta
+                } else {
+                    0.0
+                }
+            }
+        }
+    }
+
+    /// Spent ε under the current composition mode (composed, not the linear sum,
+    /// in `Rdp`/`Zcdp`).
     pub fn spent(&self) -> f64 {
-        self.spent_eps
+        self.composed_epsilon()
     }
 
     pub fn total(&self) -> f64 {
         self.total_eps
     }
 
+    /// Spent δ under the current composition mode.
     pub fn spent_delta(&self) -> f64 {
-        self.spent_delta
+        self.composed_delta()
     }
 
     pub fn total_delta(&self) -> f64 {
@@ -251,12 +424,12 @@ impl PrivacyBudget {
     }
 
     pub fn remaining(&self) -> f64 {
-        (self.total_eps - self.spent_eps).max(0.0)
+        (self.total_eps - self.spent()).max(0.0)
     }
 
     /// Remaining δ budget (0 when the session is pure ε-DP or the cap is reached).
     pub fn remaining_delta(&self) -> f64 {
-        (self.total_delta - self.spent_delta).max(0.0)
+        (self.total_delta - self.spent_delta()).max(0.0)
     }
 }
 
@@ -776,5 +949,133 @@ mod tests {
         assert!((budget.spent() - 2.0).abs() < 1e-12);
         assert!((budget.spent_delta() - 2e-5).abs() < 1e-12);
         assert_eq!(budget.query_count(), 2);
+    }
+
+    // ── #161 Rényi / zCDP composition accounting ─────────────────────────────
+
+    #[test]
+    fn gaussian_rho_matches_the_sigma_calibration() {
+        // ρ must equal Δf²/(2σ²) for the σ the engine actually draws with.
+        for &(eps, delta) in &[(1.0, 1e-5), (0.5, 1e-6), (2.0, 1e-4)] {
+            let sigma = gaussian_sigma(1.0, eps, delta);
+            let expected = 1.0 / (2.0 * sigma * sigma);
+            assert!(
+                (gaussian_rho(eps, delta) - expected).abs() < 1e-12,
+                "rho mismatch for eps={eps} delta={delta}"
+            );
+        }
+    }
+
+    #[test]
+    fn zcdp_to_dp_matches_a_known_gaussian_value() {
+        // ρ = 0.5, δ = 1e-5 → ε = 0.5 + 2·√(0.5·ln(1e5)) ≈ 5.2985
+        let eps = zcdp_to_dp(0.5, 1e-5);
+        assert!((eps - 5.298526).abs() < 1e-5, "got {eps}");
+        assert_eq!(zcdp_to_dp(0.0, 1e-5), 0.0);
+        assert!(
+            zcdp_to_dp(0.5, 0.0).is_infinite(),
+            "no δ target → unbounded"
+        );
+    }
+
+    #[test]
+    fn rdp_optimum_reproduces_the_zcdp_conversion() {
+        // For ε_RDP(α) = α·ρ the best α is 1 + √(ln(1/δ)/ρ), and the value equals
+        // ρ + 2√(ρ ln(1/δ)) — so RDP and zCDP must agree for Gaussian mechanisms.
+        for &(rho, delta) in &[(0.3f64, 1e-6f64), (0.5, 1e-5), (0.05, 1e-4)] {
+            let alpha = 1.0 + ((1.0 / delta).ln() / rho).sqrt();
+            let via_rdp = rdp_to_dp(rdp_epsilon_gaussian(alpha, rho), alpha, delta);
+            assert!(
+                (via_rdp - zcdp_to_dp(rho, delta)).abs() < 1e-9,
+                "rho={rho} delta={delta}: rdp={via_rdp} zcdp={}",
+                zcdp_to_dp(rho, delta)
+            );
+        }
+    }
+
+    #[test]
+    fn parse_composition_mode_defaults_to_basic() {
+        assert_eq!(parse_composition_mode(None), CompositionMode::Basic);
+        assert_eq!(parse_composition_mode(Some("")), CompositionMode::Basic);
+        assert_eq!(
+            parse_composition_mode(Some("basic")),
+            CompositionMode::Basic
+        );
+        assert_eq!(parse_composition_mode(Some(" RDP ")), CompositionMode::Rdp);
+        assert_eq!(parse_composition_mode(Some("zCDP")), CompositionMode::Zcdp);
+        assert_eq!(
+            parse_composition_mode(Some("nonsense")),
+            CompositionMode::Basic
+        );
+    }
+
+    #[test]
+    fn rdp_composition_is_tighter_than_basic_for_many_gaussians() {
+        // 10 gaussian queries (ε=1, δ=1e-5): basic = 10; RDP ≈ 3.01.
+        let mut basic = PrivacyBudget::new_with_delta(10.0, 1e-4);
+        let mut rdp = PrivacyBudget::new_with_delta(10.0, 1e-4).with_mode(CompositionMode::Rdp);
+        for _ in 0..10 {
+            assert!(basic.spend(DpMechanism::Gaussian, 1.0, 1e-5).is_ok());
+            assert!(rdp.spend(DpMechanism::Gaussian, 1.0, 1e-5).is_ok());
+        }
+        assert!(
+            (basic.spent() - 10.0).abs() < 1e-9,
+            "basic={}",
+            basic.spent()
+        );
+        let rdp_spent = rdp.spent();
+        assert!(rdp_spent < basic.spent(), "RDP {rdp_spent} !< basic 10");
+        // 10·ρ with ρ = 1/(4 ln(125000)); converted at δ=1e-4.
+        let rho = 10.0 * gaussian_rho(1.0, 1e-5);
+        assert!((rdp_spent - zcdp_to_dp(rho, 1e-4)).abs() < 1e-9);
+        assert!(
+            rdp_spent <= basic.spent(),
+            "completion criterion: RDP ≤ basic"
+        );
+    }
+
+    #[test]
+    fn rdp_blocks_once_the_composed_budget_is_exceeded() {
+        // 4 gaussian queries fit under ε=2; the 5th pushes the composed ε over.
+        let mut rdp = PrivacyBudget::new_with_delta(2.0, 1e-4).with_mode(CompositionMode::Rdp);
+        for _ in 0..4 {
+            assert!(rdp.spend(DpMechanism::Gaussian, 1.0, 1e-5).is_ok());
+        }
+        assert!(rdp.spent() < 2.0);
+        let err = rdp.spend(DpMechanism::Gaussian, 1.0, 1e-5).unwrap_err();
+        assert!(err.contains("예산 초과"), "not a budget error: {err}");
+        // Rejection rolls back: the composed budget is unchanged.
+        assert!(rdp.spent() < 2.0);
+        assert_eq!(rdp.query_count(), 4);
+    }
+
+    #[test]
+    fn rdp_laplace_only_equals_basic() {
+        // Pure ε-DP has no ρ, so RDP accounting is identical to basic.
+        let mut basic = PrivacyBudget::new(5.0);
+        let mut rdp = PrivacyBudget::new(5.0).with_mode(CompositionMode::Rdp);
+        for _ in 0..3 {
+            assert!(basic.spend(DpMechanism::Laplace, 1.0, 0.0).is_ok());
+            assert!(rdp.spend(DpMechanism::Laplace, 1.0, 0.0).is_ok());
+        }
+        assert!((rdp.spent() - basic.spent()).abs() < 1e-12);
+        assert_eq!(rdp.spent_delta(), 0.0);
+    }
+
+    #[test]
+    fn rdp_single_gaussian_is_tighter_than_basic_at_the_session_delta() {
+        // The composed guarantee is converted at the session δ (1e-4), which is
+        // looser than the per-query calibration δ (1e-5), so even one query is
+        // tighter than the basic charge of ε.
+        let mut basic = PrivacyBudget::new_with_delta(10.0, 1e-4);
+        let mut rdp = PrivacyBudget::new_with_delta(10.0, 1e-4).with_mode(CompositionMode::Rdp);
+        assert!(basic.spend(DpMechanism::Gaussian, 1.0, 1e-5).is_ok());
+        assert!(rdp.spend(DpMechanism::Gaussian, 1.0, 1e-5).is_ok());
+        assert!(
+            rdp.spent() < basic.spent(),
+            "rdp={} basic={}",
+            rdp.spent(),
+            basic.spent()
+        );
     }
 }
