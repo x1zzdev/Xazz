@@ -13,7 +13,8 @@ type Article = {
     body:   string,
 }
 
-v articles = load("examples/security/data/articles.csv") :: Article;
+// 외부 CSV 없이 인메모리 DuckDB 리터럴을 소스로 쓴다.
+v articles = load("duckdb://:memory:?sql=SELECT 1 AS id, 'kim' AS author, 'first' AS title, 'body text' AS body") :: Article;
 
 // 안전한 프롬프트 — 작업 지시만 담고 우회/탈취 문구 없음
 // v summary = prompt("summarize the article in three bullets, in Korean")

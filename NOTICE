@@ -3,6 +3,11 @@ Copyright 2026 Jangseowoo (ax1s.xazz.com) and the Xazz contributors
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
+Commercial code keys (where offered) are evidence of a support/distribution
+contract only. They do not restrict the rights Apache-2.0 grants to the source:
+use, reproduction, modification and distribution of the source follow LICENSE
+alone, with or without a key. See docs/design/licensing.md.
+
 This product includes third-party open-source software. The authoritative,
 machine-checked dependency set lives in Cargo.lock and visual-ide/package-lock.json;
 its licenses are enforced in CI by cargo-deny (deny.toml) and enumerated in the

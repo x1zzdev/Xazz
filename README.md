@@ -219,6 +219,12 @@ Every image below is captured from this repository: the binaries in `target/rele
 
 ---
 
+## Examples
+
+Runnable `.xzz` pipelines live in [`examples/`](examples/README.md) — from the smallest bar chart to differential privacy, Burn training, DuckDB/PostgreSQL sources, and the security guardrail demos. The index lists each example's command and data prerequisites (Git LFS data, generators, or a local database). CI checks and runs all of them in the `Example smoke` job.
+
+---
+
 ## Architecture
 
 Xazz is a modularized Rust workspace. The CLI stays a 2–5 MB binary; heavyweight engines live behind the `xazz-runner` subprocess boundary.
@@ -249,7 +255,7 @@ Same 4-stage pipeline (drop nulls → dual filter → group-by aggregates → fi
 </div>
 
 - **Faster at every scale**: 2.04× vs pandas at 228K rows (76 ms vs 155 ms), 3.84× at 912K rows (143 ms vs 548 ms) and 2.14× at 4.09M rows (1,148 ms vs 2,457 ms) — with lower peak RSS at every scale (405 MB vs 635 MB at 4.09M rows). The gap is widest at 912K rows and narrows again at 4.09M rows.
-- Both sides are measured as **pipeline execution only** — the Python interpreter boot (~0.3–0.7 s) is excluded from pandas, and Xazz reports its own `[xazz:timing]` pipeline marker, so the comparison is apples-to-apples. Peak RSS uses the process tree for both engines.
+- Both sides are measured as **pipeline execution only** — the Python interpreter boot (~0.3–0.7 s) is excluded from pandas, and Xazz reports its own `[xazz:timing]` pipeline marker, so the comparison is apples-to-apples. Peak RSS uses the process tree for both engines. Xazz's marker also excludes the `xazz-runner`/`xazz-exec` process spawn and boot, so at the smallest (228K) scale the reported pipeline figure is smaller than the wall time you would see from a shell; the benchmark records that startup delta separately (`startup_ms`) so a rerun keeps it visible.
 - Source comes from Apache Arrow columnar memory + Polars LazyFrame query optimization + multithreaded native execution.
 - **Out-of-core execution:** `load()` now returns a lazy scan (`scan_csv`/`scan_parquet`/`scan_ipc`), so sources stay on disk until the terminal collect — no full-file materialization upfront. For very large workloads set `XAZZ_STREAMING=1` to collect through Polars' streaming engine (unsupported plans fall back to in-memory automatically). See [docs/ROADMAP.md](docs/ROADMAP.md) Track A2.
 - Honest footnote: Polars' multithreading trades higher peak RSS for latency — pandas holds more rows per thread, Polars parallelizes across them. Note the benchmark data itself is not committed (it is built from the Seoul air-quality sources).
@@ -281,7 +287,7 @@ python benches/run_readme_benchmark.py --xlarge
 
 ## Security & Privacy
 
-**Policy-as-Code guardrails** scan the pipeline *before* execution — PII patterns (RRN, phone, card numbers with Luhn validation), secrets, and custom rules. Violations are blocked with structured JSON reports; an optional local sLM hook (Ollama, e.g. Qwen2.5-Coder) proposes safe corrections that are re-verified by the same policy engine before adoption — your code stays on the machine by default. See [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md).
+**Policy-as-Code guardrails** scan the pipeline *before* execution — PII patterns (RRN, phone, card numbers with Luhn validation), secrets, and custom rules. Violations are blocked with structured JSON reports; an optional local sLM hook (Ollama, e.g. Qwen2.5-Coder) proposes safe corrections that are re-verified by the same policy engine before adoption — your code stays on the machine by default. See [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md). The regulatory basis attached to each rule is an audit-trail reference, **not legal advice**; the mapping priority, coverage/confidence and verification procedure are in [docs/design/regulatory-mapping.md](docs/design/regulatory-mapping.md).
 
 **Differential privacy** — Laplace/Gaussian mechanisms with ε **and δ** composition accounting. Each query records `(εᵢ, δᵢ)`; `PrivacyBudget` accumulates `Σεᵢ`, `Σδᵢ` and refuses queries that would exceed either budget. Budget state is visible in the IDE monitor. See [docs/design/dp-spec.md](docs/design/dp-spec.md).
 
@@ -335,6 +341,8 @@ python benches/run_readme_benchmark.py --xlarge
 | `xazz sanitize` | Fine-tuning data sanitization — PII scan, duplicate & bias checks (Track F3) | Stable |
 | Model provenance | Policy registry gate — `hf://` model references, license/unknown-weights blocking (Track F5) | Stable |
 
+> **Note on `--tenant`.** The tenant-scoped commands above (`xazz registry`, `xazz policy-status`, `xazz policy-ttl`, `xazz dp`) accept `--tenant`, but when the server runs in single-token mode (`XAZZ_SERVER_TOKEN`) it ignores `X-Xazz-Tenant` and operates on an empty tenant — so `--tenant` is accepted but has no effect. The flag stays accepted for forward compatibility; see [docs/SERVER.md](docs/SERVER.md).
+
 ---
 
 ## Limitations & Non-goals
@@ -346,7 +354,7 @@ Xazz is pre-1.0. We would rather state what is **not** verified than let you dis
   - `burn-cuda` (native CubeCL) parity passed on Windows 11 / RTX 4070 (`windows-gnu`, 2026-10-06); `XAZZ_DEVICE=cuda:*` end-to-end CLI runs are still unverified.
   - ONNX Runtime export/inference passed its CPU + CUDA execution-provider acceptance on `windows-msvc`; macOS CoreML is pending. `ort-sys` ships prebuilt binaries only for `*-windows-msvc` (the Windows GNU toolchain fails). See [docs/GPU_BACKENDS.md](docs/GPU_BACKENDS.md) and [docs/windows-onnx-acceptance-2026-10-06.md](docs/windows-onnx-acceptance-2026-10-06.md).
 - **No native Python extension yet.** `import xazz` is a pure-Python adapter over the CLI, not a PyO3 module — it returns the same diagnostics as the CLI but pays a subprocess boundary. The PyO3 path and the NumPy/Pandas → Arrow handoff are deferred. See [docs/ROADMAP.md](docs/ROADMAP.md) Track C4.
-- **`xazz emit rust` is a reference emitter, not a second runtime.** New language features land in `xazz-exec` first; the emitted Rust can lag on some training options (e.g. single-run `validation_split` / early stopping, per-epoch sweep columns). `xazz run` is the source of truth — treat the emitted code as readable reference output.
+- **`xazz emit rust` is a reference emitter, not a second runtime.** New language features land in `xazz-exec` first; the emitted Rust can lag on some training options (e.g. single-run `validation_split` / early stopping, per-epoch sweep columns). `xazz run` is the source of truth — treat the emitted code as readable reference output. When the pipeline trains or predicts, the generated file also needs the `serde_json` crate, and a `predict` stage additionally reads the `checkpoints/<Model>.stats.json` sidecar written during training — running that file on its own without the sidecar fails. The generated header lists the required Cargo dependencies; the exact output shape is pinned by the emitter tests in `xazz-compiler/src/emitter.rs`.
 - **The container image and clean-host smoke are pending the next tag.** The `Dockerfile` and `docker compose up` demo work from a local build, but the GHCR multi-arch image is published only on a `v*` tag, and the [clean-host smoke checklist](docs/DOCKER.md#smoke-checklist-clean-host) has not been recorded against a published tag yet.
 - **Benchmarks are single-host.** The numbers in [Performance](#performance) are provenance-stamped but come from one Windows laptop; they have not been reproduced on a second host or on Linux/macOS yet, so read the ratios as representative, not as a guarantee.
 - **Not a sandbox.** `xazz-runner` is process isolation with an execution timeout, not an OS-level sandbox. Policy-as-Code blocks known-bad pipeline shapes before execution; see [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md) for the `PATH`-shadowing deployment caveat.

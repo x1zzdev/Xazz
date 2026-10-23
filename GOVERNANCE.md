@@ -31,6 +31,29 @@ and is expected to evolve as the contributor base grows.
 The current maintainer is the project author (`@x1zzdev`). Additional maintainers
 are added from sustained, high-quality contributors.
 
+## Contributor ladder
+
+Roles are earned by doing the work, not by asking for the title. The rungs and
+the promotion criteria are:
+
+| Level | What they do | How they get there |
+|-------|--------------|--------------------|
+| **User** | Bug reports, feature requests, discussions, usability feedback. | — |
+| **Contributor** | File issues, open PRs, join Discussions. | First merged pull request. |
+| **Regular contributor** | Repeated reviewed contributions; help triage issues and review others' PRs. | A track record of merged PRs and useful reviews. |
+| **Reviewer** | Review PRs in an area and approve them. | Nominated by a maintainer after sustained ownership of an area. |
+| **Maintainer** | Merge rights, releases, security triage, roadmap. | Invited by existing maintainers. |
+
+Promotion is proposed in the contributor's area of ownership and recorded when
+the role changes. `CONTRIBUTING.md` holds the contributor-facing version of this
+ladder.
+
+## Developer Certificate of Origin
+
+All contributions are accepted under the [Developer Certificate of Origin](https://developercertificate.org/),
+not a CLA. Commits must carry a `Signed-off-by` line (`git commit -s`); see
+[`CONTRIBUTING.md`](CONTRIBUTING.md#developer-certificate-of-origin-dco).
+
 ## Decision making
 
 - **Lazy consensus:** most changes proceed if no blocking objection is raised on
