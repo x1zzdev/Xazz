@@ -447,7 +447,7 @@ pub fn infer_shape(
                 shape.aggregated = true;
                 let mut cols: Vec<OutputColumn> =
                     group_keys.iter().map(OutputColumn::raw).collect();
-                cols.push(OutputColumn::agg(&format!("{a}_{b}_corr")));
+                cols.push(OutputColumn::agg(format!("{a}_{b}_corr")));
                 shape.set_columns(cols);
             }
             PipelineOp::Histogram { .. } => {
