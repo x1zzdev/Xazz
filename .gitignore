@@ -30,6 +30,8 @@ uploads/
 # Finder archive artifacts
 *.zip
 !docs/evidence/windows-onnx-2026-10-06.zip
+!docs/evidence/gpu-windows-2026-10-22.zip
+!docs/evidence/dependency-gpu-windows-2026-10-22.zip
 !benches/results/windows-cpu-2026-10-06-evidence.zip
 !benches/results/windows-cpu-followup-2026-10-06-evidence.zip
 
@@ -83,6 +85,9 @@ xazz.db
 
 # Local work queue (see NEXT.md)
 NEXT.md
+
+# Standalone tests of the vendored dependency; the workspace lock is authoritative.
+/vendor/object_store/Cargo.lock
 
 # Visual IDE 데모 영상 (visual-ide/scripts/demo.mjs 로 재생성). 발표용 한국어 최종본 한 벌만 커밋한다.
 docs/assets/demo/*.webm

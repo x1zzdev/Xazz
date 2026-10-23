@@ -9,6 +9,12 @@ members = [
   "xazz-lsp"
 ]
 resolver = "2"
+exclude = ["vendor/object_store"]
+
+[patch.crates-io]
+# Polars 0.53 requires object_store 0.13; upstream 0.13.2 pins vulnerable
+# quick-xml 0.39. Only that dependency is patched; see vendor/object_store/PATCH.md.
+object_store = { path = "vendor/object_store" }
 
 
 

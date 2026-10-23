@@ -2,6 +2,8 @@
 
 > D1(#62)·D2(#63)의 `#[ignore]` 실기 acceptance를 실제 GPU가 있는 Windows 호스트에서 실행한 기록.
 > 측정 방법론과 캐시·chunk 설계는 `gpu-backend-perf-log.md`, 검증 항목은 `ROADMAP.md` Track D 참조.
+> 최신 코드 재검증과 자동 검사 보강: [2026-10-22 기록](../gpu-revalidation-2026-10-22.md).
+> 아래 결과는 각 절에 명시한 과거 커밋의 근거이며 최신 코드 통과를 자동으로 의미하지 않는다.
 
 ---
 

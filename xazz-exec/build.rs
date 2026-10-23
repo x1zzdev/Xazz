@@ -20,6 +20,17 @@ const FEATURES: &[(&str, &str)] = &[
 ];
 
 fn main() {
+    #[cfg(feature = "onnx")]
+    {
+        println!("cargo:rerun-if-changed=proto/onnx.proto");
+        protobuf_codegen::Codegen::new()
+            .pure()
+            .include("proto")
+            .input("proto/onnx.proto")
+            .cargo_out_dir("onnx_proto")
+            .customize(protobuf_codegen::Customize::default().generate_accessors(true))
+            .run_from_script();
+    }
     for (_, var) in FEATURES {
         println!("cargo:rerun-if-env-changed={var}");
     }

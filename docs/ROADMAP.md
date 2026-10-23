@@ -175,7 +175,7 @@ datasets. This track makes Xazz handle real workloads.
       software acceptance passed (2026-09-16)
 - [x] `burn-cuda` (native CubeCL CUDA) provider behind `--features cuda` (2026-09-25,
       revised) — replaces the earlier `burn-tch`/LibTorch path. Pure Rust, no
-      LibTorch/system SDK/MSVC requirement; device index via `XAZZ_CUDA_DEVICE`
+      LibTorch/MSVC requirement; NVRTC and CUDA headers are required at runtime. Device index via `XAZZ_CUDA_DEVICE`
       (default 0), fails closed to CPU when no CUDA driver is present. Shares the
       CubeCL stack with `burn-wgpu` and tracks the upstream Burn 0.22 CUDA
       direction (CubeCL CUDA, graph replay, LLVM GPU backends)
@@ -190,9 +190,11 @@ datasets. This track makes Xazz handle real workloads.
       NVRTC DLL on `PATH` + CUDA headers at `$CUDA_PATH/include` (pip
       redistributables suffice) — `docs/GPU_BACKENDS.md`,
       `docs/design/gpu-backend-acceptance.md` §4
-- Depends on: none (Burn API is backend-agnostic). Acceptance: same `.xzz` trains on CPU and CUDA with identical reported losses.
-  ⏳ **Provider revised 2026-09-25**: CUDA runs through `burn-cuda` (CubeCL) via
-  `train_on_device`/`predict_on_device`; the gated acceptance test needs a CUDA-driver host.
+- Depends on: none (Burn API is backend-agnostic). Acceptance: real CUDA training
+  produces finite loss and a usable checkpoint; the same checkpoint's CPU/CUDA
+  predictions differ by less than `1e-3`. Independently initialized training runs
+  are not required to report identical loss. Latest evidence and regression gates:
+  [2026-10-22 revalidation](gpu-revalidation-2026-10-22.md).
 
 ### D2. ONNX export/import — issue #63
 - [x] ONNX provider slot in `ComputeBackend` (`--features onnx`)
@@ -205,16 +207,15 @@ datasets. This track makes Xazz handle real workloads.
       the layer kinds Xazz declares). Keep `ort` for inference; delete the custom
       exporter and its `rlx-onnx-proto`/`protobuf` dependencies when 0.22 lands.
       Do not invest further in the homegrown exporter.
-- [ ] Real ONNX Runtime acceptance on a standard toolchain — `cargo test --release -p xazz-exec --features onnx -- --ignored`
-      ⚠️ Attempted 2026-09-25 on Windows with the `x86_64-pc-windows-gnu` toolchain:
-      `ort-sys` ships prebuilt binaries only for `*-windows-msvc`
-      (`no prebuilt binaries available for target x86_64-pc-windows-gnu`). **Requires the MSVC
-      toolchain on Windows**; macOS `coreml` run still pending (`docs/design/gpu-backend-acceptance.md`).
+- [x] Real ONNX Runtime acceptance on Windows MSVC — CPU/CUDA inference passed
+      2026-10-06, PR #289; [original evidence](windows-onnx-acceptance-2026-10-06.md).
+      Windows GNU remains unsupported. Latest results and actual provider-node
+      evidence are in [2026-10-22 revalidation](gpu-revalidation-2026-10-22.md).
+- [ ] macOS CoreML hardware acceptance — separate host, tracked in #103.
 - Unlocks ecosystem interop and model serving
 - Depends on: D1 (device mapping). Acceptance: exported ONNX runs in onnxruntime with same prediction.
-  ⏳ **Provider landed 2026-09-22**: export + `ort` runtime + parity test wired; the local
-  WSL zig C++ linker cannot link ort's prebuilt C++ static library, so the gated acceptance
-  must run on a standard toolchain (Windows/CI) — this is an ONNX-Runtime constraint, not a CUDA one.
+  Windows hardware acceptance is complete for its recorded revisions; exporter
+  migration remains separate work. Revalidate after backend/dependency changes.
 
 ### D3. Model graph expansion — issue #64
 - [x] **Early stopping** — `train(..., validation_split: 0.3, patience: N)` stops when validation

@@ -17,7 +17,10 @@ use burn::tensor::Tensor;
 use ort::ep::ExecutionProviderDispatch;
 use polars::prelude::DataFrame;
 use protobuf::Message;
-use rlx_onnx_proto::onnx;
+mod generated {
+    include!(concat!(env!("OUT_DIR"), "/onnx_proto/mod.rs"));
+}
+use generated::onnx;
 use xazz_core::i18n::tr;
 
 use crate::backend::{DeviceSpec, OrtEpKind, OrtEpSpec, parse_device_spec, parse_ort_ep_spec};
@@ -44,7 +47,7 @@ fn tensor_parts<const D: usize>(t: Tensor<Plain, D>) -> Result<(Vec<usize>, Vec<
 fn tensor_proto_f32(name: &str, dims: &[usize], data: Vec<f32>) -> onnx::TensorProto {
     let mut t = onnx::TensorProto::new();
     t.set_name(name.to_string());
-    t.set_data_type(onnx::TensorProto_DataType::FLOAT);
+    t.set_data_type(onnx::tensor_proto::DataType::FLOAT as i32);
     t.set_dims(dims.iter().map(|&d| d as i64).collect());
     t.set_float_data(data);
     t
@@ -53,7 +56,7 @@ fn tensor_proto_f32(name: &str, dims: &[usize], data: Vec<f32>) -> onnx::TensorP
 fn tensor_proto_i64(name: &str, dims: &[usize], data: Vec<i64>) -> onnx::TensorProto {
     let mut t = onnx::TensorProto::new();
     t.set_name(name.to_string());
-    t.set_data_type(onnx::TensorProto_DataType::INT64);
+    t.set_data_type(onnx::tensor_proto::DataType::INT64 as i32);
     t.set_dims(dims.iter().map(|&d| d as i64).collect());
     t.set_int64_data(data);
     t
@@ -65,27 +68,27 @@ fn value_info(
     name: &str,
     batch_dynamic: bool,
     dims: &[usize],
-    elem: onnx::TensorProto_DataType,
+    elem: onnx::tensor_proto::DataType,
 ) -> onnx::ValueInfoProto {
     let mut shape = onnx::TensorShapeProto::new();
     if batch_dynamic {
-        let mut dim = onnx::TensorShapeProto_Dimension::new();
+        let mut dim = onnx::tensor_shape_proto::Dimension::new();
         dim.set_dim_param("N".to_string());
         shape.mut_dim().push(dim);
     }
     for &d in dims {
-        let mut dim = onnx::TensorShapeProto_Dimension::new();
+        let mut dim = onnx::tensor_shape_proto::Dimension::new();
         dim.set_dim_value(d as i64);
         shape.mut_dim().push(dim);
     }
-    let mut tensor_type = onnx::TypeProto_Tensor::new();
-    tensor_type.set_elem_type(elem);
+    let mut tensor_type = onnx::type_proto::Tensor::new();
+    tensor_type.set_elem_type(elem as i32);
     tensor_type.set_shape(shape);
     let mut type_proto = onnx::TypeProto::new();
     type_proto.set_tensor_type(tensor_type);
     let mut vi = onnx::ValueInfoProto::new();
     vi.set_name(name.to_string());
-    vi.set_field_type(type_proto);
+    vi.set_type(type_proto);
     vi
 }
 
@@ -100,7 +103,7 @@ fn make_node(op: &str, inputs: Vec<String>, outputs: Vec<String>) -> onnx::NodeP
 fn attr_int(name: &str, v: i64) -> onnx::AttributeProto {
     let mut a = onnx::AttributeProto::new();
     a.set_name(name.to_string());
-    a.set_field_type(onnx::AttributeProto_AttributeType::INT);
+    a.set_type(onnx::attribute_proto::AttributeType::INT);
     a.set_i(v);
     a
 }
@@ -108,7 +111,7 @@ fn attr_int(name: &str, v: i64) -> onnx::AttributeProto {
 fn attr_ints(name: &str, v: Vec<i64>) -> onnx::AttributeProto {
     let mut a = onnx::AttributeProto::new();
     a.set_name(name.to_string());
-    a.set_field_type(onnx::AttributeProto_AttributeType::INTS);
+    a.set_type(onnx::attribute_proto::AttributeType::INTS);
     a.set_ints(v);
     a
 }
@@ -295,7 +298,7 @@ fn build_model(trained: &TrainedModel) -> Result<onnx::ModelProto, String> {
                 let idx = format!("eidx{tag}");
                 let mut cast = make_node("Cast", vec![cat], vec![idx.clone()]);
                 cast.mut_attribute()
-                    .push(attr_int("to", onnx::TensorProto_DataType::INT64 as i64));
+                    .push(attr_int("to", onnx::tensor_proto::DataType::INT64 as i64));
                 nodes.push(cast);
 
                 let gathered = format!("eg{tag}");
@@ -342,7 +345,7 @@ fn build_model(trained: &TrainedModel) -> Result<onnx::ModelProto, String> {
             "input",
             true,
             &[input_dim],
-            onnx::TensorProto_DataType::FLOAT,
+            onnx::tensor_proto::DataType::FLOAT,
         )]
         .into_iter()
         .collect(),
@@ -352,7 +355,7 @@ fn build_model(trained: &TrainedModel) -> Result<onnx::ModelProto, String> {
             "output",
             true,
             &[model.out_dim],
-            onnx::TensorProto_DataType::FLOAT,
+            onnx::tensor_proto::DataType::FLOAT,
         )]
         .into_iter()
         .collect(),
@@ -383,13 +386,16 @@ pub fn export(trained: &TrainedModel, path: &str) -> Result<(), String> {
     std::fs::write(path, bytes).map_err(|e| format!("ONNX: write '{path}' failed: {e}"))
 }
 
-/// ONNX Runtime environment (initialized once per process).
-pub fn init_runtime() {
-    use std::sync::Once;
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        let _ = ort::init().with_name("xazz").commit();
-    });
+/// Retain the process's single ORT environment for all cached sessions. rc.14
+/// requires passing the environment explicitly, and rejects a second one.
+/// Initialization failures propagate instead of being silently discarded.
+fn runtime_environment() -> Result<&'static ort::environment::Environment, String> {
+    static ENVIRONMENT: std::sync::OnceLock<Result<ort::environment::Environment, String>> =
+        std::sync::OnceLock::new();
+    ENVIRONMENT
+        .get_or_init(|| ort::init().with_name("xazz").build().map_err(onnx_err))
+        .as_ref()
+        .map_err(Clone::clone)
 }
 
 /// Writes the `.onnx` artifact only when it is missing or older than the
@@ -421,16 +427,34 @@ fn onnx_is_fresh(trained: &TrainedModel, path: &str) -> bool {
 /// so a GPU-enabled ONNX Runtime build runs the graph on CUDA/TensorRT/DirectML/
 /// CoreML. The session is cached by the caller, so this runs once per artifact.
 pub fn load_session(path: &str) -> Result<ort::session::Session, String> {
+    session_builder()?
+        .commit_from_file(path)
+        .map_err(|e| format!("ONNX: session load '{path}' failed: {e}"))
+}
+
+fn session_builder() -> Result<ort::session::builder::SessionBuilder, String> {
     let eps = execution_providers()?;
-    let mut builder = ort::session::Session::builder().map_err(onnx_err)?;
+    let mut builder = ort::session::Session::builder(runtime_environment()?).map_err(onnx_err)?;
     if !eps.is_empty() {
         builder = builder
             .with_execution_providers(eps)
             .map_err(|e| format!("ONNX: execution provider setup failed: {e}"))?;
     }
-    builder
+    Ok(builder)
+}
+
+/// Hardware acceptance uses the production provider selection and records the
+/// providers that actually executed nodes, rather than only registering an EP.
+#[cfg(test)]
+pub(crate) fn load_profiled_session(
+    path: &str,
+    profile: &std::path::Path,
+) -> Result<ort::session::Session, String> {
+    session_builder()?
+        .with_profiling(profile)
+        .map_err(onnx_err)?
         .commit_from_file(path)
-        .map_err(|e| format!("ONNX: session load '{path}' failed: {e}"))
+        .map_err(onnx_err)
 }
 
 /// `XAZZ_ORT_DEVICE` device index for the CUDA/TensorRT/DirectML EPs (default 0).
@@ -656,16 +680,11 @@ mod tests {
         let bytes = std::fs::read(path).expect("read onnx");
         let mut proto = onnx::ModelProto::new();
         proto.merge_from_bytes(&bytes).expect("parse onnx");
-        let op_types: Vec<&str> = proto
-            .get_graph()
-            .get_node()
-            .iter()
-            .map(|n| n.get_op_type())
-            .collect();
+        let op_types: Vec<&str> = proto.graph().node().iter().map(|n| n.op_type()).collect();
         assert_eq!(op_types, vec!["Gemm", "Relu", "Gemm", "Identity"]);
-        assert_eq!(proto.get_graph().get_input().len(), 1);
-        assert_eq!(proto.get_graph().get_output().len(), 1);
-        assert!(!proto.get_graph().get_initializer().is_empty());
+        assert_eq!(proto.graph().input().len(), 1);
+        assert_eq!(proto.graph().output().len(), 1);
+        assert!(!proto.graph().initializer().is_empty());
 
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(&trained.report.checkpoint_path);
@@ -681,6 +700,30 @@ mod tests {
         let mut proto = onnx::ModelProto::new();
         proto.merge_from_bytes(&bytes).expect("parse onnx");
         proto
+    }
+
+    /// Untrusted recursively nested ONNX types must return a parse error,
+    /// rather than exhaust the stack (RUSTSEC-2024-0437).
+    #[test]
+    fn protobuf_rejects_excessive_type_recursion() {
+        fn message(tag: u8, body: Vec<u8>) -> Vec<u8> {
+            let mut encoded = vec![tag];
+            let mut len = body.len();
+            while len >= 128 {
+                encoded.push((len as u8 & 0x7f) | 0x80);
+                len >>= 7;
+            }
+            encoded.push(len as u8);
+            encoded.extend(body);
+            encoded
+        }
+        let mut nested = Vec::new();
+        for _ in 0..256 {
+            // TypeProto.sequence_type (4) -> Sequence.elem_type (1).
+            nested = message(0x22, message(0x0a, nested));
+        }
+        let error = onnx::TypeProto::parse_from_bytes(&nested).expect_err("recursion limit");
+        assert!(error.to_string().contains("recursion"), "{error}");
     }
 
     /// Removes the ONNX artifact and the checkpoint it was derived from.
@@ -708,39 +751,34 @@ mod tests {
         let path = "checkpoints/onnx_conv_unit.onnx";
         let proto = export_proto(&trained, path);
 
-        let op_types: Vec<&str> = proto
-            .get_graph()
-            .get_node()
-            .iter()
-            .map(|n| n.get_op_type())
-            .collect();
+        let op_types: Vec<&str> = proto.graph().node().iter().map(|n| n.op_type()).collect();
         assert_eq!(
             op_types,
             vec!["Reshape", "Conv", "Reshape", "Relu", "Gemm", "Identity"]
         );
 
         let conv_w = proto
-            .get_graph()
-            .get_initializer()
+            .graph()
+            .initializer()
             .iter()
-            .find(|t| t.get_name() == "cw0")
+            .find(|t| t.name() == "cw0")
             .expect("Conv1d weight initializer");
-        assert_eq!(conv_w.get_dims(), &[2, 1, 2]);
+        assert_eq!(conv_w.dims(), &[2, 1, 2]);
 
         // Burn (`calculate_same_padding`) splits Same padding as
         // [floor((k-1)/2), ceil((k-1)/2)], so kernel 2 pads [0, 1].
         let conv_node = proto
-            .get_graph()
-            .get_node()
+            .graph()
+            .node()
             .iter()
-            .find(|n| n.get_op_type() == "Conv")
+            .find(|n| n.op_type() == "Conv")
             .expect("Conv node");
         let pads = conv_node
-            .get_attribute()
+            .attribute()
             .iter()
-            .find(|a| a.get_name() == "pads")
+            .find(|a| a.name() == "pads")
             .expect("Conv pads attribute");
-        assert_eq!(pads.get_ints(), &[0, 1]);
+        assert_eq!(pads.ints(), &[0, 1]);
 
         cleanup(&trained, path);
     }
@@ -763,12 +801,7 @@ mod tests {
         let path = "checkpoints/onnx_embed_unit.onnx";
         let proto = export_proto(&trained, path);
 
-        let op_types: Vec<&str> = proto
-            .get_graph()
-            .get_node()
-            .iter()
-            .map(|n| n.get_op_type())
-            .collect();
+        let op_types: Vec<&str> = proto.graph().node().iter().map(|n| n.op_type()).collect();
         assert_eq!(
             op_types,
             vec![
@@ -779,20 +812,20 @@ mod tests {
 
         // Shared vocab 6 over 2 input columns → one combined table [12, 2].
         let emb_w = proto
-            .get_graph()
-            .get_initializer()
+            .graph()
+            .initializer()
             .iter()
-            .find(|t| t.get_name() == "ew0")
+            .find(|t| t.name() == "ew0")
             .expect("Embedding weight initializer");
-        assert_eq!(emb_w.get_dims(), &[12, 2]);
+        assert_eq!(emb_w.dims(), &[12, 2]);
 
         // Column 1 is offset past column 0's 6 rows; column 0 starts at 0.
         let offsets: Vec<f32> = proto
-            .get_graph()
-            .get_initializer()
+            .graph()
+            .initializer()
             .iter()
-            .filter(|t| t.get_name().starts_with("eoff0_"))
-            .map(|t| t.get_float_data()[0])
+            .filter(|t| t.name().starts_with("eoff0_"))
+            .map(|t| t.float_data()[0])
             .collect();
         assert_eq!(offsets, vec![6.0]);
 

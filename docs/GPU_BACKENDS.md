@@ -10,6 +10,67 @@ device at runtime.
 > [docs/design/gpu-backend-acceptance.md](design/gpu-backend-acceptance.md).
 > Measurement methodology and cache/chunk design live in
 > [docs/design/gpu-backend-perf-log.md](design/gpu-backend-perf-log.md).
+> Latest revalidation and scope: [2026-10-22](gpu-revalidation-2026-10-22.md).
+
+## Repeatable hardware verification
+
+Default `cargo test --workspace` excludes optional backends. PR workflow
+`gpu-features.yml` compile-checks `wgpu`/`cuda` on Linux and `onnx`/`onnx-cuda`
+on Windows MSVC, including test targets. No hosted GPU execution is claimed.
+
+Use Python 3.11+ and the existing Rust/CUDA environment to run the strict gate
+from the repository root. Each output directory must be new; failed runs are
+preserved rather than overwritten. The script builds with `--locked`, obtains
+the exact test binary from Cargo JSON, runs one exact ignored test, checks its
+count and backend evidence, and saves commands, exit codes, hashes and profiles.
+It changes environment variables only for its children and isolates checkpoints.
+
+```powershell
+# NVIDIA driver, NVRTC DLL on PATH, CUDA_PATH/include/cuda_runtime.h required.
+python scripts/verify_gpu_acceptance.py cuda --output target/gpu-evidence/cuda
+
+# Use an x64 Visual Studio Developer PowerShell for ONNX (MSVC + Windows SDK).
+python scripts/verify_gpu_acceptance.py onnx-cpu --target-dir target/onnx-msvc --output target/gpu-evidence/onnx-cpu
+python scripts/verify_gpu_acceptance.py onnx-cpu --target-dir target/onnx-msvc --reject-uncompiled-cuda --output target/gpu-evidence/onnx-uncompiled-cuda
+
+# For the CUDA 13 ORT distribution: compatible cuBLAS DLLs must be on PATH.
+# The runner reads Cargo's ORT link directory and places matching DLLs next to the test.
+$env:ORT_CUDA_VERSION = '13'
+python scripts/verify_gpu_acceptance.py onnx-cuda --target-dir target/onnx-msvc --output target/gpu-evidence/onnx-cuda
+python scripts/verify_gpu_acceptance.py onnx-cuda --target-dir target/onnx-msvc --reject-device cuda:999 --output target/gpu-evidence/onnx-invalid-device
+```
+
+Success requires one passed test, no ignored tests, finite losses/predictions,
+matching nonempty output sizes and same-checkpoint inference error `< 1e-3`.
+ONNX additionally profiles a session using the production provider selection and
+requires compute nodes on the explicitly requested EP (memory copies alone do
+not qualify). The profile includes other EPs
+too: CUDA-node execution does not imply every graph node ran on CUDA. ONNX
+training remains CPU. Negative controls must fail with the expected diagnostic;
+an unrelated DLL failure is not a passing negative control.
+
+On Windows, ORT's `copy-dylibs` can leave existing regular DLL files untouched
+after a version upgrade. A file in `release/` is therefore not proof that it
+matches the newly linked runtime. The runner resolves the actual `ort-sys` link
+directory from Cargo's JSON and stages those DLLs beside the test executable,
+recording their hashes. When packaging the CLI, likewise use DLLs from the same
+ORT distribution; this test helper does not update your installed application.
+
+`ort-sys` caches downloaded runtimes under `%LOCALAPPDATA%\ort.pyke.io`. A shell
+started from a packaged (MSIX) application sees a virtualized AppData, so a cache
+created in one sandbox can be invisible to another even though Cargo's cached
+build script still reports its path; the runner then fails with
+`expected one ORT link directory, got 0`. Run the build and the runner from the
+same shell environment, or make the distribution visible at the reported path.
+
+`gpu-hardware.yml` provides manual execution of all five checks and uploads the
+evidence, including failed runs. It requires a separately provisioned runner
+labelled `self-hosted, Windows, X64, xazz-gpu`, Python 3.11+, GNU/MSVC Rust,
+Visual Studio C++ tools, and CUDA runtime paths. Adding the workflow does not
+register a runner or schedule hardware tests automatically. A maintainer must
+select a trusted ref; pull-request code is never automatically run on that host.
+For backend/dependency changes, attach fresh hardware evidence before release
+and reconcile #62/#63 against the dated results.
 
 ## 1. Feature matrix
 
@@ -211,7 +272,7 @@ debug and GPU runs are impractically slow there.
 |---------|--------|
 | CPU | Reference implementation — always available |
 | `wgpu` | **Verified** on Windows 11 / RTX 4070 (dGPU) and Intel Arc (iGPU); `XAZZ_DEVICE` adapter pinning confirmed |
-| `cuda` | **검증 완료** — 2026-10-01 Windows GNU / RTX 4070, NVRTC·CUDA 헤더 요구사항과 결과는 [실기 기록 §4](design/gpu-backend-acceptance.md#4-cuda) 참조 |
-| `onnx` (CPU EP) | **검증 완료** — 2026-10-06 Windows MSVC, [acceptance·일반 검사 근거](windows-onnx-acceptance-2026-10-06.md) |
-| `onnx-cuda` (CUDA EP) | **검증 완료** — 같은 MSVC 호스트에서 명시적 CUDA EP acceptance·설정 실패 시 오류 반환 확인. 테스트 실행 파일 옆 provider DLL과 cuBLAS 13 필요. [재현·실패 근거](windows-onnx-acceptance-2026-10-06.md) |
+| `cuda` | **재검증 완료** — 2026-10-22 Windows GNU / RTX 4070, 실제 CUDA 학습·추론 및 일반 검사 138개 통과. 의존성 수정 커밋 `3dc1c24`에서 재실행해 통과. [코드 버전·근거](gpu-revalidation-2026-10-22.md) |
+| `onnx` (CPU EP) | **재검증 완료** — 2026-10-22 Windows MSVC, CPU 계산 노드 2개, 동일 체크포인트 예측 편차 0. protobuf 1.x 제거 커밋 `3dc1c24`에서 재실행해 통과. [근거](gpu-revalidation-2026-10-22.md) |
+| `onnx-cuda` (CUDA EP) | **재검증 완료** — ORT rc.14 호환성 수정과 protobuf 1.x 제거(`3dc1c24`) 후 실제 CUDA 계산 노드 3개 확인. 일반 검사 141개, 미컴파일 EP·잘못된 장치 거부 확인. 일치하는 provider DLL과 cuBLAS 13 필요. [재현·실패·성공 근거](gpu-revalidation-2026-10-22.md) |
 | `onnx-coreml` | Pending macOS hardware |
