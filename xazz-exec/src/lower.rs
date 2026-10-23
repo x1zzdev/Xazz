@@ -487,7 +487,7 @@ mod tests {
         .unwrap();
         assert_eq!(out.height(), 2);
         assert!(out.column("bin").is_ok());
-        assert!(out.column("count").is_ok());
+        assert!(out.column("n").is_ok());
     }
 
     #[test]
