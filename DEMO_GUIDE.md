@@ -102,6 +102,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8005 npm run dev   # :5173
 ## 2. 시험 항목별 상세 가이드
 
 각 항목은 **① 명령 → ② 이 명령이 하는 일 → ③ 성공 기준(무엇을 보여줄지)** 순서다.
+전체를 한 번에 자동 점검하려면 **`bash demo/feature_check.sh`** (PASS/FAIL 집계, §4 체크리스트).
 
 ### 2.1 컴파일러 (언어 코어 · 실패 안전)
 
@@ -414,6 +415,7 @@ DuckDB(13)·sde(30)·new(28)·registry(29)는 "정상 동작 확인됨"으로 �
 
 ## 4. 시연 10분 전 체크리스트
 
+- [ ] **`bash demo/feature_check.sh`** 실행 → `PASS 32 · FAIL 0` (명세서 자동 점검, 수동: PostgreSQL·IDE)
 - [ ] 저장소 **루트**에서 작업 중인가
 - [ ] `target/release/{xazz,xazz-runner,xazz-exec,xazz-server}` 4개 존재
 - [ ] `audit_log/audit.jsonl` 비웠는가 (§1.4)
