@@ -54,6 +54,15 @@ type TrainBatch<B> = (Tensor<Autodiff<B>, 2>, Tensor<Autodiff<B>, 2>);
 /// Upper bound of the validation split ratio — at most this fraction of the data can be held out for validation.
 const MAX_VALIDATION_SPLIT: f64 = 0.9;
 
+/// Default minibatch size when `train(batch_size: ...)` is not given.
+///
+/// The previous default was full-batch (`train_n`). Full-batch gradient descent
+/// at a fixed learning rate barely moves past a few hundred rows, so a large
+/// table (e.g. 200k rows) underfit badly — the final R² was often negative.
+/// Capping the default at a minibatch fixes that without changing small
+/// datasets: `train_n <= DEFAULT_BATCH_SIZE` still means full batch.
+const DEFAULT_BATCH_SIZE: usize = 256;
+
 /// Application-level checkpoint schema version (D3).
 ///
 /// The Burn record carries its own serialization version; this constant versions
@@ -1321,7 +1330,10 @@ where
     }
     let classification_loss = CrossEntropyLossConfig::new().init::<Autodiff<B>>(&device_autodiff);
 
-    let batch_size = config.batch_size.unwrap_or(train_n.max(1));
+    let batch_size = config
+        .batch_size
+        .unwrap_or_else(|| train_n.min(DEFAULT_BATCH_SIZE))
+        .max(1);
     let lr = config.learning_rate;
     let mut optim = AdamConfig::new().init::<Autodiff<B>, _>();
 
@@ -2282,6 +2294,58 @@ mod tests {
         assert!(
             (actual - expected).abs() < 1e-5 * expected.abs().max(1.0),
             "{context}: actual={actual}, expected={expected}"
+        );
+    }
+
+    #[test]
+    fn default_batch_size_is_capped_for_large_datasets() {
+        use polars::prelude::*;
+        // 300 rows and no batch_size: the default must be the capped minibatch,
+        // not full batch (which underfits at this size at a fixed learning rate).
+        let x: Vec<f64> = (0..300).map(|i| i as f64).collect();
+        let y: Vec<f64> = (0..300).map(|i| (i % 7) as f64).collect();
+        let frame = df!("x" => x, "y" => y).unwrap();
+        let config = TrainConfig {
+            target: "y".into(),
+            epochs: 1,
+            ..Default::default()
+        };
+        let trained = train_impl::<Plain>(
+            &frame,
+            "default_batch_cap",
+            &[LayerKind::Dense(8), LayerKind::Dense(1)],
+            &config,
+            &Default::default(),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            trained.report.batch_size, DEFAULT_BATCH_SIZE,
+            "a 300-row dataset must default to the capped minibatch"
+        );
+    }
+
+    #[test]
+    fn small_datasets_keep_full_batch_by_default() {
+        use polars::prelude::*;
+        let frame = df!("x" => [0., 1., 2., 3.], "y" => [0., 1., 0., 1.]).unwrap();
+        let config = TrainConfig {
+            target: "y".into(),
+            epochs: 1,
+            ..Default::default()
+        };
+        let trained = train_impl::<Plain>(
+            &frame,
+            "small_default_batch",
+            &[LayerKind::Dense(1)],
+            &config,
+            &Default::default(),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            trained.report.batch_size, 4,
+            "small datasets must keep full-batch behavior"
         );
     }
 
