@@ -94,12 +94,19 @@ sk   "14. PostgreSQL (로컬 DB 필요)"
 printf '\nAI\n'
 rm -f checkpoints/AirPredictor.json
 runf "15. train (5 epoch, R²>0)"      0 'Epoch   5/5'           checkpoints/AirPredictor.json "$XAZZ" run demo/deep_learning.xzz
-if [ "$WITH_LFS" = 1 ]; then
-  run  "16. predict (LFS 예제)"       0 'predicted_chart'       "$XAZZ" run examples/deep_learning/air_pipeline.xzz
-elif head -c 120 examples/data/seoul_air_2024.csv 2>/dev/null | grep -q 'git-lfs'; then
-  sk   "16. predict — examples/data 가 LFS 포인터 (git lfs pull 또는 --with-lfs)"
+if [ "$WITH_LFS" = 1 ] || ! head -c 120 examples/data/seoul_air_2024.csv 2>/dev/null | grep -q 'git-lfs'; then
+  run  "16. predict (air_pipeline)"   0 'predicted_chart'       "$XAZZ" run examples/deep_learning/air_pipeline.xzz
 else
-  run  "16. predict (LFS 예제)"       0 'predicted_chart'       "$XAZZ" run examples/deep_learning/air_pipeline.xzz
+  cat > /tmp/xazz_pred.xzz <<'EOF'
+type Air = { date: string, station: string, pm10: Option<float>, pm25: Option<float> }
+v dataset = load("demo/data/seoul_air_sample.csv") :: Air
+    |> cast("pm10","float") |> cast("pm25","float") |> fillNull("pm10", strategy: "mean") |> fillNull("pm25", strategy: "mean")
+model AirPredictor { Dense(32) -> ReLU() -> Dense(1) }
+v air_model = dataset |> train(AirPredictor, target: "pm10", epochs: 10, lr: 0.05)
+v predicted = dataset |> predict(air_model, as: "pm10_pred") |> rename("pm10", "pm10_actual") |> take(5)
+v predicted_chart = predicted |> chart { type: line, x: station, y: pm10_pred, title: "PM10 predict" }
+EOF
+  run  "16. predict (비-LFS 샘플 대체)" 0 'predicted_chart'      "$XAZZ" run /tmp/xazz_pred.xzz
 fi
 run  "17. stdlib 표준모델(MLPSmall)"  0 '12 AST'                "$XAZZ" run examples/stdlib_import.xzz
 
