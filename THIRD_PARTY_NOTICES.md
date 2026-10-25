@@ -39,6 +39,12 @@ The allowed license set is permissive only; the single weak-copyleft dependency
 | Vite | MIT | Build tool (dev dependency) |
 | @playwright/test | Apache-2.0 | E2E/contrast tests (dev dependency) |
 
+## Bundled frontend assets (inlined into generated output)
+
+| Component | License | Purpose |
+|---|---|---|
+| Chart.js 4.4.4 (`xazz-exec/assets/chart.umd.min.js`) | MIT | Vendored and inlined into every generated chart HTML so charts render offline (no CDN) |
+
 ## Optional model / serving (not redistributed)
 
 | Component | License | Note |

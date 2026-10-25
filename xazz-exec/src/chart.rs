@@ -8,6 +8,12 @@ use serde::Serialize;
 
 use xazz_compiler::ast::{ChartConfig, ChartType};
 
+/// Chart.js 4.4.4 UMD build (MIT), vendored under `xazz-exec/assets/` and inlined
+/// into every generated chart so the HTML renders with **no network access**.
+/// Kept as a separate file (rather than a CDN `<script src>`) so a chart opened
+/// offline — or on an air-gapped machine — still draws. See THIRD_PARTY_NOTICES.md.
+const CHART_JS: &str = include_str!("../assets/chart.umd.min.js");
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ── ChartSpec — visualization spec passed to the frontend (v0.19) ────────────
 // ─────────────────────────────────────────────────────────────────────────────
@@ -293,7 +299,7 @@ pub fn write_chart_html(
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{title_html}</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>/*__XAZZ_CHARTJS_INLINE__*/</script>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
@@ -345,6 +351,11 @@ pub fn write_chart_html(
         dataset_js = dataset_js,
     );
 
+    // Inline the vendored Chart.js build so the chart works offline. Done as a
+    // post-format replacement (not a `format!` argument) because the minified JS
+    // is full of `{`/`}` that would otherwise be parsed as format specifiers.
+    let html = html.replace("/*__XAZZ_CHARTJS_INLINE__*/", CHART_JS);
+
     std::fs::write(output_path, html)?;
     Ok(())
 }
@@ -392,6 +403,28 @@ mod tests {
         write_chart_html(&spec_with_cell("Gangnam"), out.to_str().unwrap()).unwrap();
         let html = std::fs::read_to_string(&out).unwrap();
         assert!(html.contains("Gangnam"));
+        std::fs::remove_file(&out).ok();
+    }
+
+    #[test]
+    fn chart_html_inlines_chartjs_and_drops_the_cdn() {
+        let out = std::env::temp_dir().join("xazz_offline_chart_test.html");
+        write_chart_html(&spec_with_cell("Gangnam"), out.to_str().unwrap()).unwrap();
+        let html = std::fs::read_to_string(&out).unwrap();
+        // No network dependency: the CDN <script src> must be gone.
+        assert!(
+            !html.contains("cdn.jsdelivr.net"),
+            "chart HTML must not reference the Chart.js CDN"
+        );
+        assert!(
+            !html.contains("__XAZZ_CHARTJS_INLINE__"),
+            "the inline placeholder must be replaced"
+        );
+        // The vendored Chart.js build defines `Chart` inline.
+        assert!(
+            html.contains("Chart.js v4"),
+            "the vendored Chart.js build must be embedded in the HTML"
+        );
         std::fs::remove_file(&out).ok();
     }
 }
