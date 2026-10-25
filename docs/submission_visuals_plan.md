@@ -19,10 +19,12 @@ AI-Native 문법", "AI Agent 시대에 최적화된 파이프라인 플랫폼"�
 ### A1. 전처리 성능 벤치마크 비교 차트 — `docs/assets/benchmark_chart.png` ✅
 - **구성**: 가로축 데이터셋 크기(228K/912K/4.09M 행), 세로축 처리 시간 비교 +
   speedup 막대. pandas / Polars / Xazz.
-- **레이블**: README Performance 기준 — pandas 대비 **228K 0.76×, 912K 1.44×,
-  4.09M 1.30×**, 최대 규모 peak RSS 567 MB vs 656 MB.
-  (초기 초안의 "최대 3.84배"는 실제 측정과 달라 정정)
-- **재생성**: `benches/`의 README 벤치마크 스크립트로 재측정 (측정 환경·데이터셋 캡션 필수).
+- **레이블**: README Performance 기준 — pandas 대비 **228K 2.04×, 912K 3.84×,
+  4.09M 2.14×**, 최대 규모 peak RSS **405 MB vs 635 MB** (Windows 11 호스트,
+  출처 `benches/benchmark_results.json`의 provenance 블록).
+  (이전의 0.76×/1.44×/1.30× 수치는 lazy 스캔 이전 런타임 측정으로 대체됨)
+- **재생성**: `python benches/run_readme_benchmark.py` → `python benches/render_benchmark_chart.py`
+  (측정 환경·데이터셋 크기·바이너리 SHA를 provenance에 기록).
 
 ### A2. 컴파일 시점 검증으로 GPU 낭비 차단 — `docs/figures/compile-time-safety[-kr].svg` ✅
 - 정적 검사(`Option<T>`) 전/후의 실패 시점 비교: "런타임 오류 → 학습 중단 → GPU 재할당"

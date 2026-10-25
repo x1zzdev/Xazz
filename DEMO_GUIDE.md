@@ -52,9 +52,12 @@ cargo build --release -p xazz -p xazz-runner -p xazz-exec -p xazz-server
 
 ### 1.3 실행 위치와 데이터
 
-- **반드시 저장소 루트에서 실행**한다. (데모가 `visual-ide/data`를 상대경로로 참조)
-- 데모 데이터(동봉): `visual-ide/data/seoul_air_quality.csv`,
-  `examples/data/seoul_air_2024.csv`, `examples/data/seoul_air_2026.csv`
+- **반드시 저장소 루트에서 실행**한다. (데모가 `visual-ide/data`·`demo/data`를 상대경로로 참조)
+- 데모 데이터(동봉, Git LFS 불필요):
+  `visual-ide/data/seoul_air_quality.csv`(20행, 전처리/DP/차트),
+  `demo/data/seoul_air_sample.csv`(10,000행, 딥러닝 학습 — 저장소에 **일반 파일**로 커밋됨)
+- ⚠️ `examples/data/*.csv`는 **Git LFS 포인터**일 수 있다(`git lfs pull` 필요). LFS 없이
+  바로 도는 데모는 위 두 파일만 쓴다.
 - 기본 백엔드는 CPU. GPU는 선택(§2.3 참고).
 
 ### 1.4 [중요] 감사 로그 초기화 — 시연 전 필수
@@ -199,6 +202,7 @@ EOF
 - **성공 기준**: `pie_chart.html` · `scatter_chart.html` 생성.
 - ⚠️ **출력 파일명은 변수명 기반**이다. `v scatter = ...` → `scatter_chart.html`.
   변수를 `scat`으로 지으면 `scat_chart.html`이 된다.
+- ✅ 생성된 차트 HTML은 **Chart.js를 인라인**하므로 **인터넷 없이도** 브라우저에서 열린다(CDN 미사용).
 
 #### (12) 기계판독 출력 — `--json`
 ```bash
@@ -227,9 +231,13 @@ createdb mydb            # 로컬 PostgreSQL 필요
 ```bash
 ./target/release/xazz run demo/deep_learning.xzz
 ```
-- **하는 일**: `model AirPredictor { Dense(16) -> ReLU() -> Dense(1) }`을 Burn으로 컴파일하고
-  `train(target: "pm25", epochs: 5, lr: 0.01)` 실행.
-- **성공 기준**: `[Epoch 1/5] ~ [Epoch 5/5] train_loss`가 **감소**, `checkpoints/AirPredictor.json` 생성.
+- **하는 일**: `demo/data/seoul_air_sample.csv`(10,000행)에서 PM10 → PM25 관계를 학습한다.
+  `model AirPredictor { Dense(16) -> ReLU() -> Dense(1) }`을 Burn으로 컴파일하고
+  `train(target: "pm25", epochs: 5, lr: 0.05, batch_size: 256)` 실행(미니배치).
+- **성공 기준**: `[Epoch 1/5] ~ [Epoch 5/5] train_loss`가 **감소**(253 → 52),
+  **R² ≈ 0.70 · MAE ≈ 4.8 µg/m³**, 예측값이 실제값에 근접, `checkpoints/AirPredictor.json` 생성(약 0.3초).
+- 💡 5 epoch만에 의미 있는 결과가 나오는 이유: **실데이터 + 미니배치(256) + lr 0.05**.
+  (이전 20행 데모는 full-batch + lr 0.01이라 학습이 안 돼 R²가 음수였다.)
 
 #### (16) 추론 — predict
 ```bash
@@ -392,7 +400,7 @@ ls sbom/xazz.cdx.json THIRD_PARTY_NOTICES.md
 | 12:45 | 오프닝 (3′) | Xazz 한 줄 소개 + "실행 전 차단" 메시지 | — |
 | 12:48 | 컴파일러 (7′) | check 정상 → 오타 검출(exit1) → emit rust → `--opt` | §2.1 (1)(2)(3)(5) |
 | 12:55 | 데이터 (7′) | run → 차트 파일 브라우저로 → `--json` → `--output` | §2.2 (8)(12)(9) |
-| 13:02 | AI (7′) | deep_learning 5 epoch → air_pipeline predict | §2.3 (15)(16) |
+| 13:02 | AI (7′) | deep_learning 5 epoch(R²≈0.70) → air_pipeline predict | §2.3 (15)(16) |
 | 13:09 | 보안 (12′) | policy 차단(4건) → safe 통과 → `--fix` → DP laplace/gaussian → sanitize | §2.4 (19)(20)(21)(23)(24)(25) |
 | 13:21 | 서버·감사 (5′) | health → execute → audit probe → chain `intact:true` | §2.5 (27), §2.4 (26) |
 | 13:26 | IDE·마무리 (4′) | :5173 노드 편집기 Full Run → SBOM/registry 화면 제시 | §2.5 (31)(29), §2.6 (33) |

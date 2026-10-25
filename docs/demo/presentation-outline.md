@@ -22,8 +22,9 @@
    - 증거: `docs/figures/pipeline-flow-kr.svg`.
 4. **성능**
    - 메시지: Polars 기반 전처리로 pandas보다 빠르다.
-   - 증거: "pandas 대비 최대 3.84배"는 `docs/submission_visuals_plan.md` A1에만 있다.
-     슬라이드에 넣기 전에 측정 환경·데이터셋 크기·측정 시점을 벤치마크 원자료와 함께 적는다.
+   - 증거: `README_kr.md` Performance — pandas 대비 228K 2.04×, 912K 3.84×, 4.09M 2.14×,
+     peak RSS 405 MB vs 635 MB (Windows 11 호스트, 출처 `benches/benchmark_results.json`).
+     슬라이드에 실을 때는 측정 환경·데이터셋 크기·바이너리 SHA를 캡션에 함께 적는다.
 
 ## 3. 데모 (4장 + 라이브 5분)
 
