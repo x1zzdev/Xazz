@@ -1,11 +1,16 @@
-// Xazz 데모 3 — 차등 프라이버시(DP) 노이즈 주입
+// Xazz 데모 3 — 차등 프라이버시(DP) 노이즈 주입 (실데이터 10,000행)
+//
+//   xazz run demo/dp.xzz
+//
+// 구(區)별 PM2.5 평균에 Laplace 노이즈를 더한다 — 개인 레코드가 결과에서
+// 역추적되지 않도록. 실행 세션의 ε 예산도 함께 회계된다.
 type Air = {
-    observed_at:   string,
-    district:      string,
-    pm25:          Option<float>,
-    temperature_c: float,
+    observed_at: string,
+    district:    string,
+    pm10:        Option<float>,
+    pm25:        Option<float>,
 }
-v x = load("visual-ide/data/seoul_air_quality.csv") :: Air
+v x = load("demo/data/seoul_air_sample.csv") :: Air
 v means = x
     |> groupBy("district")
     |> mean("pm25")
