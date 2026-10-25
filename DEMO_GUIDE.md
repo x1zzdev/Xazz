@@ -55,7 +55,7 @@ cargo build --release -p xazz -p xazz-runner -p xazz-exec -p xazz-server
 - **반드시 저장소 루트에서 실행**한다. (데모가 `visual-ide/data`·`demo/data`를 상대경로로 참조)
 - 데모 데이터(동봉, Git LFS 불필요):
   `visual-ide/data/seoul_air_quality.csv`(20행, 전처리/DP/차트),
-  `demo/data/seoul_air_sample.csv`(10,000행, 딥러닝 학습 — 저장소에 **일반 파일**로 커밋됨)
+  `demo/data/seoul_air_sample.csv`(10,000행, 세 데모 공통 — 저장소에 **일반 파일**로 커밋됨)
 - ⚠️ `examples/data/*.csv`는 **Git LFS 포인터**일 수 있다(`git lfs pull` 필요). LFS 없이
   바로 도는 데모는 위 두 파일만 쓴다.
 - 기본 백엔드는 CPU. GPU는 선택(§2.3 참고).
@@ -167,7 +167,7 @@ cd -
 ./target/release/xazz run demo/preprocess_chart.xzz
 ```
 - **하는 일**: `load → fillNull(mean) → groupBy(district) → mean(pm25) → orderBy → take(5) → chart(bar)`.
-- **성공 기준**: `Pipeline #1~4 done`, `result_chart_chart.html` 생성, district별 pm25 상위 5개 표/차트 출력.
+- **성공 기준**: `Pipeline #1~4 done`(10,000행 → 25개 구), `result_chart_chart.html` 생성, district별 pm25 상위 5개 표/차트 출력.
 
 #### (9) 결과 저장 — `--output`
 ```bash
@@ -245,6 +245,8 @@ createdb mydb            # 로컬 PostgreSQL 필요
 ```
 - **하는 일**: 10 epoch 학습 → `predict(air_model, as: "pm10_pred")`로 예측 컬럼 추가 → line 차트.
 - **성공 기준**: epoch별 loss 감소, `sample predictions`(predicted/actual), `predicted_chart_chart.html` 생성.
+- ⚠️ 이 예제는 `examples/data/seoul_air_2024.csv`(**Git LFS**)를 쓴다. LFS가 없는 환경이면
+  먼저 `git lfs pull` 하거나, 경로를 `demo/data/seoul_air_sample.csv`로 바꿔 실행한다.
 
 #### (17) 표준모델 — stdlib model
 ```bash
@@ -293,7 +295,7 @@ createdb mydb            # 로컬 PostgreSQL 필요
 ```bash
 ./target/release/xazz run demo/dp.xzz
 ```
-- **하는 일**: `withDp(epsilon: 1.0, mechanism: laplace)`가 집계 결과 숫자 컬럼에 보정 노이즈를 더한다.
+- **하는 일**: `demo/data/seoul_air_sample.csv`(10,000행) 구별 평균에 `withDp(epsilon: 1.0, mechanism: laplace)`로 보정 노이즈를 더한다.
 - **성공 기준**: `DP applied: laplace (ε=1 ...)` + `budget ε 1.00/10.00` 리포트, 노이즈가 반영된 결과.
 
 #### (24) DP gaussian · 예산 회계
