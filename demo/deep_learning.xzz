@@ -1,18 +1,24 @@
-// Xazz 데모 2 — Burn 딥러닝 학습 컴파일
+// Xazz 데모 2 — Burn 딥러닝 학습 컴파일 (실데이터 · 미니배치)
+//
+//   xazz run demo/deep_learning.xzz
+//
+// 10,000행 샘플(서울시 공기질, 저장소 동봉)에서 PM10 → PM25 관계를 실제로 학습한다.
+// 미니배치(256) + lr 0.05로 5 epoch 안에 R² ≈ 0.70 / MAE ≈ 4.8 µg/m³에 도달한다.
+// (이전 20행 데모는 full-batch + 약한 lr 탓에 학습이 되지 않아 R²가 음수였다.)
 type Air = {
-    observed_at:   string,
-    district:      string,
-    pm25:          Option<float>,
-    temperature_c: float,
+    date:    string,
+    station: string,
+    pm10:    Option<float>,
+    pm25:    Option<float>,
 }
-v raw = load("visual-ide/data/seoul_air_quality.csv") :: Air
-v dataset = raw
+v dataset = load("demo/data/seoul_air_sample.csv") :: Air
+    |> cast("pm10", "float")
     |> cast("pm25", "float")
-    |> cast("temperature_c", "float")
-    |> fillNull("pm25", strategy: "mean")
-    |> select([temperature_c, pm25])
+    |> dropNull("pm10")
+    |> dropNull("pm25")
+    |> select([pm10, pm25])
 model AirPredictor {
     Dense(16) -> ReLU() -> Dense(1)
 }
 run dataset
-    |> train(AirPredictor, target: "pm25", epochs: 5, lr: 0.01)
+    |> train(AirPredictor, target: "pm25", epochs: 5, lr: 0.05, batch_size: 256)

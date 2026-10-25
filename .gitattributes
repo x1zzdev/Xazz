@@ -3,3 +3,4 @@ benches/** linguist-vendored
 
 *.py linguist-detectable=false
 *.html linguist-detectable=false
+demo/data/** -filter -diff -merge -text
