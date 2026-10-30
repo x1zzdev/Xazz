@@ -28,15 +28,28 @@ docker run --rm -p 8005:8005 -v xazz-data:/data xazz:local
 
 ## Release images (GHCR)
 
-The next release tag (`v*`) will trigger a multi-arch image build
-(`linux/amd64`, `linux/arm64`) in `.github/workflows/release.yml`. No GHCR image
-was available when this guide was updated; use the local Compose build above
-until a published tag is verified. After publication:
+The release workflow builds multi-arch images (`linux/amd64`, `linux/arm64`)
+and pushes `ghcr.io/x1zzdev/xazz`. The package is **public**, so `docker pull`
+works without credentials:
+
+| Tag | Points at |
+|-----|-----------|
+| `0.4.0`, `0.4.1` | that release (multi-arch index) |
+| `0.4`, `latest` | newest stable release (`0.4.1` as of 2026-10-30) |
 
 ```bash
-docker pull ghcr.io/x1zzdev/xazz:latest   # or a verified release tag
-docker run --rm -p 8005:8005 -v xazz-data:/data ghcr.io/x1zzdev/xazz:latest
+docker pull ghcr.io/x1zzdev/xazz:0.4.1     # or :latest
+docker run --rm -p 8005:8005 -v xazz-data:/data ghcr.io/x1zzdev/xazz:0.4.1
 ```
+
+Smoke record for `0.4.1` (2026-10-30): anonymous pull on Docker Desktop
+`linux/amd64`; `/health` `{"status":"ok","version":"0.4.1"}`; IDE served with no
+CDN requests; policy check passes the safe example and blocks the unsafe one
+(`XZP001`); `/execute` returned 5 rows and `/runs` recorded the run; `/dp/budget`
+and `/security/audit/chain` (`intact: true`) responded; the named volume kept
+the run and audit record across container re-creation; container runs as uid
+10001. The `linux/arm64` image is built and published but has not been run on
+arm64 hardware.
 
 Prerelease tags (`v1.0.0-rc.1`) do not move `latest`.
 
@@ -158,9 +171,9 @@ Record the image tag and host OS/arch with the result (issue #176).
 
 ### Smoke record template (issue #176)
 
-Attach this to the tracking issue for each host/arch. Until the first `v*` tag
-publishes a GHCR image, record against the local `xazz:local` build and note the
-git SHA so the number is reproducible.
+Attach this to the tracking issue for each host/arch. Record it against the
+published image when the host can pull `ghcr.io/x1zzdev/xazz:<tag>`, or against
+the local `xazz:local` build (note the git SHA) when it cannot.
 
 ```markdown
 - Image tag:                  ghcr.io/x1zzdev/xazz:<tag>   (or xazz:local @ <git-sha>)

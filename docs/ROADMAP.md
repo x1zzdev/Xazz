@@ -257,8 +257,12 @@ datasets. This track makes Xazz handle real workloads.
   go-to-def, rename via `xazz-lsp`) + `Xazz: Run`/`Check` commands + `.xzz` syntax highlighting.
   Binary auto-discovery (config / env / `target/{debug,release}` / PATH). Compiles cleanly; F5 or `vsce package`.
 - **E2. Official Docker image** — ✅ (issue #66) `Dockerfile` + `docker-compose.yml`: 3 stages
-  (Rust binaries → Visual IDE → slim runtime), bundles `xazz`/`xazz-runner`/`xazz-server` + `/app/web`,
+  (Rust binaries → Visual IDE → slim runtime), bundles
+  `xazz`/`xazz-runner`/`xazz-exec`/`xazz-server` + `/app/web`,
   non-root user, `VOLUME /data`, `EXPOSE 8005`. `XAZZ_BIND` env lets the container listen on `0.0.0.0`.
+  Publishing to GHCR is wired into the release workflow; the multi-arch package is public and
+  its linux/amd64 smoke is recorded (2026-10-30, issue #176). arm64 execution and a second
+  physical host are still open.
 - **E3. GitHub Actions official action** — ✅ (issue #67) `.github/actions/xazz` composite action
   (builds the CLI, runs `check`/`policy`/`run` over a file or directory, fails on non-zero exit)
   + `.github/workflows/policy.yml` gate: check demo, safe pipeline passes, unsafe pipeline is

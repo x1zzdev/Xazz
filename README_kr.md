@@ -70,7 +70,9 @@ Xazz는 기존 라이브러리의 래퍼가 아닙니다. 파서, AST, 정적 �
 
 2. 압축을 풀고 디렉토리를 `PATH`에 추가합니다.
 
-   > **주의:** `xazz`와 `xazz-runner`는 반드시 같은 디렉토리에 있어야 합니다 — `xazz run`은 `xazz-runner`를 프로세스 격리 서브프로세스로 스폰합니다 (실행 타임아웃 포함. 이는 격리이지 OS 샌드박스가 아닙니다).
+   > **주의:** `xazz`, `xazz-runner`, `xazz-exec`는 반드시 같은 디렉토리에 있어야 합니다 — `xazz run`은 `xazz-runner`를 프로세스 격리 서브프로세스로 스폰하고, 러너가 같은 디렉토리의 `xazz-exec`를 실행합니다 (실행 타임아웃 포함. 이는 격리이지 OS 샌드박스가 아닙니다).
+   >
+   > **서명되지 않은 바이너리.** 아카이브는 코드 서명/노터라이즈가 되어 있지 않습니다. macOS에서 Gatekeeper가 차단하면 `xattr -dr com.apple.quarantine xazz/`를 실행하거나 시스템 설정 → 개인정보 보호 및 보안에서 허용하세요. Windows에서는 SmartScreen이 **추가 정보 → 실행**을 물을 수 있습니다.
 
 3. 확인:
 
@@ -87,8 +89,8 @@ Rust stable 툴체인이 필요합니다.
 ```bash
 git clone https://github.com/x1zzdev/Xazz.git
 cd Xazz
-cargo build --release -p xazz -p xazz-runner
-# 두 바이너리 모두 target/release/에 생성됩니다
+cargo build --release -p xazz -p xazz-runner -p xazz-exec
+# 세 바이너리 모두 target/release/에 생성됩니다
 ```
 
 ### Option C — Docker 로컬 브라우저 데모
@@ -100,7 +102,7 @@ Docker Compose를 설치한 뒤 저장소 루트에서 `docker compose up`을 �
 ```bash
 xazz new my-project    # 프로젝트 + 샘플 CSV 생성
 cd my-project
-xazz import data.csv   # 스키마 자동 추론 → main.xzz에 타입 블록 기록
+xazz import data/sample.csv   # 스키마 자동 추론 → main.xzz에 타입 블록 기록
 xazz run main.xzz      # 컴파일 + 실행
 xazz run main.xzz --opt  # 선택: Typed IR 최적화 패스 활성화
 ```
@@ -303,7 +305,7 @@ python benches/run_readme_benchmark.py --xlarge
 | `import "std/..."` | 내장 표준 라이브러리 — 재사용 스키마(`std/common`)와 모델(`std/math`, `std/models`) | Stable |
 | `xazz-lsp` | 언어 서버 — `xazz check` 진단 + 심볼 테이블 기반 hover/go-to-def/rename (Track B3) | Stable |
 | VS Code 확장 | `vscode-xazz/` — LSP 클라이언트, Run/Check 명령, 문법 강조 (Track E1) | Preview |
-| Docker 이미지 | `Dockerfile` + `docker-compose.yml` — server + runner + exec + IDE, `/data` 마운트; 포트/볼륨/권한은 [`docs/DOCKER.md`](docs/DOCKER.md); 릴리스 시 GHCR 멀티아키 태그 (Track E2, #176) | Preview |
+| Docker 이미지 | `Dockerfile` + `docker-compose.yml` — server + runner + exec + IDE, `/data` 마운트; 포트/볼륨/권한은 [`docs/DOCKER.md`](docs/DOCKER.md); 공개 멀티아키 GHCR 이미지(`0.4.1`, `latest`), linux/amd64 스모크 완료 (Track E2, #176) | Preview |
 | CI action | `.github/actions/xazz` composite action + policy-gate 워크플로 (Track E3) | Preview |
 | `xazz new` | 샘플 CSV + 실행 가능한 예제가 포함된 프로젝트 생성 | Stable |
 | `xazz emit rust` | `.xzz` → Rust 소스 변환 (Polars LazyFrame + Burn) | Stable |
@@ -341,7 +343,7 @@ Xazz는 pre-1.0입니다. 설치한 뒤에 알게 되는 것보다, **검증되�
   - ONNX Runtime export/inference는 `windows-msvc`에서 CPU + CUDA 실행 프로바이더 acceptance를 통과했습니다. macOS `coreml`은 대기 중입니다. `ort-sys`는 `*-windows-msvc`용 사전 빌드 바이너리만 제공합니다(Windows GNU 툴체인 실패). [docs/GPU_BACKENDS.md](docs/GPU_BACKENDS.md) 및 [docs/windows-onnx-acceptance-2026-10-06.md](docs/windows-onnx-acceptance-2026-10-06.md) 참고.
 - **네이티브 Python 확장은 아직 없습니다.** `import xazz`는 CLI 위의 순수 Python 어댑터이며 PyO3 모듈이 아닙니다 — CLI와 동일한 진단을 돌려주지만 서브프로세스 경계 비용을 지불합니다. PyO3 경로와 NumPy/Pandas → Arrow 핸드오프는 보류 상태입니다. [docs/ROADMAP.md](docs/ROADMAP.md) Track C4 참고.
 - **`xazz emit rust`는 참조용 emitter이며 두 번째 런타임이 아닙니다.** 신규 기능은 `xazz-exec`에 먼저 들어가고, 생성된 Rust는 일부 학습 옵션(예: 단일 실행 `validation_split`/조기 종료, 스윕의 per-epoch 열)에서 뒤처질 수 있습니다. 정본은 `xazz run`이며, emit 결과는 읽기 좋은 참조 코드로 취급하세요.
-- **컨테이너 이미지·클린 호스트 스모크는 다음 태그 대기 중입니다.** `Dockerfile`과 `docker compose up` 데모는 로컬 빌드로 동작하지만, GHCR 멀티아키 이미지는 `v*` 태그에서만 게시되며, [클린 호스트 스모크 체크리스트](docs/DOCKER.md#smoke-checklist-clean-host)는 아직 게시된 태그에 대해 기록되지 않았습니다.
+- **GHCR 이미지는 공개되어 있지만 `linux/amd64`에서만 스모크했습니다.** `docker pull ghcr.io/x1zzdev/xazz:0.4.1`은 인증 없이 동작하며, 2026-10-30 기록은 Windows 11 한 대의 Docker Desktop에서 health·IDE·정책 검사·Full Run·실행 이력·DP/감사 엔드포인트·볼륨 영속성을 확인한 것입니다. `linux/arm64` 이미지는 빌드·게시만 됐고 arm64 하드웨어에서 실행하지 않았습니다. 이미지는 **서명/노터라이즈되지 않았습니다** — [docs/DOCKER.md](docs/DOCKER.md#release-images-ghcr) 참고.
 - **벤치마크는 단일 호스트 측정입니다.** [성능](#성능) 섹션의 수치는 프로비넌스가 기록돼 있지만 Windows 노트북 한 대에서 나온 값입니다. 아직 두 번째 호스트나 Linux/macOS에서 재현하지 않았으므로 비율은 대표값으로 보고 보장으로 읽지 마세요.
 - **샌드박스가 아닙니다.** `xazz-runner`는 실행 타임아웃을 동반한 프로세스 격리이지 OS 수준 샌드박스가 아닙니다. Policy-as-Code는 실행 전에 알려진 위험 파이프라인 형태를 차단하며, `PATH` 섀도잉 배포 주의사항은 [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md)를 참고하세요.
 

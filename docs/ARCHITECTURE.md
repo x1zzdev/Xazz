@@ -166,8 +166,9 @@ xazz run file.xzz
 ```
 
 **Why subprocess?** Polars adds ~28 MB to a binary. Isolating it to `xazz-exec`
-keeps the `xazz` CLI binary at ~2–5 MB. The tradeoff is that `xazz-runner` must
-exist alongside `xazz` in the same directory (or `XAZZ_RUNNER_PATH`).
+keeps the `xazz` CLI binary at ~2–5 MB. The tradeoff is that `xazz-runner` and
+`xazz-exec` must exist alongside `xazz` in the same directory (or set
+`XAZZ_RUNNER_PATH` / `XAZZ_EXEC_PATH`).
 
 > **Security terminology:** the subprocess boundary is **process isolation**, not
 > an OS sandbox. `xazz-runner` enforces a configurable execution timeout

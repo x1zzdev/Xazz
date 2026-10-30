@@ -70,7 +70,9 @@ A fair first reaction is "this is Polars or DuckDB with extra syntax." The disti
 
 2. Extract it and add the directory to your `PATH`.
 
-   > **Important:** keep `xazz` and `xazz-runner` together — `xazz run` spawns `xazz-runner` as a process-isolated subprocess (with an execution timeout; this is isolation, not an OS sandbox).
+   > **Important:** keep `xazz`, `xazz-runner`, and `xazz-exec` together — `xazz run` spawns `xazz-runner` as a process-isolated subprocess, and the runner launches `xazz-exec` from the same directory (with an execution timeout; this is isolation, not an OS sandbox).
+   >
+   > **Unsigned binaries.** Archives are not code-signed or notarized. On macOS, if Gatekeeper blocks the binary, run `xattr -dr com.apple.quarantine xazz/` (or allow it in System Settings → Privacy & Security). On Windows, SmartScreen may ask for **More info → Run anyway**.
 
 3. Verify:
 
@@ -87,8 +89,8 @@ Requires Rust stable.
 ```bash
 git clone https://github.com/x1zzdev/Xazz.git
 cd Xazz
-cargo build --release -p xazz -p xazz-runner
-# both binaries land in target/release/
+cargo build --release -p xazz -p xazz-runner -p xazz-exec
+# the three binaries land in target/release/
 ```
 
 Optional GPU / ONNX acceleration is a Cargo feature on `xazz-exec`
@@ -106,7 +108,7 @@ With Docker Compose installed, clone this repository and run `docker compose up`
 ```bash
 xazz new my-project    # scaffold a project + sample CSV
 cd my-project
-xazz import data.csv   # auto-infer the schema → writes a type block into main.xzz
+xazz import data/sample.csv   # auto-infer the schema → writes a type block into main.xzz
 xazz run main.xzz      # compile + execute
 xazz run main.xzz --opt  # optional: enable the typed-IR optimization pass
 ```
@@ -315,7 +317,7 @@ python benches/run_readme_benchmark.py --xlarge
 | `import "std/..."` | Embedded standard library — reusable schemas (`std/common`) and models (`std/math`, `std/models`) | Stable |
 | `xazz-lsp` | Language server — `xazz check` diagnostics + hover/go-to-def/rename via symbol table (Track B3) | Stable |
 | VS Code extension | `vscode-xazz/` — LSP client, Run/Check commands, syntax highlighting (Track E1) | Preview |
-| Docker image | `Dockerfile` + `docker-compose.yml` — server + runner + exec + IDE, mountable `/data`; ports/volumes/permissions in [`docs/DOCKER.md`](docs/DOCKER.md); GHCR multi-arch tags on release (Track E2, #176) | Preview |
+| Docker image | `Dockerfile` + `docker-compose.yml` — server + runner + exec + IDE, mountable `/data`; ports/volumes/permissions in [`docs/DOCKER.md`](docs/DOCKER.md); public multi-arch GHCR image (`0.4.1`, `latest`) smoke-tested on linux/amd64 (Track E2, #176) | Preview |
 | CI action | `.github/actions/xazz` composite action + policy-gate workflow (Track E3) | Preview |
 | `xazz new` | Scaffold project with sample CSV and runnable example | Stable |
 | `xazz emit rust` | Transpile `.xzz` → Rust source (Polars LazyFrame + Burn) | Stable |
@@ -355,7 +357,7 @@ Xazz is pre-1.0. We would rather state what is **not** verified than let you dis
   - ONNX Runtime export/inference passed its CPU + CUDA execution-provider acceptance on `windows-msvc`; macOS CoreML is pending. `ort-sys` ships prebuilt binaries only for `*-windows-msvc` (the Windows GNU toolchain fails). See [docs/GPU_BACKENDS.md](docs/GPU_BACKENDS.md) and [docs/windows-onnx-acceptance-2026-10-06.md](docs/windows-onnx-acceptance-2026-10-06.md).
 - **No native Python extension yet.** `import xazz` is a pure-Python adapter over the CLI, not a PyO3 module — it returns the same diagnostics as the CLI but pays a subprocess boundary. The PyO3 path and the NumPy/Pandas → Arrow handoff are deferred. See [docs/ROADMAP.md](docs/ROADMAP.md) Track C4.
 - **`xazz emit rust` is a reference emitter, not a second runtime.** New language features land in `xazz-exec` first; the emitted Rust can lag on some training options (e.g. single-run `validation_split` / early stopping, per-epoch sweep columns). `xazz run` is the source of truth — treat the emitted code as readable reference output. When the pipeline trains or predicts, the generated file also needs the `serde_json` crate, and a `predict` stage additionally reads the `checkpoints/<Model>.stats.json` sidecar written during training — running that file on its own without the sidecar fails. The generated header lists the required Cargo dependencies; the exact output shape is pinned by the emitter tests in `xazz-compiler/src/emitter.rs`.
-- **The container image and clean-host smoke are pending the next tag.** The `Dockerfile` and `docker compose up` demo work from a local build, but the GHCR multi-arch image is published only on a `v*` tag, and the [clean-host smoke checklist](docs/DOCKER.md#smoke-checklist-clean-host) has not been recorded against a published tag yet.
+- **The GHCR image is public but only smoke-tested on `linux/amd64`.** `docker pull ghcr.io/x1zzdev/xazz:0.4.1` works anonymously and the recorded run (2026-10-30) covers health, IDE, policy check, Full Run, run history, DP/audit endpoints and volume persistence on one Windows 11 host with Docker Desktop. The `linux/arm64` image is built but not run on arm64 hardware, and the image is **not signed or notarized** — see [docs/DOCKER.md](docs/DOCKER.md#release-images-ghcr).
 - **Benchmarks are single-host.** The numbers in [Performance](#performance) are provenance-stamped but come from one Windows laptop; they have not been reproduced on a second host or on Linux/macOS yet, so read the ratios as representative, not as a guarantee.
 - **Not a sandbox.** `xazz-runner` is process isolation with an execution timeout, not an OS-level sandbox. Policy-as-Code blocks known-bad pipeline shapes before execution; see [docs/SECURITY_GUARDRAIL.md](docs/SECURITY_GUARDRAIL.md) for the `PATH`-shadowing deployment caveat.
 

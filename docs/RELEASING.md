@@ -43,8 +43,9 @@ Copy this into the release issue/PR and tick items as they complete.
 - [ ] Docker/GHCR: the `docker` job in `.github/workflows/release.yml` will
       build `linux/amd64`+`linux/arm64` and push
       `ghcr.io/x1zzdev/xazz:<version>` (plus `latest` for stable). Confirm the
-      tag is a stable `vX.Y.Z`, then run the clean-host smoke in
-      [docs/DOCKER.md](DOCKER.md) and record the result (tag / OS / arch).
+      tag is a stable `vX.Y.Z`, then verify the package is publicly pullable
+      without credentials, run the clean-host smoke in
+      [docs/DOCKER.md](DOCKER.md), and record the result (tag / OS / arch).
 - [ ] Tag pushed: `git tag -a vX.Y.Z -m "vX.Y.Z"` then `git push origin vX.Y.Z`.
 - [ ] GitHub Release published; verify all platform archives and
       `checksums.sha256` are attached.

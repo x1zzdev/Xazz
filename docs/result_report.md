@@ -77,12 +77,12 @@ Xazz는 이 세 가지 한계를 정면에서 해결하고자 한다. 첫째, Ru
 
 ```bash
 cargo build --release -p xazz
-cargo build --release -p xazz-runner
+cargo build --release -p xazz-runner -p xazz-exec
 
-# 두 바이너리를 같은 디렉토리에 배치한 뒤
+# 세 바이너리를 같은 디렉토리에 배치한 뒤
 ./xazz new my-project     # 프로젝트 + 샘플 CSV 생성
 cd my-project
-./xazz import data.csv    # 스키마 자동 추론 → main.xzz에 타입 블록 기록
+./xazz import data/sample.csv  # 스키마 자동 추론 → main.xzz에 타입 블록 기록
 ./xazz run main.xzz       # 컴파일 + 파이프라인 실행 (chart {} → HTML 차트 렌더링)
 ./xazz emit rust main.xzz # .xzz → Rust 소스 변환 (Polars LazyFrame + Burn)
 ```

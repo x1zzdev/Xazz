@@ -60,14 +60,14 @@ cd Xazz
 # Build CLI binary only (lightweight, no Polars)
 cargo build --release -p xazz
 
-# Build execution engine (includes Polars — takes longer)
-cargo build --release -p xazz-runner
+# Build the runner + execution engine (includes Polars — takes longer)
+cargo build --release -p xazz-runner -p xazz-exec
 
 # Build entire workspace
 cargo build --release
 ```
 
-Binaries are produced in `target/release/`. For `xazz run` to work, both `xazz` and `xazz-runner` must be in the same directory.
+Binaries are produced in `target/release/`. For `xazz run` to work, `xazz`, `xazz-runner`, and `xazz-exec` must be in the same directory.
 
 ### Run a pipeline
 
