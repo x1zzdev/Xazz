@@ -12,6 +12,7 @@
 # Running Xazz
 
 - [Docker: images, ports, volumes](DOCKER.md)
+- [Install & container smoke (2026-10-30)](install-smoke-2026-10-30.md)
 - [Server reference: environment variables](SERVER.md)
 - [GPU & ONNX backends](GPU_BACKENDS.md)
 - [Data source connectors](CONNECTORS.md)
