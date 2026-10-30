@@ -24,6 +24,41 @@
 
 [English](README.md) · [한국어](README_kr.md) · [日本語](README_ja.md) · [简体中文](README_zh.md)
 
+## 이게 어떻게 생겼나
+
+```xzz
+type Air = {
+  observed_at: string,
+  district: string,
+  pm25: Option<float>,      // null은 런타임 변수가 아니라 타입의 일부
+  temperature_c: float,
+}
+
+v raw     = load("data/seoul_air.csv") :: Air
+v clean   = raw |> fillNull("pm25", strategy: "mean")
+v grouped = clean |> filter(col("pm25") > 20.0) |> groupBy("district") |> mean("pm25")
+v noised  = grouped |> withDp(epsilon: 0.5, mechanism: gaussian,
+                              sensitivity: 2.0, delta: 0.00001)
+v bars    = noised |> chart { type: bar, x: district, y: pm25, title: "PM2.5 by district" }
+```
+
+```console
+$ xazz run report.xzz
+[xazz] static guardrail: xazz-builtin-pii — policy check passed — no violations
+[xazz] DP applied: gaussian (ε=0.5, δ=1.00e-5, Δf=2, noise parameter=19.3792) — columns ["pm25"] | budget ε 0.50/10.00 · δ 1.00e-5/1.00e-4
+[xazz] Pipeline #4 'noised' done: 5 × 2
+[xazz] 📊 chart generated HTML: bars_chart.html
+```
+
+실행 전후로 네 가지가 함께 일어납니다:
+
+- **컴파일 타임 타입** — `pm25`는 `Option<float>`라 `fillNull` 대상이 검사됩니다. non-optional 컬럼을 넣으면 실행 전에 `line:col` 오류로 끝나고, 학습 중간의 NaN이 되지 않습니다.
+- **정책 게이트** — 같은 스크립트를 먼저 스캔해 직접 식별자 노출, PII/시크릿 리터럴, DP 없는 민감 집계를 fail-closed로 차단합니다.
+- **프라이버시 예산** — `withDp`가 테넌트별 ε/δ 원장에 청구하고(basic / Rényi / zCDP 조합), 설정한 쿼리별 상한을 넘으면 거부합니다.
+- **감사 체인** — 실행마다 SHA-256 해시가 이어지고, `GET /security/audit/chain`이 체인과 깨진 레코드를 알려줍니다.
+
+벤치마크는 파이프라인 실행 시간만 측정하고 프로비넌스가 기록된 단일 호스트 값입니다: **228K / 912K / 409만 행에서 pandas 대비 2.04× / 3.84× / 2.14×**, 피크 RSS 405 MB vs 635 MB. [직접 재현](benches/run_readme_benchmark.py) · [하지 *않은* 것](#한계--비목표).
+
 <img src="docs/assets/ide_run_result.png" alt="Xazz Visual IDE — xazz-server에 대해 실제로 실행된 Full Run: 노드 캔버스, 생성된 .xzz 소스, 실행 영수증" width="100%">
 
 **↑ Visual IDE가 파이프라인을 엔드투엔드로 실행한 실제 화면: 노드 캔버스, 생성된 `.xzz`, 학습 지표, SHA-256 실행 영수증.**
