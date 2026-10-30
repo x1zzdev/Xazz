@@ -117,8 +117,11 @@ issues/PRs for detail.
 ## Docker
 ```
 docker pull ghcr.io/x1zzdev/xazz:X.Y.Z
-docker run --rm -p 8005:8005 -v "$PWD/data:/data" ghcr.io/x1zzdev/xazz:X.Y.Z
+docker run --rm -p 8005:8005 -v xazz-data:/data ghcr.io/x1zzdev/xazz:X.Y.Z
 ```
+
+The named volume keeps the image's seeded sample and the run/audit state; see
+`docs/DOCKER.md` for bind-mount upgrades.
 
 **Full changelog:** https://github.com/x1zzdev/Xazz/compare/vPREV...vX.Y.Z
 ```
