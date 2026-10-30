@@ -24,6 +24,41 @@
 
 [English](README.md) · [한국어](README_kr.md) · [日本語](README_ja.md) · [简体中文](README_zh.md)
 
+## What it looks like
+
+```xzz
+type Air = {
+  observed_at: string,
+  district: string,
+  pm25: Option<float>,      // nulls are part of the type, not a runtime surprise
+  temperature_c: float,
+}
+
+v raw     = load("data/seoul_air.csv") :: Air
+v clean   = raw |> fillNull("pm25", strategy: "mean")
+v grouped = clean |> filter(col("pm25") > 20.0) |> groupBy("district") |> mean("pm25")
+v noised  = grouped |> withDp(epsilon: 0.5, mechanism: gaussian,
+                              sensitivity: 2.0, delta: 0.00001)
+v bars    = noised |> chart { type: bar, x: district, y: pm25, title: "PM2.5 by district" }
+```
+
+```console
+$ xazz run report.xzz
+[xazz] static guardrail: xazz-builtin-pii — policy check passed — no violations
+[xazz] DP applied: gaussian (ε=0.5, δ=1.00e-5, Δf=2, noise parameter=19.3792) — columns ["pm25"] | budget ε 0.50/10.00 · δ 1.00e-5/1.00e-4
+[xazz] Pipeline #4 'noised' done: 5 × 2
+[xazz] 📊 chart generated HTML: bars_chart.html
+```
+
+Four things happen around that run:
+
+- **Compile-time types** — `pm25` is `Option<float>`, so `fillNull` is checked. Passing a non-optional column is a `line:col` error before execution, not a NaN mid-training.
+- **Policy gate** — the same script is scanned first: direct identifier exposure, PII/secret literals, and sensitive aggregates without DP are blocked, fail-closed.
+- **Privacy budget** — `withDp` charges a per-tenant ε/δ ledger (basic / Rényi / zCDP composition) and refuses a query above the configured cap.
+- **Audit chain** — each run appends a SHA-256 hash; `GET /security/audit/chain` verifies the chain and points at the broken record.
+
+Benchmarks are pipeline-only and provenance-stamped on a single host: **2.04× / 3.84× / 2.14×** vs pandas at 228K / 912K / 4.09M rows, peak RSS 405 MB vs 635 MB. [Reproduce it](benches/run_readme_benchmark.py) · [What is *not* done](#limitations--non-goals).
+
 <img src="docs/assets/ide_run_result.png" alt="Xazz Visual IDE — a real Full Run against xazz-server, with node canvas, generated .xzz source and a run receipt" width="100%">
 
 **↑ The Visual IDE running a real pipeline end-to-end: node canvas, generated `.xzz`, training metrics, and a SHA-256 run receipt.**
