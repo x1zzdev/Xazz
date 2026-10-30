@@ -99,9 +99,16 @@ Optional GPU / ONNX acceleration is a Cargo feature on `xazz-exec`
 See [docs/GPU_BACKENDS.md](docs/GPU_BACKENDS.md) for the build matrix, platform
 requirements, and device-selection variables.
 
-### Option C — Local browser demo with Docker
+### Option C — Browser demo with Docker
 
-With Docker Compose installed, clone this repository and run `docker compose up` at its root, then open <http://127.0.0.1:8005>. The IDE includes a synthetic air-quality sample and **Check safe example / Check unsafe example** buttons under Monitor. Those buttons perform a static policy check; they do not execute either example. Full Run executes the current pipeline and requires explicit confirmation. Compose uses a Docker-managed `xazz-data` volume for runs, audit records, uploads, and artifacts. **Existing `./data` users must follow the [upgrade steps](docs/DOCKER.md#upgrading-from-the-earlier-data-bind-mount) before switching mounts.**
+Fastest path, no build (published multi-arch image):
+
+```bash
+docker run --rm -p 8005:8005 -v xazz-data:/data ghcr.io/x1zzdev/xazz:0.4.1
+# open http://127.0.0.1:8005
+```
+
+Or, from a clone, `docker compose up` at the repository root builds `xazz:local` (a full Rust build — slow). The IDE includes a synthetic air-quality sample and **Check safe example / Check unsafe example** buttons under Monitor. Those buttons perform a static policy check; they do not execute either example. Full Run executes the current pipeline and requires explicit confirmation. Both paths use a Docker-managed `xazz-data` volume for runs, audit records, uploads, and artifacts. **Existing `./data` users must follow the [upgrade steps](docs/DOCKER.md#upgrading-from-the-earlier-data-bind-mount) before switching mounts.**
 
 ### Your first pipeline (60 seconds)
 
