@@ -929,8 +929,10 @@ export function localizeStep(node, language) {
   const { label, evidence, ...detail } = override
   return {
     ...node,
-    label: label ?? node.label,
-    evidence: evidence ?? node.evidence,
+    // A node whose label/evidence came from a real Full Run keeps those values;
+    // the Korean fixture translation must not overwrite a real measurement.
+    label: node.labelFromRun ? node.label : (label ?? node.label),
+    evidence: node.evidenceFromRun ? node.evidence : (evidence ?? node.evidence),
     detail: { ...node.detail, ...detail },
   }
 }

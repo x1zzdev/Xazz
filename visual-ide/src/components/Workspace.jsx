@@ -63,7 +63,7 @@ const policyExamples = {
 import {
   chartData,
   codeLines,
-  pipeline,
+  derivePipeline,
   resultRows,
   runnableCode,
   scenario,
@@ -109,9 +109,9 @@ function PipelineNode({ data }) {
 
 const nodeTypes = { pipeline: PipelineNode }
 
-function getNodeRelation(id, selectedId) {
-  const index = pipeline.findIndex((node) => node.id === id)
-  const selectedIndex = pipeline.findIndex((node) => node.id === selectedId)
+function getNodeRelation(id, selectedId, nodes) {
+  const index = nodes.findIndex((node) => node.id === id)
+  const selectedIndex = nodes.findIndex((node) => node.id === selectedId)
   if (index === selectedIndex) return 'selected'
   return index < selectedIndex ? 'upstream' : 'downstream'
 }
@@ -296,7 +296,7 @@ function WorkspaceTopbar({
   )
 }
 
-function SourceRail({ selectedId, onSelect }) {
+function SourceRail({ selectedId, onSelect, pipeline }) {
   const { language, t } = useLanguage()
   const selectedIndex = pipeline.findIndex((node) => node.id === selectedId)
 
@@ -414,7 +414,7 @@ function CanvasToolbar({ view, onView }) {
   )
 }
 
-function PipelineCanvas({ selectedId, onSelect, runState }) {
+function PipelineCanvas({ selectedId, onSelect, runState, pipeline }) {
   const { language, t } = useLanguage()
   const selectedIndex = pipeline.findIndex((node) => node.id === selectedId)
   const nodes = useMemo(
@@ -430,13 +430,13 @@ function PipelineCanvas({ selectedId, onSelect, runState }) {
           bandLabel: t(`canvas.bands.${rawNode.band}`),
           order: String(index + 1).padStart(2, '0'),
           visualState: getNodeVisualState(node.id, selectedId, runState),
-          relation: getNodeRelation(node.id, selectedId),
+          relation: getNodeRelation(node.id, selectedId, pipeline),
         },
         selected: node.id === selectedId,
         draggable: false,
         }
       }),
-    [selectedId, runState, language, t],
+    [selectedId, runState, language, t, pipeline],
   )
 
   const edges = useMemo(
@@ -455,7 +455,7 @@ function PipelineCanvas({ selectedId, onSelect, runState }) {
           ].join(' '),
         }))
       }),
-    [runState, selectedIndex],
+    [runState, selectedIndex, pipeline],
   )
 
   return (
@@ -485,7 +485,7 @@ function PipelineCanvas({ selectedId, onSelect, runState }) {
   )
 }
 
-function CodePane({ selectedNode, runState }) {
+function CodePane({ selectedNode, runState, pipeline }) {
   const affectedStart = selectedNode.codeLine
   const selectedIndex = pipeline.findIndex((node) => node.id === selectedNode.id)
   const affectedIds =
@@ -547,7 +547,7 @@ function CodePane({ selectedNode, runState }) {
   )
 }
 
-function Inspector({ selectedNode: rawNode, runState, runResult, code }) {
+function Inspector({ selectedNode: rawNode, runState, runResult, code, pipeline }) {
   const { language, t } = useLanguage()
   const selectedNode = localizeStep(rawNode, language)
   const realRows = Array.isArray(runResult?.rows) ? runResult.rows.length : null
@@ -1531,7 +1531,11 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
   const narrow = useNarrowViewport()
   const { t } = useLanguage()
   const hash = useCodeHash(dagCode)
-  const selectedNode = pipeline.find((node) => node.id === selectedId) ?? pipeline[0]
+  // Canvas/rail/inspector read the structural fixture pre-run and the real Full
+  // Run values once a response exists (see derivePipeline).
+  const displayPipeline = useMemo(() => derivePipeline(runResult), [runResult])
+  const selectedNode =
+    displayPipeline.find((node) => node.id === selectedId) ?? displayPipeline[0]
   const guardrailBlocked = Boolean(policyReport && !policyReport.safe_to_execute)
   // Graph, code, inspector and monitor show pipeline evidence. When the Full Run
   // returned none (unreachable, refused, dropped), they must not point at a failed step.
@@ -1832,7 +1836,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
         inert={runState === 'preflight' || undefined}
         aria-hidden={runState === 'preflight' ? 'true' : undefined}
       >
-        <SourceRail selectedId={selectedId} onSelect={setSelectedId} />
+        <SourceRail selectedId={selectedId} onSelect={setSelectedId} pipeline={displayPipeline} />
         <main className="compiler-area" id="compiler-canvas">
           <CanvasToolbar view={view} onView={setView} />
           <div
@@ -1934,10 +1938,15 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
                     selectedId={selectedId}
                     onSelect={setSelectedId}
                     runState={evidenceState}
+                    pipeline={displayPipeline}
                   />
                 )}
                 {view !== 'graph' && (
-                  <CodePane selectedNode={selectedNode} runState={evidenceState} />
+                  <CodePane
+                    selectedNode={selectedNode}
+                    runState={evidenceState}
+                    pipeline={displayPipeline}
+                  />
                 )}
               </>
             )}
@@ -1950,6 +1959,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
             runState={evidenceState}
             runResult={runResult}
             code={dagCode}
+            pipeline={displayPipeline}
           />
         </ErrorBoundary>
         <ErrorBoundary name={t('errors.panels.results')}>

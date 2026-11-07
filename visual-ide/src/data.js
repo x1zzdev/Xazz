@@ -207,3 +207,63 @@ export const chartData = districts.map((district) => {
   const mean = rows.reduce((total, row) => total + row.pm25, 0) / rows.length
   return { district, mean: Number(mean.toFixed(1)), count: rows.length }
 })
+
+// ── Run-evidence sync ─────────────────────────────────────────────────────────
+// Pre-run the canvas shows the structural fixture ("configuration, never an
+// outcome"). When a Full Run response is available, override each node's evidence
+// with the values the backend actually returned, so the canvas never presents
+// fixture numbers as measurements. Falls back to the fixture when the response
+// carries no usable evidence (e.g. a URL-simulated state).
+export function derivePipeline(runResult) {
+  const report = runResult?.training?.report
+  const logs = Array.isArray(runResult?.logs) ? runResult.logs : []
+
+  const stages = []
+  for (const line of logs) {
+    const m = /Pipeline #\d+ '[^']*' done: (\d+) × (\d+)/.exec(line)
+    if (m) stages.push({ rows: Number(m[1]), cols: Number(m[2]) })
+  }
+  let predictRows = null
+  for (const line of logs) {
+    const m = /prediction column added \((\d+) rows\)/.exec(line)
+    if (m) predictRows = Number(m[1])
+  }
+  const hasTraining =
+    report && report.epochs != null && report.final_train_loss != null
+
+  if (stages.length === 0 && !hasTraining) return pipeline
+
+  return pipeline.map((node) => {
+    let evidence
+    let label
+    if (node.id === 'load' && stages[0])
+      evidence = `${stages[0].rows} rows · ${stages[0].cols} cols`
+    else if (node.id === 'fill' && stages[1]) evidence = `${stages[1].rows} rows`
+    else if (node.id === 'filter' && stages[1] && stages[2])
+      evidence = `${stages[1].rows} → ${stages[2].rows} rows`
+    else if (node.id === 'result' && stages[3]) evidence = `${stages[3].rows} rows`
+    else if (node.id === 'compile' && report?.num_params != null) {
+      evidence = `${report.num_params} params`
+      // The declared model name is the real one (e.g. AirPredictor), not the
+      // fixture's placeholder ("AirNet").
+      if (report.model_name) label = `Compile ${report.model_name}`
+    } else if (node.id === 'train' && hasTraining)
+      evidence = `${report.epochs} epochs · loss ${Number(report.final_train_loss).toFixed(4)}`
+    else if (node.id === 'predict' && predictRows != null)
+      evidence = `+1 column · ${predictRows} rows`
+
+    const evidenceChanged = evidence != null && evidence !== node.evidence
+    const labelChanged = label != null && label !== node.label
+    if (!evidenceChanged && !labelChanged) return node
+    const next = { ...node }
+    if (evidenceChanged) {
+      next.evidence = evidence
+      next.evidenceFromRun = true
+    }
+    if (labelChanged) {
+      next.label = label
+      next.labelFromRun = true
+    }
+    return next
+  })
+}
