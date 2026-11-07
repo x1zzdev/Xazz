@@ -1021,11 +1021,120 @@ fn parse_postgres_uri(path: &str) -> Option<(String, String)> {
     Some((conn.to_string(), sql.to_string()))
 }
 
+/// A cell read from a PostgreSQL row, tagged with the narrowed Rust type.
+#[derive(Clone)]
+enum PgCell {
+    Int(i64),
+    Float(f64),
+    Str(String),
+}
+
+/// Quotes a SQL identifier for a generated projection.
+fn pg_quote_ident(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}
+
+/// Parses a PostgreSQL text rendering into a cell, guided by the column's
+/// declared type. Numeric-looking types that fail to parse stay as strings so no
+/// value is silently dropped.
+fn pg_parse_text(ty: &postgres::types::Type, s: &str) -> PgCell {
+    use postgres::types::Type;
+    if *ty == Type::INT2 || *ty == Type::INT4 || *ty == Type::INT8 || *ty == Type::OID {
+        if let Ok(v) = s.parse::<i64>() {
+            return PgCell::Int(v);
+        }
+    } else if *ty == Type::FLOAT4 || *ty == Type::FLOAT8 || *ty == Type::NUMERIC {
+        if let Ok(v) = s.parse::<f64>() {
+            return PgCell::Float(v);
+        }
+    } else if *ty == Type::BOOL {
+        return PgCell::Str(if s == "t" { "true" } else { "false" }.to_string());
+    }
+    PgCell::Str(s.to_string())
+}
+
+/// Reads one cell using the Rust type that matches the column's PostgreSQL OID.
+/// `postgres-types` matches `FromSql` strictly by OID, so each branch must use
+/// the exact width (INT2→i16, INT4→i32, FLOAT4→f32, …) or the read returns NULL.
+fn pg_read_typed(row: &postgres::Row, i: usize, ty: &postgres::types::Type) -> Option<PgCell> {
+    use postgres::types::Type;
+    if *ty == Type::INT2 {
+        return row
+            .try_get::<usize, Option<i16>>(i)
+            .ok()
+            .flatten()
+            .map(|v| PgCell::Int(v as i64));
+    }
+    if *ty == Type::INT4 {
+        return row
+            .try_get::<usize, Option<i32>>(i)
+            .ok()
+            .flatten()
+            .map(|v| PgCell::Int(v as i64));
+    }
+    if *ty == Type::INT8 {
+        return row
+            .try_get::<usize, Option<i64>>(i)
+            .ok()
+            .flatten()
+            .map(PgCell::Int);
+    }
+    if *ty == Type::OID {
+        return row
+            .try_get::<usize, Option<u32>>(i)
+            .ok()
+            .flatten()
+            .map(|v| PgCell::Int(v as i64));
+    }
+    if *ty == Type::FLOAT4 {
+        return row
+            .try_get::<usize, Option<f32>>(i)
+            .ok()
+            .flatten()
+            .map(|v| PgCell::Float(v as f64));
+    }
+    if *ty == Type::FLOAT8 {
+        return row
+            .try_get::<usize, Option<f64>>(i)
+            .ok()
+            .flatten()
+            .map(PgCell::Float);
+    }
+    if *ty == Type::BOOL {
+        return row
+            .try_get::<usize, Option<bool>>(i)
+            .ok()
+            .flatten()
+            .map(|v| PgCell::Str(if v { "true" } else { "false" }.to_string()));
+    }
+    // Fallback for types without a dedicated branch (e.g. NUMERIC, DATE): try the
+    // common widths before giving up.
+    if let Ok(Some(v)) = row.try_get::<usize, Option<i64>>(i) {
+        return Some(PgCell::Int(v));
+    }
+    if let Ok(Some(v)) = row.try_get::<usize, Option<f64>>(i) {
+        return Some(PgCell::Float(v));
+    }
+    if let Ok(Some(v)) = row.try_get::<usize, Option<&str>>(i) {
+        return Some(PgCell::Str(v.to_string()));
+    }
+    None
+}
+
 /// Loads a PostgreSQL query result as a Polars DataFrame (eager).
 ///
 /// Connects over TCP (NoTls by default) using the `postgres` crate, runs the
 /// SQL, and converts each row's typed values into Polars columns.
+///
+/// Values are read through a `::text` projection and parsed by each column's
+/// declared PostgreSQL type. This is deliberate: `postgres-types` matches
+/// `FromSql` strictly by OID (`i64` only accepts INT8, `f64` only FLOAT8), so a
+/// direct typed read silently yields NULL for INT2/INT4/FLOAT4/NUMERIC — the
+/// exact types a bare `SELECT 1` / `SELECT 1.5` produces. When the query is not
+/// wrappable as a subquery (e.g. a non-SELECT statement) it falls back to a
+/// typed direct read via `pg_read_typed`.
 fn load_postgres_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn std::error::Error>> {
+    use postgres::types::Type;
     use postgres::{Client, NoTls};
 
     let Some((conn, sql)) = parse_postgres_uri(uri) else {
@@ -1040,54 +1149,69 @@ fn load_postgres_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn st
         }
     })?;
 
-    let rows = client.query(&sql, &[]).map_err(|e| {
+    // Learn the result shape (names + declared types) without executing.
+    let stmt = client.prepare(&sql).map_err(|e| {
         if is_korean() {
             format!("PostgreSQL 쿼리 실패: {}", e)
         } else {
             format!("PostgreSQL query failed: {}", e)
         }
     })?;
+    let col_meta: Vec<(String, Type)> = stmt
+        .columns()
+        .iter()
+        .map(|c| (c.name().to_string(), c.type_().clone()))
+        .collect();
+    let n_cols = col_meta.len();
+    drop(stmt);
+
+    // Preferred path: project every column to text, then parse by declared type.
+    let trimmed = sql.trim().trim_end_matches(';').trim();
+    let wrapped = format!(
+        "SELECT {} FROM ({}) AS _xazz_src",
+        col_meta
+            .iter()
+            .map(|(name, _)| format!("{}::text", pg_quote_ident(name)))
+            .collect::<Vec<_>>()
+            .join(", "),
+        trimmed
+    );
+    let (rows, as_text) = match client.query(&wrapped, &[]) {
+        Ok(rows) => (rows, true),
+        // Non-SELECT statements (or unnamed/duplicate output columns) are not
+        // wrappable as a subquery — fall back to a typed direct read.
+        Err(_) => (
+            client.query(&sql, &[]).map_err(|e| {
+                if is_korean() {
+                    format!("PostgreSQL 쿼리 실패: {}", e)
+                } else {
+                    format!("PostgreSQL query failed: {}", e)
+                }
+            })?,
+            false,
+        ),
+    };
 
     if rows.is_empty() {
         return Ok(polars::frame::DataFrame::empty());
     }
 
-    let columns = rows[0].columns();
-    let n_cols = columns.len();
-    let column_names: Vec<String> = (0..n_cols).map(|i| columns[i].name().to_string()).collect();
+    let column_names: Vec<String> = col_meta.iter().map(|(n, _)| n.clone()).collect();
 
     // Per-column cell buffers (dynamically typed).
-    #[derive(Clone)]
-    enum PCell {
-        Int(i64),
-        Float(f64),
-        Str(String),
-    }
-    let mut cells: Vec<Vec<Option<PCell>>> = vec![Vec::new(); n_cols];
+    let mut cells: Vec<Vec<Option<PgCell>>> = vec![Vec::new(); n_cols];
 
     for row in &rows {
-        for (i, col) in cells.iter_mut().enumerate() {
-            // postgres crate Row::try_get — returns Result; match instead of
-            // .ok() (this std has no Result::ok()).
-            let cell = match row.try_get::<usize, Option<i64>>(i) {
-                Ok(Some(v)) => Some(PCell::Int(v)),
-                Ok(None) => None,
-                Err(_) => match row.try_get::<usize, Option<f64>>(i) {
-                    Ok(Some(v)) => Some(PCell::Float(v)),
-                    Ok(None) => None,
-                    Err(_) => match row.try_get::<usize, Option<&str>>(i) {
-                        Ok(Some(v)) => Some(PCell::Str(v.to_string())),
-                        Ok(None) => None,
-                        Err(_) => match row.try_get::<usize, Option<bool>>(i) {
-                            Ok(Some(v)) => {
-                                Some(PCell::Str(if v { "true" } else { "false" }.to_string()))
-                            }
-                            _ => None,
-                        },
-                    },
-                },
+        for i in 0..n_cols {
+            let cell = if as_text {
+                match row.try_get::<usize, Option<String>>(i) {
+                    Ok(Some(s)) => Some(pg_parse_text(&col_meta[i].1, &s)),
+                    _ => None,
+                }
+            } else {
+                pg_read_typed(row, i, &col_meta[i].1)
             };
-            col.push(cell);
+            cells[i].push(cell);
         }
     }
 
@@ -1099,18 +1223,18 @@ fn load_postgres_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn st
         let has_float = cells[i]
             .iter()
             .flatten()
-            .any(|c| matches!(c, PCell::Float(_)));
+            .any(|c| matches!(c, PgCell::Float(_)));
         let has_str = cells[i]
             .iter()
             .flatten()
-            .any(|c| matches!(c, PCell::Str(_)));
+            .any(|c| matches!(c, PgCell::Str(_)));
 
         if has_float {
             let vals: Vec<Option<f64>> = (0..n_rows)
                 .map(|r| match cells[i].get(r).and_then(|c| c.as_ref()) {
-                    Some(PCell::Float(x)) => Some(*x),
-                    Some(PCell::Int(x)) => Some(*x as f64),
-                    Some(PCell::Str(_)) => None,
+                    Some(PgCell::Float(x)) => Some(*x),
+                    Some(PgCell::Int(x)) => Some(*x as f64),
+                    Some(PgCell::Str(_)) => None,
                     None => None,
                 })
                 .collect();
@@ -1124,9 +1248,9 @@ fn load_postgres_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn st
         } else if has_str {
             let vals: Vec<Option<String>> = (0..n_rows)
                 .map(|r| match cells[i].get(r).and_then(|c| c.as_ref()) {
-                    Some(PCell::Str(x)) => Some(x.clone()),
-                    Some(PCell::Int(x)) => Some(x.to_string()),
-                    Some(PCell::Float(x)) => Some(x.to_string()),
+                    Some(PgCell::Str(x)) => Some(x.clone()),
+                    Some(PgCell::Int(x)) => Some(x.to_string()),
+                    Some(PgCell::Float(x)) => Some(x.to_string()),
                     None => None,
                 })
                 .collect();
@@ -1140,7 +1264,7 @@ fn load_postgres_as_df(uri: &str) -> Result<polars::frame::DataFrame, Box<dyn st
         } else {
             let vals: Vec<Option<i64>> = (0..n_rows)
                 .map(|r| match cells[i].get(r).and_then(|c| c.as_ref()) {
-                    Some(PCell::Int(x)) => Some(*x),
+                    Some(PgCell::Int(x)) => Some(*x),
                     _ => None,
                 })
                 .collect();
@@ -2287,6 +2411,46 @@ mod postgres_tests {
             msg.contains("PostgreSQL") || msg.contains("postgres"),
             "unexpected error: {msg}"
         );
+    }
+
+    #[test]
+    fn parses_pg_text_by_declared_type() {
+        use postgres::types::Type;
+        // INT4 (bare integer literal) and NUMERIC (bare decimal literal) are the
+        // exact types a direct typed read silently dropped to NULL.
+        assert!(matches!(
+            pg_parse_text(&Type::INT4, "9700000"),
+            PgCell::Int(9700000)
+        ));
+        assert!(matches!(pg_parse_text(&Type::INT8, "42"), PgCell::Int(42)));
+        assert!(matches!(pg_parse_text(&Type::INT2, "7"), PgCell::Int(7)));
+        assert!(matches!(
+            pg_parse_text(&Type::FLOAT8, "45.5"),
+            PgCell::Float(f) if (f - 45.5).abs() < 1e-9
+        ));
+        assert!(matches!(
+            pg_parse_text(&Type::NUMERIC, "45.5"),
+            PgCell::Float(f) if (f - 45.5).abs() < 1e-9
+        ));
+        assert!(matches!(
+            pg_parse_text(&Type::TEXT, "seoul"),
+            PgCell::Str(s) if s == "seoul"
+        ));
+        assert!(matches!(
+            pg_parse_text(&Type::BOOL, "t"),
+            PgCell::Str(s) if s == "true"
+        ));
+        // Non-numeric text for a numeric type is preserved, never dropped.
+        assert!(matches!(
+            pg_parse_text(&Type::NUMERIC, "not-a-number"),
+            PgCell::Str(_)
+        ));
+    }
+
+    #[test]
+    fn quotes_pg_identifiers() {
+        assert_eq!(pg_quote_ident("region"), "\"region\"");
+        assert_eq!(pg_quote_ident("weird\"name"), "\"weird\"\"name\"");
     }
 }
 
