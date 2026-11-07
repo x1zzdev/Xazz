@@ -68,25 +68,49 @@ B2의 **sLM(Qwen2.5-Coder-1.5B) 자동 보정**은 선택 기능이며, QLoRA �
 
 | 자료 | 파일 | 보여주는 것 | 관련 이슈 |
 |---|---|---|---|
-| 데모 영상 (한국어 자막, 영어본은 스크립트로 생성) | `docs/assets/demo/xazz-demo-ko.webm` | 5분 시나리오의 자동 재현본 | #154 |
+| 시연 영상 (한국어 자막, 무음) | `docs/assets/demo/xazz-demo-ko.webm` | 발표에서 **이 파일을 재생**한다(2분 41초, `--pace story`). 장면 11개를 6개 챕터로 묶어 해설 | #154 |
 | 실행 진행 | `docs/assets/ide_run_progress.png` | 브라우저 측정 경과 시간·요청 단계, 에폭 진행률 "제공되지 않음" | #113 |
 | 런 히스토리 | `docs/assets/ide_run_history.png` | 서버에 남은 실행 목록과 다시 연 영수증 | #107 |
 | 감사 체인 / 변조 | `docs/assets/ide_audit_chain.png`, `ide_audit_tamper.png` | 체인 검증과 변조 레코드 위치 표시 (B3 대체) | #108 |
 | 정책 팩 | `docs/assets/ide_policy_packs.png` | 테넌트 팩 설치와 변경 이력 | #109 |
-| 정책 차단 | `docs/assets/ide_policy_block.png` | 식별자 노출 차단과 보정 diff (B2의 결정적 보정) | #109 |
+| 정책 차단 | `docs/assets/ide_policy_block.png` / `ide_policy_block_ko.png` | 식별자 노출 차단과 보정 diff (B2의 결정적 보정). `_ko`는 슬라이드용 패널 크롭 | #109 |
 | DP 원장 | `docs/assets/ide_dp_ledger.png` | 테넌트 ε 원장 | #110 |
 | 스키마 추론 | `docs/assets/ide_schema_inference.png` | CSV 업로드 → 서버 스키마 추론 | #114 |
 | 컬럼 계보 | `docs/assets/ide_lineage.png` | 집계 컬럼의 원본 추적 | #116 |
 | 한국어 화면 | `docs/assets/ide_governance_ko.png` | 거버넌스 패널 한국어 | #115 |
+| 저장소 QR | `docs/assets/demo/qr-repo.png` | 마무리 슬라이드 QR (github.com/x1zzdev/Xazz) | — |
+| 변조 레코드 번호 | `docs/assets/demo/audit-tamper.json` | 슬라이드가 인용하는 `#N` (스크린샷과 같은 실행에서 기록) | `demo.mjs`가 자동 기록 |
 
 다시 만들기: 저장소 루트에서 `./target/release/xazz-server`를 띄운 뒤
 `cd visual-ide && node scripts/demo.mjs --tamper ../audit_log/audit.jsonl`.
 
+주의 두 가지. (1) 반복 실행하면 테넌트 DP 예산이 소진되어 Full Run이 `budget exhausted`로
+막힌다 — `curl -X POST http://127.0.0.1:8005/dp/budget/reset`로 초기화한다.
+(2) 거버넌스 패널 순서는 DP 원장(0) · 감사 체인(1) · 추론 게이트(2) · 정책 팩(3)이다.
+패널이 추가되면 `demo.mjs`의 `govPanel(page, n)` 인덱스를 함께 고쳐야 한다.
+
 ---
+
+## E. 발표덱 & 실무 사례 (신규)
+
+| 자료 | 파일 | 보여주는 것 | 재생성 |
+|---|---|---|---|
+| 발표덱 (오프라인 HTML, ←/→ 넘김, `N` 발표자 노트, Ctrl+P→PDF) | `docs/demo/pitch-deck.html` / `.pptx` / `.pdf` | 10장. 페이지 유형 7종(제품 표지·문장·코드·도식·데이터·영상 큐시트·증거). 배경은 전부 흰색, 장식 없음, 색은 의미(빨강=차단, 초록=통과)로만 | `python3 scripts/make_pitch_deck.py` |
+| 발표 구성·시간 배분 | `docs/demo/presentation-outline.md` | 10분(데모 포함) 기준 장별 시간과 근거 | — |
+| 발표 멘트 | `docs/demo/presentation-deck.md` | 장별 대본 + 예상 질문 6개(현장용) | — |
+| 질의응답 브리프 | `docs/demo/qa-brief.md` | 24문항 답변 스크립트·숫자 카드·금지어 | — |
+| 실무 사례 (금융/공공/LLM) | `examples/field_cases/` | 위반 예제 차단 + 안전 예제 통과, 조항 추적, `xazz sanitize` | `python3 examples/field_cases/run_all.py` |
+| 검증 전략 (3-tier) | `docs/design/field-validation.md` | 실데이터 재현 / PoC 제안 / 로드맵 구분 | — |
+
+발표덱의 코드·터미널·진단은 실제 `xazz run`/`xazz check` 출력을 생성 시점에 캡처한다
+(재생성 시 최신 반영). 디자인은 흰 바탕 + 검정 타이포 + 의미색만 쓴다. 카드·그라데이션·
+그림자·이모지·섹션 라벨·장 번호를 쓰지 않고, 축소된 UI 스크린샷 대신 코드와 터미널을
+본문 크기로 싣는다. 슬라이드의 모든 글자는 15px 이상이다.
 
 ## 현황과 남은 작업
 
-- A1~A3, B1~B3, C1~C2 모두 실제 산출물 확보 (A1 벤치마크는 README Performance 수치로 정정).
+- A1~A3, B1~B3, C1~C2 모두 실제 산출물 확보 (A1 벤치마크는 README Performance 수치로 정정,
+  차트는 발표덱과 같은 팔레트로 재렌더).
 - D(데모 영상·스크린샷)는 `demo.mjs`로 실제 서버에 대해 자동 생성.
 
 남은 작업:

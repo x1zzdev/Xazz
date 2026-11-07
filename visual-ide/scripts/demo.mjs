@@ -34,6 +34,16 @@ const option = (name, fallback) => {
 const SERVER = option('--server', 'http://127.0.0.1:8005')
 const languages = option('--lang', 'both') === 'both' ? ['en', 'ko'] : [option('--lang')]
 const tamperPath = option('--tamper') ? resolve(process.cwd(), option('--tamper')) : null
+// --pace story  : 3-minute narrated cut (long holds on the results that matter)
+// --no-shots    : record video only, leave docs/assets/*.png untouched
+const PACE = option('--pace', 'default')
+const SHOTS = !args.includes('--no-shots')
+const HOLDS = PACE === 'story'
+  ? { graph: 8000, run: 6000, receipt: 16000, monitor: 16000, governance: 10000,
+      tamper: 22000, history: 10000, lineage: 10000, pack: 12000, block: 24000,
+      schema: 10000 }
+  : null
+const hold = (key, fallback) => pause(pauser, HOLDS ? HOLDS[key] : fallback)
 
 const health = await fetch(`${SERVER}/health`).then((r) => r.json()).catch(() => null)
 assert.equal(health?.status, 'ok', `xazz-server is not answering at ${SERVER}/health — start it first (see header)`)
@@ -86,8 +96,36 @@ async function caption(page, text) {
 
 // Screenshots are evidence of the UI, so the demo caption is hidden while one is taken.
 async function shot(page, name, locator) {
+  if (!SHOTS) return
   await page.evaluate(() => document.getElementById('demo-caption')?.setAttribute('hidden', ''))
   await (locator ?? page).screenshot({ path: resolve(assets, name) })
+  await page.evaluate(() => document.getElementById('demo-caption')?.removeAttribute('hidden'))
+}
+
+// Cropped evidence for the slide deck: only the top of a panel, so the text is
+// still legible when the image is shown at half-slide size.
+async function shotClip(page, name, locator, height, pad = 10) {
+  if (!SHOTS) return
+  const box = await locator.boundingBox()
+  if (!box) return
+  await page.evaluate(() => document.getElementById('demo-caption')?.setAttribute('hidden', ''))
+  await page.screenshot({
+    path: resolve(assets, name),
+    clip: { x: Math.max(0, box.x - pad), y: Math.max(0, box.y - pad),
+            width: box.width + pad * 2, height },
+  })
+  await page.evaluate(() => document.getElementById('demo-caption')?.removeAttribute('hidden'))
+}
+
+async function shotTrimmed(page, name, locator, top = 0, bottom = 0) {
+  if (!SHOTS) return
+  const box = await locator.boundingBox()
+  if (!box) return
+  await page.evaluate(() => document.getElementById('demo-caption')?.setAttribute('hidden', ''))
+  await page.screenshot({
+    path: resolve(assets, name),
+    clip: { x: box.x, y: box.y + top, width: box.width, height: box.height - top - bottom },
+  })
   await page.evaluate(() => document.getElementById('demo-caption')?.removeAttribute('hidden'))
 }
 
@@ -95,6 +133,7 @@ const view = (page, index) => page.locator('.canvas-toolbar .segmented-control b
 const tab = (page, index) => page.locator('.result-dock__tabs [role=tab]').nth(index)
 const govPanel = (page, index) => page.locator('.gov-section .monitor-panel').nth(index)
 const pause = (page, ms = 3500) => page.waitForTimeout(ms)
+let pauser = null
 // Scroll only the nearest scrolling panel; scrollIntoView would also move the page.
 const reveal = (locator) =>
   locator.evaluate((node) => {
@@ -104,12 +143,15 @@ const reveal = (locator) =>
   })
 
 async function scenario(page, language, capture) {
+  pauser = page
   const say = (key) => caption(page, captions[language][key])
+  const suffix = language === 'ko' ? '_ko' : ''
 
   await page.goto(`/?screen=workspace&lang=${language}`)
   await say('graph')
   await page.locator('.operation-list button').nth(3).click()
-  await pause(page)
+  await hold('graph', 3500)
+  await shot(page, `ide_workspace${suffix}.png`)
 
   await say('run')
   await page.locator('.workspace-topbar .button--tool-primary').click()
@@ -122,20 +164,22 @@ async function scenario(page, language, capture) {
 
   await say('receipt')
   await tab(page, 4).click()
-  await pause(page)
+  await hold('receipt', 3500)
+  await shot(page, `ide_run_result${suffix}.png`)
 
   await say('monitor')
   await view(page, 4).click()
-  await pause(page, 4500)
+  await hold('monitor', 4500)
+  await shot(page, `ide_monitor${suffix}.png`)
 
   await say('governance')
   await reveal(govPanel(page, 0))
-  await pause(page)
+  await hold('governance', 3500)
   if (capture) await shot(page, 'ide_dp_ledger.png', govPanel(page, 0))
   await reveal(govPanel(page, 1))
-  await pause(page)
+  await hold('governance', 3500)
   if (capture) await shot(page, 'ide_audit_chain.png', govPanel(page, 1))
-  if (!capture && language === 'ko') await shot(page, 'ide_governance_ko.png')
+  await shot(page, `ide_governance${suffix}.png`)
 
   if (tamperPath) {
     await say('tamper')
@@ -146,10 +190,22 @@ async function scenario(page, language, capture) {
       record.outcome = record.outcome === 'success' ? 'failed' : 'success'
       lines[lines.length - 1] = JSON.stringify(record)
       await writeFile(tamperPath, `${lines.join('\n')}\n`)
+      // The slide deck quotes the broken record number, so record it next to the shot.
       await govPanel(page, 1).locator('.gov-inline-form button').last().click()
       await govPanel(page, 1).locator('.gov-verdict--broken').waitFor()
-      await pause(page, 5000)
-      if (capture) await shot(page, 'ide_audit_tamper.png', govPanel(page, 1))
+      await hold('tamper', 5000)
+      // The chain panel scrolls internally; reset it so the screenshot starts at
+      // the verdict rather than at a half-cut title.
+      await govPanel(page, 1).evaluate((node) => {
+        node.scrollTop = 0
+        node.querySelectorAll('*').forEach((el) => { el.scrollTop = 0 })
+      })
+      await pause(page, 400)
+      if (capture && SHOTS) {
+        await shotTrimmed(page, 'ide_audit_tamper.png', govPanel(page, 1), 30)
+        await writeFile(resolve(assets, 'demo', 'audit-tamper.json'),
+          `${JSON.stringify({ record: record.index, outcome_before: record.outcome }, null, 2)}\n`)
+      }
     } finally {
       await writeFile(tamperPath, original)
     }
@@ -162,7 +218,7 @@ async function scenario(page, language, capture) {
   await tab(page, 5).click()
   await page.locator('.run-history li button').first().click()
   await page.locator('.run-detail').waitFor()
-  await pause(page)
+  await hold('history', 3500)
   if (capture) await shot(page, 'ide_run_history.png', page.locator('.result-dock'))
   await page.locator('.run-detail .button--compact').click()
   await pause(page)
@@ -173,17 +229,17 @@ async function scenario(page, language, capture) {
   await page.locator('.lineage-table').waitFor()
   await page.locator('.lineage-table button').last().click()
   await reveal(page.locator('.lineage-panel'))
-  await pause(page)
+  await hold('lineage', 3500)
   if (capture) await shot(page, 'ide_lineage.png', page.locator('.inspector'))
 
   await say('pack')
   await view(page, 4).click()
-  await reveal(govPanel(page, 2))
-  await govPanel(page, 2).locator('.gov-file input').setInputFiles(resolve(repo, 'examples/security/finance_policy.json'))
-  await govPanel(page, 2).locator('.gov-pack-form .button--tool-primary').click()
-  await govPanel(page, 2).locator('.gov-timeline').waitFor()
-  await pause(page)
-  if (capture) await shot(page, 'ide_policy_packs.png', govPanel(page, 2))
+  await reveal(govPanel(page, 3))
+  await govPanel(page, 3).locator('.gov-file input').setInputFiles(resolve(repo, 'examples/security/finance_policy.json'))
+  await govPanel(page, 3).locator('.gov-pack-form .button--tool-primary').click()
+  await govPanel(page, 3).locator('.gov-timeline').waitFor()
+  await hold('pack', 3500)
+  if (capture) await shot(page, 'ide_policy_packs.png', govPanel(page, 3))
 
   await say('block')
   await view(page, 0).click()
@@ -196,8 +252,10 @@ async function scenario(page, language, capture) {
   await page.locator('.guardrail-toolbar button').nth(1).click()
   await page.locator('.guardrail-remediation').waitFor()
   await reveal(page.locator('.guardrail-result--blocked'))
-  await pause(page, 4500)
+  await hold('block', 4500)
   if (capture) await shot(page, 'ide_policy_block.png')
+  await shotClip(page, `ide_policy_block_${language}.png`,
+    page.locator('.guardrail-result--blocked'), 348, 12)
   // Take the identifier back out: the same check now passes and Full Run unlocks.
   await view(page, 0).click()
   await page.locator('.react-flow__node').filter({ hasText: 'Select' }).first().click()
@@ -206,14 +264,14 @@ async function scenario(page, language, capture) {
   await page.locator('.guardrail-toolbar button').nth(0).click()
   await page.locator('.guardrail-result--pass').waitFor()
   await reveal(page.locator('.guardrail-result--pass'))
-  await pause(page)
+  await pause(page, 1500)
 
   await say('schema')
   await view(page, 0).click()
   await page.locator('.react-flow__node').filter({ hasText: 'File Input' }).first().click()
   await page.locator('.dag-params input[type=file]').setInputFiles(resolve(root, 'data/seoul_air_quality.csv'))
   await page.locator('.dag-notice').filter({ hasText: /xazz-server/ }).waitFor()
-  await pause(page, 4500)
+  await hold('schema', 4500)
   if (capture) await shot(page, 'ide_schema_inference.png')
 }
 

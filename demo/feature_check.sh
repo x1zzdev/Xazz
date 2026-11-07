@@ -88,7 +88,11 @@ run  "11. 차트 pie/scatter"           0 '-'                    "$XAZZ" run /tm
 [ -e pie_chart.html ] && [ -e scatter_chart.html ] && ok "11b. pie/scatter HTML 생성" || no "11b. pie/scatter HTML 생성"
 run  "12. --json 기계판독"            0 '"success": ?true'      "$XAZZ" run demo/preprocess_chart.xzz --json
 run  "13. DuckDB 커넥터"              0 'busan'                 "$XAZZ" run examples/duckdb/hello_duckdb.xzz
-sk   "14. PostgreSQL (로컬 DB 필요)"
+if ss -ltn 2>/dev/null | grep -q ':5432'; then
+  run "14. PostgreSQL 커넥터"           0 '"pm10":45.5'          "$XAZZ" run examples/duckdb/postgres_demo.xzz
+else
+  sk   "14. PostgreSQL (DB 미기동 — demo/start_postgres.sh start)"
+fi
 
 # ── AI ───────────────────────────────────────────────────────────────────────
 printf '\nAI\n'
@@ -159,4 +163,4 @@ if [ "$fail" -gt 0 ]; then
   for f in "${FAILED[@]}"; do printf '  - %s\n' "$f"; done
   exit 1
 fi
-printf '%s모든 자동 점검 항목 통과.%s (수동: PostgreSQL, Visual IDE)\n' "$green" "$rst"
+printf '%s모든 자동 점검 항목 통과.%s (수동: Visual IDE)\n' "$green" "$rst"
