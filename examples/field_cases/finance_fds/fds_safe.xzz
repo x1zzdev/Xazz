@@ -1,0 +1,47 @@
+// 금융 FDS 현장 사례 — 정책을 통과하는 안전한 예제
+//
+// `fds_blocked.xzz` 와 같은 질문("어떤 업종에서 이상거래가 많은가")에 답하지만,
+// 개인을 특정할 수 있는 값은 하나도 밖으로 내보내지 않는다. 가맹점 업종처럼
+// 개인이 아닌 단위로 집계하고, 민감 속성(거래금액) 집계에는 차등 프라이버시를 건다.
+//
+//   cd examples/field_cases/finance_fds
+//   xazz policy fds_safe.xzz   # 통과 (exit 0)
+//   xazz run    fds_safe.xzz   # 실행
+//
+// 데이터는 합성 데이터다: python3 generate_txns.py
+
+type Transaction = {
+    txn_id:             string,
+    customer_id:        string,
+    card_no:            string,
+    age:                int,
+    age_band:           string,
+    gender:             string,
+    zip_code:           string,
+    merchant_category:  string,
+    transaction_amount: float,
+    is_fraud:           int,
+    txn_date:           string,
+}
+
+// ── 안전 1: 업종별 거래 건수와 이상거래 건수 ────────────────────────────────
+// 결과 컬럼은 '건수'다 — 식별자가 아니다. (count 는 숫자형 컬럼에 건다)
+v txn_by_category = load("data/transactions.csv") :: Transaction
+    |> groupBy("merchant_category")
+    |> agg([count("is_fraud"), sum("is_fraud")])
+    |> orderBy("merchant_category", desc: true);
+
+// ── 안전 2: 업종별 평균 거래금액 + 차등 프라이버시 ──────────────────────────
+// 거래금액은 민감 속성이므로, 집계에는 withDp 가 필수다.
+v amount_by_category = load("data/transactions.csv") :: Transaction
+    |> groupBy("merchant_category")
+    |> mean("transaction_amount")
+    |> withDp(epsilon: 1.0, mechanism: laplace, sensitivity: 1.0, seed: 42)
+    |> orderBy("merchant_category");
+
+// ── 안전 3: 연령대별 이상거래율 (준식별자는 일반화해서 사용) ────────────────
+// 나이를 그대로 쓰지 않고 10년 단위 age_band(문자열)로 일반화한 뒤 집계한다.
+v fraud_by_band = load("data/transactions.csv") :: Transaction
+    |> groupBy("age_band")
+    |> agg([count("is_fraud"), sum("is_fraud")])
+    |> orderBy("age_band");

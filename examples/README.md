@@ -26,6 +26,11 @@ produced by a generator. See the *Data* column.
 | `examples/duckdb/hello_duckdb.xzz` | DuckDB source connector (`duckdb://…?sql=…`) | `target/debug/xazz run examples/duckdb/hello_duckdb.xzz` | none — in-memory DuckDB |
 | `examples/duckdb/postgres_demo.xzz` | PostgreSQL source connector | `target/debug/xazz run examples/duckdb/postgres_demo.xzz` | **Needs a local PostgreSQL** (`createdb mydb`). Expected to fail in the smoke harness |
 | `examples/semiconductor/main.xzz` | Etch SPC: clean → X-bar chart → control-limit count | `cd examples/semiconductor && python3 generate_wafer_data.py && xazz run main.xzz` | Generate `data/wafer_metrology.csv` first |
+| `examples/field_cases/finance_fds/fds_safe.xzz` | Finance FDS: same question answered without identifiers (+ DP) — **passes** | `cd examples/field_cases/finance_fds && python3 generate_txns.py && xazz run fds_safe.xzz` | Generate `data/transactions.csv` first; `xazz.policy.json` auto-loads |
+| `examples/field_cases/finance_fds/fds_blocked.xzz` | Finance FDS: naive implementation **blocked** (XZP001–XZP004) | `cd examples/field_cases/finance_fds && xazz policy fds_blocked.xzz` | Same data. Expected to fail on purpose |
+| `examples/field_cases/public_sector_stats/welfare_safe.xzz` | Public-sector open data: pseudonymized stats (+ DP) — **passes** | `cd examples/field_cases/public_sector_stats && python3 generate_welfare.py && xazz run welfare_safe.xzz` | Generate `data/welfare.csv` first; `xazz.policy.json` auto-loads |
+| `examples/field_cases/public_sector_stats/welfare_blocked.xzz` | Public-sector open data: naive export **blocked** | `cd examples/field_cases/public_sector_stats && xazz policy welfare_blocked.xzz` | Same data. Expected to fail on purpose |
+| `examples/field_cases/llm_finetune/` | Fine-tuning data hygiene: PII / duplicates / bias report (`xazz sanitize`) | `cd examples/field_cases/llm_finetune && python3 generate_corpus.py && xazz sanitize data/train.csv` | Generate `data/train.csv` first. Not a `.xzz` pipeline (CLI op) |
 | `examples/security/patient_safe.xzz` | Guardrail demo that **passes** the policy check | `target/debug/xazz run examples/security/patient_safe.xzz` | `examples/security/data/patients.csv` (generate with `python3 examples/security/generate_patients.py`) |
 | `examples/security/patient_unsafe.xzz` | Guardrail demo **blocked** by policy (`xazz policy` / `xazz run` exit 1) | `target/debug/xazz policy examples/security/patient_unsafe.xzz` | `patients.csv` (generator). Expected to fail on purpose |
 | `examples/security/patient_secret_leak.xzz` | Hardcoded-secret violation (`XZP010`/`XZP011`) | `target/debug/xazz policy examples/security/patient_secret_leak.xzz --fix` | none. Expected to fail on purpose |
@@ -37,9 +42,10 @@ produced by a generator. See the *Data* column.
 
 - **Git LFS.** `*.csv` is tracked with Git LFS (`.gitattributes`). Run `git lfs pull`
   after cloning, or the example data will be pointer files.
-- **Generators.** `examples/security/generate_patients.py` and
-  `examples/semiconductor/generate_wafer_data.py` write synthetic CSVs that are
-  intentionally not committed. The CI smoke job runs both before checking examples.
+- **Generators.** `examples/security/generate_patients.py`,
+  `examples/semiconductor/generate_wafer_data.py`, and the `generate_*.py` scripts under
+  `examples/field_cases/*/` write synthetic CSVs that are intentionally not committed.
+  The CI smoke job runs them before checking examples.
 - **Server / database.** `examples/duckdb/postgres_demo.xzz` needs a local
   PostgreSQL; it is listed as an expected failure in the smoke harness.
 - **GPU / ONNX features.** None of these examples need `--features wgpu/cuda/onnx`;
@@ -56,3 +62,16 @@ python3 scripts/smoke_examples.py --xazz target/debug/xazz --timeout 60
 Training-heavy examples (`deep_learning/`, `end_to_end/`) are skipped by default;
 add `--include-heavy` to run them. Examples that are *supposed* to fail are
 reported as `XFAIL` and only fail the run if they unexpectedly pass (`XPASS`).
+
+## Field cases (실무 사례)
+
+`examples/field_cases/` reproduces industry scenarios (finance FDS, public-sector
+open data, LLM fine-tuning hygiene) with a blocked/naive pair and a safe pair. Run
+them all at once — each step's exit code is asserted:
+
+```bash
+python3 examples/field_cases/run_all.py          # regenerates data, checks + runs every case
+```
+
+All data is synthetic. The framing (Tier 1 real-data / Tier 2 proposal / Tier 3
+roadmap) is in `docs/design/field-validation.md`.

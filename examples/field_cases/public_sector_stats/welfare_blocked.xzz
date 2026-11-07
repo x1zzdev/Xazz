@@ -1,0 +1,48 @@
+// 공공데이터 개방 현장 사례 — 정책 위반 예제 (차단되도록 만들어졌다)
+//
+// "시군구별 복지 수급 실태를 뽑아 달라"는 현장 요청을 순진하게 구현한 코드다.
+// 실행하면 Policy-as-Code 가드레일이 Polars 엔진에 닿기 전에 막는다.
+//
+//   cd examples/field_cases/public_sector_stats
+//   xazz policy welfare_blocked.xzz          # 위반 리포트
+//   xazz policy welfare_blocked.xzz --fix    # 안전한 대체 코드 제안
+//   xazz run    welfare_blocked.xzz          # 차단 확인 (exit 1)
+//
+// 데이터는 합성 데이터다: python3 generate_welfare.py
+
+type Welfare = {
+    resident_id:       string,
+    name:              string,
+    sido:              string,
+    dong:              string,
+    age:               int,
+    age_band:          string,
+    gender:            string,
+    household_size:    int,
+    welfare_benefit:   string,
+    benefit_amount:    float,
+    disability_grade:  int,
+    application_date:  string,
+}
+
+// ── 위반 1: XZP001 직접 식별자 노출 ─────────────────────────────────────────
+// 수급자 성명이 결과로 그대로 나간다.
+v recipients = load("data/welfare.csv") :: Welfare
+    |> filter(col("household_size") >= 3)
+    |> select([name, welfare_benefit]);
+
+// ── 위반 2: XZP002 민감 속성 행 단위 노출 ───────────────────────────────────
+// 집계 없이 개인별 수급 유형이 그대로 나간다.
+v benefits = load("data/welfare.csv") :: Welfare
+    |> select([welfare_benefit, benefit_amount]);
+
+// ── 위반 3: XZP003 준식별자 결합 재식별 위험 ────────────────────────────────
+// 나이 + 성별 + 동 조합만으로 개인이 특정될 수 있다.
+v demographics = load("data/welfare.csv") :: Welfare
+    |> select([age, gender, dong, household_size]);
+
+// ── 위반 4: XZP004 민감 속성 집계에 DP 미적용 ───────────────────────────────
+// 수급 유형별 집계는 통계지만, 소집단에서는 집계값만으로 개인이 역추적된다.
+v by_benefit = load("data/welfare.csv") :: Welfare
+    |> groupBy("welfare_benefit")
+    |> count("age");

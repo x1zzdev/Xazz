@@ -57,6 +57,9 @@ examples/security/data/
 # 반도체 SPC 예제 합성 데이터 (생성기로 재생성 — examples/semiconductor/generate_wafer_data.py)
 examples/semiconductor/data/
 
+# 실무 사례(field cases) 합성 데이터 (생성기로 재생성 — generate_*.py)
+examples/field_cases/*/data/
+
 # 시연 영상 생성물 (demo/capture.sh + demo/make_video.py 로 재생성)
 demo/_capture/
 demo/_build/
@@ -83,7 +86,11 @@ xazz.db
 
 # Local work queue (see NEXT.md)
 NEXT.md
+NEXT-archive.md
 
 # Visual IDE 데모 영상 (visual-ide/scripts/demo.mjs 로 재생성). 발표용 한국어 최종본 한 벌만 커밋한다.
 docs/assets/demo/*.webm
 !docs/assets/demo/xazz-demo-ko.webm
+
+# 발표덱 PPTX 생성용 로컬 의존성 (python-pptx)
+.venv-pptx/

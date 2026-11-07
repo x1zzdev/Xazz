@@ -1,0 +1,48 @@
+// 금융 FDS 현장 사례 — 정책 위반 예제 (차단되도록 만들어졌다)
+//
+// "이상거래 의심 거래를 뽑아 달라"는 현장 요청을 순진하게 구현한 코드다.
+// 실행하면 Policy-as-Code 가드레일이 Polars 엔진에 닿기 전에 막는다.
+//
+//   cd examples/field_cases/finance_fds
+//   xazz policy fds_blocked.xzz          # 위반 리포트 (XZP001~XZP004)
+//   xazz policy fds_blocked.xzz --fix    # 안전한 대체 코드 제안
+//   xazz run    fds_blocked.xzz          # 차단 확인 (exit 1)
+//
+// 데이터는 합성 데이터다: python3 generate_txns.py
+
+type Transaction = {
+    txn_id:             string,
+    customer_id:        string,
+    card_no:            string,
+    age:                int,
+    age_band:           string,
+    gender:             string,
+    zip_code:           string,
+    merchant_category:  string,
+    transaction_amount: float,
+    is_fraud:           int,
+    txn_date:           string,
+}
+
+// ── 위반 1: XZP001 직접 식별자 노출 ─────────────────────────────────────────
+// 고객번호·카드번호가 결과로 그대로 나간다.
+v suspicious = load("data/transactions.csv") :: Transaction
+    |> filter(col("is_fraud") == 1)
+    |> select([customer_id, card_no, transaction_amount]);
+
+// ── 위반 2: XZP002 민감 속성 행 단위 노출 ───────────────────────────────────
+// 집계 없이 개인별 거래금액이 그대로 나간다.
+v amounts = load("data/transactions.csv") :: Transaction
+    |> filter(col("transaction_amount") > 100000.0)
+    |> select([txn_id, transaction_amount]);
+
+// ── 위반 3: XZP003 준식별자 결합 재식별 위험 ────────────────────────────────
+// 나이 + 성별 + 우편번호 조합만으로 고객이 특정될 수 있다.
+v demographics = load("data/transactions.csv") :: Transaction
+    |> select([age, gender, zip_code, transaction_amount]);
+
+// ── 위반 4: XZP004 민감 속성 집계에 DP 미적용 ───────────────────────────────
+// 업종별 거래금액 집계는 통계지만, 소집단에서는 집계값만으로 개인이 역추적된다.
+v amount_by_category = load("data/transactions.csv") :: Transaction
+    |> groupBy("merchant_category")
+    |> mean("transaction_amount");

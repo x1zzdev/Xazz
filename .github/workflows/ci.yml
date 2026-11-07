@@ -172,6 +172,8 @@ jobs:
         run: |
           python3 examples/security/generate_patients.py
           python3 examples/semiconductor/generate_wafer_data.py
+          python3 examples/field_cases/finance_fds/generate_txns.py
+          python3 examples/field_cases/public_sector_stats/generate_welfare.py
 
       - name: Run example smoke
         env:

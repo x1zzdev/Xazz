@@ -1,0 +1,43 @@
+// 공공데이터 개방 현장 사례 — 정책을 통과하는 안전한 예제
+//
+// `welfare_blocked.xzz` 와 같은 질문("어떤 지역·연령대에 수급이 많은가")에 답하지만,
+// 개인을 특정할 수 있는 값은 하나도 밖으로 내보내지 않는다. 시도·연령대처럼
+// 개인이 아닌 단위로 집계하고, 민감 속성 집계에는 차등 프라이버시를 건다.
+//
+//   cd examples/field_cases/public_sector_stats
+//   xazz policy welfare_safe.xzz   # 통과 (exit 0)
+//   xazz run    welfare_safe.xzz   # 실행
+//
+// 데이터는 합성 데이터다: python3 generate_welfare.py
+
+type Welfare = {
+    resident_id:       string,
+    name:              string,
+    sido:              string,
+    dong:              string,
+    age:               int,
+    age_band:          string,
+    gender:            string,
+    household_size:    int,
+    welfare_benefit:   string,
+    benefit_amount:    float,
+    disability_grade:  int,
+    application_date:  string,
+}
+
+// ── 안전 1: 시도별 수급 건수와 급여 총액 + 차등 프라이버시 ──────────────────
+// 결과 컬럼은 '건수'와 '합계'다 — 식별자가 아니다. 급여액 집계에는 withDp 가 필수다.
+v by_sido = load("data/welfare.csv") :: Welfare
+    |> groupBy("sido")
+    |> agg([count("benefit_amount"), sum("benefit_amount")])
+    |> withDp(epsilon: 1.0, mechanism: laplace, sensitivity: 1.0, seed: 42)
+    |> orderBy("sido");
+
+// ── 안전 2: 연령대별 수급 건수 (준식별자는 일반화해서 사용) ─────────────────
+// 나이를 그대로 쓰지 않고 10년 단위 age_band(문자열)로 일반화한 뒤 집계한다.
+// age_band 는 문자열 그룹 키이므로 DP 노이즈는 급여액 집계 컬럼에만 더해진다.
+v by_age_band = load("data/welfare.csv") :: Welfare
+    |> groupBy("age_band")
+    |> agg([count("benefit_amount"), mean("benefit_amount")])
+    |> withDp(epsilon: 1.0, mechanism: laplace, sensitivity: 1.0, seed: 42)
+    |> orderBy("age_band");

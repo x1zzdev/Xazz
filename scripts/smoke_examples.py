@@ -25,6 +25,8 @@ EXPECTED_FAILURES = {
     "examples/security/patient_unsafe.xzz": "intentionally blocked by the policy guardrail (exit 1)",
     "examples/security/patient_secret_leak.xzz": "intentionally blocked by the policy guardrail (exit 1)",
     "examples/security/prompt_unsafe.xzz": "intentionally blocked by the policy guardrail (exit 1)",
+    "examples/field_cases/finance_fds/fds_blocked.xzz": "intentionally blocked by the policy guardrail (exit 1)",
+    "examples/field_cases/public_sector_stats/welfare_blocked.xzz": "intentionally blocked by the policy guardrail (exit 1)",
 }
 
 # Training-heavy examples are skipped by default: a debug build needs many
@@ -108,12 +110,26 @@ def main() -> int:
                 candidate = ROOT / name
                 if candidate.exists():
                     (cwd / name).symlink_to(candidate, target_is_directory=True)
-            # Project-style main.xzz files load data beside the source.
-            if source.name == "main.xzz":
-                for sibling in source.parent.iterdir():
-                    if sibling.name == source.name or sibling.name in ("README.md", "xazz.toml"):
+            # Project-style examples load data beside the source. A directory is
+            # treated as a project when it is a `main.xzz` layout or carries a
+            # project file (xazz.toml / xazz.policy.json) or a `data/` dir; its
+            # siblings are linked into the temp cwd so `load("data/...")` and the
+            # auto-loaded `xazz.policy.json` resolve (field cases, semiconductor).
+            parent = source.parent
+            is_project = (
+                source.name == "main.xzz"
+                or (parent / "xazz.toml").exists()
+                or (parent / "xazz.policy.json").exists()
+                or (parent / "data").is_dir()
+            )
+            if is_project:
+                for sibling in parent.iterdir():
+                    if sibling.name in (source.name, "README.md", "xazz.toml"):
                         continue
-                    (cwd / sibling.name).symlink_to(sibling, target_is_directory=sibling.is_dir())
+                    dest = cwd / sibling.name
+                    if dest.exists() or dest.is_symlink():
+                        continue
+                    dest.symlink_to(sibling, target_is_directory=sibling.is_dir())
 
             error = run_command(binary, "check", source, cwd, args.timeout)
             if error:

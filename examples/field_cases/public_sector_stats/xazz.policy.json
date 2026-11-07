@@ -1,0 +1,77 @@
+{
+  "id": "xazz-public-sector",
+  "version": "1.0.0",
+  "description": "공공데이터 개방·행정정보 처리용 정책 팩 — 공공데이터법과 공공기관 개인정보 처리 기준을 반영한다. 개방 대상 데이터는 개인 식별이 불가능해야 하므로 준식별자 임계치를 가장 낮게 둔다.",
+  "domain": "public-sector",
+  "risk_level": "high",
+
+  "direct_identifiers": [
+    "ssn", "rrn", "주민등록번호", "주민번호",
+    "name", "성명", "이름", "민원인명",
+    "foreigner_registration_number", "외국인등록번호",
+    "driver_license", "운전면허번호",
+    "passport_no", "여권번호",
+    "phone", "전화번호", "연락처", "휴대전화",
+    "email", "이메일",
+    "address", "주소", "상세주소", "도로명주소",
+    "civil_complaint", "민원내용", "민원상세",
+    "resident_number", "세대주번호",
+    "business_no", "사업자등록번호",
+    "ip_address", "device_id"
+  ],
+
+  "sensitive_attributes": [
+    "disease", "질병", "진단명",
+    "disability", "장애", "장애등급",
+    "welfare_benefit", "수급자격", "기초생활수급",
+    "criminal_record", "범죄경력", "전과",
+    "military_service", "병역사항",
+    "tax_amount", "납세액", "체납액",
+    "religion", "종교",
+    "political_view", "정치성향",
+    "union_membership", "노조가입여부",
+    "asylum_status", "난민지위"
+  ],
+
+  "quasi_identifiers": [
+    "age", "나이", "연령",
+    "birth_date", "생년월일",
+    "gender", "sex", "성별",
+    "zip_code", "postal_code", "우편번호",
+    "dong", "읍면동", "행정동", "법정동",
+    "nationality", "국적",
+    "occupation", "직업",
+    "household_size", "세대원수",
+    "application_date", "신청일"
+  ],
+
+  "quasi_identifier_threshold": 2,
+  "require_dp_for_sensitive_aggregate": true,
+  "max_epsilon": 1.0,
+  "remediation_epsilon": 0.5,
+
+  "allowed_output_columns": ["age_band", "sido", "시도", "year", "연도"],
+
+  "denied_path_fragments": [
+    "/etc/passwd",
+    "/etc/shadow",
+    "/proc/self/environ",
+    "/.ssh/",
+    "id_rsa",
+    ".aws/credentials",
+    ".kube/config"
+  ],
+
+  "rule_severity": {
+    "XZP013": "block",
+    "XZP014": "block"
+  },
+
+  "rule_source_refs": {
+    "XZP001": "개인정보 보호법 제24조(고유식별정보의 처리 제한) · 공공데이터의 제공 및 이용 활성화에 관한 법률 제17조(제공대상 제외 정보)",
+    "XZP002": "개인정보 보호법 제23조(민감정보의 처리 제한)",
+    "XZP003": "개인정보 보호법 제28조의5(가명정보 처리 시 금지의무) · 행정안전부 「공공데이터 개방 시 개인정보 처리 지침」",
+    "XZP004": "개인정보보호위원회 「가명정보 처리 가이드라인」 — 통계 공개 시 소집단 재식별 방지",
+    "XZP012": "국가정보원 국가 망 보안체계(N2SF) 기준 — 인가된 자원만 접근"
+  }
+}

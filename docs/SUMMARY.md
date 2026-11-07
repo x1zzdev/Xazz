@@ -39,6 +39,8 @@
 - [Alternatives considered](design/alternatives.md)
 - [Licensing](design/licensing.md)
 - [Regulatory mapping](design/regulatory-mapping.md)
+- [Field validation strategy](design/field-validation.md)
+- [Field contact templates](design/field-contact-templates.md)
 - [Asset ledger](design/asset-ledger.md)
 - [IDE governance brief](design/ide-governance-brief.md)
 - [Review & verification](design/review-verification.md)
@@ -62,6 +64,8 @@
 
 - [Demo scenario](demo/demo-scenario.md)
 - [Presentation outline](demo/presentation-outline.md)
+- [Presentation deck](demo/presentation-deck.md)
+- [Q&A brief](demo/qa-brief.md)
 - [Submission visuals plan](submission_visuals_plan.md)
 - [Result report](result_report.md)
 
