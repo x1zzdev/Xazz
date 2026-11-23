@@ -61,7 +61,10 @@ pub enum FillNullValue {
 /// Scaling method for the `scale("col", method: ...)` operator (issue #165).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ScaleMethod {
-    /// Standardization `(x − mean) / std` (sample std, ddof=1). Default.
+    /// Standardization `(x − mean) / std` using the **sample** standard deviation
+    /// (ddof=1), matching the `std()` operator and the DL train-path feature
+    /// standardization. scikit-learn's `StandardScaler` uses the population std
+    /// (ddof=0) instead, so the spread differs by `sqrt(n / (n − 1))`. Default.
     #[default]
     ZScore,
     /// Min-max normalization `(x − min) / (max − min)` → `[0, 1]`.

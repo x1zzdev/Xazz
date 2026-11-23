@@ -43,6 +43,9 @@ v without_outliers = cleaned
     |> outlierIqr("pm10", factor: 1.5)
 
 // ── 7. Scale — standardize PM10 in place (method: zscore | minmax | robust) ───
+// zscore uses the sample std (ddof=1), the same convention as std() and the DL
+// train-path standardization; scikit-learn's StandardScaler uses the population
+// std (ddof=0), so the spread differs by sqrt(n/(n-1)). minmax/robust unaffected.
 v standardized = cleaned
     |> scale("pm10", method: "zscore")
 

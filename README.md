@@ -387,6 +387,8 @@ python benches/run_readme_benchmark.py --xlarge
 
 > **Note on `--tenant`.** The tenant-scoped commands above (`xazz registry`, `xazz policy-status`, `xazz policy-ttl`, `xazz dp`) accept `--tenant`, but when the server runs in single-token mode (`XAZZ_SERVER_TOKEN`) it ignores `X-Xazz-Tenant` and operates on an empty tenant — so `--tenant` is accepted but has no effect. The flag stays accepted for forward compatibility; see [docs/SERVER.md](docs/SERVER.md).
 
+> **Note on `scale`.** `scale("col", method: "zscore")` standardizes with the **sample** standard deviation (ddof=1) — the same convention as the `std()` operator and the DL train-path feature standardization. scikit-learn's `StandardScaler` uses the population standard deviation (ddof=0), so the spread differs by `sqrt(n / (n − 1))`. `minmax` and `robust` are unaffected.
+
 ---
 
 ## Limitations & Non-goals

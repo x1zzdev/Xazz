@@ -373,6 +373,8 @@ python benches/run_readme_benchmark.py --xlarge
 | `xazz sanitize` | 파인튜닝 데이터 정화 — PII 스캔, 중복·편향 검사 (Track F3) | Stable |
 | 모델 프로비넌스 | 정책 레지스트리 게이트 — `hf://` 모델 참조, 라이선스·미검증 웨이트 차단 (Track F5) | Stable |
 
+> **`scale` 주의.** `scale("col", method: "zscore")`는 **표본**표준편차(ddof=1)로 표준화합니다 — `std()` 연산자 및 DL 학습 경로의 특성 표준화와 같은 규약입니다. scikit-learn의 `StandardScaler`는 모집단표준편차(ddof=0)를 쓰므로 spread가 `sqrt(n / (n − 1))` 배만큼 다릅니다. `minmax`·`robust`는 영향받지 않습니다.
+
 ---
 
 ## 한계 & 비목표
