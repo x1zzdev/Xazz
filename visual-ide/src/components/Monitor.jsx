@@ -43,16 +43,54 @@ export function MonitorPanel({ contract, icon: Icon, title, unit, maturity, scop
   )
 }
 
-function BurnPanel({ runState, training, model }) {
+/**
+ * Burn compile and training. Three honest states, never blended:
+ *   - measured : a real [xazz:train] report came back for the run, shown as facts.
+ *   - implemented/empty : the run recorded no train step (or none ran yet), so the
+ *                panel states that and keeps the fixture's structural fields.
+ *   - implemented/unavailable : the persisted report could not be fetched (404 /
+ *                unreachable / wrong tenant) — a failed request, not an empty run.
+ *
+ * The report is served by GET /runs/{id}/training (issue D3) as `{ available,
+ * training }`; the /execute response's raw `training` is kept as a fallback.
+ */
+function BurnPanel({ runState, training, trainingError, model }) {
   const evaluatedInitial = runState === 'success'
   const failedInitial = runState === 'error'
   const pendingInitial = runState === 'running'
 
-  const hasTraining = Boolean(training?.report)
-  const report = hasTraining ? training.report : fallbackFixture.training.report
+  const hasTraining = Boolean(training?.training?.report)
+  const report = hasTraining ? training.training.report : fallbackFixture.training.report
   const modelInfo = model ?? fallbackFixture.model
   const absent = fallbackFixture._absent_from_contract
   const isMeasured = hasTraining
+
+  if (!hasTraining && trainingError) {
+    const reason =
+      trainingError instanceof ApiError
+        ? `xazz-server answered HTTP ${trainingError.status} · ${trainingError.message}`
+        : `Couldn't reach xazz-server · ${trainingError.message}`
+    return (
+      <MonitorPanel
+        contract="implemented"
+        icon={Boxes}
+        title="Burn compile and training"
+        unit="training report · couldn't load"
+        maturity="Unavailable"
+        scope="Panel is implemented, but the training report for this run could not be loaded."
+      >
+        <p className="monitor-gap">
+          <AlertTriangle size={13} aria-hidden="true" />
+          {reason}
+        </p>
+        <p className="monitor-caveat">
+          This is a failed request, not a run without a train step. Check that
+          xazz-server is reachable and that this tenant can read the run, then
+          re-run.
+        </p>
+      </MonitorPanel>
+    )
+  }
 
   const evaluated = isMeasured && evaluatedInitial
   const failed = failedInitial && !hasTraining
@@ -147,6 +185,7 @@ function BurnPanel({ runState, training, model }) {
           </div>
         ) : (
           <p className="monitor-empty">
+            {training?.reason ? `${training.reason}. ` : ''}
             {failed
               ? 'The run failed before a training report was emitted.'
               : pending
@@ -780,12 +819,12 @@ function GuardrailPanel({ policy, remediation, originalCode }) {
   )
 }
 
-export function MonitorView({ runState, training, model, dp, resources, resourcesError, prediction, predictionError, policy, remediation, originalCode, children }) {
+export function MonitorView({ runState, training, trainingError, model, dp, resources, resourcesError, prediction, predictionError, policy, remediation, originalCode, children }) {
   return (
     <div className="monitor-view" aria-label="Run monitoring">
       <div className="monitor-view__rail" aria-hidden="true" />
       <div className="monitor-view__panels">
-        <BurnPanel runState={runState} training={training} model={model} />
+        <BurnPanel runState={runState} training={training} trainingError={trainingError} model={model} />
         <PredictPanel prediction={prediction} error={predictionError} />
         <div className="monitor-view__pair">
           <PrivacyBudgetPanel dp={dp} />

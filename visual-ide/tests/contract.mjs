@@ -212,6 +212,9 @@ assert.match(api, /\/runs\/\$\{encodeURIComponent\(id\)\}\/resources/)
 // Predict diagnostics are persisted per run and read from their endpoint too (D3).
 assert.match(api, /export const getRunPrediction =/, 'predict diagnostics must come from GET /runs/:id/prediction')
 assert.match(api, /\/runs\/\$\{encodeURIComponent\(id\)\}\/prediction/)
+// The training report is persisted per run and read from its endpoint too (D3).
+assert.match(api, /export const getRunTraining =/, 'training report must come from GET /runs/:id/training')
+assert.match(api, /\/runs\/\$\{encodeURIComponent\(id\)\}\/training/)
 
 const governance = await read('visual-ide/src/components/Governance.jsx')
 const runHistory = await read('visual-ide/src/components/RunHistory.jsx')

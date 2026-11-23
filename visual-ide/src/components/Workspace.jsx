@@ -51,7 +51,7 @@ import { ResultCharts } from './ResultCharts'
 import { RunHistory } from './RunHistory'
 import { LocaleSwitch, localizeStep, useLanguage } from '../i18n'
 import DagEditor from './DagEditor'
-import { ApiError, checkPolicy, executeCode, checkHealth, getRunResources, getRunPrediction, remediateCode, API_BASE_URL } from '../api'
+import { ApiError, checkPolicy, executeCode, checkHealth, getRunResources, getRunPrediction, getRunTraining, remediateCode, API_BASE_URL } from '../api'
 
 // executeCode 기본 타임아웃(ms) — api.js 와 동일한 기본값 (ML 훈련 고려 5분)
 const EXEC_TIMEOUT_MS = 5 * 60 * 1000
@@ -1515,6 +1515,8 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
   const [runResourcesError, setRunResourcesError] = useState(null)
   const [runPrediction, setRunPrediction] = useState(null)
   const [runPredictionError, setRunPredictionError] = useState(null)
+  const [runTraining, setRunTraining] = useState(null)
+  const [runTrainingError, setRunTrainingError] = useState(null)
   const [execError, setExecError] = useState(null)
   const [executing, setExecuting] = useState(false)
   const [policyReport, setPolicyReport] = useState(null)
@@ -1625,6 +1627,32 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
       })
   }
 
+  // The training report is persisted per run too (issue D3) and served by its own
+  // endpoint, like resources and predict diagnostics. The /execute response already
+  // carries `training` for the run it returned, kept as a fallback so a failed fetch
+  // never hides a report the browser already holds.
+  const loadRunTraining = (runId, fallback) => {
+    if (runId == null) {
+      setRunTraining(fallback ? { available: true, training: fallback } : null)
+      setRunTrainingError(null)
+      return
+    }
+    getRunTraining(runId)
+      .then((data) => {
+        setRunTraining(data)
+        setRunTrainingError(null)
+      })
+      .catch((err) => {
+        if (fallback) {
+          setRunTraining({ available: true, training: fallback })
+          setRunTrainingError(null)
+        } else {
+          setRunTraining(null)
+          setRunTrainingError(err)
+        }
+      })
+  }
+
   const executeFullRun = async () => {
     setExecuting(true)
     setRunResult(null)
@@ -1632,6 +1660,8 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
     setRunResourcesError(null)
     setRunPrediction(null)
     setRunPredictionError(null)
+    setRunTraining(null)
+    setRunTrainingError(null)
     setExecError(null)
     setAcknowledged(false)
     setLiveMessage(`Executing on xazz-server · ${API_BASE_URL}`)
@@ -1644,6 +1674,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
       setRunResult(result)
       loadRunResources(result.run_id)
       loadRunPrediction(result.run_id, result.prediction)
+      loadRunTraining(result.run_id, result.training)
       setBackendReachable(true)
       if (result.success && !result.error) {
         const rows = Array.isArray(result.rows) ? result.rows.length : 0
@@ -1705,6 +1736,7 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
     setRunResult(result)
     loadRunResources(runId)
     loadRunPrediction(runId, result.prediction)
+    loadRunTraining(runId, result.training)
     setExecError(null)
     setLiveMessage(`Restored run #${runId} from this browser session`)
     changeState(result.success && !result.error ? 'success' : 'error')
@@ -1899,7 +1931,8 @@ export function Workspace({ initialState = 'ready', onStateChange, onHome }) {
                 )}
                 <MonitorView
                   runState={evidenceState}
-                  training={runResult?.training}
+                  training={runTraining}
+                  trainingError={runTrainingError}
                   model={runResult?.model}
                   dp={runResult?.dp}
                   resources={runResources}

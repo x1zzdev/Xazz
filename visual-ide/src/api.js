@@ -155,6 +155,14 @@ export const getRunResources = (id) =>
 export const getRunPrediction = (id) =>
   request(`/runs/${encodeURIComponent(id)}/prediction`)
 
+// ── Run training report (issue D3). Persisted `[xazz:train]` report for one run:
+// { run_id, tenant, available: true, training } — or { available: false, reason }
+// when the run recorded none. The /execute response also carries `training` for the
+// run it just returned; this endpoint serves it after a restore or from history.
+// Never fabricate.
+export const getRunTraining = (id) =>
+  request(`/runs/${encodeURIComponent(id)}/training`)
+
 // ── Audit chain (#108)
 export const getAuditLog = () => request('/security/audit/log')
 export const getAuditRecords = (hash) =>
