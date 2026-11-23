@@ -9,6 +9,13 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — Visual IDE E2E 를 Windows/macOS CI 러너에서도 실행 (issue #167)
+
+- `.github/workflows/ci.yml`에 `frontend-e2e` 잡을 추가해 `windows-latest`·`macos-latest`
+  러너에서 `visual-ide` Playwright E2E(`npm run test:e2e`)를 실행한다. 기존 `frontend`
+  잡(ubuntu)은 contract/stdout/contrast/E2E 를 그대로 유지한다. #167 의 "macOS/Windows
+  visual-ide E2E 실기 기록"을 실기 호스트 없이 CI 러너로 남기기 위함이다
+
 ### Added — training 리포트의 run 이력 영속화 `GET /runs/{id}/training` (issue D3)
 
 - `POST /execute` 응답에만 노출되던 `[xazz:train]` 리포트를 `runs` 테이블

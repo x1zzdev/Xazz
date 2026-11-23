@@ -253,6 +253,47 @@ jobs:
           path: visual-ide/test-results/
           retention-days: 7
 
+  # ── Visual IDE E2E on Windows/macOS (#167) — 실기 OS 에서 브라우저 E2E 를 기록 ─────
+  frontend-e2e:
+    name: Frontend E2E · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    defaults:
+      run:
+        working-directory: visual-ide
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: visual-ide/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # webServer 가 빌드와 preview 를 띄운다. E2E 는 chromium 만 필요하다.
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      - name: E2E tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-test-results-${{ matrix.os }}
+          path: visual-ide/test-results/
+          retention-days: 7
+
   benchmark-regression-tests:
     name: Benchmark regression contract · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
