@@ -56,6 +56,41 @@ fn load_options_comment(options: &LoadOptions) -> String {
 // ── public entry points ───────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Builds the "how to run" console hint printed after `emit rust` writes a file.
+///
+/// Mirrors the generated file header (`generate_rust_src`): a DL program needs the
+/// Burn/serde_json dependencies and the `checkpoints/` runtime files in addition to
+/// Polars, so the printed hint must list them too.
+fn usage_hint(program: &Program, out_path: &str) -> String {
+    let mut s = String::new();
+    s.push_str("─── 실행 방법 ──────────────────────────────────────────────────\n");
+    s.push_str("  1) 새 Rust 프로젝트 생성:\n");
+    s.push_str("       cargo new my_analysis && cd my_analysis\n");
+    s.push_str("  2) Cargo.toml 에 의존성 추가:\n");
+    s.push_str("       polars      = { version = \"0.53\", features = [\"lazy\", \"csv\"] }\n");
+    s.push_str("       encoding_rs = \"0.8\"\n");
+    if program_has_dl(program) {
+        s.push_str("       burn        = { version = \"0.21\", default-features = false, features = [\"std\", \"autodiff\"] }\n");
+        s.push_str("       burn-ndarray = { version = \"0.21\", default-features = false, features = [\"std\", \"burn-autodiff\"] }\n");
+        s.push_str("       serde_json   = \"1.0\"\n");
+    }
+    s.push_str(&format!(
+        "  3) {} 를 src/main.rs 로 복사 후 실행:\n",
+        out_path
+    ));
+    s.push_str("       cargo run\n");
+    if program_has_dl(program) {
+        s.push_str("  * 런타임 파일: checkpoints/<Model>.json 과 checkpoints/<Model>.stats.json 을 바이너리 옆에 두세요 (train() 이 생성).\n");
+        if program_has_predict(program) {
+            s.push_str(
+                "    predict() 는 두 파일이 모두 필요합니다 — 먼저 학습 파이프라인을 실행하세요.\n",
+            );
+        }
+    }
+    s.push_str("────────────────────────────────────────────────────────────────\n");
+    s
+}
+
 /// Converts a .xzz file into standalone runnable Rust source code.
 pub fn emit_rust(
     source_path: &str,
@@ -84,17 +119,7 @@ pub fn emit_rust(
 
             println!("✅  emit rust 완료 → {}", path);
             println!();
-            println!("─── 실행 방법 ──────────────────────────────────────────────────");
-            println!("  1) 새 Rust 프로젝트 생성:");
-            println!("       cargo new my_analysis && cd my_analysis");
-            println!("  2) Cargo.toml 에 의존성 추가:");
-            println!(
-                "       polars      = {{ version = \"0.53\", features = [\"lazy\", \"csv\"] }}"
-            );
-            println!("       encoding_rs = \"0.8\"");
-            println!("  3) {} 를 src/main.rs 로 복사 후 실행:", path);
-            println!("       cargo run");
-            println!("────────────────────────────────────────────────────────────────");
+            print!("{}", usage_hint(&program, path));
         }
         None => println!("{}", rust_code),
     }
@@ -2877,6 +2902,68 @@ mod tests {
         assert!(
             out.contains("predict() needs both files present"),
             "predict 파일 요건 안내 누락: {out}"
+        );
+    }
+
+    /// The console "how to run" hint must match the generated header: a DL program
+    /// needs the Burn/serde_json deps and the `checkpoints/` runtime files, while a
+    /// plain Polars program must not mention them.
+    #[test]
+    fn usage_hint_lists_dl_runtime_deps_and_files() {
+        let program = parse(
+            "type S = { a: float, y: float };
+             model M { Dense(4) -> Dense(1) }
+             v ds = load(\"x.csv\") :: S;
+             v m = ds |> train(M, target: \"y\", epochs: 3);
+             v p = ds |> predict(m, as: \"y_pred\");",
+        );
+        let hint = usage_hint(&program, "out.rs");
+        assert!(hint.contains("polars"), "polars 안내 누락: {hint}");
+        assert!(
+            hint.contains("encoding_rs"),
+            "encoding_rs 안내 누락: {hint}"
+        );
+        assert!(
+            hint.contains("burn        = { version = \"0.21\""),
+            "burn 의존성 안내 누락: {hint}"
+        );
+        assert!(
+            hint.contains("burn-ndarray = { version = \"0.21\""),
+            "burn-ndarray 의존성 안내 누락: {hint}"
+        );
+        assert!(
+            hint.contains("serde_json   = \"1.0\""),
+            "serde_json 의존성 안내 누락: {hint}"
+        );
+        assert!(
+            hint.contains("checkpoints/<Model>.json"),
+            "체크포인트 런타임 파일 안내 누락: {hint}"
+        );
+        assert!(
+            hint.contains("checkpoints/<Model>.stats.json"),
+            "stats 사이드카 안내 누락: {hint}"
+        );
+        assert!(
+            hint.contains("predict() 는 두 파일이 모두 필요합니다"),
+            "predict 파일 요건 안내 누락: {hint}"
+        );
+    }
+
+    #[test]
+    fn usage_hint_omits_dl_deps_for_plain_program() {
+        let program = parse(
+            "type S = { a: string, b: float };
+             v p = load(\"x.csv\") :: S |> select([a, b]);",
+        );
+        let hint = usage_hint(&program, "out.rs");
+        assert!(hint.contains("polars"), "polars 안내 누락: {hint}");
+        assert!(
+            !hint.contains("burn"),
+            "비-DL 프로그램에 burn 안내가 남음: {hint}"
+        );
+        assert!(
+            !hint.contains("checkpoints/"),
+            "비-DL 프로그램에 런타임 파일 안내가 남음: {hint}"
         );
     }
 
