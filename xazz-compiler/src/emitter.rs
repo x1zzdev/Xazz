@@ -790,13 +790,25 @@ fn generate_rust_src(
                         }
                         match find_model_binding(program, model_var) {
                             Some(binding) if !binding.config.is_sweep() => {
-                                out.push_str(&emit_dl_predict_call(
-                                    var_name,
-                                    binding.model_name,
-                                    &binding.config.target,
-                                    as_col.as_deref(),
-                                    binding.embedding_input,
-                                ));
+                                // predict() appends one column; a final layer that is
+                                // not Dense(1) makes forward() return several values
+                                // per row, so the emitted with_column(...) would get
+                                // n * out_dim values for n rows and fail at runtime.
+                                // Fall back to a comment like the sweep/unbound cases.
+                                if predict_output_is_non_scalar(program, binding.model_name) {
+                                    out.push_str(&format!(
+                                        "    // |> predict({model_var}, as: ...) — 모델 '{}' 의 마지막 레이어가 Dense(1) 이 아니어서 emit 미지원 (xazz 실행 시 반영)\n",
+                                        binding.model_name
+                                    ));
+                                } else {
+                                    out.push_str(&emit_dl_predict_call(
+                                        var_name,
+                                        binding.model_name,
+                                        &binding.config.target,
+                                        as_col.as_deref(),
+                                        binding.embedding_input,
+                                    ));
+                                }
                             }
                             Some(_) => {
                                 out.push_str(&format!(
@@ -1072,6 +1084,20 @@ fn warn_emit_output_dim(program: &Program, model_name: &str) {
     {
         eprintln!("[xazz] {msg}");
     }
+}
+
+/// Whether `emit rust` cannot reproduce a `predict()` for this model because its
+/// final layer is not `Dense(1)`.
+///
+/// `predict()` appends a single column, so a multi-output forward would hand
+/// `with_column` `n * out_dim` values for `n` rows and fail at runtime. The runtime
+/// decodes classification logits (`Dense(k > 1)`) itself but is fail-closed for other
+/// final layers; the emitter does neither, so it degrades to a comment instead of
+/// emitting a guaranteed-to-fail block. Mirrors [`emit_output_dim_warning`]'s
+/// structural check (it warns for any final layer that is not `Dense(1)`).
+fn predict_output_is_non_scalar(program: &Program, model_name: &str) -> bool {
+    find_model_layers(program, model_name)
+        .is_some_and(|layers| emit_output_dim_warning(model_name, layers).is_some())
 }
 
 /// Whether a schema field type counts as a numeric feature (`int`/`float`,
@@ -3011,6 +3037,52 @@ mod tests {
         assert!(
             !out.contains("load_file(\"checkpoints/M.json\""),
             "스윕 predict 가 체크포인트를 잘못 참조함: {out}"
+        );
+    }
+
+    /// A model whose final layer is not `Dense(1)` returns more than one value per
+    /// row, so the emitted `predict()` block would append `n * out_dim` values to an
+    /// `n`-row frame and fail in `with_column`. `emit rust` must fall back to a
+    /// comment instead of generating that guaranteed-to-fail block (mirrors the
+    /// sweep fallback). A final `Dense(k > 1)` never reaches here — it is rejected
+    /// earlier as unsupported classification — so this exercises a Conv1d tail.
+    #[test]
+    fn emit_rust_predict_non_scalar_output_falls_back_to_comment() {
+        let out = emit(
+            "type S = { a: float, y: float };
+             model M { Conv1d(4, 3) -> ReLU() }
+             v ds = load(\"x.csv\") :: S;
+             v m = ds |> train(M, target: \"y\", epochs: 3);
+             v p = ds |> predict(m, as: \"y_pred\");",
+        );
+        assert!(
+            out.contains("마지막 레이어가 Dense(1) 이 아니어서 emit 미지원"),
+            "비-스칼라 predict 폴백 주석 누락: {out}"
+        );
+        assert!(
+            !out.contains("load_file(\"checkpoints/M.json\""),
+            "비-스칼라 predict 가 잘못된 추론 블록을 방출함: {out}"
+        );
+    }
+
+    /// The scalar regression path still emits the real inference block: the
+    /// non-scalar fallback must not catch a final `Dense(1)`.
+    #[test]
+    fn emit_rust_predict_scalar_output_emits_block() {
+        let out = emit(
+            "type S = { a: float, y: float };
+             model M { Dense(4) -> Dense(1) }
+             v ds = load(\"x.csv\") :: S;
+             v m = ds |> train(M, target: \"y\", epochs: 3);
+             v p = ds |> predict(m, as: \"y_pred\");",
+        );
+        assert!(
+            out.contains("load_file(\"checkpoints/M.json\""),
+            "Dense(1) predict 추론 블록 누락: {out}"
+        );
+        assert!(
+            !out.contains("마지막 레이어가 Dense(1) 이 아니어서 emit 미지원"),
+            "Dense(1) predict 에 폴백 주석이 잘못 남음: {out}"
         );
     }
 }
