@@ -373,6 +373,8 @@ python benches/run_readme_benchmark.py --xlarge
 | `xazz sanitize` | 파인튜닝 데이터 정화 — PII 스캔, 중복·편향 검사 (Track F3) | Stable |
 | 모델 프로비넌스 | 정책 레지스트리 게이트 — `hf://` 모델 참조, 라이선스·미검증 웨이트 차단 (Track F5) | Stable |
 
+> **`--tenant` 주의.** 위 테넌트 범위 명령(`xazz registry`, `xazz policy-status`, `xazz policy-ttl`, `xazz dp`)은 `--tenant`를 받지만, 서버가 단일 토큰 모드(`XAZZ_SERVER_TOKEN`)로 실행되면 `X-Xazz-Tenant`를 무시하고 빈 테넌트에서 동작합니다 — 따라서 `--tenant`는 허용되지만 효과가 없습니다. 이 플래그는 전방 호환성을 위해 계속 허용됩니다; [docs/SERVER.md](docs/SERVER.md) 참고.
+
 > **`scale` 주의.** `scale("col", method: "zscore")`는 **표본**표준편차(ddof=1)로 표준화합니다 — `std()` 연산자 및 DL 학습 경로의 특성 표준화와 같은 규약입니다. scikit-learn의 `StandardScaler`는 모집단표준편차(ddof=0)를 쓰므로 spread가 `sqrt(n / (n − 1))` 배만큼 다릅니다. `minmax`·`robust`는 영향받지 않습니다.
 
 ---
