@@ -371,7 +371,7 @@ python benches/run_readme_benchmark.py --xlarge
 | DuckDB connector | `load("duckdb://...?sql=...")` — in-memory or file-backed DuckDB as a pipeline source; bundled (no system install); limits in [`docs/CONNECTORS.md`](docs/CONNECTORS.md) (Track A3) | Stable |
 | PostgreSQL connector | `load("postgres://...?sql=...")` — PostgreSQL query as a pipeline source; unencrypted `NoTls` TCP, see [`docs/CONNECTORS.md`](docs/CONNECTORS.md) (Track A3) | Stable |
 | `Option<T>` type system | Null-safe column declarations — `fillNull` on a non-nullable column is a compile error | Stable |
-| 32 pipeline operators | `filter`, `groupBy`, `agg([...])`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, `skew`, `kurtosis`, `quantile`, `corr`, `histogram`, `outlierIqr`, … | Stable |
+| 33 pipeline operators | `filter`, `groupBy`, `agg([...])`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, `skew`, `kurtosis`, `quantile`, `corr`, `histogram`, `outlierIqr`, `scale`, … | Stable |
 | Visual IDE | Node-based pipeline editor + monitor, served by `xazz-server` | Stable |
 | Run history | SQLite-persisted run records — `GET /runs`, `GET /runs/:id` (Track C1) | Stable |
 | Auth & multi-tenant | `XAZZ_SERVER_TOKEN` / `XAZZ_TENANT_TOKENS` + `X-Xazz-Tenant`; `XAZZ_ADMIN_TOKEN` + `X-Xazz-Actor` (or `XAZZ_ADMIN_ACTORS=token:actor` to pin the actor, which then ignores `X-Xazz-Actor` so CLI `--actor` has no effect) for delegated policy changes — tenant-scoped run history & audit (Track C2) | Stable |

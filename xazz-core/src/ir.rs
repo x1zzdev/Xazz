@@ -11,7 +11,8 @@
 ///     stored as a sequential `Step`-tagged sequence to **preserve pipeline order**.
 ///     (e.g. `filter |> withDp |> select` and `filter |> select |> withDp` differ.)
 use crate::ast::{
-    AggFn, BinOpKind, ChartConfig, DpArgs, JoinHow, LayerKind, LoadOptions, SaveFormat, TrainConfig,
+    AggFn, BinOpKind, ChartConfig, DpArgs, JoinHow, LayerKind, LoadOptions, SaveFormat,
+    ScaleMethod, TrainConfig,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -228,6 +229,12 @@ pub enum DataOp {
     OutlierIqr {
         col: String,
         factor: f64,
+    },
+    /// Rescale a numeric column in place (issue #165). Center/spread are computed
+    /// over the whole frame; a degenerate (zero/non-finite) spread falls back to 1.
+    Scale {
+        col: String,
+        method: ScaleMethod,
     },
     Sort {
         col: String,

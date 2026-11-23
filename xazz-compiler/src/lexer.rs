@@ -208,10 +208,12 @@ impl<'src> Lexer<'src> {
             "corr" => TokenKind::Corr,
             "histogram" => TokenKind::Histogram,
             "outlierIqr" => TokenKind::OutlierIqr,
+            "scale" => TokenKind::Scale,
             "agg" => TokenKind::Agg,
             "seed" => TokenKind::Seed,
             "bins" => TokenKind::Bins,
             "factor" => TokenKind::Factor,
+            "method" => TokenKind::Method,
             // ── v0.3 deep-learning keywords ───────────────────────────────
             "model" => TokenKind::Model,
             "run" => TokenKind::Run,

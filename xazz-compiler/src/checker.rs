@@ -20,7 +20,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast::{
     AggFn, AggSpec, BinOpKind, ChartConfig, DpArgs, EmbeddingVocab, Expr, FillNullValue, JoinHow,
-    LayerKind, PipelineOp, PipelineSource, Program, SplitStrategy, Stmt, StructField, TrainConfig,
+    LayerKind, PipelineOp, PipelineSource, Program, ScaleMethod, SplitStrategy, Stmt, StructField,
+    TrainConfig,
 };
 use crate::error::{CompileError, ErrorKind};
 use crate::ir;
@@ -857,6 +858,7 @@ impl Analyzer {
             PipelineOp::Corr { a, b } => self.check_corr_op(a, b, st),
             PipelineOp::Histogram { col, bins } => self.check_histogram_op(col, *bins, st),
             PipelineOp::OutlierIqr { col, factor } => self.check_outlier_iqr_op(col, *factor, st),
+            PipelineOp::Scale { col, method } => self.check_scale_op(col, *method, st),
             PipelineOp::Agg(specs) => self.check_agg_list_op(specs, st),
             PipelineOp::Count(None) => self.check_count_all_op(st),
             PipelineOp::OrderBy { col, desc } => self.check_orderby_op(col, *desc, st),
@@ -1149,6 +1151,22 @@ impl Analyzer {
         st.steps.push(ir::Step::Data(ir::DataOp::OutlierIqr {
             col: col.to_owned(),
             factor,
+        }));
+        false
+    }
+
+    /// `scale("col", method: ...)` rescales the column in place; the column set is
+    /// unchanged. It is a row-wise transform, so `pending_group` is left untouched.
+    fn check_scale_op(
+        &mut self,
+        col: &str,
+        method: ScaleMethod,
+        st: &mut PipelineCheckState,
+    ) -> bool {
+        self.check_agg_column(col, &st.cols);
+        st.steps.push(ir::Step::Data(ir::DataOp::Scale {
+            col: col.to_owned(),
+            method,
         }));
         false
     }
@@ -1935,6 +1953,25 @@ mod tests {
              v s = load(\"x.csv\") :: X |> skew(\"missing\") |> save(\"s.csv\");",
         );
         assert!(r.is_err(), "없는 컬럼 집계는 오류여야 함");
+    }
+
+    #[test]
+    fn scale_operator_check_ok_and_missing_column() {
+        let r = check(
+            "type X = { a: float, b: float };
+             v s = load(\"x.csv\") :: X
+               |> scale(\"a\")
+               |> scale(\"b\", method: \"minmax\")
+               |> select([a, b])
+               |> save(\"s.csv\");",
+        );
+        assert!(r.is_ok(), "scale 오류: {:?}", r.errors);
+
+        let r = check(
+            "type X = { a: float };
+             v s = load(\"x.csv\") :: X |> scale(\"missing\") |> save(\"s.csv\");",
+        );
+        assert!(r.is_err(), "없는 컬럼 scale 은 오류여야 함");
     }
 
     #[test]

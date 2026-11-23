@@ -14,7 +14,7 @@ use polars::prelude::{
     col, lit,
 };
 
-use xazz_compiler::ast::BinOpKind;
+use xazz_compiler::ast::{BinOpKind, ScaleMethod};
 use xazz_compiler::ir::{AggKind, DataOp, FillValue, TypedExpr, TypedExprKind};
 use xazz_core::i18n::tr;
 
@@ -247,6 +247,46 @@ pub fn lower_data(
                     *lf = lf.clone().filter(lit(false));
                 }
             }
+        }
+        DataOp::Scale { col: s_col, method } => {
+            // Center/spread are computed over the whole frame (materialized once),
+            // then applied as literals. A degenerate spread (zero / non-finite)
+            // falls back to 1.0 so a constant column maps to 0, matching the
+            // train-path standardization (dl.rs) and scikit-learn.
+            let fc = || col(s_col.as_str()).cast(DataType::Float64);
+            let stats = match method {
+                ScaleMethod::ZScore => lf
+                    .clone()
+                    .select([fc().mean().alias("c"), fc().std(1).alias("s")])
+                    .collect()?,
+                ScaleMethod::MinMax => lf
+                    .clone()
+                    .select([fc().min().alias("c"), (fc().max() - fc().min()).alias("s")])
+                    .collect()?,
+                ScaleMethod::Robust => lf
+                    .clone()
+                    .select([
+                        fc().median().alias("c"),
+                        (fc().quantile(lit(0.75), QuantileMethod::Linear)
+                            - fc().quantile(lit(0.25), QuantileMethod::Linear))
+                        .alias("s"),
+                    ])
+                    .collect()?,
+            };
+            let stat = |name: &str| -> Option<f64> {
+                stats
+                    .column(name)
+                    .ok()
+                    .and_then(|c| c.f64().ok())
+                    .and_then(|c| c.get(0))
+            };
+            let center = stat("c").filter(|v| v.is_finite()).unwrap_or(0.0);
+            let spread = stat("s")
+                .filter(|v| v.is_finite() && *v != 0.0)
+                .unwrap_or(1.0);
+            *lf = lf
+                .clone()
+                .with_columns([((fc() - lit(center)) / lit(spread)).alias(s_col.as_str())]);
         }
         DataOp::Sort {
             col: sort_col,
@@ -516,6 +556,107 @@ mod tests {
         )
         .unwrap();
         assert_eq!(out.height(), 0);
+    }
+
+    #[test]
+    fn scale_zscore_centers_and_scales() {
+        let frame = df!("x" => [1.0f64, 2.0, 3.0, 4.0, 5.0]).unwrap();
+        let out = collect_pipeline(
+            frame,
+            &[DataOp::Scale {
+                col: "x".into(),
+                method: ScaleMethod::ZScore,
+            }],
+        )
+        .unwrap();
+        let vals: Vec<f64> = out
+            .column("x")
+            .unwrap()
+            .f64()
+            .unwrap()
+            .into_no_null_iter()
+            .collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        assert!(mean.abs() < 1e-9, "z-score 평균은 0: {mean}");
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vals.len() as f64 - 1.0);
+        assert!(
+            (var.sqrt() - 1.0).abs() < 1e-9,
+            "z-score 표본표준편차는 1: {}",
+            var.sqrt()
+        );
+    }
+
+    #[test]
+    fn scale_minmax_maps_to_unit_range() {
+        let frame = df!("x" => [10.0f64, 20.0, 30.0]).unwrap();
+        let out = collect_pipeline(
+            frame,
+            &[DataOp::Scale {
+                col: "x".into(),
+                method: ScaleMethod::MinMax,
+            }],
+        )
+        .unwrap();
+        let vals: Vec<f64> = out
+            .column("x")
+            .unwrap()
+            .f64()
+            .unwrap()
+            .into_no_null_iter()
+            .collect();
+        assert_eq!(vals, vec![0.0, 0.5, 1.0]);
+    }
+
+    #[test]
+    fn scale_robust_uses_median_and_iqr() {
+        // [1,2,3,4,100]: median = 3, Q1 = 2, Q3 = 4 (linear) → (x - 3) / 2.
+        let frame = df!("x" => [1.0f64, 2.0, 3.0, 4.0, 100.0]).unwrap();
+        let out = collect_pipeline(
+            frame,
+            &[DataOp::Scale {
+                col: "x".into(),
+                method: ScaleMethod::Robust,
+            }],
+        )
+        .unwrap();
+        let vals: Vec<f64> = out
+            .column("x")
+            .unwrap()
+            .f64()
+            .unwrap()
+            .into_no_null_iter()
+            .collect();
+        assert!((vals[2] - 0.0).abs() < 1e-9, "median 은 0: {}", vals[2]);
+        assert!((vals[3] - 0.5).abs() < 1e-9, "(4-3)/2 = 0.5: {}", vals[3]);
+        assert!(
+            (vals[4] - 48.5).abs() < 1e-9,
+            "(100-3)/2 = 48.5: {}",
+            vals[4]
+        );
+    }
+
+    #[test]
+    fn scale_constant_column_maps_to_zero() {
+        let frame = df!("x" => [7.0f64, 7.0, 7.0]).unwrap();
+        let out = collect_pipeline(
+            frame,
+            &[DataOp::Scale {
+                col: "x".into(),
+                method: ScaleMethod::ZScore,
+            }],
+        )
+        .unwrap();
+        let vals: Vec<f64> = out
+            .column("x")
+            .unwrap()
+            .f64()
+            .unwrap()
+            .into_no_null_iter()
+            .collect();
+        assert!(
+            vals.iter().all(|v| v.abs() < 1e-12),
+            "상수 컬럼은 0 으로 스케일: {vals:?}"
+        );
     }
 
     // ── Equivalence check of pre/post-optimization results (proves the IR optimization layer's correctness) ──

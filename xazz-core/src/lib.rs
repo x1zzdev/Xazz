@@ -21,8 +21,8 @@ pub use token::{Span, Token, TokenKind};
 // ast
 pub use ast::{
     AggFn, AggSpec, BinOpKind, ChartConfig, ChartType, DpArgs, DpMechanism, EmbeddingVocab, Expr,
-    FillNullValue, JoinHow, LayerKind, LoadOptions, PipelineOp, PipelineSource, Program, Stmt,
-    StructField, SweepMetric, SweepSort, TrainConfig,
+    FillNullValue, JoinHow, LayerKind, LoadOptions, PipelineOp, PipelineSource, Program,
+    ScaleMethod, Stmt, StructField, SweepMetric, SweepSort, TrainConfig,
 };
 
 // error

@@ -150,6 +150,8 @@ pub enum TokenKind {
     Histogram,
     /// outlierIqr  (keep rows within [Q1 - f·IQR, Q3 + f·IQR] — issue #164)
     OutlierIqr,
+    /// scale  (rescale a numeric column — scale("col", method: "zscore") — issue #165)
+    Scale,
     /// agg  (multi-aggregate operation — agg([min("c"), mean("c"), max("c")]))
     Agg,
     /// seed  (named argument of sample)
@@ -158,6 +160,8 @@ pub enum TokenKind {
     Bins,
     /// factor  (named argument of outlierIqr)
     Factor,
+    /// method  (named argument of scale — issue #165)
+    Method,
 
     // ── Deep-learning keywords (v0.3) ─────────────────────────
     /// model  (model declaration)

@@ -359,7 +359,7 @@ python benches/run_readme_benchmark.py --xlarge
 | DuckDB 커넥터 | `load("duckdb://...?sql=...")` — 인메모리·파일 DuckDB를 파이프라인 소스로 사용, 번들(시스템 설치 불필요), 한계는 [`docs/CONNECTORS.md`](docs/CONNECTORS.md) (Track A3) | Stable |
 | PostgreSQL 커넥터 | `load("postgres://...?sql=...")` — PostgreSQL 쿼리를 파이프라인 소스로 사용, 암호화되지 않는 `NoTls` TCP, [`docs/CONNECTORS.md`](docs/CONNECTORS.md) 참고 (Track A3) | Stable |
 | `Option<T>` 타입 시스템 | 널 안전 컬럼 선언 — non-nullable 컬럼에 `fillNull`은 컴파일 오류 | Stable |
-| 32 파이프라인 연산자 | `filter`, `groupBy`, `agg([...])`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, `skew`, `kurtosis`, `quantile`, `corr`, `histogram`, `outlierIqr`, … | Stable |
+| 33 파이프라인 연산자 | `filter`, `groupBy`, `agg([...])`, `join`, `withColumn`, `cast`, `sample`, `median`, `std`, `skew`, `kurtosis`, `quantile`, `corr`, `histogram`, `outlierIqr`, `scale`, … | Stable |
 | Visual IDE | 노드 기반 파이프라인 편집기 + 모니터, `xazz-server`가 서빙 | Stable |
 | 런 히스토리 | SQLite 영속 런 레코드 — `GET /runs`, `GET /runs/:id` (Track C1) | Stable |
 | 인증 & 멀티테넌시 | `XAZZ_SERVER_TOKEN` / `XAZZ_TENANT_TOKENS` + `X-Xazz-Tenant`; 위임 정책 변경용 `XAZZ_ADMIN_TOKEN` + `X-Xazz-Actor` (`XAZZ_ADMIN_ACTORS=token:actor`로 actor 고정 시 `X-Xazz-Actor`를 무시하므로 CLI `--actor`는 무효) — 테넌트별 런 히스토리·감사 (Track C2) | Stable |

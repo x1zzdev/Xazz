@@ -46,7 +46,7 @@
 use crate::ast::{
     AggFn, AggSpec, BinOpKind, ChartConfig, ChartType, DpArgs, DpMechanism, EmbeddingVocab, Expr,
     FillNullValue, JoinHow, LayerKind, LoadOptions, PipelineOp, PipelineSource, Program,
-    SaveFormat, SplitStrategy, Stmt, StructField, SweepMetric, SweepSort, TrainConfig,
+    SaveFormat, ScaleMethod, SplitStrategy, Stmt, StructField, SweepMetric, SweepSort, TrainConfig,
 };
 use crate::error::{CompileError, CompileResult, ErrorKind};
 use crate::token::{Span, Token, TokenKind};
@@ -1628,6 +1628,36 @@ impl Parser {
                 })
             }
 
+            // ── #165 scale("col", method: "zscore") — rescale a numeric column ────
+            TokenKind::Scale => {
+                self.advance();
+                self.expect(&TokenKind::LParen)?;
+                let col_name = self.expect_string_lit()?;
+                let mut method = ScaleMethod::ZScore;
+                if matches!(self.current_kind(), TokenKind::Comma) {
+                    self.advance(); // consume ,
+                    self.expect(&TokenKind::Method)?;
+                    self.expect(&TokenKind::Colon)?;
+                    let m = self.expect_string_lit()?.to_lowercase();
+                    method = ScaleMethod::parse(&m).ok_or_else(|| {
+                        CompileError::new(
+                            ErrorKind::ExpectedToken(
+                                "method: \"zscore\" | \"minmax\" | \"robust\"".into(),
+                            ),
+                            self.current_span(),
+                            format!(
+                                "scale() 의 method '{m}' 은 지원하지 않습니다. 지원: zscore, minmax, robust"
+                            ),
+                        )
+                    })?;
+                }
+                self.expect(&TokenKind::RParen)?;
+                Ok(PipelineOp::Scale {
+                    col: col_name,
+                    method,
+                })
+            }
+
             // ── v0.23 agg([min("c"), mean("c"), max("c")]) — multi-aggregation ────────
             TokenKind::Agg => {
                 self.advance();
@@ -1737,7 +1767,7 @@ impl Parser {
                 ErrorKind::UnexpectedToken(format!("{:?}", other)),
                 self.current_span(),
                 format!(
-                    "|> 뒤에는 filter/select/count/groupBy/sum/mean/min/max/orderBy/take/dropNull/fillNull/join/withColumn/chart/cast/rename/replace/sample/median/variance/std/skew/kurtosis/quantile/corr/histogram/outlierIqr/agg/train/predict/withDp/save 중 하나가 와야 합니다. 실제: {:?}",
+                    "|> 뒤에는 filter/select/count/groupBy/sum/mean/min/max/orderBy/take/dropNull/fillNull/join/withColumn/chart/cast/rename/replace/sample/median/variance/std/skew/kurtosis/quantile/corr/histogram/outlierIqr/scale/agg/train/predict/withDp/save 중 하나가 와야 합니다. 실제: {:?}",
                     other
                 ),
             )),
@@ -2169,8 +2199,8 @@ impl Parser {
 mod tests {
     use super::*;
     use crate::ast::{
-        BinOpKind, Expr, FillNullValue, JoinHow, LayerKind, PipelineOp, PipelineSource, Stmt,
-        StructField,
+        BinOpKind, Expr, FillNullValue, JoinHow, LayerKind, PipelineOp, PipelineSource,
+        ScaleMethod, Stmt, StructField,
     };
     use crate::lexer::Lexer;
 
@@ -2345,6 +2375,45 @@ mod tests {
     fn test_outlier_iqr_negative_factor_rejected() {
         let src = r#"v s = load("d.csv") :: T |> outlierIqr("a", factor: -1.0);"#;
         assert!(parse_src(src).is_err(), "음수 factor 는 거부되어야 함");
+    }
+
+    // ── issue #165: scale operator parsing ───────────────────────────────────
+
+    #[test]
+    fn test_scale_operator_ast_and_defaults() {
+        let src = r#"v s = load("d.csv") :: T |> scale("a") |> scale("b", method: "minmax") |> scale("c", method: "robust");"#;
+        let program = parse_src(src).expect("scale 연산자 파싱 실패");
+        match &program.stmts[0] {
+            Stmt::VarDecl { ops, .. } => {
+                assert_eq!(
+                    ops,
+                    &vec![
+                        PipelineOp::Scale {
+                            col: "a".into(),
+                            method: ScaleMethod::ZScore,
+                        },
+                        PipelineOp::Scale {
+                            col: "b".into(),
+                            method: ScaleMethod::MinMax,
+                        },
+                        PipelineOp::Scale {
+                            col: "c".into(),
+                            method: ScaleMethod::Robust,
+                        },
+                    ]
+                );
+            }
+            other => panic!("VarDecl 예상, 실제: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_scale_unknown_method_rejected() {
+        let src = r#"v s = load("d.csv") :: T |> scale("a", method: "quantile");"#;
+        assert!(
+            parse_src(src).is_err(),
+            "알 수 없는 method 는 거부되어야 함"
+        );
     }
 
     // ── test 2: load :: filter parsing and AST BinOp validation ─────────────────────

@@ -720,6 +720,13 @@ fn generate_rust_src(
                             escape(o_col), factor
                         ));
                     }
+                    // ── #165 scale — runtime-only column rescale (reference emit) ────
+                    PipelineOp::Scale { col: s_col, method } => {
+                        out.push_str(&format!(
+                            "        // |> scale(\"{}\", method: \"{}\")  →  column rescaled at xazz execution\n",
+                            escape(s_col), method.as_str()
+                        ));
+                    }
                     // ── v0.23 agg([...]) — multi-aggregation in one pass ─────────────
                     PipelineOp::Agg(specs) => {
                         let aggs: Vec<String> = specs
@@ -2007,6 +2014,9 @@ fn validate_op_columns(
             check_col(col.as_str())?;
         }
         PipelineOp::OutlierIqr { col, .. } => {
+            check_col(col.as_str())?;
+        }
+        PipelineOp::Scale { col, .. } => {
             check_col(col.as_str())?;
         }
         PipelineOp::Agg(specs) => {

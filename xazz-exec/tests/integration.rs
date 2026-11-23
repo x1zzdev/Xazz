@@ -510,3 +510,44 @@ fn outlier_iqr_filters_outliers_end_to_end() {
     let df = read_parquet(&dir.join("out.parquet"));
     assert_eq!(df.height(), 4, "이상치 100 이 제거되어 4행 기대");
 }
+
+/// `scale("col", method: ...)` rescales a column in place (issue #165).
+#[test]
+fn scale_end_to_end() {
+    let dir = temp_dir();
+    write_csv(&dir, "x\n1\n2\n3\n4\n5\n");
+    write_xzz(
+        &dir.join("data.csv"),
+        "type P = { x: float };
+         v z = load(\"data.csv\") :: P |> scale(\"x\", method: \"zscore\") |> save(\"z.parquet\");
+         v m = load(\"data.csv\") :: P |> scale(\"x\", method: \"minmax\") |> save(\"m.parquet\");",
+    );
+    let result = run_in_dir(&dir);
+    assert!(result.is_ok(), "scale 실행 실패: {:?}", result);
+
+    let z = read_parquet(&dir.join("z.parquet"));
+    let zv: Vec<f64> = z
+        .column("x")
+        .unwrap()
+        .f64()
+        .unwrap()
+        .into_no_null_iter()
+        .collect();
+    assert_eq!(zv.len(), 5, "행 수는 유지되어야 함");
+    let mean = zv.iter().sum::<f64>() / 5.0;
+    assert!(mean.abs() < 1e-9, "z-score 평균은 0: {mean}");
+    assert!((zv[2] - 0.0).abs() < 1e-9, "중앙값은 0: {}", zv[2]);
+
+    let m = read_parquet(&dir.join("m.parquet"));
+    let mv: Vec<f64> = m
+        .column("x")
+        .unwrap()
+        .f64()
+        .unwrap()
+        .into_no_null_iter()
+        .collect();
+    assert!(
+        (mv[0] - 0.0).abs() < 1e-9 && (mv[4] - 1.0).abs() < 1e-9,
+        "minmax 는 [0, 1] 로 매핑: {mv:?}"
+    );
+}

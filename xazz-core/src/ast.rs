@@ -58,6 +58,39 @@ pub enum FillNullValue {
     Zero,
 }
 
+/// Scaling method for the `scale("col", method: ...)` operator (issue #165).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScaleMethod {
+    /// Standardization `(x − mean) / std` (sample std, ddof=1). Default.
+    #[default]
+    ZScore,
+    /// Min-max normalization `(x − min) / (max − min)` → `[0, 1]`.
+    MinMax,
+    /// Robust scaling `(x − median) / IQR` (IQR = Q3 − Q1, linear quantiles).
+    Robust,
+}
+
+impl ScaleMethod {
+    /// Parse from a lowercase string (`"zscore" | "minmax" | "robust"`).
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "zscore" | "z-score" | "standard" | "standardize" => Some(ScaleMethod::ZScore),
+            "minmax" | "min-max" => Some(ScaleMethod::MinMax),
+            "robust" => Some(ScaleMethod::Robust),
+            _ => None,
+        }
+    }
+
+    /// Canonical lowercase name (round-trips through [`ScaleMethod::parse`]).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ScaleMethod::ZScore => "zscore",
+            ScaleMethod::MinMax => "minmax",
+            ScaleMethod::Robust => "robust",
+        }
+    }
+}
+
 /// join methods
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum JoinHow {
@@ -230,6 +263,8 @@ pub enum PipelineOp {
     Histogram { col: String, bins: usize },
     /// outlierIqr("col", factor: 1.5) — keep rows within [Q1 - f·IQR, Q3 + f·IQR] (issue #164)
     OutlierIqr { col: String, factor: f64 },
+    /// scale("col", method: "zscore") — rescale a numeric column in place (issue #165)
+    Scale { col: String, method: ScaleMethod },
     /// agg([min("c"), mean("c"), max("c")]) — multiple aggregations in one pass (v0.23)
     Agg(Vec<AggSpec>),
     /// train(ModelName, target: "col", epochs: N, lr: F) — training operator (v0.5)

@@ -1,5 +1,5 @@
 // Xazz Statistical Operators — descriptive statistics on a real dataset
-// Demonstrates: skew, kurtosis, quantile, corr, histogram, outlierIqr
+// Demonstrates: skew, kurtosis, quantile, corr, histogram, outlierIqr, scale
 //
 // Run: xazz run examples/statistics/descriptive_stats.xzz
 //
@@ -42,7 +42,11 @@ v distribution = cleaned
 v without_outliers = cleaned
     |> outlierIqr("pm10", factor: 1.5)
 
-// ── 7. Distribution shape — skewness and excess kurtosis in one pass ──────────
+// ── 7. Scale — standardize PM10 in place (method: zscore | minmax | robust) ───
+v standardized = cleaned
+    |> scale("pm10", method: "zscore")
+
+// ── 8. Distribution shape — skewness and excess kurtosis in one pass ──────────
 // Bound last so the runtime prints it (the execution result is the final var).
 v shape = cleaned
     |> agg([skew("pm10"), kurtosis("pm10")])

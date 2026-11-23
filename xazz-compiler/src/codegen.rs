@@ -575,6 +575,11 @@ impl Codegen {
                 esc(o_col),
                 factor
             ),
+            PipelineOp::Scale { col: s_col, method } => format!(
+                "  // |> scale(\"{}\", method: \"{}\")  →  column rescaled ((x - center) / spread) at xazz execution",
+                esc(s_col),
+                method.as_str()
+            ),
             PipelineOp::Agg(specs) => {
                 let exprs: Vec<String> = specs
                     .iter()

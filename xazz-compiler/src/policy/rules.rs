@@ -514,6 +514,7 @@ pub fn infer_shape(
             PipelineOp::Filter(_)
             | PipelineOp::DropNull(_)
             | PipelineOp::OutlierIqr { .. }
+            | PipelineOp::Scale { .. }
             | PipelineOp::FillNull { .. }
             | PipelineOp::OrderBy { .. }
             | PipelineOp::Take(_)

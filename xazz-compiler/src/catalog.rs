@@ -105,6 +105,7 @@ fn apply_data_op(op: &DataOp, provenance: &mut Vec<(String, Vec<String>, usize)>
         Filter(_)
         | DropNull(_)
         | OutlierIqr { .. }
+        | Scale { .. }
         | Sort { .. }
         | Limit(_)
         | Sample { .. }
