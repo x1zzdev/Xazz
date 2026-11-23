@@ -406,11 +406,10 @@ impl Codegen {
                 )
             }
             PipelineOp::FillNull { col, value } => {
-                let lit_str = crate::polars_text::fill_value_to_polars(value, col);
+                let expr = crate::polars_text::fill_null_expr_to_polars(value, col);
                 format!(
-                    "  .with_columns([col(\"{}\").fill_null({})])  // |> fillNull(\"{}\", ...)",
-                    esc(col),
-                    lit_str,
+                    "  .with_columns([{}])  // |> fillNull(\"{}\", ...)",
+                    expr,
                     esc(col)
                 )
             }

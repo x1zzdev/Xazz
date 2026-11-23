@@ -67,7 +67,9 @@ fn usage_hint(program: &Program, out_path: &str) -> String {
     s.push_str("  1) 새 Rust 프로젝트 생성:\n");
     s.push_str("       cargo new my_analysis && cd my_analysis\n");
     s.push_str("  2) Cargo.toml 에 의존성 추가:\n");
-    s.push_str("       polars      = { version = \"0.53\", features = [\"lazy\", \"csv\"] }\n");
+    s.push_str(
+        "       polars      = { version = \"0.53\", features = [\"lazy\", \"csv\", \"mode\"] }\n",
+    );
     s.push_str("       encoding_rs = \"0.8\"\n");
     if program_has_dl(program) {
         s.push_str("       burn        = { version = \"0.21\", default-features = false, features = [\"std\", \"autodiff\"] }\n");
@@ -185,7 +187,9 @@ fn generate_rust_src(
     out.push_str(&format!("// Source: {}\n", source_path));
     out.push_str("//\n");
     out.push_str("// [required Cargo.toml dependencies]\n");
-    out.push_str("//   polars      = { version = \"0.53\", features = [\"lazy\", \"csv\"] }\n");
+    out.push_str(
+        "//   polars      = { version = \"0.53\", features = [\"lazy\", \"csv\", \"mode\"] }\n",
+    );
     out.push_str("//   encoding_rs = \"0.8\"\n");
     if program_has_dl(program) {
         out.push_str("//   burn        = { version = \"0.21\", default-features = false, features = [\"std\", \"autodiff\"] }\n");
@@ -504,10 +508,10 @@ fn generate_rust_src(
                         col: fill_col,
                         value,
                     } => {
-                        let lit_str = crate::polars_text::fill_value_to_polars(value, fill_col);
+                        let expr = crate::polars_text::fill_null_expr_to_polars(value, fill_col);
                         out.push_str(&format!(
-                            "        .with_columns([col(\"{}\").fill_null({})])  // |> fillNull(\"{}\", ...)\n",
-                            escape(fill_col), lit_str, fill_col
+                            "        .with_columns([{}])  // |> fillNull(\"{}\", ...)\n",
+                            expr, fill_col
                         ));
                     }
 

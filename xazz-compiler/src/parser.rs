@@ -1199,15 +1199,20 @@ impl Parser {
                     let value = match strat.as_str() {
                         "mean" => FillNullValue::Mean,
                         "median" => FillNullValue::Median,
+                        "mode" => FillNullValue::Mode,
+                        "ffill" | "forward" | "forwardfill" | "forward-fill" => {
+                            FillNullValue::Ffill
+                        }
                         "zero" | "0" => FillNullValue::Zero,
                         other => {
                             return Err(CompileError::new(
                                 ErrorKind::ExpectedToken(
-                                    "strategy: \"mean\" | \"median\" | \"zero\"".into(),
+                                    "strategy: \"mean\" | \"median\" | \"mode\" | \"ffill\" | \"zero\""
+                                        .into(),
                                 ),
                                 self.current_span(),
                                 format!(
-                                    "fillNull() 전략 '{other}' 은 지원하지 않습니다. 지원: mean, median, zero"
+                                    "fillNull() 전략 '{other}' 은 지원하지 않습니다. 지원: mean, median, mode, ffill, zero"
                                 ),
                             ));
                         }
@@ -3006,6 +3011,46 @@ type AirQuality = {
             }
             other => panic!("VarDecl 예상: {:?}", other),
         }
+    }
+
+    // ── issue #165: fillNull strategy parsing (mean/median/mode/ffill/zero) ────
+    #[test]
+    fn test_fill_null_strategies_parse() {
+        let src = r#"v r = data |> fillNull("a", strategy: "mean") |> fillNull("b", strategy: "median") |> fillNull("c", strategy: "mode") |> fillNull("d", strategy: "ffill") |> fillNull("e", strategy: "zero");"#;
+        let program = parse_src(src).expect("파싱 실패");
+        match &program.stmts[0] {
+            Stmt::VarDecl { ops, .. } => {
+                let values: Vec<&FillNullValue> = ops
+                    .iter()
+                    .map(|op| match op {
+                        PipelineOp::FillNull { value, .. } => value,
+                        other => panic!("FillNull 예상: {:?}", other),
+                    })
+                    .collect();
+                assert_eq!(
+                    values,
+                    vec![
+                        &FillNullValue::Mean,
+                        &FillNullValue::Median,
+                        &FillNullValue::Mode,
+                        &FillNullValue::Ffill,
+                        &FillNullValue::Zero,
+                    ]
+                );
+            }
+            other => panic!("VarDecl 예상: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_fill_null_unknown_strategy_rejected() {
+        let src = r#"v r = data |> fillNull("a", strategy: "interpolate");"#;
+        let err = parse_src(src).expect_err("알 수 없는 전략은 거부되어야 함");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("mode") && msg.contains("ffill"),
+            "지원 전략 안내에 mode/ffill 이 있어야 함: {msg}"
+        );
     }
 
     // ── test 12 (v0.16): sum / min / max parsing ─────────────────────────────

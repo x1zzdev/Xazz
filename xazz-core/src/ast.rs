@@ -54,6 +54,10 @@ pub enum FillNullValue {
     Mean,
     /// Median fill strategy (strategy: "median")
     Median,
+    /// Mode fill strategy (strategy: "mode") — the most frequent value
+    Mode,
+    /// Forward-fill strategy (strategy: "ffill") — carry the previous non-null value
+    Ffill,
     /// Zero fill strategy (strategy: "zero")
     Zero,
 }
@@ -223,7 +227,8 @@ pub enum PipelineOp {
     Take(i64),
     /// dropNull("col")  — remove rows where the column is null
     DropNull(String),
-    /// fillNull("col", value)  — fill nulls in the column with value
+    /// fillNull("col", value)  — fill nulls in the column with a literal
+    /// (`value`) or a strategy (`strategy: "mean" | "median" | "mode" | "ffill" | "zero"`)
     FillNull { col: String, value: FillNullValue },
     /// join(other_var, left_on/right_on, how)
     Join {

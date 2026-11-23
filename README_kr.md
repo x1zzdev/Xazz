@@ -377,6 +377,8 @@ python benches/run_readme_benchmark.py --xlarge
 
 > **`scale` 주의.** `scale("col", method: "zscore")`는 **표본**표준편차(ddof=1)로 표준화합니다 — `std()` 연산자 및 DL 학습 경로의 특성 표준화와 같은 규약입니다. scikit-learn의 `StandardScaler`는 모집단표준편차(ddof=0)를 쓰므로 spread가 `sqrt(n / (n − 1))` 배만큼 다릅니다. `minmax`·`robust`는 영향받지 않습니다.
 
+> **`fillNull` 전략 주의.** `fillNull("col", strategy: ...)`는 `zero`와 리터럴 채우기 외에 `mean`, `median`, `mode`(최빈값), `ffill`(직전 비널 값 이월) 전략을 지원합니다.
+
 ---
 
 ## 한계 & 비목표

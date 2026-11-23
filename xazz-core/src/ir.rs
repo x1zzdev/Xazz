@@ -151,6 +151,10 @@ pub enum FillValue {
     Str(String),
     Mean,
     Median,
+    /// Most frequent value (strategy: "mode").
+    Mode,
+    /// Previous non-null value (strategy: "ffill").
+    Ffill,
     Zero,
 }
 

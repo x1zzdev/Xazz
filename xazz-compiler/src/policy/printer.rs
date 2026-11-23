@@ -215,6 +215,12 @@ pub fn print_op(op: &PipelineOp) -> String {
             FillNullValue::Median => {
                 format!("fillNull(\"{}\", strategy: \"median\")", escape(col))
             }
+            FillNullValue::Mode => {
+                format!("fillNull(\"{}\", strategy: \"mode\")", escape(col))
+            }
+            FillNullValue::Ffill => {
+                format!("fillNull(\"{}\", strategy: \"ffill\")", escape(col))
+            }
             FillNullValue::Zero => {
                 format!("fillNull(\"{}\", strategy: \"zero\")", escape(col))
             }

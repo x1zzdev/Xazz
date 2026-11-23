@@ -75,10 +75,37 @@ pub fn fill_value_to_polars(value: &FillNullValue, col: &str) -> String {
     match value {
         FillNullValue::Mean => format!("col(\"{}\").mean()", escape(col)),
         FillNullValue::Median => format!("col(\"{}\").median()", escape(col)),
+        // Smallest mode (ties broken deterministically), matching the runtime lowering.
+        FillNullValue::Mode => format!("col(\"{}\").mode(false).first()", escape(col)),
         FillNullValue::Zero => "lit(0)".to_string(),
         FillNullValue::Int(n) => format!("lit({}i64)", n),
         FillNullValue::Float(f) => format!("lit({}f64)", f),
         FillNullValue::Str(s) => format!("lit(\"{}\")", escape(s)),
+        // Forward-fill is a fill *strategy*, not a fill value — `fill_null` cannot
+        // express it, so callers must use [`fill_null_expr_to_polars`].
+        FillNullValue::Ffill => format!(
+            "col(\"{}\").fill_null_with_strategy(FillNullStrategy::Forward(None))",
+            escape(col)
+        ),
+    }
+}
+
+/// fillNull strategy → the full Polars expression that fills nulls in `col`,
+/// ready for `.with_columns([<this>])` (shared by codegen/emitter).
+///
+/// Differs from [`fill_value_to_polars`] only for `ffill`, which needs
+/// `fill_null_with_strategy` instead of `fill_null(<value>)`.
+pub fn fill_null_expr_to_polars(value: &FillNullValue, col: &str) -> String {
+    match value {
+        FillNullValue::Ffill => format!(
+            "col(\"{}\").fill_null_with_strategy(FillNullStrategy::Forward(None))",
+            escape(col)
+        ),
+        other => format!(
+            "col(\"{}\").fill_null({})",
+            escape(col),
+            fill_value_to_polars(other, col)
+        ),
     }
 }
 
@@ -229,6 +256,10 @@ mod tests {
             fill_value_to_polars(&FillNullValue::Median, "a"),
             "col(\"a\").median()"
         );
+        assert_eq!(
+            fill_value_to_polars(&FillNullValue::Mode, "a"),
+            "col(\"a\").mode(false).first()"
+        );
         assert_eq!(fill_value_to_polars(&FillNullValue::Zero, "a"), "lit(0)");
         assert_eq!(
             fill_value_to_polars(&FillNullValue::Int(3), "a"),
@@ -245,6 +276,23 @@ mod tests {
         assert_eq!(
             fill_value_to_polars(&FillNullValue::Str("a\"b".into()), "a"),
             "lit(\"a\\\"b\")"
+        );
+    }
+
+    #[test]
+    fn fill_null_expr_maps_ffill_and_values() {
+        // ffill uses fill_null_with_strategy (not fill_null(<value>)).
+        assert_eq!(
+            fill_null_expr_to_polars(&FillNullValue::Ffill, "a"),
+            "col(\"a\").fill_null_with_strategy(FillNullStrategy::Forward(None))"
+        );
+        assert_eq!(
+            fill_null_expr_to_polars(&FillNullValue::Mode, "a"),
+            "col(\"a\").fill_null(col(\"a\").mode(false).first())"
+        );
+        assert_eq!(
+            fill_null_expr_to_polars(&FillNullValue::Int(0), "a"),
+            "col(\"a\").fill_null(lit(0i64))"
         );
     }
 

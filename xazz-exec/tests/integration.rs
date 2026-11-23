@@ -551,3 +551,47 @@ fn scale_end_to_end() {
         "minmax 는 [0, 1] 로 매핑: {mv:?}"
     );
 }
+
+/// `fillNull("col", strategy: "ffill" | "mode")` fills nulls with the previous
+/// non-null value / the most frequent value (issue #165).
+#[test]
+fn fill_null_ffill_and_mode_end_to_end() {
+    let dir = temp_dir();
+    write_csv(&dir, "x,y\n1,2\n,3\n,3\n4,3\n,\n");
+    write_xzz(
+        &dir.join("data.csv"),
+        "type P = { x: Option<float>, y: Option<float> };
+         v f = load(\"data.csv\") :: P |> fillNull(\"x\", strategy: \"ffill\") |> save(\"f.parquet\");
+         v m = load(\"data.csv\") :: P |> fillNull(\"y\", strategy: \"mode\") |> save(\"m.parquet\");",
+    );
+    let result = run_in_dir(&dir);
+    assert!(
+        result.is_ok(),
+        "fillNull ffill/mode 실행 실패: {:?}",
+        result
+    );
+
+    let f = read_parquet(&dir.join("f.parquet"));
+    let fv: Vec<f64> = f
+        .column("x")
+        .unwrap()
+        .f64()
+        .unwrap()
+        .into_no_null_iter()
+        .collect();
+    assert_eq!(fv, vec![1.0, 1.0, 1.0, 4.0, 4.0], "ffill 은 직전 값을 이월");
+
+    let m = read_parquet(&dir.join("m.parquet"));
+    let mv: Vec<f64> = m
+        .column("y")
+        .unwrap()
+        .f64()
+        .unwrap()
+        .into_no_null_iter()
+        .collect();
+    assert_eq!(
+        mv,
+        vec![2.0, 3.0, 3.0, 3.0, 3.0],
+        "mode 는 최빈값 3 으로 채움"
+    );
+}

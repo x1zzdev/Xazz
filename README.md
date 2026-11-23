@@ -389,6 +389,8 @@ python benches/run_readme_benchmark.py --xlarge
 
 > **Note on `scale`.** `scale("col", method: "zscore")` standardizes with the **sample** standard deviation (ddof=1) — the same convention as the `std()` operator and the DL train-path feature standardization. scikit-learn's `StandardScaler` uses the population standard deviation (ddof=0), so the spread differs by `sqrt(n / (n − 1))`. `minmax` and `robust` are unaffected.
 
+> **Note on `fillNull` strategies.** `fillNull("col", strategy: ...)` fills nulls with `mean`, `median`, `mode` (the most frequent value) or `ffill` (the previous non-null value), alongside `zero` and literal fills.
+
 ---
 
 ## Limitations & Non-goals

@@ -1463,7 +1463,16 @@ impl Analyzer {
         cols: &HashMap<String, CheckerColType>,
     ) {
         if let Some(t) = cols.get(col) {
+            // `mode`/`ffill` preserve the column type, so they never warn here.
             let is_str_fill = matches!(value, FillNullValue::Str(_));
+            let is_numeric_fill = matches!(
+                value,
+                FillNullValue::Int(_)
+                    | FillNullValue::Float(_)
+                    | FillNullValue::Zero
+                    | FillNullValue::Mean
+                    | FillNullValue::Median
+            );
             if is_str_fill && t.is_numeric() {
                 self.warning(Some(col), if is_korean() {
                     format!(
@@ -1476,7 +1485,7 @@ impl Analyzer {
                         col, col
                     )
                 });
-            } else if !is_str_fill && !t.is_numeric() && t.name != "unknown" {
+            } else if is_numeric_fill && !t.is_numeric() && t.name != "unknown" {
                 self.warning(Some(col), if is_korean() {
                     format!(
                         "fillNull(\"{}\", <숫자>) : 문자열 컬럼 '{}' 에 숫자 값을 채우면 타입이 바뀔 수 있습니다.",
@@ -1796,6 +1805,8 @@ fn fill_value_ir(value: &FillNullValue) -> ir::FillValue {
         FillNullValue::Str(s) => ir::FillValue::Str(s.clone()),
         FillNullValue::Mean => ir::FillValue::Mean,
         FillNullValue::Median => ir::FillValue::Median,
+        FillNullValue::Mode => ir::FillValue::Mode,
+        FillNullValue::Ffill => ir::FillValue::Ffill,
         FillNullValue::Zero => ir::FillValue::Zero,
     }
 }
@@ -2636,6 +2647,29 @@ v bad = load(\"x.csv\") :: X |> filter(other_col > 1);\n";
             r.errors.is_empty(),
             "Option 컬럼에 fillNull 은 허용: {:?}",
             r.errors
+        );
+    }
+
+    /// issue #165: `mode`/`ffill` preserve the column type, so they are accepted
+    /// on both numeric and string columns without a type-change warning.
+    #[test]
+    fn fillnull_mode_and_ffill_preserve_type() {
+        let r = check(
+            "type X = { temp: Option<float>, label: Option<string> };
+             v p = load(\"x.csv\") :: X
+               |> fillNull(\"temp\", strategy: \"mode\")
+               |> fillNull(\"temp\", strategy: \"ffill\")
+               |> fillNull(\"label\", strategy: \"ffill\")
+               |> fillNull(\"label\", strategy: \"mode\");",
+        );
+        assert!(r.errors.is_empty(), "mode/ffill 은 허용: {:?}", r.errors);
+        assert!(
+            r.warnings.is_empty(),
+            "mode/ffill 은 타입 보존이라 경고가 없어야 함: {:?}",
+            r.warnings
+                .iter()
+                .map(|w| w.message.clone())
+                .collect::<Vec<_>>()
         );
     }
 

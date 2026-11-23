@@ -10,8 +10,8 @@ use std::collections::HashMap;
 
 use polars::frame::DataFrame;
 use polars::prelude::{
-    Column, DataType, IntoLazy, JoinArgs, JoinType, LazyFrame, QuantileMethod, SortMultipleOptions,
-    col, lit,
+    Column, DataType, FillNullStrategy, IntoLazy, JoinArgs, JoinType, LazyFrame, QuantileMethod,
+    SortMultipleOptions, col, lit,
 };
 
 use xazz_compiler::ast::{BinOpKind, ScaleMethod};
@@ -315,17 +315,22 @@ pub fn lower_data(
             *lf = lf.clone().filter(col(drop_col.as_str()).is_not_null());
         }
         DataOp::FillNull { col: c, value } => {
-            let fill_expr: polars::prelude::Expr = match value {
-                FillValue::Mean => col(c.as_str()).mean(),
-                FillValue::Median => col(c.as_str()).median(),
-                FillValue::Zero => lit(0),
-                FillValue::Int(n) => lit(*n),
-                FillValue::Float(f) => lit(*f),
-                FillValue::Str(s) => lit(s.clone()),
+            // `ffill` carries the previous non-null value (a fill strategy, not a
+            // fill value); every other strategy computes a per-column fill value.
+            // `mode(false).first()` picks the smallest mode so ties are deterministic.
+            let filled: polars::prelude::Expr = match value {
+                FillValue::Ffill => {
+                    col(c.as_str()).fill_null_with_strategy(FillNullStrategy::Forward(None))
+                }
+                FillValue::Mode => col(c.as_str()).fill_null(col(c.as_str()).mode(false).first()),
+                FillValue::Mean => col(c.as_str()).fill_null(col(c.as_str()).mean()),
+                FillValue::Median => col(c.as_str()).fill_null(col(c.as_str()).median()),
+                FillValue::Zero => col(c.as_str()).fill_null(lit(0)),
+                FillValue::Int(n) => col(c.as_str()).fill_null(lit(*n)),
+                FillValue::Float(f) => col(c.as_str()).fill_null(lit(*f)),
+                FillValue::Str(s) => col(c.as_str()).fill_null(lit(s.clone())),
             };
-            *lf = lf
-                .clone()
-                .with_columns([col(c.as_str()).fill_null(fill_expr)]);
+            *lf = lf.clone().with_columns([filled]);
         }
         DataOp::Join {
             other,
@@ -491,6 +496,44 @@ mod tests {
         let out = collect_pipeline(frame, &ops).unwrap();
         let col_a = out.column("a").unwrap();
         assert_eq!(col_a.null_count(), 0);
+    }
+
+    #[test]
+    fn fill_null_ffill_carries_previous_value() {
+        let frame = df!("a" => [Some(1.0f64), None, None, Some(4.0), None]).unwrap();
+        let ops = vec![DataOp::FillNull {
+            col: "a".into(),
+            value: FillValue::Ffill,
+        }];
+        let out = collect_pipeline(frame, &ops).unwrap();
+        let vals: Vec<f64> = out
+            .column("a")
+            .unwrap()
+            .f64()
+            .unwrap()
+            .into_no_null_iter()
+            .collect();
+        assert_eq!(vals, vec![1.0, 1.0, 1.0, 4.0, 4.0]);
+    }
+
+    #[test]
+    fn fill_null_mode_fills_with_most_frequent() {
+        // 2 appears twice; 1 and 3 once → mode = 2.
+        let frame = df!("a" => [Some(2.0f64), Some(1.0), Some(2.0), Some(3.0), None]).unwrap();
+        let ops = vec![DataOp::FillNull {
+            col: "a".into(),
+            value: FillValue::Mode,
+        }];
+        let out = collect_pipeline(frame, &ops).unwrap();
+        assert_eq!(out.column("a").unwrap().null_count(), 0);
+        let vals: Vec<f64> = out
+            .column("a")
+            .unwrap()
+            .f64()
+            .unwrap()
+            .into_no_null_iter()
+            .collect();
+        assert_eq!(vals, vec![2.0, 1.0, 2.0, 3.0, 2.0]);
     }
 
     // ── issue #164: statistical operators ────────────────────────────────────
