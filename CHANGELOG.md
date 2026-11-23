@@ -9,6 +9,18 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added — training 리포트의 run 이력 영속화 `GET /runs/{id}/training` (issue D3)
+
+- `POST /execute` 응답에만 노출되던 `[xazz:train]` 리포트를 `runs` 테이블
+  (`training` 컬럼, 기존 DB용 `ALTER TABLE` 마이그레이션 포함)에 저장하고,
+  `GET /runs/{id}/training`으로 조회할 수 있게 했다. 응답은 predict 진단
+  엔드포인트와 같은 형태로, 기록이 있으면 `available: true` + `training`, 없으면
+  (구버전 run 또는 train 미실행 스크립트) `available: false` + `reason`, 테넌트
+  불일치·미존재 id는 404를 돌려준다. `GET /runs`/`GET /runs/{id}` 목록 응답은
+  그대로 두어 페이로드 비대화를 피했다
+- 테스트: store 영속·테넌트 스코프 1종, 핸들러 available/empty/404 1종,
+  `run_execution_job`의 `[xazz:train]` 저장 경로 1종
+
 ## [v0.4.1] — 2026-10-23
 
 ### Fixed — `onnx` 기능 빌드 복구: protobuf·ort 버전 정합 (#238)

@@ -143,7 +143,8 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             created_at INTEGER NOT NULL,
             tenant TEXT NOT NULL DEFAULT '',
             resources TEXT,
-            prediction TEXT
+            prediction TEXT,
+            training TEXT
         );
         CREATE TABLE IF NOT EXISTS dp_budget (
             tenant TEXT PRIMARY KEY,
@@ -225,6 +226,9 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     // Migration for DBs created before predict diagnostics persistence (issue D3):
     // adding an already-present column is a no-op error we swallow.
     let _ = conn.execute_batch("ALTER TABLE runs ADD COLUMN prediction TEXT");
+    // Migration for DBs created before training-report persistence (issue D3):
+    // adding an already-present column is a no-op error we swallow.
+    let _ = conn.execute_batch("ALTER TABLE runs ADD COLUMN training TEXT");
     Ok(())
 }
 
@@ -267,6 +271,18 @@ pub struct RunPredictionRecord {
     pub tenant: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prediction_json: Option<String>,
+}
+
+/// A run's persisted training report (issue D3).
+///
+/// `training_json` is the compact `[xazz:train]` object captured from the
+/// runner; `None` means the run predates the feature or the script did not train.
+#[derive(Debug, Clone, Serialize)]
+pub struct RunTrainingRecord {
+    pub run_id: i64,
+    pub tenant: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub training_json: Option<String>,
 }
 
 /// One append-only policy-pack change record (issue C2).
@@ -474,6 +490,8 @@ impl Store {
     /// JSON object string, or `None` when the platform/run produced none.
     /// `prediction_json` is the run's embedding-predict diagnostics (issue D3) as a
     /// compact JSON object string, or `None` when the script did not predict.
+    /// `training_json` is the run's training report (issue D3) as a compact JSON
+    /// object string, or `None` when the script did not train.
     #[allow(clippy::too_many_arguments)]
     pub fn record_run(
         &self,
@@ -484,13 +502,14 @@ impl Store {
         tenant: &str,
         resources_json: Option<&str>,
         prediction_json: Option<&str>,
+        training_json: Option<&str>,
     ) -> Result<i64, String> {
         let guard = self.open()?;
         let conn = guard.as_ref().expect("open guarantees Some");
         let created = now_epoch();
         conn.execute(
-            "INSERT INTO runs (code_hash, status, rows, error, created_at, tenant, resources, prediction) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![code_hash, status, rows, error, created, tenant, resources_json, prediction_json],
+            "INSERT INTO runs (code_hash, status, rows, error, created_at, tenant, resources, prediction, training) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![code_hash, status, rows, error, created, tenant, resources_json, prediction_json, training_json],
         )
         .map_err(|e| format!("failed to insert run: {e}"))?;
         Ok(conn.last_insert_rowid())
@@ -610,6 +629,39 @@ impl Store {
         match rows.next() {
             Some(r) => r
                 .map_err(|e| format!("failed to read run prediction: {e}"))
+                .map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// Fetches a run's persisted training report (issue D3), scoped to a tenant.
+    ///
+    /// Returns `Ok(None)` when the run does not exist for the tenant,
+    /// `Ok(Some(RunTrainingRecord { training_json: None, .. }))` when the run
+    /// exists but no report was recorded (legacy or non-training script),
+    /// and `Ok(Some(.. training_json: Some(json)))` when it was.
+    pub fn get_run_training(
+        &self,
+        id: i64,
+        tenant: &str,
+    ) -> Result<Option<RunTrainingRecord>, String> {
+        let guard = self.open()?;
+        let conn = guard.as_ref().expect("open guarantees Some");
+        let mut stmt = conn
+            .prepare("SELECT id, tenant, training FROM runs WHERE id = ?1 AND tenant = ?2")
+            .map_err(|e| format!("failed to prepare run training: {e}"))?;
+        let mut rows = stmt
+            .query_map(params![id, tenant], |row| {
+                Ok(RunTrainingRecord {
+                    run_id: row.get(0)?,
+                    tenant: row.get(1)?,
+                    training_json: row.get(2)?,
+                })
+            })
+            .map_err(|e| format!("failed to query run training: {e}"))?;
+        match rows.next() {
+            Some(r) => r
+                .map_err(|e| format!("failed to read run training: {e}"))
                 .map(Some),
             None => Ok(None),
         }
@@ -1773,14 +1825,23 @@ mod tests {
         let store = Store::open_at(&db);
 
         let id = store
-            .record_run("hash1", "success", 42, None, "tenant-a", None, None)
+            .record_run("hash1", "success", 42, None, "tenant-a", None, None, None)
             .expect("insert");
         let id2 = store
-            .record_run("hash2", "failed", 0, Some("boom"), "tenant-a", None, None)
+            .record_run(
+                "hash2",
+                "failed",
+                0,
+                Some("boom"),
+                "tenant-a",
+                None,
+                None,
+                None,
+            )
             .expect("insert");
         // A different tenant's run must not be visible to tenant-a.
         let id_other = store
-            .record_run("hash3", "success", 1, None, "tenant-b", None, None)
+            .record_run("hash3", "success", 1, None, "tenant-b", None, None, None)
             .expect("insert");
 
         let list = store.list_runs(10, "tenant-a").expect("list");
@@ -1851,10 +1912,19 @@ mod tests {
 
         let json = r#"{"duration_ms":12,"cpu_user_ms":3,"source":"runner-process-tree"}"#;
         let id = store
-            .record_run("hash", "success", 1, None, "tenant-a", Some(json), None)
+            .record_run(
+                "hash",
+                "success",
+                1,
+                None,
+                "tenant-a",
+                Some(json),
+                None,
+                None,
+            )
             .expect("insert");
         let legacy = store
-            .record_run("hash2", "success", 1, None, "tenant-a", None, None)
+            .record_run("hash2", "success", 1, None, "tenant-a", None, None, None)
             .expect("insert");
 
         let rec = store
@@ -1905,10 +1975,19 @@ mod tests {
 
         let json = r#"{"model_name":"AirPredictor","report":{"embedding_out_of_range":3}}"#;
         let id = store
-            .record_run("hash", "success", 1, None, "tenant-a", None, Some(json))
+            .record_run(
+                "hash",
+                "success",
+                1,
+                None,
+                "tenant-a",
+                None,
+                Some(json),
+                None,
+            )
             .expect("insert");
         let legacy = store
-            .record_run("hash2", "success", 1, None, "tenant-a", None, None)
+            .record_run("hash2", "success", 1, None, "tenant-a", None, None, None)
             .expect("insert");
 
         let rec = store
@@ -1935,6 +2014,69 @@ mod tests {
         assert!(
             store
                 .get_run_prediction(999_999, "tenant-a")
+                .expect("no err")
+                .is_none()
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Training reports are stored per run and scoped to its tenant (issue D3).
+    #[test]
+    fn run_training_is_persisted_and_tenant_scoped() {
+        let dir = std::env::temp_dir().join(format!(
+            "xazz_store_train_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db = dir.join("xazz.db");
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open_at(&db);
+
+        let json = r#"{"model_name":"AirPredictor","report":{"final_r2":0.707}}"#;
+        let id = store
+            .record_run(
+                "hash",
+                "success",
+                1,
+                None,
+                "tenant-a",
+                None,
+                None,
+                Some(json),
+            )
+            .expect("insert");
+        let legacy = store
+            .record_run("hash2", "success", 1, None, "tenant-a", None, None, None)
+            .expect("insert");
+
+        let rec = store
+            .get_run_training(id, "tenant-a")
+            .expect("no err")
+            .expect("exists");
+        assert_eq!(rec.run_id, id);
+        assert_eq!(rec.training_json.as_deref(), Some(json));
+
+        // A run without a report still resolves, but with no payload.
+        let none = store
+            .get_run_training(legacy, "tenant-a")
+            .expect("no err")
+            .expect("exists");
+        assert!(none.training_json.is_none());
+
+        // Cross-tenant access and unknown ids are not found.
+        assert!(
+            store
+                .get_run_training(id, "tenant-b")
+                .expect("no err")
+                .is_none()
+        );
+        assert!(
+            store
+                .get_run_training(999_999, "tenant-a")
                 .expect("no err")
                 .is_none()
         );

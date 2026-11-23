@@ -23,6 +23,7 @@
 //!   GET  /runs/:id                            → a single run record
 //!   GET  /runs/:id/resources                  → persisted run resource telemetry (issue #128)
 //!   GET  /runs/:id/prediction                 → persisted predict diagnostics (issue D3)
+//!   GET  /runs/:id/training                   → persisted training report (issue D3)
 //!   GET  /dp/budget                           → per-tenant DP spend/remaining + window
 //!   POST /dp/budget/reset                     → reset the tenant's DP spend/window (C2)
 //!   GET  /dp/budget/window/history?limit=&offset= → tenant's DP-window override change audit (C2)
@@ -163,10 +164,12 @@ fn record_run_in_store(
     tenant: &str,
     resources: Option<&Value>,
     prediction: Option<&Value>,
+    training: Option<&Value>,
 ) -> i64 {
     let hash = audit_log::hash_code(code);
     let resources_json = resources.map(|v| v.to_string());
     let prediction_json = prediction.map(|v| v.to_string());
+    let training_json = training.map(|v| v.to_string());
     match state.store.record_run(
         &hash,
         status,
@@ -175,6 +178,7 @@ fn record_run_in_store(
         tenant,
         resources_json.as_deref(),
         prediction_json.as_deref(),
+        training_json.as_deref(),
     ) {
         Ok(id) => id,
         Err(e) => {
@@ -547,6 +551,7 @@ async fn main() {
         .route("/runs/{id}", get(handle_run_by_id))
         .route("/runs/{id}/resources", get(handle_run_resources))
         .route("/runs/{id}/prediction", get(handle_run_prediction))
+        .route("/runs/{id}/training", get(handle_run_training))
         .route("/dp/budget", get(handle_dp_budget))
         .route("/dp/budget/reset", post(handle_dp_budget_reset))
         .route("/dp/budget/history", get(handle_dp_reset_history))
@@ -1232,6 +1237,7 @@ async fn run_execution_job(
             &tenant,
             resources.as_ref(),
             prediction.as_ref(),
+            training.as_ref(),
         );
 
         if success {
@@ -2377,6 +2383,51 @@ async fn handle_run_prediction(
     }
 }
 
+/// Returns the persisted training report for one run — issue D3.
+///
+/// The `[xazz:train]` report (final metrics, per-epoch loss) is captured by the
+/// runner and relayed via the marker; `POST /execute` surfaces it on the response,
+/// and this endpoint serves it after a restart / from history. Runs recorded before
+/// the feature, or scripts that do not train, report `available: false` instead of
+/// fabricated data.
+async fn handle_run_training(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+    Extension(tenant): Extension<String>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let tenant = tenant_str(tenant.as_str());
+    let record = state
+        .store
+        .get_run_training(id, tenant)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    match record {
+        None => Err((
+            StatusCode::NOT_FOUND,
+            format!("run {id} not found (or not in tenant '{tenant}')"),
+        )),
+        Some(rec) => {
+            let training = rec
+                .training_json
+                .as_deref()
+                .and_then(|s| serde_json::from_str::<Value>(s).ok());
+            Ok(Json(match training {
+                Some(t) => json!({
+                    "run_id": id,
+                    "tenant": tenant,
+                    "available": true,
+                    "training": t,
+                }),
+                None => json!({
+                    "run_id": id,
+                    "tenant": tenant,
+                    "available": false,
+                    "reason": "no training report was recorded for this run",
+                }),
+            }))
+        }
+    }
+}
+
 // ── Per-tenant DP budget (issue C2) ──────────────────────────────────────────
 
 /// Reports the authenticated tenant's cumulative DP spend and remaining envelope.
@@ -2890,11 +2941,11 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
         let json = r#"{"duration_ms":12,"cpu_user_ms":3,"source":"runner-process-tree"}"#;
         let recorded = state
             .store
-            .record_run("h1", "success", 1, None, "acme", Some(json), None)
+            .record_run("h1", "success", 1, None, "acme", Some(json), None, None)
             .expect("insert with resources");
         let legacy = state
             .store
-            .record_run("h2", "success", 1, None, "acme", None, None)
+            .record_run("h2", "success", 1, None, "acme", None, None, None)
             .expect("insert without resources");
 
         let body = handle_run_resources(
@@ -2941,11 +2992,11 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
         let json = r#"{"model_name":"AirPredictor","report":{"embedding_out_of_range":3}}"#;
         let recorded = state
             .store
-            .record_run("p1", "success", 1, None, "acme", None, Some(json))
+            .record_run("p1", "success", 1, None, "acme", None, Some(json), None)
             .expect("insert with prediction");
         let legacy = state
             .store
-            .record_run("p2", "success", 1, None, "acme", None, None)
+            .record_run("p2", "success", 1, None, "acme", None, None, None)
             .expect("insert without prediction");
 
         let body = handle_run_prediction(
@@ -2985,6 +3036,58 @@ v out = load(\"data/p.csv\") :: Patient |> select([name, patient_id, age_band]);
         // Unknown id → 404.
         let missing =
             handle_run_prediction(Path(999_999), State(state), Extension("acme".to_string())).await;
+        assert!(missing.is_err());
+    }
+
+    /// The training endpoint returns the persisted report, an honest empty state
+    /// for runs without one, and 404s across tenants (issue D3).
+    #[tokio::test]
+    async fn run_training_endpoint_reports_report_and_empty_state() {
+        let state = test_state();
+        let json = r#"{"model_name":"AirPredictor","report":{"final_r2":0.707}}"#;
+        let recorded = state
+            .store
+            .record_run("t1", "success", 1, None, "acme", None, None, Some(json))
+            .expect("insert with training");
+        let legacy = state
+            .store
+            .record_run("t2", "success", 1, None, "acme", None, None, None)
+            .expect("insert without training");
+
+        let body = handle_run_training(
+            Path(recorded),
+            State(state.clone()),
+            Extension("acme".to_string()),
+        )
+        .await
+        .expect("training available")
+        .0;
+        assert_eq!(body["available"], json!(true));
+        assert_eq!(body["training"]["model_name"], json!("AirPredictor"));
+        assert_eq!(body["training"]["report"]["final_r2"], json!(0.707));
+
+        let empty = handle_run_training(
+            Path(legacy),
+            State(state.clone()),
+            Extension("acme".to_string()),
+        )
+        .await
+        .expect("legacy run resolves")
+        .0;
+        assert_eq!(empty["available"], json!(false));
+
+        // A run belonging to another tenant is not visible.
+        let denied = handle_run_training(
+            Path(recorded),
+            State(state.clone()),
+            Extension("other".to_string()),
+        )
+        .await;
+        assert!(denied.is_err());
+
+        // Unknown id → 404.
+        let missing =
+            handle_run_training(Path(999_999), State(state), Extension("acme".to_string())).await;
         assert!(missing.is_err());
     }
 
@@ -5337,6 +5440,95 @@ v x = load(\"examples/data/seoul_air_2024.csv\") :: AQ
         let json = recorded.prediction_json.expect("prediction persisted");
         assert!(json.contains("\"model_name\":\"AirPredictor\""), "{json}");
         assert!(json.contains("\"embedding_out_of_range\":3"), "{json}");
+
+        let _ = std::fs::remove_file(&script);
+    }
+
+    /// `run_execution_job` must persist the CLI's `[xazz:train]` marker so
+    /// `GET /runs/:id/training` can serve it (issue D3).
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn run_job_persists_training_report() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let script = std::env::temp_dir().join(format!(
+            "xazz_train_runner_{}_{}.sh",
+            std::process::id(),
+            nonce
+        ));
+        {
+            let mut f = std::fs::File::create(&script).expect("create fake runner");
+            writeln!(f, "#!/bin/sh").unwrap();
+            writeln!(
+                f,
+                "echo '[xazz:train] {{\"model_name\":\"AirPredictor\",\"report\":{{\"final_r2\":0.707}}}}'"
+            )
+            .unwrap();
+            writeln!(f, "echo '[xazz:result] {{\"rows\":[],\"schema\":[]}}'").unwrap();
+            f.flush().unwrap();
+        }
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod fake runner");
+
+        let state = unique_state("training-persist");
+        let tenant = "train-tenant".to_string();
+        let code = format!(
+            "// training-nonce {nonce}\n\
+             type P = {{ a: string }}; v x = load(\"data/a.csv\") :: P;"
+        );
+        let tmp = tempfile::Builder::new()
+            .suffix(".xzz")
+            .tempfile()
+            .expect("temp file");
+        {
+            let mut f = tmp.as_file();
+            f.write_all(code.as_bytes()).expect("write code");
+            f.flush().ok();
+        }
+        let reservation = state
+            .store
+            .reserve_dp_budget(&tenant, 10.0, 1e-4, 0, 3600)
+            .expect("reserve")
+            .expect("granted");
+        let permit = Arc::clone(&state.exec_permits)
+            .try_acquire_owned()
+            .expect("execution permit");
+        let tenant_mutex = state.tenant_lock(&tenant);
+        let tenant_guard = Arc::clone(&tenant_mutex).lock_owned().await;
+        let slot = ExecutionSlot {
+            _permit: permit,
+            _tenant_guard: tenant_guard,
+        };
+
+        let response = run_execution_job(
+            state.clone(),
+            code.clone(),
+            tenant.clone(),
+            Command::new(&script),
+            tmp,
+            reservation,
+            slot,
+            0,
+            10.0,
+            1e-4,
+            None,
+        )
+        .await;
+        let run_id = response.run_id.expect("run recorded");
+
+        let recorded = state
+            .store
+            .get_run_training(run_id, &tenant)
+            .expect("get training")
+            .expect("run exists");
+        let json = recorded.training_json.expect("training persisted");
+        assert!(json.contains("\"model_name\":\"AirPredictor\""), "{json}");
+        assert!(json.contains("\"final_r2\":0.707"), "{json}");
 
         let _ = std::fs::remove_file(&script);
     }

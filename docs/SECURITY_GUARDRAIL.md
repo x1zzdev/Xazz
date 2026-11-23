@@ -429,6 +429,7 @@ request and only ever returns that tenant's data.
 | `GET` | `/runs/{id}` | One run by id, tenant-scoped (**404** when absent) |
 | `GET` | `/runs/{id}/resources` | Persisted resource telemetry; `{ available, resources }` or `{ available: false, reason }` |
 | `GET` | `/runs/{id}/prediction` | Persisted predict (embedding) diagnostics; `{ available, prediction }` or `{ available: false, reason }` |
+| `GET` | `/runs/{id}/training` | Persisted training report; `{ available, training }` or `{ available: false, reason }` |
 | `GET` | `/dp/budget` | Tenant ε/δ budget status: spent/remaining, in-flight reservations, effective window |
 | `POST` | `/dp/budget/reset` | Zero the tenant's accrued DP spend (audited; admins may delegate via `X-Xazz-Actor`) |
 | `GET` | `/dp/budget/history` | DP budget reset history (`?limit=` / `?offset=` / `?cursor=`) |
