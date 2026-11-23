@@ -94,3 +94,15 @@ docs/assets/demo/*.webm
 
 # 발표덱 PPTX 생성용 로컬 의존성 (python-pptx)
 .venv-pptx/
+
+# 대회 제출/양식 로컬 파일 (untracked — 제출용 사본·양식/가이드, 배포 불필요)
+*349_x1zz.*
+[[]기능테스트 가이드]*
+[[]양식]*
+/work.docx.bak
+
+# 발표 준비 로컬 노트 (untracked)
+/Xazz_pre/
+
+# Obsidian 작업 공간 설정
+docs/demo/.obsidian/
