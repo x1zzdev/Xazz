@@ -166,6 +166,13 @@ fn generate_rust_src(
         out.push_str("//   burn        = { version = \"0.21\", default-features = false, features = [\"std\", \"autodiff\"] }\n");
         out.push_str("//   burn-ndarray = { version = \"0.21\", default-features = false, features = [\"std\", \"burn-autodiff\"] }\n");
         out.push_str("//   serde_json   = \"1.0\"\n");
+        out.push_str("//\n");
+        out.push_str("// [runtime files]\n");
+        out.push_str("//   checkpoints/<Model>.json        — Burn checkpoint saved by train()\n");
+        out.push_str("//   checkpoints/<Model>.stats.json  — feature order + z-score stats; written by train(), read by predict()\n");
+        if program_has_predict(program) {
+            out.push_str("//   predict() needs both files present — run the training pipeline first (or copy checkpoints/ next to the binary).\n");
+        }
     }
     out.push_str("// ═══════════════════════════════════════════════════════════════\n\n");
 
@@ -886,6 +893,17 @@ fn program_has_dl(program: &Program) -> bool {
     program.stmts.iter().any(|s| match s {
         Stmt::ModelDecl { .. } | Stmt::TrainStmt { .. } => true,
         Stmt::VarDecl { ops, .. } => ops.iter().any(|op| matches!(op, PipelineOp::Train { .. })),
+        _ => false,
+    })
+}
+
+/// Returns whether the script runs `predict(...)`, whose emitted code reads the
+/// checkpoint + normalization stats sidecar that `train()` writes.
+fn program_has_predict(program: &Program) -> bool {
+    program.stmts.iter().any(|s| match s {
+        Stmt::VarDecl { ops, .. } => ops
+            .iter()
+            .any(|op| matches!(op, PipelineOp::Predict { .. })),
         _ => false,
     })
 }
@@ -2819,6 +2837,36 @@ mod tests {
         assert!(
             !out.contains("prediction column added (at xazz execution)"),
             "구 placeholder 주석이 남음: {out}"
+        );
+    }
+
+    /// The generated header must document the checkpoint + normalization sidecar
+    /// that `train()` writes and `predict()` reads, so a standalone build knows
+    /// the runtime files it needs (the README limitation mirrors this).
+    #[test]
+    fn emit_rust_header_documents_predict_runtime_files() {
+        let out = emit(
+            "type S = { a: float, y: float };
+             model M { Dense(4) -> Dense(1) }
+             v ds = load(\"x.csv\") :: S;
+             v m = ds |> train(M, target: \"y\", epochs: 3);
+             v p = ds |> predict(m, as: \"y_pred\");",
+        );
+        assert!(
+            out.contains("[runtime files]"),
+            "런타임 파일 안내 누락: {out}"
+        );
+        assert!(
+            out.contains("checkpoints/<Model>.json"),
+            "체크포인트 안내 누락: {out}"
+        );
+        assert!(
+            out.contains("checkpoints/<Model>.stats.json"),
+            "stats 사이드카 안내 누락: {out}"
+        );
+        assert!(
+            out.contains("predict() needs both files present"),
+            "predict 파일 요건 안내 누락: {out}"
         );
     }
 
