@@ -375,7 +375,7 @@ python benches/run_readme_benchmark.py --xlarge
 
 > **`--tenant` 주의.** 위 테넌트 범위 명령(`xazz registry`, `xazz policy-status`, `xazz policy-ttl`, `xazz dp`)은 `--tenant`를 받지만, 서버가 단일 토큰 모드(`XAZZ_SERVER_TOKEN`)로 실행되면 `X-Xazz-Tenant`를 무시하고 빈 테넌트에서 동작합니다 — 따라서 `--tenant`는 허용되지만 효과가 없습니다. 이 플래그는 전방 호환성을 위해 계속 허용됩니다; [docs/SERVER.md](docs/SERVER.md) 참고.
 
-> **`scale` 주의.** `scale("col", method: "zscore")`는 **표본**표준편차(ddof=1)로 표준화합니다 — `std()` 연산자 및 DL 학습 경로의 특성 표준화와 같은 규약입니다. scikit-learn의 `StandardScaler`는 모집단표준편차(ddof=0)를 쓰므로 spread가 `sqrt(n / (n − 1))` 배만큼 다릅니다. `minmax`·`robust`는 영향받지 않습니다.
+> **`scale` 주의.** `scale("col", method: "zscore")`는 **표본**표준편차(ddof=1)로 표준화합니다 — `std()` 연산자 및 DL 학습 경로의 특성 표준화와 같은 규약입니다. scikit-learn의 `StandardScaler`는 모집단표준편차(ddof=0)를 쓰므로 spread가 `sqrt(n / (n − 1))` 배만큼 다릅니다. `minmax`·`robust`는 영향받지 않습니다. 기본값은 컬럼을 in-place 교체하며, `as: "새컬럼"`을 주면 스케일 결과를 새 컬럼에 쓰고 원본을 유지합니다(예: `scale("pm10", method: "zscore", as: "pm10_z")`).
 
 > **`fillNull` 전략 주의.** `fillNull("col", strategy: ...)`는 `zero`와 리터럴 채우기 외에 `mean`, `median`, `mode`(최빈값), `ffill`(직전 비널 값 이월) 전략을 지원합니다.
 

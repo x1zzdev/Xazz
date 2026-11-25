@@ -168,13 +168,23 @@ pub fn print_op(op: &PipelineOp) -> String {
                 print_f64(*factor)
             )
         }
-        PipelineOp::Scale { col, method } => {
-            format!(
+        PipelineOp::Scale {
+            col,
+            method,
+            as_col,
+        } => match as_col {
+            Some(name) => format!(
+                "scale(\"{}\", method: \"{}\", as: \"{}\")",
+                escape(col),
+                method.as_str(),
+                escape(name)
+            ),
+            None => format!(
                 "scale(\"{}\", method: \"{}\")",
                 escape(col),
                 method.as_str()
-            )
-        }
+            ),
+        },
         PipelineOp::Agg(specs) => {
             let args: Vec<String> = specs
                 .iter()

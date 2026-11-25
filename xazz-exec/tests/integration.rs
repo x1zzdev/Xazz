@@ -520,7 +520,8 @@ fn scale_end_to_end() {
         &dir.join("data.csv"),
         "type P = { x: float };
          v z = load(\"data.csv\") :: P |> scale(\"x\", method: \"zscore\") |> save(\"z.parquet\");
-         v m = load(\"data.csv\") :: P |> scale(\"x\", method: \"minmax\") |> save(\"m.parquet\");",
+         v m = load(\"data.csv\") :: P |> scale(\"x\", method: \"minmax\") |> save(\"m.parquet\");
+         v a = load(\"data.csv\") :: P |> scale(\"x\", method: \"minmax\", as: \"x_scaled\") |> save(\"a.parquet\");",
     );
     let result = run_in_dir(&dir);
     assert!(result.is_ok(), "scale 실행 실패: {:?}", result);
@@ -549,6 +550,32 @@ fn scale_end_to_end() {
     assert!(
         (mv[0] - 0.0).abs() < 1e-9 && (mv[4] - 1.0).abs() < 1e-9,
         "minmax 는 [0, 1] 로 매핑: {mv:?}"
+    );
+
+    // `as:` keeps the original column and adds the rescaled one.
+    let a = read_parquet(&dir.join("a.parquet"));
+    let orig: Vec<f64> = a
+        .column("x")
+        .unwrap()
+        .f64()
+        .unwrap()
+        .into_no_null_iter()
+        .collect();
+    assert_eq!(
+        orig,
+        vec![1.0, 2.0, 3.0, 4.0, 5.0],
+        "원본 컬럼 유지: {orig:?}"
+    );
+    let scaled: Vec<f64> = a
+        .column("x_scaled")
+        .unwrap()
+        .f64()
+        .unwrap()
+        .into_no_null_iter()
+        .collect();
+    assert!(
+        (scaled[0] - 0.0).abs() < 1e-9 && (scaled[4] - 1.0).abs() < 1e-9,
+        "as: 컬럼은 [0, 1] 로 매핑: {scaled:?}"
     );
 }
 

@@ -750,10 +750,18 @@ fn generate_rust_src(
                         ));
                     }
                     // ── #165 scale — runtime-only column rescale (reference emit) ────
-                    PipelineOp::Scale { col: s_col, method } => {
+                    PipelineOp::Scale {
+                        col: s_col,
+                        method,
+                        as_col,
+                    } => {
+                        let target = match as_col {
+                            Some(name) => format!("column \"{}\" added", escape(name)),
+                            None => "column rescaled in place".to_string(),
+                        };
                         out.push_str(&format!(
-                            "        // |> scale(\"{}\", method: \"{}\")  →  column rescaled at xazz execution\n",
-                            escape(s_col), method.as_str()
+                            "        // |> scale(\"{}\", method: \"{}\")  →  {} at xazz execution\n",
+                            escape(s_col), method.as_str(), target
                         ));
                     }
                     // ── v0.23 agg([...]) — multi-aggregation in one pass ─────────────

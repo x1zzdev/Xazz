@@ -234,11 +234,13 @@ pub enum DataOp {
         col: String,
         factor: f64,
     },
-    /// Rescale a numeric column in place (issue #165). Center/spread are computed
-    /// over the whole frame; a degenerate (zero/non-finite) spread falls back to 1.
+    /// Rescale a numeric column (issue #165). Center/spread are computed over the
+    /// whole frame; a degenerate (zero/non-finite) spread falls back to 1. In place
+    /// unless `as_col` names a new column, which is added and the original kept.
     Scale {
         col: String,
         method: ScaleMethod,
+        as_col: Option<String>,
     },
     Sort {
         col: String,

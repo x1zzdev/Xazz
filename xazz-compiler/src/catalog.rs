@@ -105,7 +105,6 @@ fn apply_data_op(op: &DataOp, provenance: &mut Vec<(String, Vec<String>, usize)>
         Filter(_)
         | DropNull(_)
         | OutlierIqr { .. }
-        | Scale { .. }
         | Sort { .. }
         | Limit(_)
         | Sample { .. }
@@ -134,6 +133,17 @@ fn apply_data_op(op: &DataOp, provenance: &mut Vec<(String, Vec<String>, usize)>
                 provenance.remove(idx);
             }
             provenance.push((name.clone(), refs, step_idx));
+        }
+
+        // Scale — in place leaves provenance unchanged; `as:` adds a derived
+        // column whose lineage is the source column.
+        Scale { col, as_col, .. } => {
+            if let Some(name) = as_col {
+                if let Some(idx) = provenance.iter().position(|(c, _, _)| c == name) {
+                    provenance.remove(idx);
+                }
+                provenance.push((name.clone(), vec![col.clone()], step_idx));
+            }
         }
 
         // GroupBy — the group key column stays; other columns are dropped

@@ -387,7 +387,7 @@ python benches/run_readme_benchmark.py --xlarge
 
 > **Note on `--tenant`.** The tenant-scoped commands above (`xazz registry`, `xazz policy-status`, `xazz policy-ttl`, `xazz dp`) accept `--tenant`, but when the server runs in single-token mode (`XAZZ_SERVER_TOKEN`) it ignores `X-Xazz-Tenant` and operates on an empty tenant — so `--tenant` is accepted but has no effect. The flag stays accepted for forward compatibility; see [docs/SERVER.md](docs/SERVER.md).
 
-> **Note on `scale`.** `scale("col", method: "zscore")` standardizes with the **sample** standard deviation (ddof=1) — the same convention as the `std()` operator and the DL train-path feature standardization. scikit-learn's `StandardScaler` uses the population standard deviation (ddof=0), so the spread differs by `sqrt(n / (n − 1))`. `minmax` and `robust` are unaffected.
+> **Note on `scale`.** `scale("col", method: "zscore")` standardizes with the **sample** standard deviation (ddof=1) — the same convention as the `std()` operator and the DL train-path feature standardization. scikit-learn's `StandardScaler` uses the population standard deviation (ddof=0), so the spread differs by `sqrt(n / (n − 1))`. `minmax` and `robust` are unaffected. By default `scale` replaces the column in place; pass `as: "new_col"` to write the rescaled values to a new column and keep the original (e.g. `scale("pm10", method: "zscore", as: "pm10_z")`).
 
 > **Note on `fillNull` strategies.** `fillNull("col", strategy: ...)` fills nulls with `mean`, `median`, `mode` (the most frequent value) or `ffill` (the previous non-null value), alongside `zero` and literal fills.
 

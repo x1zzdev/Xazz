@@ -271,8 +271,14 @@ pub enum PipelineOp {
     Histogram { col: String, bins: usize },
     /// outlierIqr("col", factor: 1.5) — keep rows within [Q1 - f·IQR, Q3 + f·IQR] (issue #164)
     OutlierIqr { col: String, factor: f64 },
-    /// scale("col", method: "zscore") — rescale a numeric column in place (issue #165)
-    Scale { col: String, method: ScaleMethod },
+    /// scale("col", method: "zscore") — rescale a numeric column. In place by
+    /// default; `as: "new"` writes the result to a new column, keeping the
+    /// original (issue #165).
+    Scale {
+        col: String,
+        method: ScaleMethod,
+        as_col: Option<String>,
+    },
     /// agg([min("c"), mean("c"), max("c")]) — multiple aggregations in one pass (v0.23)
     Agg(Vec<AggSpec>),
     /// train(ModelName, target: "col", epochs: N, lr: F) — training operator (v0.5)

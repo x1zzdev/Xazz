@@ -1639,27 +1639,53 @@ impl Parser {
                 self.expect(&TokenKind::LParen)?;
                 let col_name = self.expect_string_lit()?;
                 let mut method = ScaleMethod::ZScore;
-                if matches!(self.current_kind(), TokenKind::Comma) {
-                    self.advance(); // consume ,
-                    self.expect(&TokenKind::Method)?;
+                let mut as_col: Option<String> = None;
+                while self.eat(&TokenKind::Comma) {
+                    let arg_name = match self.current_kind() {
+                        TokenKind::Method => "method".to_string(),
+                        TokenKind::Ident(name) => name.clone(),
+                        other => {
+                            return Err(CompileError::new(
+                                ErrorKind::UnexpectedToken(format!("{other:?}")),
+                                self.current_span(),
+                                "scale() 지원 인수: method, as".to_string(),
+                            ));
+                        }
+                    };
+                    self.advance();
                     self.expect(&TokenKind::Colon)?;
-                    let m = self.expect_string_lit()?.to_lowercase();
-                    method = ScaleMethod::parse(&m).ok_or_else(|| {
-                        CompileError::new(
-                            ErrorKind::ExpectedToken(
-                                "method: \"zscore\" | \"minmax\" | \"robust\"".into(),
-                            ),
-                            self.current_span(),
-                            format!(
-                                "scale() 의 method '{m}' 은 지원하지 않습니다. 지원: zscore, minmax, robust"
-                            ),
-                        )
-                    })?;
+                    match arg_name.as_str() {
+                        "method" => {
+                            let m = self.expect_string_lit()?.to_lowercase();
+                            method = ScaleMethod::parse(&m).ok_or_else(|| {
+                                CompileError::new(
+                                    ErrorKind::ExpectedToken(
+                                        "method: \"zscore\" | \"minmax\" | \"robust\"".into(),
+                                    ),
+                                    self.current_span(),
+                                    format!(
+                                        "scale() 의 method '{m}' 은 지원하지 않습니다. 지원: zscore, minmax, robust"
+                                    ),
+                                )
+                            })?;
+                        }
+                        "as" => {
+                            as_col = Some(self.expect_string_lit()?);
+                        }
+                        other => {
+                            return Err(CompileError::new(
+                                ErrorKind::UnexpectedToken(other.to_string()),
+                                self.current_span(),
+                                format!("scale() 지원 인수: method, as. 실제: '{other}'"),
+                            ));
+                        }
+                    }
                 }
                 self.expect(&TokenKind::RParen)?;
                 Ok(PipelineOp::Scale {
                     col: col_name,
                     method,
+                    as_col,
                 })
             }
 
@@ -2396,14 +2422,17 @@ mod tests {
                         PipelineOp::Scale {
                             col: "a".into(),
                             method: ScaleMethod::ZScore,
+                            as_col: None,
                         },
                         PipelineOp::Scale {
                             col: "b".into(),
                             method: ScaleMethod::MinMax,
+                            as_col: None,
                         },
                         PipelineOp::Scale {
                             col: "c".into(),
                             method: ScaleMethod::Robust,
+                            as_col: None,
                         },
                     ]
                 );
@@ -2419,6 +2448,39 @@ mod tests {
             parse_src(src).is_err(),
             "알 수 없는 method 는 거부되어야 함"
         );
+    }
+
+    #[test]
+    fn test_scale_as_argument_any_order() {
+        // `as:` writes to a new column; the named args may appear in either order.
+        let src = r#"v s = load("d.csv") :: T |> scale("a", as: "a_scaled") |> scale("b", method: "minmax", as: "b_scaled");"#;
+        let program = parse_src(src).expect("scale as: 파싱 실패");
+        match &program.stmts[0] {
+            Stmt::VarDecl { ops, .. } => {
+                assert_eq!(
+                    ops,
+                    &vec![
+                        PipelineOp::Scale {
+                            col: "a".into(),
+                            method: ScaleMethod::ZScore,
+                            as_col: Some("a_scaled".into()),
+                        },
+                        PipelineOp::Scale {
+                            col: "b".into(),
+                            method: ScaleMethod::MinMax,
+                            as_col: Some("b_scaled".into()),
+                        },
+                    ]
+                );
+            }
+            other => panic!("VarDecl 예상, 실제: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_scale_unknown_named_arg_rejected() {
+        let src = r#"v s = load("d.csv") :: T |> scale("a", foo: "bar");"#;
+        assert!(parse_src(src).is_err(), "알 수 없는 인수는 거부되어야 함");
     }
 
     // ── test 2: load :: filter parsing and AST BinOp validation ─────────────────────

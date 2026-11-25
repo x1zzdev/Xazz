@@ -248,7 +248,11 @@ pub fn lower_data(
                 }
             }
         }
-        DataOp::Scale { col: s_col, method } => {
+        DataOp::Scale {
+            col: s_col,
+            method,
+            as_col,
+        } => {
             // Center/spread are computed over the whole frame (materialized once),
             // then applied as literals. A degenerate spread (zero / non-finite)
             // falls back to 1.0 so a constant column maps to 0, matching the
@@ -284,9 +288,12 @@ pub fn lower_data(
             let spread = stat("s")
                 .filter(|v| v.is_finite() && *v != 0.0)
                 .unwrap_or(1.0);
+            // Without `as`, replace the source column in place; with `as`, add the
+            // rescaled values under a new name and keep the original untouched.
+            let out_col = as_col.as_deref().unwrap_or(s_col.as_str());
             *lf = lf
                 .clone()
-                .with_columns([((fc() - lit(center)) / lit(spread)).alias(s_col.as_str())]);
+                .with_columns([((fc() - lit(center)) / lit(spread)).alias(out_col)]);
         }
         DataOp::Sort {
             col: sort_col,
@@ -609,6 +616,7 @@ mod tests {
             &[DataOp::Scale {
                 col: "x".into(),
                 method: ScaleMethod::ZScore,
+                as_col: None,
             }],
         )
         .unwrap();
@@ -637,6 +645,7 @@ mod tests {
             &[DataOp::Scale {
                 col: "x".into(),
                 method: ScaleMethod::MinMax,
+                as_col: None,
             }],
         )
         .unwrap();
@@ -659,6 +668,7 @@ mod tests {
             &[DataOp::Scale {
                 col: "x".into(),
                 method: ScaleMethod::Robust,
+                as_col: None,
             }],
         )
         .unwrap();
@@ -686,6 +696,7 @@ mod tests {
             &[DataOp::Scale {
                 col: "x".into(),
                 method: ScaleMethod::ZScore,
+                as_col: None,
             }],
         )
         .unwrap();
@@ -700,6 +711,40 @@ mod tests {
             vals.iter().all(|v| v.abs() < 1e-12),
             "상수 컬럼은 0 으로 스케일: {vals:?}"
         );
+    }
+
+    #[test]
+    fn scale_as_adds_new_column_and_keeps_original() {
+        let frame = df!("x" => [10.0f64, 20.0, 30.0]).unwrap();
+        let out = collect_pipeline(
+            frame,
+            &[DataOp::Scale {
+                col: "x".into(),
+                method: ScaleMethod::MinMax,
+                as_col: Some("x_scaled".into()),
+            }],
+        )
+        .unwrap();
+        let original: Vec<f64> = out
+            .column("x")
+            .unwrap()
+            .f64()
+            .unwrap()
+            .into_no_null_iter()
+            .collect();
+        assert_eq!(
+            original,
+            vec![10.0, 20.0, 30.0],
+            "원본 컬럼은 유지되어야 함"
+        );
+        let scaled: Vec<f64> = out
+            .column("x_scaled")
+            .unwrap()
+            .f64()
+            .unwrap()
+            .into_no_null_iter()
+            .collect();
+        assert_eq!(scaled, vec![0.0, 0.5, 1.0]);
     }
 
     // ── Equivalence check of pre/post-optimization results (proves the IR optimization layer's correctness) ──

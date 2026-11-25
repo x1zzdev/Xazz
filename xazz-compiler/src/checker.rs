@@ -858,7 +858,11 @@ impl Analyzer {
             PipelineOp::Corr { a, b } => self.check_corr_op(a, b, st),
             PipelineOp::Histogram { col, bins } => self.check_histogram_op(col, *bins, st),
             PipelineOp::OutlierIqr { col, factor } => self.check_outlier_iqr_op(col, *factor, st),
-            PipelineOp::Scale { col, method } => self.check_scale_op(col, *method, st),
+            PipelineOp::Scale {
+                col,
+                method,
+                as_col,
+            } => self.check_scale_op(col, *method, as_col.as_deref(), st),
             PipelineOp::Agg(specs) => self.check_agg_list_op(specs, st),
             PipelineOp::Count(None) => self.check_count_all_op(st),
             PipelineOp::OrderBy { col, desc } => self.check_orderby_op(col, *desc, st),
@@ -1155,18 +1159,26 @@ impl Analyzer {
         false
     }
 
-    /// `scale("col", method: ...)` rescales the column in place; the column set is
-    /// unchanged. It is a row-wise transform, so `pending_group` is left untouched.
+    /// `scale("col", method: ...)` rescales the column. Without `as` the column is
+    /// replaced in place (column set unchanged); with `as: "new"` a new float column
+    /// is added and the original is kept. It is a row-wise transform, so
+    /// `pending_group` is left untouched.
     fn check_scale_op(
         &mut self,
         col: &str,
         method: ScaleMethod,
+        as_col: Option<&str>,
         st: &mut PipelineCheckState,
     ) -> bool {
         self.check_agg_column(col, &st.cols);
+        if let Some(name) = as_col {
+            st.cols
+                .insert(name.to_owned(), ir_col_type_to_checker(&ir::ColType::Float));
+        }
         st.steps.push(ir::Step::Data(ir::DataOp::Scale {
             col: col.to_owned(),
             method,
+            as_col: as_col.map(str::to_owned),
         }));
         false
     }
@@ -1983,6 +1995,20 @@ mod tests {
              v s = load(\"x.csv\") :: X |> scale(\"missing\") |> save(\"s.csv\");",
         );
         assert!(r.is_err(), "없는 컬럼 scale 은 오류여야 함");
+    }
+
+    #[test]
+    fn scale_as_adds_referenceable_column() {
+        // `as:` keeps the original column and exposes the new float column
+        // to downstream operators.
+        let r = check(
+            "type X = { a: float };
+             v s = load(\"x.csv\") :: X
+               |> scale(\"a\", as: \"a_scaled\")
+               |> select([a, a_scaled])
+               |> save(\"s.csv\");",
+        );
+        assert!(r.is_ok(), "scale as: 오류: {:?}", r.errors);
     }
 
     #[test]
