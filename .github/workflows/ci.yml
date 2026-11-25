@@ -60,6 +60,29 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
+      # ── CLI 실행 스모크 (#167) — 실기 OS 에서 new → import → run 을 확인한다 ──────
+      # 게시 아카이브가 아니라 cargo test 가 방금 만든 debug 바이너리를 쓴다.
+      # xazz·xazz-runner·xazz-exec 가 같은 디렉터리에 있으므로 러너를 PATH 없이 찾는다.
+      - name: CLI smoke (new → import → run)
+        shell: bash
+        env:
+          XAZZ_BACKEND: cpu
+        run: |
+          set -euo pipefail
+          bin="$PWD/target/debug/xazz"
+          if [ "${RUNNER_OS}" = "Windows" ]; then bin="${bin}.exe"; fi
+          work="$(mktemp -d)"
+          cd "${work}"
+          "${bin}" new my-project
+          cd my-project
+          "${bin}" import data/sample.csv
+          "${bin}" check main.xzz --json > check.json
+          "${bin}" run main.xzz --json > run.json
+          grep -q '"success": true' run.json
+          rows="$(grep -c '"station":' run.json)"
+          if [ "${rows}" -ne 10 ]; then cat run.json; echo "expected 10 rows, got ${rows}"; exit 1; fi
+          echo "CLI smoke OK: new/import/check/run → ${rows} rows"
+
       - name: Setup Python for result verification
         uses: actions/setup-python@v7
         with:

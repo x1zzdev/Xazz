@@ -16,6 +16,14 @@ Versioning: [Semantic Versioning](https://semver.org/)
   잡(ubuntu)은 contract/stdout/contrast/E2E 를 그대로 유지한다. #167 의 "macOS/Windows
   visual-ide E2E 실기 기록"을 실기 호스트 없이 CI 러너로 남기기 위함이다
 
+### Added — CLI `new → import → run` 스모크를 Windows/macOS CI 러너에서도 실행 (issue #167)
+
+- `.github/workflows/ci.yml`의 `test` 잡에 CLI 스모크 스텝을 추가해 `ubuntu`·`windows`·
+  `macos` 러너에서 `xazz new → import data/sample.csv → check → run --json` 을 실행하고
+  10개 행을 확인한다. `cargo test` 가 만든 debug 바이너리(xazz·xazz-runner·xazz-exec)를
+  재사용한다. #167 의 "Windows/macOS 클린 머신 CLI 실행" 을 실기 호스트 없이 CI 러너로
+  남기기 위함이다
+
 ### Added — training 리포트의 run 이력 영속화 `GET /runs/{id}/training` (issue D3)
 
 - `POST /execute` 응답에만 노출되던 `[xazz:train]` 리포트를 `runs` 테이블
