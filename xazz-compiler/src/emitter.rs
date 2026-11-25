@@ -24,8 +24,8 @@ use std::collections::HashMap;
 use std::fs;
 
 use crate::ast::{
-    EmbeddingVocab, Expr, LayerKind, LoadOptions, PipelineOp, PipelineSource, Program, Stmt,
-    TrainConfig,
+    EmbeddingVocab, Expr, LayerKind, LoadOptions, PipelineOp, PipelineSource, Program, ScaleMethod,
+    Stmt, TrainConfig,
 };
 use crate::policy::printer::escape;
 use crate::{Codegen, Lexer, Parser, StructField};
@@ -749,20 +749,85 @@ fn generate_rust_src(
                             escape(o_col), factor
                         ));
                     }
-                    // ── #165 scale — runtime-only column rescale (reference emit) ────
+                    // ── #165 scale — center/spread are computed over the frame and
+                    //    applied as literals, mirroring xazz-exec lower.rs so the
+                    //    emitted reference code matches `xazz run` (including the
+                    //    degenerate-spread fallback that maps a constant column to 0).
                     PipelineOp::Scale {
                         col: s_col,
                         method,
                         as_col,
                     } => {
-                        let target = match as_col {
-                            Some(name) => format!("column \"{}\" added", escape(name)),
-                            None => "column rescaled in place".to_string(),
+                        // Terminate the pending lazy chain (without collecting) so
+                        // the frame can be scanned for center/spread, like the
+                        // runtime does. `predict` may have left a materialized
+                        // DataFrame behind, hence the `was_lazy` branch.
+                        let was_lazy = chain_open;
+                        if was_lazy {
+                            // Terminate the chain. Attach the `;` to the last
+                            // method line, but keep it on its own line when a
+                            // comment-only op (e.g. histogram) is last so it is
+                            // not swallowed by the comment.
+                            let last_is_method = out
+                                .rsplit('\n')
+                                .find(|l| !l.trim().is_empty())
+                                .is_some_and(|l| l.trim_start().starts_with('.'));
+                            if last_is_method {
+                                out.pop();
+                            }
+                            out.push_str(";\n");
+                        }
+                        let frame = if was_lazy {
+                            format!("{var_name}.clone()")
+                        } else {
+                            format!("{var_name}.clone().lazy()")
+                        };
+                        let target = as_col.as_deref().unwrap_or(s_col.as_str());
+                        let fc = format!("col(\"{}\").cast(DataType::Float64)", escape(s_col));
+                        let (center_expr, spread_expr) = match method {
+                            ScaleMethod::ZScore => (format!("{fc}.mean()"), format!("{fc}.std(1)")),
+                            ScaleMethod::MinMax => {
+                                (format!("{fc}.min()"), format!("({fc}.max() - {fc}.min())"))
+                            }
+                            ScaleMethod::Robust => (
+                                format!("{fc}.median()"),
+                                format!(
+                                    "({fc}.quantile(lit(0.75), QuantileMethod::Linear) - {fc}.quantile(lit(0.25), QuantileMethod::Linear))"
+                                ),
+                            ),
+                        };
+                        let as_arg = match as_col {
+                            Some(name) => format!(", as: \"{}\"", escape(name)),
+                            None => String::new(),
                         };
                         out.push_str(&format!(
-                            "        // |> scale(\"{}\", method: \"{}\")  →  {} at xazz execution\n",
-                            escape(s_col), method.as_str(), target
+                            "    // ── scale: {var} |> scale(\"{col}\", method: \"{method}\"{as_arg}) ──\n",
+                            var = var_name,
+                            col = escape(s_col),
+                            method = method.as_str(),
                         ));
+                        out.push_str(&format!(
+                            "    let __xz_stats = {frame}\n        .select([{center}.alias(\"c\"), {spread}.alias(\"s\")])\n        .collect()?;\n",
+                            center = center_expr,
+                            spread = spread_expr,
+                        ));
+                        out.push_str("    let __xz_stat = |name: &str| -> Option<f64> {\n        __xz_stats.column(name).ok().and_then(|c| c.f64().ok()).and_then(|c| c.get(0))\n    };\n");
+                        out.push_str("    let __xz_center = __xz_stat(\"c\").filter(|v| v.is_finite()).unwrap_or(0.0);\n");
+                        out.push_str("    let __xz_spread = __xz_stat(\"s\").filter(|v| v.is_finite() && *v != 0.0).unwrap_or(1.0);\n");
+                        // Rebind as a lazy frame and keep the chain open so the
+                        // following operators append to `.with_columns([...])`.
+                        let base = if was_lazy {
+                            var_name.to_string()
+                        } else {
+                            format!("{var_name}.clone().lazy()")
+                        };
+                        out.push_str(&format!(
+                            "    let {var} = {base}\n        .with_columns([((col(\"{src}\").cast(DataType::Float64) - lit(__xz_center)) / lit(__xz_spread)).alias(\"{target}\")])\n",
+                            var = var_name,
+                            src = escape(s_col),
+                            target = escape(target),
+                        ));
+                        chain_open = true;
                     }
                     // ── v0.23 agg([...]) — multi-aggregation in one pass ─────────────
                     PipelineOp::Agg(specs) => {
@@ -2828,6 +2893,77 @@ mod tests {
         assert!(
             out.contains(".select([col(\"val\").mean().alias(\"val_mean\")])"),
             "ungrouped agg 누락: {out}"
+        );
+    }
+
+    /// #165 scale emits a real `(x - center) / spread` with_columns block that
+    /// mirrors the runtime (including the degenerate-spread fallback), instead of
+    /// the old runtime-only comment.
+    #[test]
+    fn emit_rust_scale_applies_center_spread() {
+        let out = emit(
+            "type S = { a: float };
+             v p = load(\"x.csv\") :: S |> scale(\"a\", method: \"zscore\");",
+        );
+        assert!(
+            !out.contains("column rescaled in place"),
+            "scale 이 아직 주석으로만 방출됨: {out}"
+        );
+        assert!(
+            out.contains("col(\"a\").cast(DataType::Float64).mean().alias(\"c\")"),
+            "zscore center 식 누락: {out}"
+        );
+        assert!(
+            out.contains("col(\"a\").cast(DataType::Float64).std(1).alias(\"s\")"),
+            "zscore spread 식 누락: {out}"
+        );
+        assert!(
+            out.contains(".filter(|v| v.is_finite() && *v != 0.0).unwrap_or(1.0)"),
+            "degenerate spread 폴백 누락: {out}"
+        );
+        assert!(
+            out.contains(
+                "((col(\"a\").cast(DataType::Float64) - lit(__xz_center)) / lit(__xz_spread)).alias(\"a\")"
+            ),
+            "scale 적용 식 누락: {out}"
+        );
+    }
+
+    /// scale `as:` adds a new column and keeps the original; minmax/robust emit
+    /// their own center/spread expressions.
+    #[test]
+    fn emit_rust_scale_as_and_methods() {
+        let out = emit(
+            "type S = { a: float, b: float };
+             v p = load(\"x.csv\") :: S
+               |> scale(\"a\", method: \"minmax\", as: \"a_scaled\")
+               |> scale(\"b\", method: \"robust\");",
+        );
+        assert!(
+            out.contains(".alias(\"a_scaled\")"),
+            "scale as: 새 컬럼 별칭 누락: {out}"
+        );
+        assert!(
+            out.contains("col(\"a\").cast(DataType::Float64).min().alias(\"c\")"),
+            "minmax center 식 누락: {out}"
+        );
+        assert!(
+            out.contains(
+                "(col(\"a\").cast(DataType::Float64).max() - col(\"a\").cast(DataType::Float64).min()).alias(\"s\")"
+            ),
+            "minmax spread 식 누락: {out}"
+        );
+        assert!(
+            out.contains("col(\"b\").cast(DataType::Float64).median().alias(\"c\")"),
+            "robust center 식 누락: {out}"
+        );
+        assert!(
+            out.contains("QuantileMethod::Linear"),
+            "robust IQR 식 누락: {out}"
+        );
+        assert!(
+            out.contains(".alias(\"b\")"),
+            "robust in-place 별칭 누락: {out}"
         );
     }
 
